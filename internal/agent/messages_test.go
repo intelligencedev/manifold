@@ -89,3 +89,48 @@ func TestBuildInitialLLMMessagesHistoryAnnotation(t *testing.T) {
 		t.Fatalf("current request should be annotated: %s", msgs[5].Content)
 	}
 }
+
+func TestBuildInitialLLMMessagesMovesHistorySystemContextToCurrentUser(t *testing.T) {
+	hist := []llm.Message{
+		{Role: "system", Content: "Conversation summary (for context only):\nolder summary"},
+		{Role: "user", Content: "previous question"},
+		{Role: "assistant", Content: "previous answer"},
+	}
+	msgs := BuildInitialLLMMessages("stable system", "current task", hist)
+
+	if len(msgs) != 4 {
+		t.Fatalf("expected 4 messages after moving synthetic system context, got %d: %#v", len(msgs), msgs)
+	}
+	if msgs[0].Role != "system" || msgs[0].Content != "stable system" {
+		t.Fatalf("expected stable system message unchanged, got %#v", msgs[0])
+	}
+	for _, msg := range msgs[1:] {
+		if msg.Role == "system" {
+			t.Fatalf("did not expect synthetic history system message to remain in history: %#v", msgs)
+		}
+	}
+	current := msgs[len(msgs)-1]
+	if current.Role != "user" {
+		t.Fatalf("expected current user message, got %#v", current)
+	}
+	if !strings.HasPrefix(current.Content, "Conversation summary (for context only):") {
+		t.Fatalf("expected summary context at top of current user prompt, got %q", current.Content)
+	}
+	if !strings.Contains(current.Content, "[CURRENT REQUEST]") || !strings.Contains(current.Content, "current task") {
+		t.Fatalf("expected current request after moved context, got %q", current.Content)
+	}
+}
+
+func TestPrependToCurrentUserMessage(t *testing.T) {
+	msgs := []llm.Message{{Role: "system", Content: "stable"}, {Role: "user", Content: "do work"}}
+	msgs = PrependToCurrentUserMessage(msgs, "runtime context")
+	if len(msgs) != 2 {
+		t.Fatalf("expected message count unchanged, got %d", len(msgs))
+	}
+	if msgs[0].Content != "stable" {
+		t.Fatalf("system message changed: %#v", msgs[0])
+	}
+	if msgs[1].Content != "runtime context\n\ndo work" {
+		t.Fatalf("unexpected user prompt: %q", msgs[1].Content)
+	}
+}

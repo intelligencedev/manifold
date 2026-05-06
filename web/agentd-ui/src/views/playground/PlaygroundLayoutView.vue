@@ -2,7 +2,7 @@
   <!-- Make this view a proper column flex layout so inner routes can consume remaining height -->
   <section class="flex h-full min-h-0 flex-col">
     <header
-      class="ap-hairline-b mb-6 flex flex-col gap-4 pb-3 md:flex-row md:items-center md:justify-between"
+      class="ap-hairline-b mb-6 flex items-center justify-between gap-4 pb-3"
     >
       <div>
         <h1 class="text-2xl font-semibold text-foreground">Playground</h1>
@@ -24,7 +24,7 @@
     </header>
 
     <!-- Constrain child views height and prevent page scroll bleed -->
-    <div class="flex-1 min-h-0 overflow-hidden px-1 pb-1 md:px-1.5 md:pb-1.5">
+    <div class="min-h-0 flex-1 overflow-hidden px-1.5 pb-1.5">
       <RouterView />
     </div>
   </section>

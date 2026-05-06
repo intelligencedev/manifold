@@ -24,6 +24,7 @@ workflowTimeoutSeconds: 0
 logPath: manifold.log
 logLevel: info
 logPayloads: false
+logRawPrompts: false
 
 # Tool execution policy.
 enableTools: true
@@ -53,13 +54,27 @@ exec:
     - mount
     - umount
 
-# Chat summarization.
-summaryEnabled: true
-summaryContextWindowTokens: 32000
-summaryReserveBufferTokens: 25000
-summaryMinKeepLastMessages: 4
-summaryMaxKeepLastMessages: 12
-summaryMaxSummaryChunkTokens: 4096
+# Chat summarization. This LLM is independent from the primary runtime LLM so
+# plain text summaries remain portable when switching providers.
+summary:
+  enabled: true
+  contextWindowTokens: 32000
+  # Optional global plain-text summary trigger budget. Set to 0 to fall back
+  # to the configured summary model's context size.
+  plainTextContextWindowTokens: 0
+  reserveBufferTokens: 25000
+  minKeepLastMessages: 4
+  maxKeepLastMessages: 12
+  maxSummaryChunkTokens: 4096
+  llm_client:
+    provider: openai
+    openai:
+      apiKey: "${OPENAI_API_KEY}"
+      baseURL: https://api.openai.com/v1
+      model: gpt-5-nano
+      api: completions
+      extraHeaders: {}
+      extraParams: {}
 
 # Primary LLM provider configuration.
 llm_client:
@@ -69,8 +84,6 @@ llm_client:
     apiKey: "${OPENAI_API_KEY}"
     baseURL: https://api.openai.com/v1
     model: gpt-5-mini
-    summaryBaseURL: https://api.openai.com/v1
-    summaryModel: gpt-5-nano
     # completions | responses
     api: completions
     extraHeaders: {}
@@ -101,10 +114,25 @@ obs:
   serviceName: manifold
   serviceVersion: 0.0.1
   environment: local
+  # Optional OTLP export endpoint. Leave empty when running without an
+  # OpenTelemetry Collector; the dashboard will still use local process
+  # telemetry when obs.local.enabled is true.
   # Use bare host:port here. The current OTLP HTTP exporter code appends
   # the default /v1/{traces,metrics,logs} paths for collector endpoints.
-  otlp: localhost:4318
+  otlp: ""
+  # Local process telemetry is enabled by default and backs the dashboard when
+  # ClickHouse is not configured or unavailable. It is bounded and resets when
+  # agentd restarts.
+  local:
+    enabled: true
+    metricsWindowMinutes: 60
+    metricsBucketSeconds: 30
+    maxLogs: 5000
+    maxTraces: 1000
+    maxSpansPerTrace: 256
   clickhouse:
+    # Optional persistent telemetry backend. Keep CLICKHOUSE_DSN empty for a
+    # self-contained install that does not run ClickHouse.
     dsn: "${CLICKHOUSE_DSN}"
     database: otel
     metricsTable: metrics_sum
@@ -158,6 +186,19 @@ auth:
 
 # Database backends.
 databases:
+  # Docker Compose users can keep embedded=false and use pg-manifold through
+  # DATABASE_URL. Host-run users can set embedded=true and leave DATABASE_URL
+  # empty; agentd will start a bundled local PostgreSQL and wire its DSN into
+  # all database-backed stores at startup.
+  embedded: false
+  embeddedPort: 5433
+  embeddedDataDir: "" # defaults to ~/.manifold/embedded-postgres/data
+  embeddedVersion: "18"
+  embeddedExtensions: # extensions installed into embedded PG (default: pgvector, postgis, pgrouting)
+    - pgvector
+    - postgis
+    - pgrouting
+  embeddedExtensionURL: "" # override for pre-built extension package base URL
   defaultDSN: "${DATABASE_URL}"
   chat:
     backend: postgres # memory | auto | postgres
@@ -186,35 +227,42 @@ embedding:
   path: /v1/embeddings
   timeoutSeconds: 30
 
+# Optional defaults for the describe_image tool. Leave blank to use the
+# invoking agent/specialist endpoint and model; per-tool-call base_url/model
+# arguments still override these values.
+imageTool:
+  baseURL: ""
+  model: ""
+
 # Search -> Synthesis -> Evolve memory.
 evolvingMemory:
   enabled: false
-  provider: openai
   persistDebounceMs: 250
-  sessionTTLMinutes: 60
+  sessionTTLMinutes: 120
   janitorIntervalMinutes: 15
+  storeJanitorIntervalMinutes: 60
   llmClient:
     provider: local
     openai:
       apiKey: ""
       baseURL: http://localhost:11434/v1
       model: qwen-memory
-      summaryBaseURL: http://localhost:11434/v1
-      summaryModel: qwen-memory
       api: completions
       extraHeaders: {}
       extraParams: {}
-  maxSize: 1000
+  maxSize: 2000
   topK: 4
   windowSize: 20
   enableRAG: true
   reMemEnabled: false
-  maxInnerSteps: 5
+  maxInnerSteps: 3
   model: gpt-4o-mini
-  enableSmartPrune: false
-  pruneThreshold: 0.95
+  enableSmartPrune: true
+  pruneThreshold: 0.97
   relevanceDecay: 0.99
-  minRelevance: 0.1
+  minRelevance: 0.05
+  pruneQualityFloor: 3
+  promotionAccessThreshold: 5
 
 # Shared durable memory.
 transit:
@@ -223,6 +271,25 @@ transit:
   defaultListLimit: 100
   maxBatchSize: 100
   enableVectorSearch: true
+
+# Shared belief memory foundations. Phase 0 keeps all runtime behavior disabled
+# while the store, schema, and interfaces are available for incremental rollout.
+beliefMemory:
+  enabled: false
+  enableDistillation: false
+  enableRetrieval: false
+  enableConstraintEnforcement: false
+  maxBeliefsPerPrompt: 5
+  maxEvidencePerBelief: 3
+  defaultConfidence: 0.5
+  promotionThreshold: 0.8
+  # Optional: blend RAG document retrieval into the belief prompt block as a
+  # delimited "Retrieved Evidence (untrusted)" sub-section. Disabled by default;
+  # requires the RAG service to be configured (see embedding/RAG settings).
+  enableRAGEvidence: false
+  maxRAGEvidencePerPrompt: 3
+  ragRetrievalK: 8
+  ragMinScore: 0.0
 
 # Speech helpers.
 tts:

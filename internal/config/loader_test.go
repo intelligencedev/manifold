@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -57,6 +58,7 @@ autoDiscover: true
 maxDiscoveredTools: 7
 summaryEnabled: true
 summaryContextWindowTokens: 32000
+summaryPlainTextContextWindowTokens: 8192
 summaryReserveBufferTokens: 25000
 summaryMinKeepLastMessages: 4
 summaryMaxKeepLastMessages: 12
@@ -151,6 +153,9 @@ embedding:
     X-Embed-Trace: abc123
   path: /v1/embeddings
   timeoutSeconds: 30
+imageTool:
+  baseURL: http://localhost:11434/v1
+  model: llava:latest
 evolvingMemory:
   enabled: true
   provider: openai
@@ -177,6 +182,15 @@ transit:
   defaultListLimit: 100
   maxBatchSize: 100
   enableVectorSearch: true
+beliefMemory:
+  enabled: true
+  enableDistillation: true
+  enableRetrieval: true
+  enableConstraintEnforcement: false
+  maxBeliefsPerPrompt: 6
+  maxEvidencePerBelief: 4
+  defaultConfidence: 0.55
+  promotionThreshold: 0.82
 tts:
   baseURL: https://api.openai.com/v1
   model: gpt-4o-mini-tts
@@ -211,6 +225,9 @@ tokenization:
 	if cfg.LLMClient.OpenAI.API != "responses" {
 		t.Fatalf("unexpected openai api: %q", cfg.LLMClient.OpenAI.API)
 	}
+	if cfg.Summary.PlainTextContextWindowTokens != 8192 || cfg.SummaryPlainTextContextWindowTokens != 8192 {
+		t.Fatalf("unexpected plain text summary context config: nested=%d top=%d", cfg.Summary.PlainTextContextWindowTokens, cfg.SummaryPlainTextContextWindowTokens)
+	}
 	if cfg.Auth.ClientSecret != "test-auth-secret" {
 		t.Fatalf("expected expanded auth client secret, got %q", cfg.Auth.ClientSecret)
 	}
@@ -220,6 +237,9 @@ tokenization:
 	if cfg.Embedding.Headers["X-Embed-Trace"] != "abc123" {
 		t.Fatalf("unexpected embedding headers: %+v", cfg.Embedding.Headers)
 	}
+	if cfg.ImageTool.BaseURL != "http://localhost:11434/v1" || cfg.ImageTool.Model != "llava:latest" {
+		t.Fatalf("unexpected image tool config: %+v", cfg.ImageTool)
+	}
 	if cfg.EvolvingMemory.LLMClient.Provider != "local" {
 		t.Fatalf("unexpected evolving memory provider: %q", cfg.EvolvingMemory.LLMClient.Provider)
 	}
@@ -228,6 +248,15 @@ tokenization:
 	}
 	if !cfg.AutoDiscover || cfg.MaxDiscoveredTools != 7 {
 		t.Fatalf("unexpected discovery config: enabled=%v max=%d", cfg.AutoDiscover, cfg.MaxDiscoveredTools)
+	}
+	if !cfg.BeliefMemory.Enabled || !cfg.BeliefMemory.EnableDistillation || !cfg.BeliefMemory.EnableRetrieval {
+		t.Fatalf("unexpected belief memory toggles: %+v", cfg.BeliefMemory)
+	}
+	if cfg.BeliefMemory.MaxBeliefsPerPrompt != 6 || cfg.BeliefMemory.MaxEvidencePerBelief != 4 {
+		t.Fatalf("unexpected belief memory limits: %+v", cfg.BeliefMemory)
+	}
+	if cfg.BeliefMemory.DefaultConfidence != 0.55 || cfg.BeliefMemory.PromotionThreshold != 0.82 {
+		t.Fatalf("unexpected belief memory thresholds: %+v", cfg.BeliefMemory)
 	}
 	if cfg.Tokenization.FallbackToHeuristic {
 		t.Fatalf("expected fallbackToHeuristic false")
@@ -367,6 +396,22 @@ llm_client:
 	}
 	if cfg.Databases.Search.Backend != "memory" {
 		t.Fatalf("expected default search backend memory, got %q", cfg.Databases.Search.Backend)
+	}
+	if cfg.CodeQA.ArtifactDir != "codeqa-artifacts" {
+		t.Fatalf("expected default codeqa artifact dir, got %q", cfg.CodeQA.ArtifactDir)
+	}
+	if cfg.CodeQA.DefaultMaxDiffBytes != 128*1024 {
+		t.Fatalf("expected default codeqa max diff bytes, got %d", cfg.CodeQA.DefaultMaxDiffBytes)
+	}
+	if cfg.CodeQA.AcceptThreshold != 0.10 {
+		t.Fatalf("expected default codeqa accept threshold, got %v", cfg.CodeQA.AcceptThreshold)
+	}
+	if cfg.CodeQA.MinConfidence != 0.70 {
+		t.Fatalf("expected default codeqa min confidence, got %v", cfg.CodeQA.MinConfidence)
+	}
+	defaultCodeQACommands := []string{"go", "gofmt", "ruff", "pytest", "python", "prettier", "eslint", "tsc", "npm", "npx", "stylelint", "html-validate", "cargo", "rustfmt"}
+	if !reflect.DeepEqual(cfg.CodeQA.AllowedCommands, defaultCodeQACommands) {
+		t.Fatalf("unexpected default codeqa allowed commands: %v", cfg.CodeQA.AllowedCommands)
 	}
 	if !cfg.Tokenization.FallbackToHeuristic {
 		t.Fatalf("expected default tokenization fallback true")

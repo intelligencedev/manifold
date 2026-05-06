@@ -54,6 +54,14 @@ type debugMemoryEvolvingResponse struct {
 	Retrieved    []memory.ScoredMemoryEntry `json:"retrieved,omitempty"`
 }
 
+type debugMemoryExplainResponse struct {
+	Enabled      bool                            `json:"enabled"`
+	Query        string                          `json:"query,omitempty"`
+	UserID       int64                           `json:"userID,omitempty"`
+	SessionID    string                          `json:"sessionID,omitempty"`
+	Explanations []memory.MemoryScoreExplanation `json:"explanations,omitempty"`
+}
+
 // debugMemoryHandler serves read-only observability for chat and evolving memory.
 // All endpoints are nested under /debug/memory and require authentication when
 // auth is enabled.
@@ -100,6 +108,7 @@ func (a *app) debugMemoryHandler() http.HandlerFunc {
 				"entries":  "/debug/memory/entries",
 				"plan":     "/debug/memory/plan",
 				"evolving": "/debug/memory/evolving",
+				"explain":  "/debug/memory/explain",
 			})
 			return
 		}
@@ -120,6 +129,9 @@ func (a *app) debugMemoryHandler() http.HandlerFunc {
 		case path == "evolving":
 			// Evolving memory / ReMem introspection
 			a.handleDebugMemoryEvolving(w, r)
+		case path == "explain":
+			// Evolving memory score breakdown for a query
+			a.handleDebugMemoryExplain(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -209,7 +221,7 @@ func (a *app) handleDebugMemorySessionDetail(w http.ResponseWriter, r *http.Requ
 	if userID != nil {
 		owner = *userID
 	}
-	targetSupportsCompaction, statusCode, err := a.debugMemoryTargetSupportsCompaction(r.Context(), owner, sessionID, resolveChatDispatchTarget(r.URL.Query()))
+	targetProvider, targetModel, targetContextWindowTokens, statusCode, err := a.debugMemoryTargetProvider(r.Context(), owner, sessionID, resolveChatDispatchTarget(r.URL.Query()))
 	if err != nil {
 		if statusCode == 0 {
 			statusCode = http.StatusInternalServerError
@@ -223,7 +235,8 @@ func (a *app) handleDebugMemorySessionDetail(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	ctxMsgs, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, targetSupportsCompaction)
+	policy := memory.SummaryPolicy{TargetContextWindowTokens: targetContextWindowTokens, PlainTextContextWindowTokens: a.cfg.Summary.PlainTextContextWindowTokens}
+	ctxMsgs, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, targetProvider, targetModel, policy)
 	if err != nil {
 		log.Error().Err(err).Str("session", sessionID).Msg("debug_memory_build_context")
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -231,11 +244,11 @@ func (a *app) handleDebugMemorySessionDetail(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Derive a lightweight plan for this session using token-aware heuristics.
-	plan := a.deriveMemoryPlan(sess, ctxMsgs)
+	plan := a.deriveMemoryPlan(sess, ctxMsgs, policy)
 
 	resp := debugMemorySessionResponse{
 		Session:         sess,
-		Summary:         sess.Summary,
+		Summary:         memory.PlainTextSummary(sess.Summary),
 		SummarizedCount: sess.SummarizedCount,
 		Messages:        ctxMsgs,
 		Plan:            plan,
@@ -307,7 +320,7 @@ func (a *app) handleDebugMemoryPlan(w http.ResponseWriter, r *http.Request) {
 	if userID != nil {
 		owner = *userID
 	}
-	targetSupportsCompaction, statusCode, err := a.debugMemoryTargetSupportsCompaction(r.Context(), owner, sessionID, resolveChatDispatchTarget(q))
+	targetProvider, targetModel, targetContextWindowTokens, statusCode, err := a.debugMemoryTargetProvider(r.Context(), owner, sessionID, resolveChatDispatchTarget(q))
 	if err != nil {
 		if statusCode == 0 {
 			statusCode = http.StatusInternalServerError
@@ -321,29 +334,30 @@ func (a *app) handleDebugMemoryPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctxMsgs, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, targetSupportsCompaction)
+	policy := memory.SummaryPolicy{TargetContextWindowTokens: targetContextWindowTokens, PlainTextContextWindowTokens: a.cfg.Summary.PlainTextContextWindowTokens}
+	ctxMsgs, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, targetProvider, targetModel, policy)
 	if err != nil {
 		log.Error().Err(err).Str("session", sessionID).Msg("debug_memory_build_context")
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
-	plan := a.deriveMemoryPlan(sess, ctxMsgs)
+	plan := a.deriveMemoryPlan(sess, ctxMsgs, policy)
 	writeJSON(w, http.StatusOK, plan)
 }
 
-func (a *app) debugMemoryTargetSupportsCompaction(ctx context.Context, owner int64, sessionID string, target chatDispatchTarget) (bool, int, error) {
-	descriptor, ok := a.describeChatTarget(target, sessionID, "", owner)
+func (a *app) debugMemoryTargetProvider(ctx context.Context, owner int64, sessionID string, target chatDispatchTarget) (llm.Provider, string, int, int, error) {
+	descriptor, ok := a.describeChatTarget(target, sessionID, "", "", "", owner)
 	if !ok {
-		build := a.buildOrchestratorChatEngine(ctx, owner, sessionID, "", nil)
+		build := a.buildOrchestratorChatEngine(ctx, owner, sessionID, "", "", "", nil)
 		if build.Err != nil {
 			statusCode := build.StatusCode
 			if statusCode == 0 {
 				statusCode = http.StatusInternalServerError
 			}
-			return false, statusCode, build.Err
+			return nil, "", 0, statusCode, build.Err
 		}
-		return providerSupportsCompaction(build.Engine.LLM), 0, nil
+		return build.Engine.LLM, build.Engine.Model, build.Engine.ContextWindowTokens, 0, nil
 	}
 
 	build := descriptor.Build(ctx)
@@ -352,12 +366,17 @@ func (a *app) debugMemoryTargetSupportsCompaction(ctx context.Context, owner int
 		if statusCode == 0 {
 			statusCode = http.StatusInternalServerError
 		}
-		return false, statusCode, build.Err
+		return nil, "", 0, statusCode, build.Err
 	}
-	return providerSupportsCompaction(build.Engine.LLM), 0, nil
+	return build.Engine.LLM, build.Engine.Model, build.Engine.ContextWindowTokens, 0, nil
 }
 
-func (a *app) deriveMemoryPlan(_ any, msgs []llm.Message) memoryPlanResponse {
+func (a *app) debugMemoryTargetSupportsCompaction(ctx context.Context, owner int64, sessionID string, target chatDispatchTarget) (bool, int, error) {
+	provider, _, _, statusCode, err := a.debugMemoryTargetProvider(ctx, owner, sessionID, target)
+	return providerSupportsCompaction(provider), statusCode, err
+}
+
+func (a *app) deriveMemoryPlan(_ any, msgs []llm.Message, policy memory.SummaryPolicy) memoryPlanResponse {
 	// We approximate the tail as everything except the first summary/system message
 	total := len(msgs)
 	tailStart := 0
@@ -373,7 +392,10 @@ func (a *app) deriveMemoryPlan(_ any, msgs []llm.Message) memoryPlanResponse {
 		estTail += len([]rune(strings.TrimSpace(m.Content)))/4 + 1
 	}
 
-	ctxTokens := a.chatMemory.ContextWindowTokens()
+	ctxTokens := policy.TargetContextWindowTokens
+	if ctxTokens <= 0 {
+		ctxTokens = a.chatMemory.ContextWindowTokens()
+	}
 	if ctxTokens <= 0 {
 		ctxTokens = 128_000
 	}
@@ -446,4 +468,58 @@ func (a *app) handleDebugMemoryEvolving(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (a *app) handleDebugMemoryExplain(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	query := strings.TrimSpace(q.Get("query"))
+	if query == "" {
+		http.Error(w, "query is required", http.StatusBadRequest)
+		return
+	}
+
+	userID := systemUserID
+	if a.cfg.Auth.Enabled {
+		uid, err := a.requireUserID(r)
+		if err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		userID = uid
+	} else if rawUser := strings.TrimSpace(q.Get("user")); rawUser != "" {
+		uid, err := strconv.ParseInt(rawUser, 10, 64)
+		if err != nil {
+			http.Error(w, "user must be an integer", http.StatusBadRequest)
+			return
+		}
+		userID = uid
+	}
+
+	sessionID := strings.TrimSpace(q.Get("session"))
+	if sessionID == "" {
+		sessionID = strings.TrimSpace(q.Get("session_id"))
+	}
+	if sessionID == "" {
+		sessionID = "default"
+	}
+
+	em := a.getOrCreateEvolvingMemoryForSession(userID, sessionID)
+	if em == nil {
+		writeJSON(w, http.StatusOK, debugMemoryExplainResponse{Enabled: false, Query: query, UserID: userID, SessionID: sessionID})
+		return
+	}
+
+	explanations, err := em.ExplainSearch(r.Context(), query)
+	if err != nil {
+		log.Error().Err(err).Str("query", query).Msg("debug_memory_explain_failed")
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, http.StatusOK, debugMemoryExplainResponse{
+		Enabled:      true,
+		Query:        query,
+		UserID:       userID,
+		SessionID:    sessionID,
+		Explanations: explanations,
+	})
 }

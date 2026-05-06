@@ -8,10 +8,14 @@ import (
 
 // agentdSettings mirrors the frontend AgentdSettings shape.
 type agentdSettings struct {
-	OpenAISummaryModel         string `json:"openaiSummaryModel"`
-	OpenAISummaryURL           string `json:"openaiSummaryUrl"`
-	SummaryEnabled             bool   `json:"summaryEnabled"`
-	SummaryReserveBufferTokens int    `json:"summaryReserveBufferTokens"`
+	OpenAISummaryModel                  string `json:"openaiSummaryModel"`
+	OpenAISummaryURL                    string `json:"openaiSummaryUrl"`
+	SummaryProvider                     string `json:"summaryProvider"`
+	SummaryModel                        string `json:"summaryModel"`
+	SummaryURL                          string `json:"summaryUrl"`
+	SummaryEnabled                      bool   `json:"summaryEnabled"`
+	SummaryPlainTextContextWindowTokens int    `json:"summaryPlainTextContextWindowTokens"`
+	SummaryReserveBufferTokens          int    `json:"summaryReserveBufferTokens"`
 
 	EmbedBaseURL    string            `json:"embedBaseUrl"`
 	EmbedModel      string            `json:"embedModel"`
@@ -33,9 +37,10 @@ type agentdSettings struct {
 	Environment     string `json:"environment"`
 	OTLPEndpoint    string `json:"otelExporterOtlpEndpoint"`
 
-	LogPath     string `json:"logPath"`
-	LogLevel    string `json:"logLevel"`
-	LogPayloads bool   `json:"logPayloads"`
+	LogPath       string `json:"logPath"`
+	LogLevel      string `json:"logLevel"`
+	LogPayloads   bool   `json:"logPayloads"`
+	LogRawPrompts bool   `json:"logRawPrompts"`
 
 	SearXNGURL    string `json:"searxngUrl"`
 	WebSearXNGURL string `json:"webSearxngUrl"`

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 
@@ -39,9 +40,19 @@ func (a *app) flowV2WorkflowDetailHandler() http.HandlerFunc {
 		if !ok {
 			return
 		}
-		workflowID := strings.TrimPrefix(r.URL.Path, "/api/flows/v2/workflows/")
-		workflowID = strings.Trim(strings.TrimSpace(workflowID), "/")
-		if workflowID == "" || strings.Contains(workflowID, "/") {
+		workflowPath := strings.TrimPrefix(r.URL.EscapedPath(), "/api/flows/v2/workflows/")
+		workflowPath = strings.Trim(strings.TrimSpace(workflowPath), "/")
+		if workflowPath == "" {
+			http.NotFound(w, r)
+			return
+		}
+		workflowID, err := url.PathUnescape(workflowPath)
+		if err != nil {
+			http.Error(w, "bad workflow id", http.StatusBadRequest)
+			return
+		}
+		workflowID = strings.TrimSpace(workflowID)
+		if workflowID == "" {
 			http.NotFound(w, r)
 			return
 		}

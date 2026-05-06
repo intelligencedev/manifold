@@ -1,7 +1,9 @@
 # manibot (Matrix bot for Manifold)
 
 `manibot` listens in Matrix rooms and forwards prefixed messages to Manifold `/api/prompt`.
-That means replies use your existing Manifold orchestrator setup (tools, MCP servers, specialists, and project skills).
+That means replies use your existing Manifold orchestrator setup (tools, MCP servers, specialists, and project-local skills).
+
+Project skills are loaded only from `.skills/` inside the active Manifold project root. If you want different rooms or bots to use different skills, point them at different projects and define each project's own `.skills` folder.
 
 If `BOT_PREFIX` starts with `@`, `manibot` treats it like a Matrix mention and matches it anywhere in the message as a standalone tag. For example, `Hello @gpt_bot and @razer_bot` will trigger both bots. Non-mention prefixes such as `!bot` still only match at the start of the message.
 

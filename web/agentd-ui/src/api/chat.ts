@@ -1,5 +1,11 @@
 import { apiClient } from "./client";
-import type { ChatMessage, ChatSessionMeta } from "@/types/chat";
+import type {
+  AgentThread,
+  AgentTraceEntry,
+  ChatMessage,
+  ChatSessionMeta,
+  SpecialistActivityRecord,
+} from "@/types/chat";
 
 export type ChatStreamEventType =
   | "thought_summary"
@@ -113,6 +119,17 @@ export async function fetchChatMessages(
     },
   );
   return data;
+}
+
+export async function fetchChatActivities(
+  sessionId: string,
+): Promise<AgentThread[]> {
+  const { data } = await apiClient.get<SpecialistActivityRecord[]>(
+    `/chat/sessions/${encodeURIComponent(sessionId)}/activities`,
+  );
+  return (data || [])
+    .filter((record) => Boolean(record?.parentCallId?.trim()))
+    .map(mapActivityRecordToThread);
 }
 
 export async function deleteChatMessage(
@@ -268,6 +285,37 @@ export async function streamAgentRun(
   } finally {
     reader.releaseLock();
   }
+}
+
+function mapActivityRecordToThread(record: SpecialistActivityRecord): AgentThread {
+  return {
+    callId: record.callId,
+    parentCallId: record.parentCallId,
+    agent: record.agent,
+    model: record.model,
+    prompt: record.prompt,
+    depth: record.depth,
+    status: record.status === "idle" ? "running" : record.status,
+    content: record.content || "",
+    entries: (record.entries || []).map(mapActivityEntry),
+    thoughtSummaries: record.thoughtSummaries || [],
+    startedAt: record.startedAt,
+    finishedAt: record.finishedAt,
+    error: record.error,
+  };
+}
+
+function mapActivityEntry(entry: SpecialistActivityRecord["entries"][number]): AgentTraceEntry {
+  const kind = entry.type === "error" ? "error" : entry.type === "tool" ? "tool" : "message";
+  return {
+    id: entry.id,
+    type: kind,
+    title: entry.title,
+    content: entry.content,
+    args: entry.args,
+    data: entry.data,
+    createdAt: entry.createdAt,
+  };
 }
 
 function processBuffer(

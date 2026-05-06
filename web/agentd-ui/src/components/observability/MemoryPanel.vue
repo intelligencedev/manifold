@@ -4,7 +4,7 @@
   >
     <header class="flex flex-wrap items-center justify-between gap-3 shrink-0">
       <div>
-        <h2 class="text-sm font-semibold text-foreground">Memory</h2>
+        <h2 class="text-sm font-semibold text-foreground">Memory Inspector</h2>
         <p class="mt-0.5 text-xs text-subtle-foreground">
           Introspect chat summaries and evolving experiences.
         </p>
@@ -191,7 +191,12 @@
                 v-if="e.score != null"
                 class="mt-1 text-[10px] text-faint-foreground"
               >
-                score {{ (e.score as number).toFixed(3) }}
+                score {{ (explanationFor(e.id)?.finalScore ?? e.score).toFixed(3) }}
+                <span v-if="explanationFor(e.id)">
+                  · sim {{ explanationFor(e.id)!.similarity.toFixed(3) }} · quality
+                  {{ explanationFor(e.id)!.qualityWeight.toFixed(2) }} · decay
+                  {{ explanationFor(e.id)!.decay.toFixed(2) }}
+                </span>
               </p>
             </div>
           </div>
@@ -207,11 +212,13 @@ import { useQuery } from "@tanstack/vue-query";
 import DropdownSelect from "@/components/DropdownSelect.vue";
 import {
   fetchEvolvingMemory,
+  fetchEvolvingMemoryExplain,
   fetchMemorySessionDebug,
   fetchMemorySessions,
   type EvolvingMemoryDebug,
   type MemorySessionDebug,
   type EvolvingMemoryEntry,
+  type MemoryScoreExplanation,
   type ScoredEvolvingMemoryEntry,
 } from "@/api/memory";
 
@@ -225,6 +232,7 @@ const sessionError = ref("");
 const sessionMissing = ref(false);
 
 const evolvingDebug = ref<EvolvingMemoryDebug | null>(null);
+const evolvingExplanations = ref<MemoryScoreExplanation[]>([]);
 const evolvingLoading = ref(false);
 const evolvingError = ref("");
 
@@ -269,15 +277,21 @@ async function refreshEvolving() {
   evolvingError.value = "";
   if (!selectedSessionId.value) {
     evolvingDebug.value = null;
+    evolvingExplanations.value = [];
     evolvingLoading.value = false;
     return;
   }
   evolvingLoading.value = true;
   try {
-    evolvingDebug.value = await fetchEvolvingMemory(
-      evolvingQuery.value.trim() || undefined,
-      selectedSessionId.value,
-    );
+    const query = evolvingQuery.value.trim();
+    const debug = await fetchEvolvingMemory(query || undefined, selectedSessionId.value);
+    evolvingDebug.value = debug;
+    if (query) {
+      const explain = await fetchEvolvingMemoryExplain(query, selectedSessionId.value);
+      evolvingExplanations.value = explain.explanations ?? [];
+    } else {
+      evolvingExplanations.value = [];
+    }
   } catch (err: any) {
     evolvingError.value = err?.message || "Failed to load evolving memory";
   } finally {
@@ -328,6 +342,16 @@ const toggleExpanded = (id: string) => {
 };
 
 const isExpanded = (id: string) => expandedEntries.value.has(id);
+
+const explanationByID = computed(() => {
+  const lookup = new Map<string, MemoryScoreExplanation>();
+  for (const explanation of evolvingExplanations.value) {
+    lookup.set(explanation.entry.id, explanation);
+  }
+  return lookup;
+});
+
+const explanationFor = (id: string) => explanationByID.value.get(id);
 
 const hasMemory = computed(() => !!evolvingDebug.value || !!sessionDebug.value);
 

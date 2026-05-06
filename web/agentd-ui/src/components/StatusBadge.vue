@@ -14,7 +14,14 @@
 import { computed } from "vue";
 
 const props = defineProps<{
-  state: "online" | "offline" | "degraded" | "running" | "failed" | "completed";
+  state:
+    | "online"
+    | "offline"
+    | "degraded"
+    | "queued"
+    | "running"
+    | "failed"
+    | "completed";
 }>();
 
 const statusClasses = computed(() => {
@@ -24,6 +31,8 @@ const statusClasses = computed(() => {
       return "border border-success/40 bg-success/10 text-success";
     case "running":
       return "border border-info/40 bg-info/10 text-info";
+    case "queued":
+      return "border border-warning/40 bg-warning/10 text-warning";
     case "degraded":
       return "border border-warning/40 bg-warning/10 text-warning";
     case "failed":
@@ -40,6 +49,8 @@ const dotClass = computed(() => {
       return "bg-success";
     case "running":
       return "animate-pulse bg-info";
+    case "queued":
+      return "animate-pulse bg-warning";
     case "degraded":
       return "animate-pulse bg-warning";
     case "failed":

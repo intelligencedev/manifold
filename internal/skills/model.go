@@ -5,9 +5,7 @@ package skills
 type Scope string
 
 const (
-	ScopeRepo  Scope = "repo"
-	ScopeUser  Scope = "user"
-	ScopeAdmin Scope = "admin"
+	ScopeRepo Scope = "repo"
 )
 
 // Metadata contains the minimal information needed to expose a skill to an LLM.

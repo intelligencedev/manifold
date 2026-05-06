@@ -44,6 +44,11 @@ func LoadFromDir(dir string) LoadOutcome {
 			outcome.Errors = append(outcome.Errors, Error{Path: path, Message: err.Error()})
 			continue
 		}
+		// Convert absolute path to project-relative path so agents
+		// never see full filesystem paths (path-traversal safeguard).
+		if rel, relErr := filepath.Rel(dir, md.Path); relErr == nil {
+			md.Path = rel
+		}
 		outcome.Skills = append(outcome.Skills, md)
 	}
 

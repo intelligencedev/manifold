@@ -36,6 +36,25 @@ type logMetricsResponse struct {
 	Logs          []LogEntry `json:"logs"`
 }
 
+type logDetailResponse struct {
+	Timestamp     int64     `json:"timestamp"`
+	WindowSeconds int64     `json:"windowSeconds,omitempty"`
+	Source        string    `json:"source"`
+	Log           *LogEntry `json:"log,omitempty"`
+}
+
+type memoryMetricsResponse struct {
+	Timestamp       int64                `json:"timestamp"`
+	WindowSeconds   int64                `json:"windowSeconds,omitempty"`
+	Source          string               `json:"source"`
+	Totals          memoryMetricTotals   `json:"totals"`
+	Latency         memoryLatencyMetrics `json:"latency"`
+	Sizes           []memorySizeMetric   `json:"sizes"`
+	PrunedByReason  []memoryReasonMetric `json:"prunedByReason"`
+	EvolvesByResult []memoryResultMetric `json:"evolvesByResult"`
+	Warnings        []string             `json:"warnings,omitempty"`
+}
+
 func (a *app) metricsTokensHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var uid int64 = systemUserID
@@ -66,38 +85,34 @@ func (a *app) metricsTokensHandler() http.HandlerFunc {
 			return
 		}
 
-		processModels, processWindow := llmpkg.TokenTotalsForWindow(window)
-		if a.cfg.Auth.Enabled {
-			processModels = nil
-			processWindow = 0
-		}
 		resp := tokenMetricsResponse{
 			Timestamp: time.Now().Unix(),
-			Source:    "process",
-			Models:    processModels,
+			Source:    "none",
+			Models:    nil,
 		}
-		appliedWindow := processWindow
-		if a.tokenMetrics != nil {
+		appliedWindow := time.Duration(0)
+		for _, provider := range a.tokenMetrics {
+			if provider == nil {
+				continue
+			}
 			var (
 				totals   []llmpkg.TokenTotal
 				chWindow time.Duration
 				err      error
 			)
 			if a.cfg.Auth.Enabled {
-				totals, chWindow, err = a.tokenMetrics.TokenTotalsForUser(r.Context(), uid, window)
+				totals, chWindow, err = provider.TokenTotalsForUser(r.Context(), uid, window)
 			} else {
-				totals, chWindow, err = a.tokenMetrics.TokenTotals(r.Context(), window)
+				totals, chWindow, err = provider.TokenTotals(r.Context(), window)
 			}
 			if err != nil {
 				log.Warn().Err(err).Msg("token metrics query failed")
-			} else {
-				// Prefer ClickHouse when configured so metrics persist across restarts.
-				// If ClickHouse has no rows for the selected window, return an empty
-				// dataset (instead of falling back to in-process counters).
-				resp.Models = totals
-				resp.Source = a.tokenMetrics.Source()
-				appliedWindow = chWindow
+				continue
 			}
+			resp.Models = totals
+			resp.Source = provider.Source()
+			appliedWindow = chWindow
+			break
 		}
 		if appliedWindow > 0 {
 			resp.WindowSeconds = int64(appliedWindow.Seconds())
@@ -106,6 +121,69 @@ func (a *app) metricsTokensHandler() http.HandlerFunc {
 		}
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
 			log.Warn().Err(err).Msg("failed to encode token metrics response")
+		}
+	}
+}
+
+func (a *app) metricsMemoryHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var uid int64 = systemUserID
+		if a.cfg.Auth.Enabled {
+			u, ok := auth.CurrentUser(r.Context())
+			if !ok {
+				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			uid = u.ID
+		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+
+		window, err := parseWindowParam(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if window < 0 {
+			http.Error(w, "window must be positive", http.StatusBadRequest)
+			return
+		}
+
+		resp := memoryMetricsResponse{
+			Timestamp: time.Now().Unix(),
+			Source:    "none",
+		}
+		if window > 0 {
+			resp.WindowSeconds = int64(window.Seconds())
+		}
+		for _, provider := range a.memoryMetrics {
+			if provider == nil {
+				continue
+			}
+			snapshot, appliedWindow, err := provider.MemoryMetrics(r.Context(), uid, window)
+			if err != nil {
+				log.Warn().Err(err).Msg("memory metrics query failed")
+				continue
+			}
+			resp.Source = provider.Source()
+			resp.Totals = snapshot.Totals
+			resp.Latency = snapshot.Latency
+			resp.Sizes = snapshot.Sizes
+			resp.PrunedByReason = snapshot.PrunedByReason
+			resp.EvolvesByResult = snapshot.EvolvesByResult
+			resp.Warnings = snapshot.Warnings
+			if appliedWindow > 0 {
+				resp.WindowSeconds = int64(appliedWindow.Seconds())
+			}
+			break
+		}
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			log.Warn().Err(err).Msg("failed to encode memory metrics response")
 		}
 	}
 }
@@ -136,30 +214,31 @@ func (a *app) metricsTracesHandler() http.HandlerFunc {
 		}
 		limit := parseLimitParam(r, 200)
 
-		traces, applied := llmpkg.TracesForWindow(window, limit)
-		source := "process"
-		if a.cfg.Auth.Enabled {
-			traces = nil
-			applied = 0
-		}
-		if a.traceMetrics != nil {
+		traces := []llmpkg.TraceSnapshot{}
+		applied := time.Duration(0)
+		source := "none"
+		for _, provider := range a.traceMetrics {
+			if provider == nil {
+				continue
+			}
 			var (
 				chTraces []llmpkg.TraceSnapshot
 				chWindow time.Duration
 				err      error
 			)
 			if a.cfg.Auth.Enabled {
-				chTraces, chWindow, err = a.traceMetrics.TracesForUser(r.Context(), uid, window, limit)
+				chTraces, chWindow, err = provider.TracesForUser(r.Context(), uid, window, limit)
 			} else {
-				chTraces, chWindow, err = a.traceMetrics.Traces(r.Context(), window, limit)
+				chTraces, chWindow, err = provider.Traces(r.Context(), window, limit)
 			}
 			if err != nil {
 				log.Warn().Err(err).Msg("trace metrics query failed")
-			} else if len(chTraces) > 0 {
-				traces = chTraces
-				applied = chWindow
-				source = "clickhouse"
+				continue
 			}
+			traces = chTraces
+			applied = chWindow
+			source = provider.Source()
+			break
 		}
 		resp := traceMetricsResponse{
 			Timestamp: time.Now().Unix(),
@@ -204,18 +283,22 @@ func (a *app) metricsLogsHandler() http.HandlerFunc {
 		logs := []LogEntry{}
 		source := "none"
 		applied := time.Duration(0)
-		if a.logMetrics != nil {
+		for _, provider := range a.logMetrics {
+			if provider == nil {
+				continue
+			}
 			// For system observability, show all application logs regardless of user.
 			// The LogsForUser filter only applies to user-scoped logs (chat logs, etc.)
 			// which include an enduser.id attribute.
-			chLogs, queriedWindow, err := a.logMetrics.Logs(r.Context(), window, limit)
+			chLogs, queriedWindow, err := provider.Logs(r.Context(), window, limit)
 			if err != nil {
 				log.Warn().Err(err).Msg("log metrics query failed")
-			} else {
-				logs = chLogs
-				applied = queriedWindow
-				source = a.logMetrics.Source()
+				continue
 			}
+			logs = chLogs
+			applied = queriedWindow
+			source = provider.Source()
+			break
 		}
 
 		resp := logMetricsResponse{
@@ -229,6 +312,61 @@ func (a *app) metricsLogsHandler() http.HandlerFunc {
 
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
 			log.Warn().Err(err).Msg("failed to encode log metrics response")
+		}
+	}
+}
+
+func (a *app) metricsLogDetailHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if a.cfg.Auth.Enabled {
+			_, ok := auth.CurrentUser(r.Context())
+			if !ok {
+				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+		}
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+
+		window, err := parseWindowParam(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		logID := strings.TrimSpace(r.URL.Query().Get("id"))
+		if logID == "" {
+			http.Error(w, "id required", http.StatusBadRequest)
+			return
+		}
+
+		resp := logDetailResponse{
+			Timestamp: time.Now().Unix(),
+			Source:    "none",
+		}
+		for _, provider := range a.logMetrics {
+			if provider == nil {
+				continue
+			}
+			entry, applied, err := provider.LogDetail(r.Context(), window, logID)
+			if err != nil {
+				log.Warn().Err(err).Msg("log detail query failed")
+				continue
+			}
+			resp.Log = entry
+			resp.Source = provider.Source()
+			if applied > 0 {
+				resp.WindowSeconds = int64(applied.Seconds())
+			}
+			break
+		}
+
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			log.Warn().Err(err).Msg("failed to encode log detail response")
 		}
 	}
 }

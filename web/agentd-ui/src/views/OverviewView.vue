@@ -1,7 +1,7 @@
 <template>
   <section class="flex h-full min-h-0 flex-col overflow-y-auto">
-    <header class="flex items-center gap-6 px-5 py-2 md:px-6">
-      <dl class="grid flex-1 gap-x-6 gap-y-1 sm:grid-cols-2 xl:grid-cols-4">
+    <header class="flex items-center gap-6 px-6 py-2">
+      <dl class="grid flex-1 grid-cols-4 gap-x-6 gap-y-1">
         <div v-for="stat in overviewStats" :key="stat.label">
           <dt
             class="text-[10px] font-semibold uppercase tracking-[0.22em] text-subtle-foreground"
@@ -45,8 +45,15 @@
           <MemoryPanel />
         </template>
 
+        <template #item-memory-metrics>
+          <MemoryMetricsPanel />
+        </template>
+
         <template #item-logs>
-          <LogsPanel />
+          <LogsPanel
+            :selected-log-id="selectedLogId"
+            @select-log="openLogDetail"
+          />
         </template>
 
         <template #item-agents>
@@ -58,6 +65,13 @@
         </template>
       </DashboardGrid>
     </div>
+
+    <LogDetailDrawer
+      :open="Boolean(selectedLogId)"
+      :log-id="selectedLogId"
+      :window="selectedLogWindow"
+      @close="closeLogDetail"
+    />
   </section>
 </template>
 
@@ -70,7 +84,9 @@ import DashboardGrid, {
 import TokenUsagePanel from "@/components/observability/TokenUsagePanel.vue";
 import TracesPanel from "@/components/observability/TracesPanel.vue";
 import MemoryPanel from "@/components/observability/MemoryPanel.vue";
+import MemoryMetricsPanel from "@/components/observability/MemoryMetricsPanel.vue";
 import LogsPanel from "@/components/observability/LogsPanel.vue";
+import LogDetailDrawer from "@/components/observability/LogDetailDrawer.vue";
 import AgentsPanel from "@/components/overview/AgentsPanel.vue";
 import RecentRunsPanel from "@/components/overview/RecentRunsPanel.vue";
 import {
@@ -78,8 +94,11 @@ import {
   fetchAgentStatus,
   listSpecialists,
 } from "@/api/client";
+import type { MetricsTimeRangeValue } from "@/composables/observability/useTokenMetrics";
 
 const dashboardGridRef = ref<InstanceType<typeof DashboardGrid>>();
+const selectedLogId = ref<string | null>(null);
+const selectedLogWindow = ref<MetricsTimeRangeValue>("1h");
 
 // Define default dashboard layout
 // 12 columns grid, row height = 80px + 16px margin = 96px per row
@@ -92,10 +111,11 @@ const dashboardLayout = ref<GridItemConfig[]>([
   { i: "traces", x: 0, y: 4, w: 8, h: 5, minW: 4, minH: 4 },
   // Recent Runs - sidebar
   { i: "runs", x: 8, y: 4, w: 4, h: 5, minW: 3, minH: 3 },
-  // Memory - full width
-  { i: "memory", x: 0, y: 9, w: 12, h: 4, minW: 4, minH: 3 },
+  // Evolving memory metrics + inspector
+  { i: "memory-metrics", x: 0, y: 9, w: 5, h: 5, minW: 4, minH: 4 },
+  { i: "memory", x: 5, y: 9, w: 7, h: 5, minW: 4, minH: 4 },
   // Logs - full width
-  { i: "logs", x: 0, y: 13, w: 12, h: 4, minW: 4, minH: 3 },
+  { i: "logs", x: 0, y: 14, w: 12, h: 4, minW: 4, minH: 3 },
 ]);
 
 const { data: agentData } = useQuery({
@@ -205,5 +225,14 @@ function onLayoutChange(newLayout: GridItemConfig[]) {
 
 function resetLayout() {
   dashboardGridRef.value?.resetLayout();
+}
+
+function openLogDetail(payload: { id: string; window: MetricsTimeRangeValue }) {
+  selectedLogId.value = payload.id;
+  selectedLogWindow.value = payload.window;
+}
+
+function closeLogDetail() {
+  selectedLogId.value = null;
 }
 </script>

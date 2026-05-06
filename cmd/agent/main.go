@@ -14,6 +14,7 @@ import (
 	"manifold/internal/agent"
 	"manifold/internal/agent/prompts"
 	"manifold/internal/config"
+	"manifold/internal/embeddedpg"
 	llmpkg "manifold/internal/llm"
 	llmproviders "manifold/internal/llm/providers"
 	"manifold/internal/mcpclient"
@@ -78,7 +79,19 @@ func run(cfg *config.Config, query string, maxSteps int, specialistName string) 
 	}
 
 	// Configure global LLM payload logging/truncation before creating providers.
-	llmpkg.ConfigureLogging(cfg.LogPayloads, cfg.OutputTruncateByte)
+	llmpkg.ConfigureLogging(cfg.LogPayloads, cfg.LogRawPrompts, cfg.OutputTruncateByte)
+
+	embeddedRuntime, err := embeddedpg.Start(&cfg.Databases)
+	if err != nil {
+		return fmt.Errorf("start embedded postgres: %w", err)
+	}
+	if embeddedRuntime != nil {
+		defer func() {
+			if stopErr := embeddedRuntime.Stop(); stopErr != nil {
+				log.Warn().Err(stopErr).Msg("stop embedded postgres")
+			}
+		}()
+	}
 
 	// Initialize the specialists store and apply DB-backed overrides so the CLI
 	// mirrors agentd behavior (specialists and orchestrator loaded from DB).

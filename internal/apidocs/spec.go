@@ -455,6 +455,12 @@ func routeCatalog() []routeSpec {
 				qp("windowSeconds", "integer", "Lookback window in seconds.", false),
 			)),
 		}},
+		{path: "/api/metrics/memory", operations: []operationSpec{
+			jsonOp(http.MethodGet, "Metrics", "Evolving memory metrics", true, withQuery(
+				qp("window", "string", "Lookback duration (e.g. 1h, 24h, 7d).", false),
+				qp("windowSeconds", "integer", "Lookback window in seconds.", false),
+			)),
+		}},
 		{path: "/api/metrics/traces", operations: []operationSpec{
 			jsonOp(http.MethodGet, "Metrics", "Trace metrics", true, withQuery(
 				qp("window", "string", "Lookback duration.", false),
@@ -645,6 +651,13 @@ func routeCatalog() []routeSpec {
 		{path: "/debug/memory/evolving", operations: []operationSpec{
 			jsonOp(http.MethodGet, "Debug", "Get evolving memory debug info", true),
 		}},
+		{path: "/debug/memory/explain", operations: []operationSpec{
+			jsonOp(http.MethodGet, "Debug", "Explain evolving memory search scoring", true, withQuery(
+				qp("query", "string", "Memory search query to explain.", true),
+				qp("session", "string", "Session ID to inspect.", false),
+				qp("user", "integer", "User ID when auth is disabled.", false),
+			)),
+		}},
 		{path: "/api/debug/memory", operations: []operationSpec{
 			jsonOp(http.MethodGet, "Debug", "Memory debug root (API alias)", true),
 		}},
@@ -667,6 +680,13 @@ func routeCatalog() []routeSpec {
 		}},
 		{path: "/api/debug/memory/evolving", operations: []operationSpec{
 			jsonOp(http.MethodGet, "Debug", "Get evolving memory debug info (API alias)", true),
+		}},
+		{path: "/api/debug/memory/explain", operations: []operationSpec{
+			jsonOp(http.MethodGet, "Debug", "Explain evolving memory search scoring (API alias)", true, withQuery(
+				qp("query", "string", "Memory search query to explain.", true),
+				qp("session", "string", "Session ID to inspect.", false),
+				qp("user", "integer", "User ID when auth is disabled.", false),
+			)),
 		}},
 		{path: "/api/v1/playground/prompts", operations: []operationSpec{
 			jsonOp(http.MethodGet, "Playground", "List prompts", false, withQuery(

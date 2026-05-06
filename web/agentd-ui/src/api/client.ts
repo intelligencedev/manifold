@@ -65,6 +65,65 @@ export async function fetchTokenMetrics(
   return response.data;
 }
 
+export interface MemoryMetricTotals {
+  searches: number;
+  hits: number;
+  avgHitsPerSearch: number;
+  evolves: number;
+  evolveErrors: number;
+  smartMerges: number;
+  pruned: number;
+}
+
+export interface MemoryLatencyMetrics {
+  avgMs?: number;
+}
+
+export interface MemorySizeMetric {
+  user: string;
+  session: string;
+  size: number;
+}
+
+export interface MemoryReasonMetric {
+  reason: string;
+  count: number;
+}
+
+export interface MemoryResultMetric {
+  result: string;
+  count: number;
+}
+
+export interface MemoryMetricsResponse {
+  timestamp: number;
+  windowSeconds?: number;
+  source?: string;
+  totals: MemoryMetricTotals;
+  latency: MemoryLatencyMetrics;
+  sizes: MemorySizeMetric[];
+  prunedByReason: MemoryReasonMetric[];
+  evolvesByResult: MemoryResultMetric[];
+  warnings?: string[];
+}
+
+export interface MemoryMetricsParams {
+  window?: string;
+  windowSeconds?: number;
+}
+
+export async function fetchMemoryMetrics(
+  params?: MemoryMetricsParams,
+): Promise<MemoryMetricsResponse> {
+  const response = await apiClient.get<MemoryMetricsResponse>(
+    "/metrics/memory",
+    {
+      params,
+    },
+  );
+  return response.data;
+}
+
 export interface TraceMetricRow {
   traceId?: string;
   name: string;
@@ -103,12 +162,14 @@ export async function fetchTraceMetrics(
 }
 
 export interface LogMetricsRow {
+  id: string;
   timestamp: number;
   level: string;
   message: string;
   service?: string;
   traceId?: string;
   spanId?: string;
+  tags?: string[];
 }
 
 export interface LogMetricsResponse {
@@ -130,6 +191,47 @@ export async function fetchLogMetrics(
   const response = await apiClient.get<LogMetricsResponse>("/metrics/logs", {
     params,
   });
+  return response.data;
+}
+
+export interface LogDetail {
+  id: string;
+  timestamp: number;
+  level: string;
+  message: string;
+  service?: string;
+  traceId?: string;
+  spanId?: string;
+  tags?: string[];
+  attributes?: Record<string, string>;
+  resourceAttributes?: Record<string, string>;
+}
+
+export interface LogDetailResponse {
+  timestamp: number;
+  windowSeconds?: number;
+  source?: string;
+  log?: LogDetail;
+}
+
+export interface LogDetailParams {
+  window?: string;
+  windowSeconds?: number;
+}
+
+export async function fetchLogDetail(
+  id: string,
+  params?: LogDetailParams,
+): Promise<LogDetailResponse> {
+  const response = await apiClient.get<LogDetailResponse>(
+    "/metrics/logs/detail",
+    {
+      params: {
+        ...params,
+        id,
+      },
+    },
+  );
   return response.data;
 }
 
@@ -453,6 +555,7 @@ export interface AgentdSettings {
   openaiSummaryModel: string;
   openaiSummaryUrl: string;
   summaryEnabled: boolean;
+  summaryPlainTextContextWindowTokens: number;
   summaryReserveBufferTokens: number;
 
   embedBaseUrl: string;
@@ -478,6 +581,7 @@ export interface AgentdSettings {
   logPath: string;
   logLevel: string;
   logPayloads: boolean;
+  logRawPrompts: boolean;
 
   searxngUrl: string;
   webSearxngUrl: string;

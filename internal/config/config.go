@@ -7,6 +7,12 @@ type Config struct {
 	SystemPrompt string `yaml:"systemPrompt" json:"systemPrompt"`
 	// Rolling summarization config: enable and tuning knobs (token-based only)
 	SummaryEnabled bool `yaml:"summaryEnabled" json:"summaryEnabled"`
+	// Summary configures rolling chat summaries independently from the primary LLM.
+	Summary SummaryConfig `yaml:"summary" json:"summary"`
+	// SummaryPlainTextContextWindowTokens optionally overrides the context window
+	// budget used to trigger plain-text rolling summaries. When 0, runtime code
+	// must derive an effective budget from the active target and summary model.
+	SummaryPlainTextContextWindowTokens int `yaml:"summaryPlainTextContextWindowTokens" json:"summaryPlainTextContextWindowTokens"`
 	// SummaryContextWindowTokens sets the context window size (in tokens) used for
 	// chat-memory budgeting and summarization triggering.
 	//
@@ -39,6 +45,7 @@ type Config struct {
 	LogPath            string     `yaml:"logPath" json:"logPath"`
 	LogLevel           string     `yaml:"logLevel" json:"logLevel"`
 	LogPayloads        bool       `yaml:"logPayloads" json:"logPayloads"`
+	LogRawPrompts      bool       `yaml:"logRawPrompts" json:"logRawPrompts"`
 	Exec               ExecConfig `yaml:"exec" json:"exec"`
 	// LLMClient controls which LLM provider to use and holds provider-specific settings.
 	LLMClient LLMClientConfig `yaml:"llm_client" json:"llmClient"`
@@ -76,10 +83,14 @@ type Config struct {
 	MaxDiscoveredTools int `yaml:"maxDiscoveredTools" json:"maxDiscoveredTools"`
 	// Embedding configures the embedding service endpoint for text embeddings.
 	Embedding EmbeddingConfig `yaml:"embedding" json:"embedding"`
+	// ImageTool configures defaults for the describe_image tool.
+	ImageTool ImageToolConfig `yaml:"imageTool" json:"imageTool"`
 	// EvolvingMemory configures the Search-Synthesis-Evolve memory system.
 	EvolvingMemory EvolvingMemoryConfig `yaml:"evolvingMemory" json:"evolvingMemory"`
 	// Transit configures the shared durable memory system.
 	Transit TransitConfig `yaml:"transit" json:"transit"`
+	// BeliefMemory configures shared belief-memory foundations.
+	BeliefMemory BeliefMemoryConfig `yaml:"beliefMemory" json:"beliefMemory"`
 	// TTS configures text-to-speech defaults and endpoint.
 	TTS TTSConfig `yaml:"tts" json:"tts"`
 	// STT configures speech-to-text defaults and endpoint.
@@ -96,8 +107,50 @@ type Config struct {
 	WorkflowTimeoutSeconds int `yaml:"workflowTimeoutSeconds" json:"workflowTimeoutSeconds"`
 	// Projects controls per-user projects service behavior.
 	Projects ProjectsConfig `yaml:"projects" json:"projects"`
+	// CodeQA configures deterministic and LLM-assisted code quality evaluation.
+	CodeQA CodeQAConfig `yaml:"codeQA" json:"codeQA"`
 	// Tokenization configures accurate token counting for summarization.
 	Tokenization TokenizationConfig `yaml:"tokenization" json:"tokenization"`
+}
+
+// CodeQAConfig controls the Phase 1 code-quality judge pipeline.
+type CodeQAConfig struct {
+	Enabled                bool     `yaml:"enabled" json:"enabled"`
+	ArtifactDir            string   `yaml:"artifactDir" json:"artifactDir"`
+	MaxConcurrentRuns      int      `yaml:"maxConcurrentRuns" json:"maxConcurrentRuns"`
+	MaxGateParallelism     int      `yaml:"maxGateParallelism" json:"maxGateParallelism"`
+	MaxJudgeParallelism    int      `yaml:"maxJudgeParallelism" json:"maxJudgeParallelism"`
+	DefaultMaxDiffBytes    int      `yaml:"defaultMaxDiffBytes" json:"defaultMaxDiffBytes"`
+	DefaultMaxChangedFiles int      `yaml:"defaultMaxChangedFiles" json:"defaultMaxChangedFiles"`
+	AcceptThreshold        float64  `yaml:"acceptThreshold" json:"acceptThreshold"`
+	MinConfidence          float64  `yaml:"minConfidence" json:"minConfidence"`
+	JudgeModel             string   `yaml:"judgeModel" json:"judgeModel"`
+	ProposerModel          string   `yaml:"proposerModel" json:"proposerModel"`
+	AllowedCommands        []string `yaml:"allowedCommands" json:"allowedCommands"`
+	HighRiskGlobs          []string `yaml:"highRiskGlobs" json:"highRiskGlobs"`
+	ForbiddenGlobs         []string `yaml:"forbiddenGlobs" json:"forbiddenGlobs"`
+	AllowAutoApply         bool     `yaml:"allowAutoApply" json:"allowAutoApply"`
+	AllowCommitAccepted    bool     `yaml:"allowCommitAccepted" json:"allowCommitAccepted"`
+}
+
+// BeliefMemoryConfig controls the shared belief-memory subsystem.
+type BeliefMemoryConfig struct {
+	Enabled                     bool    `yaml:"enabled" json:"enabled"`
+	EnableDistillation          bool    `yaml:"enableDistillation" json:"enableDistillation"`
+	EnableRetrieval             bool    `yaml:"enableRetrieval" json:"enableRetrieval"`
+	EnableConstraintEnforcement bool    `yaml:"enableConstraintEnforcement" json:"enableConstraintEnforcement"`
+	MaxBeliefsPerPrompt         int     `yaml:"maxBeliefsPerPrompt" json:"maxBeliefsPerPrompt"`
+	MaxEvidencePerBelief        int     `yaml:"maxEvidencePerBelief" json:"maxEvidencePerBelief"`
+	DefaultConfidence           float64 `yaml:"defaultConfidence" json:"defaultConfidence"`
+	PromotionThreshold          float64 `yaml:"promotionThreshold" json:"promotionThreshold"`
+	// EnableRAGEvidence blends RAG retrieval results into the belief router as a
+	// dedicated evidence lane. Hard/soft constraints, approved policies, and
+	// scoped beliefs continue to take precedence; RAG hits are surfaced as a
+	// clearly delimited untrusted-evidence block in the prompt.
+	EnableRAGEvidence       bool    `yaml:"enableRAGEvidence" json:"enableRAGEvidence"`
+	MaxRAGEvidencePerPrompt int     `yaml:"maxRAGEvidencePerPrompt" json:"maxRAGEvidencePerPrompt"`
+	RAGRetrievalK           int     `yaml:"ragRetrievalK" json:"ragRetrievalK"`
+	RAGMinScore             float64 `yaml:"ragMinScore" json:"ragMinScore"`
 }
 
 // TokenizationConfig controls how tokens are counted for summarization decisions.
@@ -141,6 +194,18 @@ type STTConfig struct {
 type ExecConfig struct {
 	BlockBinaries     []string `yaml:"blockBinaries" json:"blockBinaries"`
 	MaxCommandSeconds int      `yaml:"maxCommandSeconds" json:"maxCommandSeconds"`
+}
+
+// SummaryConfig controls rolling chat summaries and their dedicated LLM client.
+type SummaryConfig struct {
+	Enabled                      bool            `yaml:"enabled" json:"enabled"`
+	ContextWindowTokens          int             `yaml:"contextWindowTokens" json:"contextWindowTokens"`
+	PlainTextContextWindowTokens int             `yaml:"plainTextContextWindowTokens" json:"plainTextContextWindowTokens"`
+	ReserveBufferTokens          int             `yaml:"reserveBufferTokens" json:"reserveBufferTokens"`
+	MinKeepLastMessages          int             `yaml:"minKeepLastMessages" json:"minKeepLastMessages"`
+	MaxKeepLastMessages          int             `yaml:"maxKeepLastMessages" json:"maxKeepLastMessages"`
+	MaxSummaryChunkTokens        int             `yaml:"maxSummaryChunkTokens" json:"maxSummaryChunkTokens"`
+	LLMClient                    LLMClientConfig `yaml:"llm_client" json:"llmClient"`
 }
 
 // LLMClientConfig selects the LLM provider and holds provider-specific configs.
@@ -269,7 +334,21 @@ type ObsConfig struct {
 	ServiceVersion string           `yaml:"serviceVersion" json:"serviceVersion"`
 	Environment    string           `yaml:"environment" json:"environment"`
 	OTLP           string           `yaml:"otlp" json:"otlp"`
+	Local          LocalObsConfig   `yaml:"local" json:"local"`
 	ClickHouse     ClickHouseConfig `yaml:"clickhouse" json:"clickhouse"`
+}
+
+type LocalObsConfig struct {
+	Enabled              *bool `yaml:"enabled" json:"enabled"`
+	MetricsWindowMinutes int   `yaml:"metricsWindowMinutes" json:"metricsWindowMinutes"`
+	MetricsBucketSeconds int   `yaml:"metricsBucketSeconds" json:"metricsBucketSeconds"`
+	MaxLogs              int   `yaml:"maxLogs" json:"maxLogs"`
+	MaxTraces            int   `yaml:"maxTraces" json:"maxTraces"`
+	MaxSpansPerTrace     int   `yaml:"maxSpansPerTrace" json:"maxSpansPerTrace"`
+}
+
+func (c LocalObsConfig) IsEnabled() bool {
+	return c.Enabled == nil || *c.Enabled
 }
 
 type WebConfig struct {
@@ -326,11 +405,17 @@ type DBConfig struct {
 	// DefaultDSN is an optional shared connection string. If a per-subsystem
 	// DSN is not provided, this value will be used. When set, the factory can
 	// automatically select a Postgres backend if reachable.
-	DefaultDSN string       `yaml:"defaultDSN" json:"defaultDSN"`
-	Search     SearchConfig `yaml:"search" json:"search"`
-	Vector     VectorConfig `yaml:"vector" json:"vector"`
-	Graph      GraphConfig  `yaml:"graph" json:"graph"`
-	Chat       ChatConfig   `yaml:"chat" json:"chat"`
+	DefaultDSN           string       `yaml:"defaultDSN" json:"defaultDSN"`
+	Embedded             bool         `yaml:"embedded" json:"embedded"`
+	EmbeddedPort         uint32       `yaml:"embeddedPort" json:"embeddedPort"`
+	EmbeddedDataDir      string       `yaml:"embeddedDataDir" json:"embeddedDataDir"`
+	EmbeddedVersion      string       `yaml:"embeddedVersion" json:"embeddedVersion"`
+	EmbeddedExtensions   []string     `yaml:"embeddedExtensions" json:"embeddedExtensions"`
+	EmbeddedExtensionURL string       `yaml:"embeddedExtensionURL" json:"embeddedExtensionURL"`
+	Search               SearchConfig `yaml:"search" json:"search"`
+	Vector               VectorConfig `yaml:"vector" json:"vector"`
+	Graph                GraphConfig  `yaml:"graph" json:"graph"`
+	Chat                 ChatConfig   `yaml:"chat" json:"chat"`
 }
 
 // SearchConfig configures the full-text search backend.
@@ -430,6 +515,14 @@ type EmbeddingConfig struct {
 	Timeout   int               `yaml:"timeoutSeconds" json:"timeoutSeconds"`
 }
 
+// ImageToolConfig configures the describe_image tool defaults.
+type ImageToolConfig struct {
+	// BaseURL overrides the LLM endpoint used by describe_image. Empty means use the invoking provider endpoint.
+	BaseURL string `yaml:"baseURL" json:"baseURL"`
+	// Model overrides the LLM model used by describe_image. Empty means use the invoking provider model.
+	Model string `yaml:"model" json:"model"`
+}
+
 // EvolvingMemoryConfig configures the Search-Synthesis-Evolve memory system.
 type EvolvingMemoryConfig struct {
 	Enabled                bool            `yaml:"enabled" json:"enabled"`                               // enable evolving memory
@@ -447,10 +540,13 @@ type EvolvingMemoryConfig struct {
 	Model                  string          `yaml:"model" json:"model"`                                   // LLM model for summarization
 
 	// Smart pruning options (advanced)
-	EnableSmartPrune bool    `yaml:"enableSmartPrune" json:"enableSmartPrune"` // enable similarity-based dedup & relevance pruning
-	PruneThreshold   float64 `yaml:"pruneThreshold" json:"pruneThreshold"`     // similarity threshold for duplicate detection (default 0.95)
-	RelevanceDecay   float64 `yaml:"relevanceDecay" json:"relevanceDecay"`     // daily decay factor for relevance (default 0.99)
-	MinRelevance     float64 `yaml:"minRelevance" json:"minRelevance"`         // minimum relevance to avoid pruning (default 0.1)
+	EnableSmartPrune            bool    `yaml:"enableSmartPrune" json:"enableSmartPrune"`                       // enable similarity-based dedup & relevance pruning
+	PruneThreshold              float64 `yaml:"pruneThreshold" json:"pruneThreshold"`                           // similarity threshold for duplicate detection (default 0.95)
+	RelevanceDecay              float64 `yaml:"relevanceDecay" json:"relevanceDecay"`                           // daily decay factor for relevance (default 0.99)
+	MinRelevance                float64 `yaml:"minRelevance" json:"minRelevance"`                               // minimum relevance to avoid pruning (default 0.1)
+	PruneQualityFloor           int     `yaml:"pruneQualityFloor" json:"pruneQualityFloor"`                     // protect successful frequently reused memories (default 3)
+	PromotionAccessThreshold    int     `yaml:"promotionAccessThreshold" json:"promotionAccessThreshold"`       // promote successful procedural memories after N accesses (default 5)
+	StoreJanitorIntervalMinutes int     `yaml:"storeJanitorIntervalMinutes" json:"storeJanitorIntervalMinutes"` // durable expired-memory sweep cadence (default 60)
 }
 
 // TransitConfig configures the shared durable memory system.

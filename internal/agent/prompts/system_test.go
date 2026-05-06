@@ -40,6 +40,25 @@ func TestDefaultSystemPrompt_AppendsOverrideAfterBaseInstructions(t *testing.T) 
 	}
 }
 
+func TestDefaultSystemPrompt_IncludesCurrentMemoryHeadings(t *testing.T) {
+	prompt := DefaultSystemPrompt("/tmp/workdir", "")
+
+	for _, want := range []string{
+		"## Past Relevant Experiences",
+		"## Strategies That Worked",
+		"## Mistakes to Avoid",
+		"## Recent Task History",
+		"Treat memories as supporting evidence",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("default system prompt missing memory instruction: %q", want)
+		}
+	}
+	if strings.Contains(prompt, "## Current Task\" appears") {
+		t.Fatalf("default system prompt still references stale Current Task memory heading: %s", prompt)
+	}
+}
+
 func TestCachedSkillsForProjectLoadsMetadata(t *testing.T) {
 	projectDir := t.TempDir()
 	skillPath := filepath.Join(projectDir, ".skills", "pdf-context-builder", "SKILL.md")
@@ -68,6 +87,10 @@ func TestCachedSkillsForProjectLoadsMetadata(t *testing.T) {
 	}
 	if cached.Skills[0].Name != "pdf-context-builder" {
 		t.Fatalf("unexpected skill name: %q", cached.Skills[0].Name)
+	}
+	// Skill paths must be project-relative, never absolute.
+	if filepath.IsAbs(cached.Skills[0].Path) {
+		t.Fatalf("expected relative path, got absolute: %q", cached.Skills[0].Path)
 	}
 	if !strings.Contains(cached.RenderedPrompt, "## Skills") {
 		t.Fatalf("expected rendered prompt, got %q", cached.RenderedPrompt)

@@ -23,6 +23,51 @@ type Registry interface {
 	Unregister(name string)
 }
 
+type dispatchRegistryContextKey struct{}
+type nestedToolDispatcherContextKey struct{}
+
+// NestedToolDispatcher can handle a tool call launched from inside another
+// tool. It returns handled=false when the caller should fall back to normal
+// registry dispatch.
+type NestedToolDispatcher func(ctx context.Context, name string, raw json.RawMessage, toolCallID string) (payload []byte, handled bool)
+
+// WithDispatchRegistry records the active registry view for composite tools
+// that dispatch other tools internally.
+func WithDispatchRegistry(ctx context.Context, reg Registry) context.Context {
+	if ctx == nil || reg == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, dispatchRegistryContextKey{}, reg)
+}
+
+// DispatchRegistryFromContext returns the active registry view, if one was
+// attached by a Registry implementation during Dispatch.
+func DispatchRegistryFromContext(ctx context.Context) Registry {
+	if ctx == nil {
+		return nil
+	}
+	reg, _ := ctx.Value(dispatchRegistryContextKey{}).(Registry)
+	return reg
+}
+
+// WithNestedToolDispatcher records a dispatcher used by composite tools that
+// need engine-level handling for nested calls such as agent delegation.
+func WithNestedToolDispatcher(ctx context.Context, dispatcher NestedToolDispatcher) context.Context {
+	if ctx == nil || dispatcher == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, nestedToolDispatcherContextKey{}, dispatcher)
+}
+
+// NestedToolDispatcherFromContext returns the active nested dispatcher, if any.
+func NestedToolDispatcherFromContext(ctx context.Context) NestedToolDispatcher {
+	if ctx == nil {
+		return nil
+	}
+	dispatcher, _ := ctx.Value(nestedToolDispatcherContextKey{}).(NestedToolDispatcher)
+	return dispatcher
+}
+
 type defaultRegistry struct {
 	byName      map[string]Tool
 	order       []string
@@ -43,9 +88,18 @@ type filteredRegistry struct {
 func NewFilteredRegistry(base Registry, allowList []string) Registry {
 	allow := make(map[string]bool, len(allowList))
 	for _, n := range allowList {
-		allow[n] = true
+		allow[normalizeToolName(n)] = true
 	}
 	return &filteredRegistry{base: base, allow: allow}
+}
+
+func normalizeToolName(name string) string {
+	switch name {
+	case "multi_tool_use.parallel":
+		return "multi_tool_use_parallel"
+	default:
+		return name
+	}
 }
 
 // NewRegistry returns a basic in-memory registry.
@@ -82,7 +136,7 @@ func SchemaNames(reg Registry) []string {
 }
 
 func (r *defaultRegistry) Register(t Tool) {
-	name := t.Name()
+	name := normalizeToolName(t.Name())
 	if _, exists := r.byName[name]; !exists {
 		r.order = append(r.order, name)
 	}
@@ -90,6 +144,7 @@ func (r *defaultRegistry) Register(t Tool) {
 }
 
 func (r *defaultRegistry) Unregister(name string) {
+	name = normalizeToolName(name)
 	if _, exists := r.byName[name]; exists {
 		delete(r.byName, name)
 		// Rebuild order slice to remove the name
@@ -150,14 +205,16 @@ func (f *filteredRegistry) Schemas() []llm.ToolSchema {
 }
 
 func (f *filteredRegistry) Dispatch(ctx context.Context, name string, raw json.RawMessage) ([]byte, error) {
+	name = normalizeToolName(name)
 	if len(f.allow) != 0 && !f.allow[name] {
 		observability.LoggerWithTrace(ctx).Error().Str("tool", name).Msg("tool_not_allowed")
 		return []byte(`{"error":"tool not allowed"}`), nil
 	}
-	return f.base.Dispatch(ctx, name, raw)
+	return f.base.Dispatch(WithDispatchRegistry(ctx, f), name, raw)
 }
 
 func (r *defaultRegistry) Dispatch(ctx context.Context, name string, raw json.RawMessage) ([]byte, error) {
+	name = normalizeToolName(name)
 	t := r.byName[name]
 	if t == nil {
 		observability.LoggerWithTrace(ctx).Error().Str("tool", name).Msg("tool_not_found")

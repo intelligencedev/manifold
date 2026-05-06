@@ -201,6 +201,48 @@ type ChatStore interface {
 	UpdateSummary(ctx context.Context, userID *int64, sessionID string, summary string, summarizedCount int) error
 }
 
+// SpecialistActivityEntry captures one visible step in a delegated specialist run.
+type SpecialistActivityEntry struct {
+	ID        string    `json:"id"`
+	Type      string    `json:"type"`
+	Title     string    `json:"title,omitempty"`
+	Content   string    `json:"content,omitempty"`
+	Args      string    `json:"args,omitempty"`
+	Data      string    `json:"data,omitempty"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// SpecialistActivityRecord persists the visible activity for a delegated specialist.
+type SpecialistActivityRecord struct {
+	ID               string                    `json:"id"`
+	SessionID        string                    `json:"sessionId"`
+	UserID           *int64                    `json:"userId,omitempty"`
+	RunID            string                    `json:"runId,omitempty"`
+	CallID           string                    `json:"callId"`
+	ParentCallID     string                    `json:"parentCallId,omitempty"`
+	Agent            string                    `json:"agent"`
+	Model            string                    `json:"model,omitempty"`
+	Prompt           string                    `json:"prompt,omitempty"`
+	Depth            int                       `json:"depth"`
+	Status           string                    `json:"status"`
+	Content          string                    `json:"content,omitempty"`
+	Entries          []SpecialistActivityEntry `json:"entries,omitempty"`
+	ThoughtSummaries []string                  `json:"thoughtSummaries,omitempty"`
+	Error            string                    `json:"error,omitempty"`
+	StartedAt        time.Time                 `json:"startedAt"`
+	UpdatedAt        time.Time                 `json:"updatedAt"`
+	FinishedAt       *time.Time                `json:"finishedAt,omitempty"`
+}
+
+// SpecialistActivityStore persists delegated specialist activity history per session.
+type SpecialistActivityStore interface {
+	Init(ctx context.Context) error
+	ListSessionActivities(ctx context.Context, userID *int64, sessionID string) ([]SpecialistActivityRecord, error)
+	UpsertSessionActivities(ctx context.Context, userID *int64, sessionID string, activities []SpecialistActivityRecord) error
+	DeleteSessionActivities(ctx context.Context, userID *int64, sessionID string) error
+	DeleteRunActivities(ctx context.Context, userID *int64, sessionID string, runID string) error
+}
+
 // FlowV2WorkflowRecord is the persisted representation of a Flow v2 workflow.
 type FlowV2WorkflowRecord struct {
 	UserID    int64               `json:"user_id"`

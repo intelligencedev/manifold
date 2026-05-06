@@ -51,6 +51,8 @@ Define and configure AI agents, then build your own team of experts.
 
 Configure projects as agent workspaces.
 
+Each project is isolated to its own root path. Agents only load skills from that project's `.skills/` folder, so every project that needs reusable skills must define its own `.skills` directory inside the project root.
+
 ![projects](docs/img/projects.webp)
 
 ### Integrated tools and MCP support
@@ -98,7 +100,41 @@ docker compose up -d pg-manifold manifold
 
 Then open <http://localhost:32180>.
 
+### Self-contained host run
+
+Manifold can also run without external database or telemetry services when you build `agentd` locally. Enable the embedded Postgres runtime and keep ClickHouse/OTLP unset:
+
+```yaml
+databases:
+  embedded: true
+  defaultDSN: ""
+
+obs:
+  otlp: ""
+  local:
+    enabled: true
+  clickhouse:
+    dsn: ""
+```
+
+With that configuration, `agentd` starts a bundled PostgreSQL process for durable state and serves metrics, logs, and traces from bounded process-local telemetry. You still need an LLM provider, which can be a remote API key or a local OpenAI-compatible endpoint.
+
 For the full deployment walkthrough, see:
 
 - [QUICKSTART.md](./QUICKSTART.md)
 - [docs/deployment.md](./docs/deployment.md)
+
+## Developers
+
+### Frontend feature gates
+
+`make build-manifold` builds `agentd` with the embedded frontend using the stable UI feature gate. Stable builds do render frontend undocumented features still in active development.
+
+To build the same backend and embedded frontend with beta UI links enabled, use either command:
+
+```bash
+make build-manifold-beta
+make build-manifold FEATURE_GATE=beta
+```
+
+The build passes `FEATURE_GATE` through to Vite as `VITE_MANIFOLD_FEATURE_GATE`.

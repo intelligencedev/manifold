@@ -18,18 +18,23 @@ import (
 	"manifold/internal/auth"
 	"manifold/internal/llm"
 	persist "manifold/internal/persistence"
+	"manifold/internal/sandbox"
 	"manifold/internal/workspaces"
 )
 
 type agentStreamTracer struct {
-	w  io.Writer
-	fl http.Flusher
-	mu *sync.Mutex
+	w       io.Writer
+	fl      http.Flusher
+	mu      *sync.Mutex
+	onTrace func(agent.AgentTrace)
 }
 
 func (t *agentStreamTracer) Trace(ev agent.AgentTrace) {
 	if t == nil || t.w == nil || t.fl == nil {
 		return
+	}
+	if t.onTrace != nil {
+		t.onTrace(ev)
 	}
 	payload := map[string]any{
 		"type":            ev.Type,
@@ -204,6 +209,8 @@ func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 		switch subresource {
 		case "messages":
 			setChatCORSHeaders(w, r, "GET, DELETE, OPTIONS")
+		case "activities":
+			setChatCORSHeaders(w, r, "GET, OPTIONS")
 		case "title":
 			setChatCORSHeaders(w, r, "POST, OPTIONS")
 		default:
@@ -211,6 +218,40 @@ func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if subresource == "activities" {
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			if a.activityStore == nil {
+				http.Error(w, "specialist activity unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			if _, err := a.chatStore.GetSession(r.Context(), userID, id); err != nil {
+				if errors.Is(err, persist.ErrForbidden) {
+					http.Error(w, "forbidden", http.StatusForbidden)
+					return
+				}
+				if errors.Is(err, persist.ErrNotFound) {
+					http.NotFound(w, r)
+					return
+				}
+				log.Error().Err(err).Str("session", id).Msg("get_chat_session_for_activities")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			activities, err := a.activityStore.ListSessionActivities(r.Context(), userID, id)
+			if err != nil {
+				log.Error().Err(err).Str("session", id).Msg("list_chat_activities")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(activities); err != nil {
+				log.Error().Err(err).Msg("encode_chat_activities")
+			}
 			return
 		}
 		if subresource == "messages" {
@@ -753,15 +794,17 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		}
 		r = state.Request
 		specOwner := state.Owner
+		req.ObjectiveID = a.resolveChatObjectiveID(r.Context(), specOwner, req)
+		r = r.WithContext(sandbox.WithObjectiveID(r.Context(), req.ObjectiveID))
 
 		target := resolveChatDispatchTarget(r.URL.Query())
-		_, hasCustomTarget := a.describeChatTarget(target, req.SessionID, req.SystemPrompt, specOwner)
+		_, hasCustomTarget := a.describeChatTarget(target, req.SessionID, req.ProjectID, req.ObjectiveID, req.SystemPrompt, specOwner)
 
 		if a.cfg.OpenAI.APIKey == "" && !hasCustomTarget {
 			a.handleDevMockChat(w, r, req.Prompt)
 			return
 		}
-		if handled := a.handleChatTarget(w, r, target, req.Prompt, req.SessionID, req.EphemeralSession, req.SystemPrompt, state.UserID, specOwner, a.agentRunOrchestratorDescriptor(r.Context(), specOwner, req, state.CheckedOutWorkspace)); handled {
+		if handled := a.handleChatTarget(w, r, target, req.Prompt, req.SessionID, req.ProjectID, req.ObjectiveID, req.EphemeralSession, req.SystemPrompt, state.UserID, specOwner, a.agentRunOrchestratorDescriptor(r.Context(), specOwner, req, state.CheckedOutWorkspace)); handled {
 			return
 		}
 	}
@@ -798,15 +841,17 @@ func (a *app) promptHandler() http.HandlerFunc {
 		}
 		r = state.Request
 		specOwner := state.Owner
+		req.ObjectiveID = a.resolveChatObjectiveID(r.Context(), specOwner, req)
+		r = r.WithContext(sandbox.WithObjectiveID(r.Context(), req.ObjectiveID))
 
 		target := resolveChatDispatchTarget(r.URL.Query())
-		_, hasCustomTarget := a.describeChatTarget(target, req.SessionID, req.SystemPrompt, specOwner)
+		_, hasCustomTarget := a.describeChatTarget(target, req.SessionID, req.ProjectID, req.ObjectiveID, req.SystemPrompt, specOwner)
 
 		if a.cfg.OpenAI.APIKey == "" && !hasCustomTarget {
 			a.handleDevMockChat(w, r, req.Prompt)
 			return
 		}
-		if handled := a.handleChatTarget(w, r, target, req.Prompt, req.SessionID, req.EphemeralSession, req.SystemPrompt, state.UserID, specOwner, a.promptOrchestratorDescriptor(r.Context(), specOwner, req, state.CheckedOutWorkspace)); handled {
+		if handled := a.handleChatTarget(w, r, target, req.Prompt, req.SessionID, req.ProjectID, req.ObjectiveID, req.EphemeralSession, req.SystemPrompt, state.UserID, specOwner, a.promptOrchestratorDescriptor(r.Context(), specOwner, req, state.CheckedOutWorkspace)); handled {
 			return
 		}
 	}

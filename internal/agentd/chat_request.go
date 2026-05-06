@@ -17,6 +17,7 @@ type chatRunRequest struct {
 	SessionID        string `json:"session_id,omitempty"`
 	EphemeralSession bool   `json:"ephemeral_session,omitempty"`
 	ProjectID        string `json:"project_id,omitempty"`
+	ObjectiveID      string `json:"objective_id,omitempty"`
 	RoomID           string `json:"room_id,omitempty"`
 	BotID            string `json:"bot_id,omitempty"`
 	SystemPrompt     string `json:"system_prompt,omitempty"`
@@ -35,6 +36,7 @@ func (req *chatRunRequest) normalize() {
 		req.SessionID = "default"
 	}
 	req.ProjectID = strings.TrimSpace(req.ProjectID)
+	req.ObjectiveID = strings.TrimSpace(req.ObjectiveID)
 	req.RoomID = strings.TrimSpace(req.RoomID)
 	req.BotID = strings.TrimSpace(req.BotID)
 	req.SystemPrompt = strings.TrimSpace(req.SystemPrompt)
@@ -54,6 +56,9 @@ func resolveChatDispatchTarget(query url.Values) chatDispatchTarget {
 
 func (a *app) prepareChatRunRequest(r *http.Request, userID *int64, req chatRunRequest) (*http.Request, *workspaces.Workspace, int, error) {
 	ctx := sandbox.WithSessionID(r.Context(), req.SessionID)
+	if req.ObjectiveID != "" {
+		ctx = sandbox.WithObjectiveID(ctx, req.ObjectiveID)
+	}
 	if req.RoomID != "" {
 		ctx = sandbox.WithRoomID(ctx, req.RoomID)
 		ctx = sandbox.WithMatrixOutbox(ctx, sandbox.NewMatrixOutbox())

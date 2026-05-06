@@ -1,8 +1,11 @@
 # Observability
 
-Manifold supports structured logging, OTLP export, and ClickHouse-backed metrics or trace queries.
+Manifold supports two observability modes:
 
-Observability is optional for local deployment. A basic first run only needs `pg-manifold` and `manifold`.
+- **Local process telemetry**: enabled by default with `obs.local.enabled: true`. Metrics, logs, and traces are stored in bounded in-memory buffers inside `agentd` and are visible in the Overview dashboard without ClickHouse or an OpenTelemetry Collector.
+- **Persistent telemetry**: optional ClickHouse and OTLP export for historical queries, cross-restart data, and external dashboards.
+
+A basic Docker first run only needs `pg-manifold` and `manifold`. A host run with embedded Postgres does not need external database or telemetry services.
 
 ## Logging
 
@@ -34,11 +37,43 @@ Sensitive information is redacted from logs where possible:
 - Large payloads are truncated (configurable via `OUTPUT_TRUNCATE_BYTES`)
 - Personal information is filtered based on patterns
 
+## Local Process Telemetry
+
+Local telemetry is the default no-third-party-services path:
+
+```yaml
+obs:
+  otlp: ""
+  local:
+    enabled: true
+    metricsWindowMinutes: 60
+    metricsBucketSeconds: 30
+    maxLogs: 5000
+    maxTraces: 1000
+    maxSpansPerTrace: 256
+  clickhouse:
+    dsn: ""
+```
+
+Dashboard endpoints return a `source` field so the UI can show where data came from:
+
+- `source: "process"`: local bounded in-process data.
+- `source: "clickhouse"`: persistent data queried from ClickHouse.
+- `source: "none"`: no provider is enabled or available.
+
+Local telemetry caveats:
+
+- Data resets when `agentd` restarts.
+- Data is scoped to one `agentd` process and does not aggregate multiple replicas.
+- Buffers are capped by the `obs.local` limits.
+
+Use local telemetry for local installs, development, and single-process runs. Add ClickHouse when you need durable observability history.
+
 ## OpenTelemetry
 
 ### OTLP Configuration
 
-To enable the included local observability stack, start:
+To enable the included persistent observability stack, start:
 
 ```bash
 docker compose up -d clickhouse otel-collector
@@ -68,13 +103,14 @@ Docker containers directory.
 If `OTEL_DOCKER_CONTAINER_LOG_DIR` is unset, the collector still accepts OTLP
 logs, traces, and metrics, but it will not see Docker-managed container logs.
 
-Then set the corresponding `.env` values if you want the app to export telemetry:
+Then set the corresponding `.env` or YAML values if you want the app to export telemetry:
 
 ```env
 OTEL_SERVICE_NAME=manifold
 SERVICE_VERSION=1.0.0
 ENVIRONMENT=production
 OTEL_EXPORTER_OTLP_ENDPOINT=otel-collector:4318
+CLICKHOUSE_DSN="http://default@clickhouse:8123?database=otel"
 ```
 
 The included compose file exposes the collector on host ports `4417` and `4418`, but the `manifold` container should use the compose service name `otel-collector`.
@@ -111,7 +147,8 @@ Token usage details:
 
 - **Implementation notes:**
   - The counters are created in `internal/llm/observability.go` and recorded by the LLM integration.
-  - Traces and span attributes are queried (for UI "Recent Runs" and traces) via ClickHouse in `internal/agentd/traces_clickhouse.go`.
+  - Process-local traces are retained by `internal/llm/observability.go` and exposed through `internal/agentd/process_metrics.go`.
+  - ClickHouse traces and span attributes are queried (for UI "Recent Runs" and traces) via `internal/agentd/traces_clickhouse.go`.
   - Config keys in `config.yaml` map these metric names for ClickHouse queries: `obs.clickhouse.promptMetricName` and `obs.clickhouse.completionMetricName`.
 
 Use these metric names/attributes when configuring dashboards or querying telemetry backends.
@@ -132,4 +169,5 @@ Monitor these key areas:
 1. Response times and streaming latency
 2. Error rates
 3. Tool execution duration and failures
-4. Database and ClickHouse query health
+4. Database health
+5. ClickHouse and collector health when persistent telemetry is enabled

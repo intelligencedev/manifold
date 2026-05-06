@@ -15,6 +15,8 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	agentpkg "manifold/internal/agent"
+	"manifold/internal/agent/memory"
 	"manifold/internal/auth"
 	llmpkg "manifold/internal/llm"
 	anthropicllm "manifold/internal/llm/anthropic"
@@ -33,15 +35,19 @@ type visionClientSelection struct {
 }
 
 func (v visionClientSelection) supportsCompaction() bool {
+	return providerSupportsCompaction(v.provider())
+}
+
+func (v visionClientSelection) provider() llmpkg.Provider {
 	switch {
 	case v.OpenAI != nil:
-		return providerSupportsCompaction(v.OpenAI)
+		return v.OpenAI
 	case v.Anthropic != nil:
-		return providerSupportsCompaction(v.Anthropic)
+		return v.Anthropic
 	case v.Google != nil:
-		return providerSupportsCompaction(v.Google)
+		return v.Google
 	default:
-		return false
+		return nil
 	}
 }
 
@@ -151,8 +157,10 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 			return
 		}
 
-		targetSupportsCompaction := visionSel.supportsCompaction()
-		history, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, targetSupportsCompaction)
+		history, _, err := a.chatMemory.BuildContextForProvider(r.Context(), userID, sessionID, visionSel.provider(), visionSel.Model, memory.SummaryPolicy{
+			TargetContextWindowTokens:    a.chatSummaryContextSize(0, visionSel.Model),
+			PlainTextContextWindowTokens: a.cfg.Summary.PlainTextContextWindowTokens,
+		})
 		if err != nil {
 			if errors.Is(err, persist.ErrForbidden) {
 				http.Error(w, "forbidden", http.StatusForbidden)
@@ -191,9 +199,7 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 			atts = append(atts, imgAtt{mime: mt, b64: base64.StdEncoding.EncodeToString(data)})
 		}
 
-		msgs := make([]llmpkg.Message, 0, len(history)+1)
-		msgs = append(msgs, history...)
-		msgs = append(msgs, llmpkg.Message{Role: "user", Content: prompt})
+		msgs := agentpkg.BuildInitialLLMMessages("", prompt, history)
 
 		vSeconds := a.cfg.AgentRunTimeoutSeconds
 		ctx, cancel, vDur := withMaybeTimeout(r.Context(), vSeconds)

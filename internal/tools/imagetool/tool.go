@@ -29,11 +29,12 @@ type DescribeTool struct {
 	Provider       llm.Provider
 	Workdir        string
 	DefaultModel   string
+	DefaultBaseURL string
 	NewWithBaseURL ProviderFactory
 }
 
-func NewDescribeTool(p llm.Provider, workdir, defaultModel string, f ProviderFactory) *DescribeTool {
-	return &DescribeTool{Provider: p, Workdir: workdir, DefaultModel: defaultModel, NewWithBaseURL: f}
+func NewDescribeTool(p llm.Provider, workdir, defaultModel, defaultBaseURL string, f ProviderFactory) *DescribeTool {
+	return &DescribeTool{Provider: p, Workdir: workdir, DefaultModel: defaultModel, DefaultBaseURL: defaultBaseURL, NewWithBaseURL: f}
 }
 
 func (t *DescribeTool) Name() string { return "describe_image" }
@@ -163,9 +164,6 @@ func (t *DescribeTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	} else {
 		userContent = "Describe the image below in plain text. Include objects, colors, scene, and any readable text."
 	}
-	// Use markdown image data URL so the assistant can detect an image in the text
-	userContent = userContent + "\n\n![image](data:" + mime + ";base64," + b64 + ")\n"
-
 	msgs := []llm.Message{{Role: "system", Content: sys}, {Role: "user", Content: userContent}}
 
 	// Prefer provider from context if the caller (agent/specialist) propagated one.
@@ -173,17 +171,21 @@ func (t *DescribeTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	if ctxProvider := tools.ProviderFromContext(ctx); ctxProvider != nil {
 		p = ctxProvider
 	}
-	// If caller requested a baseURL override, build a new provider using the
-	// supplied factory so the tool uses the correct base URL and headers.
-	if args.BaseURL != "" && t.NewWithBaseURL != nil {
-		if np := t.NewWithBaseURL(args.BaseURL); np != nil {
+	// If caller or config requested a baseURL override, build a new provider using
+	// the supplied factory so the tool uses the correct base URL and headers.
+	baseURL := strings.TrimSpace(args.BaseURL)
+	if baseURL == "" {
+		baseURL = strings.TrimSpace(t.DefaultBaseURL)
+	}
+	if baseURL != "" && t.NewWithBaseURL != nil {
+		if np := t.NewWithBaseURL(baseURL); np != nil {
 			p = np
 		}
 	}
-	model := args.Model
-	// Don't fallback to t.DefaultModel - let the provider use its own default model
-	// This ensures that when providers are propagated from context (specialists/agents),
-	// tools use the same model as the invoking agent/specialist.
+	model := strings.TrimSpace(args.Model)
+	if model == "" {
+		model = strings.TrimSpace(t.DefaultModel)
+	}
 
 	// Try to use OpenAI-specific image attachment method if available
 	if openaiClient, ok := p.(*openai.Client); ok {
@@ -195,6 +197,7 @@ func (t *DescribeTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	}
 
 	// Fallback to original data URL method for other providers
+	msgs[1].Content = userContent + "\n\n![image](data:" + mime + ";base64," + b64 + ")\n"
 	out, err := p.Chat(ctx, msgs, nil, model)
 	if err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}, nil

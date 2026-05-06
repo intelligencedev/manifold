@@ -39,7 +39,8 @@ help:
 	@echo "  make sonar-down          # stop local SonarQube stack"
 	@echo "  make build              # build host platform binaries into $(DIST)/"
 	@echo "  make build-agentd       # build only the agentd binary"
-	@echo "  make build-manifold    # build agentd + embedded frontend"
+	@echo "  make build-manifold     # build agentd + embedded frontend"
+	@echo "  make build-manifold-beta # build agentd + embedded frontend with beta UI links"
 	@echo "  make build-agent        # build only the agent binary"
 	@echo "  make frontend           # install frontend deps, then build Vue.js assets"
 	@echo "  make openapi            # generate docs/openapi/openapi.json"
@@ -218,8 +219,9 @@ FRONTEND_DIR := web/agentd-ui
 FRONTEND_SRC_DIST := $(FRONTEND_DIR)/dist
 FRONTEND_EMBED_DIR := internal/webui/dist
 PNPM := pnpm
+FEATURE_GATE ?= stable
 
-.PHONY: build-manifold
+.PHONY: build-manifold build-manifold-beta
 build-manifold: frontend | $(DIST)
 	@echo "Building agentd with embedded frontend into $(DIST)/"
 	go build -o $(DIST)/agentd ./cmd/agentd
@@ -227,6 +229,9 @@ build-manifold: frontend | $(DIST)
 	mkdir -p $(DIST)/manibot
 	go build -o $(DIST)/manibot/manibot ./cmd/manibot
 	@echo "agentd with frontend build complete"
+
+build-manifold-beta: FEATURE_GATE := beta
+build-manifold-beta: build-manifold
 
 
 # Build web UI server
@@ -242,8 +247,8 @@ frontend:
 	fi
 	@echo "Installing frontend dependencies in $(FRONTEND_DIR)"
 	cd $(FRONTEND_DIR) && $(PNPM) install --frozen-lockfile
-	@echo "Building frontend in $(FRONTEND_DIR)"
-	cd $(FRONTEND_DIR) && $(PNPM) run build
+	@echo "Building frontend in $(FRONTEND_DIR) with feature gate '$(FEATURE_GATE)'"
+	cd $(FRONTEND_DIR) && VITE_MANIFOLD_FEATURE_GATE=$(FEATURE_GATE) $(PNPM) run build
 	@if [ ! -d "$(FRONTEND_SRC_DIST)" ]; then \
 		echo "Frontend build output not found at $(FRONTEND_SRC_DIST)"; \
 		exit 1; \

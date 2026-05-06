@@ -428,7 +428,7 @@ function startPaneResize(event: PointerEvent) {
 
         <div
           v-if="current"
-          class="flex flex-wrap items-center gap-2 text-xs text-faint-foreground md:ml-auto"
+          class="ml-auto flex flex-wrap items-center gap-2 text-xs text-faint-foreground"
         >
           <span
             >Created
@@ -445,12 +445,11 @@ function startPaneResize(event: PointerEvent) {
     <div
       v-if="store.currentProjectId"
       ref="splitPaneRef"
-      class="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row lg:gap-0"
+      class="flex min-h-0 flex-1 flex-row gap-0"
     >
       <GlassCard
         flat
-        class="flex min-h-0 flex-col p-4 lg:min-w-0 lg:shrink-0 lg:p-6"
-        :class="['lg:pr-6']"
+        class="flex min-h-0 min-w-0 shrink-0 flex-col p-6 pr-6"
         :style="leftPaneStyle"
       >
         <div class="mb-4 flex items-center gap-3">
@@ -515,7 +514,7 @@ function startPaneResize(event: PointerEvent) {
         </div>
       </GlassCard>
 
-      <div class="hidden lg:flex lg:w-4 lg:shrink-0 lg:items-stretch lg:justify-center">
+      <div class="flex w-4 shrink-0 items-stretch justify-center">
         <button
           type="button"
           class="projects-splitter"
@@ -530,8 +529,7 @@ function startPaneResize(event: PointerEvent) {
 
       <GlassCard
         flat
-        class="flex min-h-0 flex-col p-4 lg:min-w-0 lg:shrink-0 lg:p-6"
-        :class="['lg:pl-6']"
+        class="flex min-h-0 min-w-0 shrink-0 flex-col p-6 pl-6"
         :style="rightPaneStyle"
       >
         <div

@@ -3,6 +3,7 @@ package specialists
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"sort"
 	"strconv"
@@ -25,6 +26,7 @@ type Agent struct {
 	Name                       string
 	Description                string
 	System                     string
+	UserPromptContext          string
 	Model                      string
 	SummaryContextWindowTokens int
 	EnableTools                bool
@@ -100,16 +102,18 @@ func (r *Registry) SetToolDiscovery(index *tooldiscovery.ToolIndex, autoDiscover
 
 func buildProvider(provider string, base config.LLMClientConfig, sc config.SpecialistConfig, httpClient *http.Client) (llm.Provider, string) {
 	hc := httpClient
-	if len(sc.ExtraHeaders) > 0 {
-		if hc == nil {
-			hc = http.DefaultClient
-		}
-		tr := hc.Transport
-		if tr == nil {
-			tr = http.DefaultTransport
-		}
-		hc = &http.Client{Transport: &headerTransport{base: tr, headers: sc.ExtraHeaders}}
+	if hc == nil {
+		hc = http.DefaultClient
 	}
+	tr := hc.Transport
+	if tr == nil {
+		tr = http.DefaultTransport
+	}
+	tr = &specialistTokenizeBypassTransport{base: tr}
+	if len(sc.ExtraHeaders) > 0 {
+		tr = &headerTransport{base: tr, headers: sc.ExtraHeaders}
+	}
+	hc = &http.Client{Transport: tr}
 
 	switch strings.ToLower(provider) {
 	case "google":
@@ -256,7 +260,7 @@ func (r *Registry) rebuildLocked() {
 	addendum := buildSystemPromptAddendum(agents)
 	if addendum != "" {
 		for _, a := range agents {
-			a.System = combineSystemPrompts(a.System, addendum)
+			a.UserPromptContext = addendum
 		}
 	}
 	r.agents = agents
@@ -320,6 +324,14 @@ func (r *Registry) AppendToSystemPrompt(base string) string {
 	addition := r.systemPromptAddendum
 	r.mu.RUnlock()
 	return combineSystemPrompts(base, addition)
+}
+
+// UserPromptContext returns the registry's specialist catalog as dynamic
+// context suitable for prepending to the current user prompt.
+func (r *Registry) UserPromptContext() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.systemPromptAddendum
 }
 
 // Get returns the named specialist.
@@ -408,7 +420,28 @@ func (a *Agent) buildMessages(history []llm.Message, user string) []llm.Message 
 	if strings.TrimSpace(user) != "" {
 		msgs = append(msgs, llm.Message{Role: "user", Content: user})
 	}
+	msgs = prependToCurrentUserMessage(msgs, a.UserPromptContext)
 	return msgs
+}
+
+func prependToCurrentUserMessage(msgs []llm.Message, section string) []llm.Message {
+	section = strings.TrimSpace(section)
+	if section == "" {
+		return msgs
+	}
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role != "user" {
+			continue
+		}
+		content := strings.TrimSpace(msgs[i].Content)
+		if content == "" {
+			msgs[i].Content = section
+		} else {
+			msgs[i].Content = section + "\n\n" + msgs[i].Content
+		}
+		return msgs
+	}
+	return append(msgs, llm.Message{Role: "user", Content: section})
 }
 
 func (a *Agent) mergedExtraParams() map[string]any {
@@ -477,10 +510,29 @@ type headerTransport struct {
 	headers map[string]string
 }
 
+type specialistTokenizeBypassTransport struct {
+	base http.RoundTripper
+}
+
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	r := req.Clone(req.Context())
 	for k, v := range t.headers {
 		r.Header.Set(k, v)
 	}
 	return t.base.RoundTrip(r)
+}
+
+func (t *specialistTokenizeBypassTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req != nil && req.Method == http.MethodPost && strings.HasSuffix(strings.TrimSpace(req.URL.Path), "/tokenize") {
+		body := `{"tokens":[]}`
+		return &http.Response{
+			StatusCode:    http.StatusOK,
+			Status:        "200 OK",
+			Header:        http.Header{"Content-Type": []string{"application/json"}},
+			Body:          io.NopCloser(strings.NewReader(body)),
+			ContentLength: int64(len(body)),
+			Request:       req,
+		}, nil
+	}
+	return t.base.RoundTrip(req)
 }

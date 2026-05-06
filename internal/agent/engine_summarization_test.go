@@ -5,15 +5,26 @@ import (
 	"testing"
 
 	"manifold/internal/llm"
+	"manifold/internal/tools"
 )
 
 type summaryOnlyProvider struct{}
+
+type runProvider struct{}
 
 func (p *summaryOnlyProvider) Chat(context.Context, []llm.Message, []llm.ToolSchema, string) (llm.Message, error) {
 	return llm.Message{Role: "assistant", Content: "summary"}, nil
 }
 
 func (p *summaryOnlyProvider) ChatStream(context.Context, []llm.Message, []llm.ToolSchema, string, llm.StreamHandler) error {
+	return nil
+}
+
+func (p *runProvider) Chat(context.Context, []llm.Message, []llm.ToolSchema, string) (llm.Message, error) {
+	return llm.Message{Role: "assistant", Content: "final"}, nil
+}
+
+func (p *runProvider) ChatStream(context.Context, []llm.Message, []llm.ToolSchema, string, llm.StreamHandler) error {
 	return nil
 }
 
@@ -71,5 +82,51 @@ func TestMaybeSummarizeKeepsLatestUserInRecentTail(t *testing.T) {
 	}
 	if summarized[latestUserIdx+1].Role != "assistant" || summarized[latestUserIdx+2].Role != "tool" {
 		t.Fatalf("expected assistant/tool to follow latest user, got %#v", summarized)
+	}
+}
+
+func TestRun_SkipInitialSummarizationConsumesFlag(t *testing.T) {
+	t.Parallel()
+
+	triggered := 0
+	eng := &Engine{
+		LLM:                             &runProvider{},
+		Tools:                           tools.NewRegistry(),
+		SummaryEnabled:                  true,
+		SkipInitialSummarization:        true,
+		ContextWindowTokens:             120,
+		SummaryReserveBufferTokens:      40,
+		SummaryMinKeepLastMessages:      2,
+		SummaryMaxSummaryChunkTokens:    256,
+		TokenizationFallbackToHeuristic: true,
+		MaxSteps:                        1,
+		OnSummaryTriggered: func(inputTokens, tokenBudget, messageCount, summarizedCount int) {
+			triggered++
+		},
+	}
+
+	history := []llm.Message{
+		{Role: "system", Content: "You are a helpful assistant."},
+		{Role: "user", Content: historyContextPrefix + "Older request that should have been summarized already."},
+		{Role: "assistant", Content: "Older answer that should have been summarized already."},
+		{Role: "user", Content: currentRequestPrefix + "Handle the next prompt."},
+		{Role: "assistant", Content: "Ready for the next prompt."},
+	}
+
+	if _, err := eng.Run(context.Background(), "new prompt that would otherwise overflow the budget", history); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if triggered != 0 {
+		t.Fatalf("expected initial engine summarization to be skipped, got %d triggers", triggered)
+	}
+	if eng.SkipInitialSummarization {
+		t.Fatalf("expected skip flag to be consumed after the run")
+	}
+
+	if _, err := eng.Run(context.Background(), "second prompt", history); err != nil {
+		t.Fatalf("second Run: %v", err)
+	}
+	if triggered == 0 {
+		t.Fatalf("expected subsequent runs to allow engine summarization once the skip flag is consumed")
 	}
 }

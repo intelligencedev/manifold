@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -258,9 +259,29 @@ func (a *app) requireUserID(r *http.Request) (int64, error) {
 // interface, which is required for using OpenAI Responses API compaction summaries.
 // Non-OpenAI providers (Anthropic, Google, etc.) do not support compaction.
 func providerSupportsCompaction(provider llm.Provider) bool {
-	if provider == nil {
+	return llm.ProviderSupportsCompaction(provider)
+}
+
+func summaryEndpointSupportsResponsesCompaction(providerName, api, summaryBaseURL string) bool {
+	providerName = strings.TrimSpace(providerName)
+	if providerName != "" && !strings.EqualFold(providerName, "openai") {
 		return false
 	}
-	_, ok := provider.(llm.CompactionProvider)
-	return ok
+	if !strings.EqualFold(api, "responses") {
+		return false
+	}
+	return isOpenAIResponsesCompactionBaseURL(summaryBaseURL)
+}
+
+func isOpenAIResponsesCompactionBaseURL(raw string) bool {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return true
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil || parsed.Host == "" {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	return host == "api.openai.com"
 }

@@ -21,7 +21,7 @@ export function useLogMetrics(selectedRange: Ref<MetricsTimeRangeValue>) {
       .sort((a, b) => Number(b.timestamp ?? 0) - Number(a.timestamp ?? 0))
       .map((log, idx) => ({
         ...log,
-        key: log.traceId || log.spanId || `${log.timestamp}-${idx}`,
+        key: log.id || log.traceId || log.spanId || `${log.timestamp}-${idx}`,
       }));
   });
 

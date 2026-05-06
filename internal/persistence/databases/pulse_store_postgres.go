@@ -1,0 +1,399 @@
+package databases
+
+import (
+	"context"
+	"manifold/internal/persistence"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+type pgPulseStore struct {
+	pool *pgxpool.Pool
+}
+
+func (s *pgPulseStore) Init(ctx context.Context) error {
+	_, err := s.pool.Exec(ctx, `
+CREATE TABLE IF NOT EXISTS pulse_rooms (
+	room_id TEXT NOT NULL,
+	bot_id TEXT NOT NULL DEFAULT '',
+    project_id TEXT,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    revision BIGINT NOT NULL DEFAULT 1,
+    active_claim_token TEXT,
+    active_claim_until TIMESTAMPTZ,
+    last_pulse_attempt_at TIMESTAMPTZ,
+    last_pulse_completed_at TIMESTAMPTZ,
+    last_pulse_summary TEXT,
+    last_pulse_error TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	PRIMARY KEY (room_id, bot_id)
+);
+ALTER TABLE pulse_rooms ADD COLUMN IF NOT EXISTS bot_id TEXT NOT NULL DEFAULT '';
+CREATE TABLE IF NOT EXISTS pulse_tasks (
+    id TEXT PRIMARY KEY,
+	room_id TEXT NOT NULL,
+	bot_id TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    interval_seconds INTEGER NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    last_run_at TIMESTAMPTZ,
+    last_result_summary TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	CONSTRAINT pulse_tasks_room_id_bot_id_fkey
+		FOREIGN KEY (room_id, bot_id) REFERENCES pulse_rooms(room_id, bot_id) ON DELETE CASCADE
+);
+ALTER TABLE pulse_tasks ADD COLUMN IF NOT EXISTS bot_id TEXT NOT NULL DEFAULT '';
+
+DO $$
+BEGIN
+	IF EXISTS (
+		SELECT 1
+		FROM information_schema.table_constraints
+		WHERE table_schema = current_schema()
+		  AND table_name = 'pulse_tasks'
+		  AND constraint_name = 'pulse_tasks_room_id_fkey'
+	) THEN
+		ALTER TABLE pulse_tasks DROP CONSTRAINT pulse_tasks_room_id_fkey;
+	END IF;
+END
+$$;
+
+DO $$
+BEGIN
+	IF EXISTS (
+		SELECT 1
+		FROM pg_constraint c
+		JOIN pg_class t ON t.oid = c.conrelid
+		JOIN pg_namespace n ON n.oid = t.relnamespace
+		WHERE n.nspname = current_schema()
+		  AND t.relname = 'pulse_rooms'
+		  AND c.conname = 'pulse_rooms_pkey'
+		  AND c.contype = 'p'
+		  AND pg_get_constraintdef(c.oid) <> 'PRIMARY KEY (room_id, bot_id)'
+	) THEN
+		ALTER TABLE pulse_rooms DROP CONSTRAINT pulse_rooms_pkey;
+	END IF;
+END
+$$;
+
+DO $$
+BEGIN
+	IF NOT EXISTS (
+		SELECT 1
+		FROM information_schema.table_constraints
+		WHERE table_schema = current_schema()
+		  AND table_name = 'pulse_rooms'
+		  AND constraint_name = 'pulse_rooms_pkey'
+	) THEN
+		ALTER TABLE pulse_rooms ADD CONSTRAINT pulse_rooms_pkey PRIMARY KEY (room_id, bot_id);
+	END IF;
+END
+$$;
+
+DO $$
+BEGIN
+	IF NOT EXISTS (
+		SELECT 1
+		FROM information_schema.table_constraints
+		WHERE table_schema = current_schema()
+		  AND table_name = 'pulse_tasks'
+		  AND constraint_name = 'pulse_tasks_room_id_bot_id_fkey'
+	) THEN
+		ALTER TABLE pulse_tasks
+			ADD CONSTRAINT pulse_tasks_room_id_bot_id_fkey
+			FOREIGN KEY (room_id, bot_id) REFERENCES pulse_rooms(room_id, bot_id) ON DELETE CASCADE;
+	END IF;
+END
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_pulse_rooms_enabled ON pulse_rooms(enabled);
+CREATE INDEX IF NOT EXISTS idx_pulse_rooms_claim_until ON pulse_rooms(active_claim_until);
+CREATE INDEX IF NOT EXISTS idx_pulse_rooms_bot_room ON pulse_rooms(bot_id, room_id);
+CREATE INDEX IF NOT EXISTS idx_pulse_tasks_room_id ON pulse_tasks(room_id, bot_id);
+CREATE INDEX IF NOT EXISTS idx_pulse_tasks_enabled ON pulse_tasks(room_id, bot_id, enabled);
+`)
+	return err
+}
+
+func (s *pgPulseStore) EnsureRoom(ctx context.Context, roomID, botID string) (persistence.PulseRoom, error) {
+	roomID = strings.TrimSpace(roomID)
+	botID = strings.TrimSpace(botID)
+	if roomID == "" {
+		return persistence.PulseRoom{}, persistence.ErrNotFound
+	}
+	_, err := s.pool.Exec(ctx, `
+INSERT INTO pulse_rooms (room_id, bot_id, enabled)
+VALUES ($1, $2, TRUE)
+ON CONFLICT (room_id, bot_id) DO NOTHING
+`, roomID, botID)
+	if err != nil {
+		return persistence.PulseRoom{}, err
+	}
+	return s.GetRoom(ctx, roomID, botID)
+}
+
+func (s *pgPulseStore) GetRoom(ctx context.Context, roomID, botID string) (persistence.PulseRoom, error) {
+	var room persistence.PulseRoom
+	var projectID, claimToken, summary, pulseErr *string
+	var claimUntil, attemptAt, completedAt *time.Time
+	err := s.pool.QueryRow(ctx, `
+SELECT room_id, bot_id, project_id, enabled, revision, active_claim_token, active_claim_until,
+       last_pulse_attempt_at, last_pulse_completed_at, last_pulse_summary, last_pulse_error,
+       created_at, updated_at
+FROM pulse_rooms
+WHERE room_id = $1 AND bot_id = $2
+`, strings.TrimSpace(roomID), strings.TrimSpace(botID)).Scan(
+		&room.RoomID,
+		&room.BotID,
+		&projectID,
+		&room.Enabled,
+		&room.Revision,
+		&claimToken,
+		&claimUntil,
+		&attemptAt,
+		&completedAt,
+		&summary,
+		&pulseErr,
+		&room.CreatedAt,
+		&room.UpdatedAt,
+	)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return persistence.PulseRoom{}, persistence.ErrNotFound
+		}
+		return persistence.PulseRoom{}, err
+	}
+	if projectID != nil {
+		room.ProjectID = *projectID
+	}
+	if claimToken != nil {
+		room.ActiveClaimToken = *claimToken
+	}
+	if claimUntil != nil {
+		room.ActiveClaimUntil = claimUntil.UTC()
+	}
+	if attemptAt != nil {
+		room.LastPulseAttemptAt = attemptAt.UTC()
+	}
+	if completedAt != nil {
+		room.LastPulseCompletedAt = completedAt.UTC()
+	}
+	if summary != nil {
+		room.LastPulseSummary = *summary
+	}
+	if pulseErr != nil {
+		room.LastPulseError = *pulseErr
+	}
+	return room, nil
+}
+
+func (s *pgPulseStore) ListRooms(ctx context.Context, botID string) ([]persistence.PulseRoom, error) {
+	rows, err := s.pool.Query(ctx, `
+SELECT room_id, bot_id, project_id, enabled, revision, active_claim_token, active_claim_until,
+       last_pulse_attempt_at, last_pulse_completed_at, last_pulse_summary, last_pulse_error,
+       created_at, updated_at
+FROM pulse_rooms
+WHERE bot_id = $1
+ORDER BY room_id ASC, bot_id ASC
+`, strings.TrimSpace(botID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []persistence.PulseRoom
+	for rows.Next() {
+		room, err := scanPulseRoom(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, room)
+	}
+	return out, rows.Err()
+}
+
+func (s *pgPulseStore) UpsertRoom(ctx context.Context, room persistence.PulseRoom) (persistence.PulseRoom, error) {
+	roomID := strings.TrimSpace(room.RoomID)
+	botID := strings.TrimSpace(room.BotID)
+	if roomID == "" {
+		return persistence.PulseRoom{}, persistence.ErrNotFound
+	}
+	_, err := s.pool.Exec(ctx, `
+INSERT INTO pulse_rooms (
+	room_id, bot_id, project_id, enabled, active_claim_token, active_claim_until,
+    last_pulse_attempt_at, last_pulse_completed_at, last_pulse_summary, last_pulse_error,
+    created_at, updated_at
+)
+VALUES ($1, $2, NULLIF($3, ''), $4, NULLIF($5, ''), $6, $7, $8, NULLIF($9, ''), NULLIF($10, ''), NOW(), NOW())
+ON CONFLICT (room_id, bot_id) DO UPDATE SET
+    project_id = EXCLUDED.project_id,
+    enabled = EXCLUDED.enabled,
+    active_claim_token = EXCLUDED.active_claim_token,
+    active_claim_until = EXCLUDED.active_claim_until,
+    last_pulse_attempt_at = COALESCE(EXCLUDED.last_pulse_attempt_at, pulse_rooms.last_pulse_attempt_at),
+    last_pulse_completed_at = COALESCE(EXCLUDED.last_pulse_completed_at, pulse_rooms.last_pulse_completed_at),
+    last_pulse_summary = COALESCE(EXCLUDED.last_pulse_summary, pulse_rooms.last_pulse_summary),
+    last_pulse_error = COALESCE(EXCLUDED.last_pulse_error, pulse_rooms.last_pulse_error),
+    updated_at = NOW(),
+    revision = pulse_rooms.revision + 1
+`, roomID, botID, strings.TrimSpace(room.ProjectID), room.Enabled, strings.TrimSpace(room.ActiveClaimToken), nullTime(room.ActiveClaimUntil), nullTime(room.LastPulseAttemptAt), nullTime(room.LastPulseCompletedAt), emptyToNil(room.LastPulseSummary), emptyToNil(room.LastPulseError))
+	if err != nil {
+		return persistence.PulseRoom{}, err
+	}
+	return s.GetRoom(ctx, roomID, botID)
+}
+
+func (s *pgPulseStore) ListTasks(ctx context.Context, roomID, botID string) ([]persistence.PulseTask, error) {
+	rows, err := s.pool.Query(ctx, `
+SELECT id, room_id, bot_id, title, prompt, interval_seconds, enabled, last_run_at, last_result_summary, created_at, updated_at
+FROM pulse_tasks
+WHERE room_id = $1 AND bot_id = $2
+ORDER BY created_at ASC, id ASC
+`, strings.TrimSpace(roomID), strings.TrimSpace(botID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make([]persistence.PulseTask, 0, 8)
+	for rows.Next() {
+		task, err := scanPulseTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, task)
+	}
+	return out, rows.Err()
+}
+
+func (s *pgPulseStore) UpsertTask(ctx context.Context, task persistence.PulseTask) (persistence.PulseTask, error) {
+	roomID := strings.TrimSpace(task.RoomID)
+	botID := strings.TrimSpace(task.BotID)
+	if roomID == "" {
+		return persistence.PulseTask{}, persistence.ErrNotFound
+	}
+	if _, err := s.EnsureRoom(ctx, roomID, botID); err != nil {
+		return persistence.PulseTask{}, err
+	}
+	if strings.TrimSpace(task.ID) == "" {
+		task.ID = uuid.NewString()
+	}
+	if task.IntervalSeconds <= 0 {
+		task.IntervalSeconds = 300
+	}
+	_, err := s.pool.Exec(ctx, `
+INSERT INTO pulse_tasks (
+	id, room_id, bot_id, title, prompt, interval_seconds, enabled, last_run_at, last_result_summary, created_at, updated_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, ''), NOW(), NOW())
+ON CONFLICT (id) DO UPDATE SET
+    room_id = EXCLUDED.room_id,
+	bot_id = EXCLUDED.bot_id,
+    title = EXCLUDED.title,
+    prompt = EXCLUDED.prompt,
+    interval_seconds = EXCLUDED.interval_seconds,
+    enabled = EXCLUDED.enabled,
+    last_run_at = COALESCE(EXCLUDED.last_run_at, pulse_tasks.last_run_at),
+    last_result_summary = COALESCE(EXCLUDED.last_result_summary, pulse_tasks.last_result_summary),
+    updated_at = NOW()
+`, task.ID, roomID, botID, strings.TrimSpace(task.Title), strings.TrimSpace(task.Prompt), task.IntervalSeconds, task.Enabled, nullTime(task.LastRunAt), emptyToNil(task.LastResultSummary))
+	if err != nil {
+		return persistence.PulseTask{}, err
+	}
+	return s.getTask(ctx, roomID, botID, task.ID)
+}
+
+func (s *pgPulseStore) DeleteTask(ctx context.Context, roomID, botID, taskID string) error {
+	cmd, err := s.pool.Exec(ctx, `
+DELETE FROM pulse_tasks
+WHERE room_id = $1 AND bot_id = $2 AND id = $3
+`, strings.TrimSpace(roomID), strings.TrimSpace(botID), strings.TrimSpace(taskID))
+	if err != nil {
+		return err
+	}
+	if cmd.RowsAffected() == 0 {
+		return persistence.ErrNotFound
+	}
+	return nil
+}
+
+func (s *pgPulseStore) ClaimRoom(ctx context.Context, roomID, botID, token string, leaseUntil time.Time) (bool, error) {
+	cmd, err := s.pool.Exec(ctx, `
+UPDATE pulse_rooms
+SET active_claim_token = $2,
+    active_claim_until = $3,
+    last_pulse_attempt_at = NOW(),
+    updated_at = NOW(),
+    revision = revision + 1
+WHERE room_id = $1
+  AND bot_id = $4
+  AND (active_claim_until IS NULL OR active_claim_until <= NOW() OR active_claim_token = $2)
+`, strings.TrimSpace(roomID), strings.TrimSpace(token), leaseUntil.UTC(), strings.TrimSpace(botID))
+	if err != nil {
+		return false, err
+	}
+	return cmd.RowsAffected() > 0, nil
+}
+
+func (s *pgPulseStore) ClearRoomClaim(ctx context.Context, roomID, botID string) error {
+	cmd, err := s.pool.Exec(ctx, `
+UPDATE pulse_rooms
+SET active_claim_token = NULL,
+    active_claim_until = NULL,
+    updated_at = NOW(),
+    revision = revision + 1
+WHERE room_id = $1 AND bot_id = $2
+`, strings.TrimSpace(roomID), strings.TrimSpace(botID))
+	if err != nil {
+		return err
+	}
+	if cmd.RowsAffected() == 0 {
+		return persistence.ErrNotFound
+	}
+	return nil
+}
+
+func (s *pgPulseStore) CompleteRoomPulse(ctx context.Context, roomID, botID, token string, completedAt time.Time, summary, pulseErr string, dueTaskIDs []string) error {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	cmd, err := tx.Exec(ctx, `
+UPDATE pulse_rooms
+SET active_claim_token = NULL,
+    active_claim_until = NULL,
+    last_pulse_completed_at = $3,
+    last_pulse_summary = NULLIF($4, ''),
+    last_pulse_error = NULLIF($5, ''),
+    updated_at = NOW(),
+    revision = revision + 1
+WHERE room_id = $1 AND bot_id = $6 AND active_claim_token = $2
+`, strings.TrimSpace(roomID), strings.TrimSpace(token), completedAt.UTC(), summary, pulseErr, strings.TrimSpace(botID))
+	if err != nil {
+		return err
+	}
+	if cmd.RowsAffected() == 0 {
+		return persistence.ErrRevisionConflict
+	}
+	if len(dueTaskIDs) > 0 {
+		if _, err := tx.Exec(ctx, `
+UPDATE pulse_tasks
+SET last_run_at = $3,
+    last_result_summary = NULLIF($4, ''),
+    updated_at = NOW()
+WHERE room_id = $1 AND bot_id = $5 AND id = ANY($2)
+`, strings.TrimSpace(roomID), dueTaskIDs, completedAt.UTC(), summary, strings.TrimSpace(botID)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}

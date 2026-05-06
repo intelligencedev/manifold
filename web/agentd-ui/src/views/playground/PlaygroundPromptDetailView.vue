@@ -1,207 +1,122 @@
 <template>
-  <div v-if="prompt" class="flex h-full min-h-0 flex-col gap-6 overflow-hidden">
-    <!-- Prompt header/summary -->
-    <section
-      class="space-y-2"
-    >
-      <div class="flex items-center justify-between gap-4">
-        <div>
-          <h2 class="text-xl font-semibold break-words">{{ prompt.name }}</h2>
-          <p class="text-sm text-subtle-foreground break-words">
-            {{ prompt.description || "No description provided." }}
-          </p>
-        </div>
-        <div class="flex items-center gap-2 shrink-0">
-          <RouterLink
-            to="/playground/prompts"
-            class="text-sm text-accent hover:underline"
-            >Back to prompts</RouterLink
-          >
-          <button
-            class="rounded border border-danger/60 text-danger/60 px-3 py-1.5 text-sm"
-            @click="deletePrompt(promptId)"
-          >
-            Delete
-          </button>
-        </div>
-      </div>
-      <div class="text-sm text-subtle-foreground break-words">
-        Tags: {{ prompt.tags?.join(", ") || "—" }}
-      </div>
-      <div class="text-sm text-subtle-foreground">
-        Created: {{ formatDate(prompt.createdAt) }}
-      </div>
-    </section>
+  <div v-if="prompt" class="flex h-full min-h-0 flex-col overflow-hidden">
 
-    <!-- Content grid: left = versions list, right = selected details + create form -->
-    <div
-      class="flex-1 min-h-0 grid gap-6 lg:grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)]"
-    >
-      <!-- Left: Versions list (scrollable) -->
-      <section
-        class="flex min-h-0 flex-col gap-3"
+    <!-- Single-row header: back · name/meta · delete -->
+    <header class="mb-4 flex shrink-0 items-center gap-4 border-b border-border/60 pb-3">
+      <RouterLink
+        to="/playground/prompts"
+        class="flex shrink-0 items-center gap-1.5 rounded-lg border border-border/70 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted/60"
       >
-        <header class="flex items-center justify-between">
-          <div>
-            <h3 class="text-lg font-semibold">Versions</h3>
-            <p class="text-sm text-subtle-foreground">Most recent first.</p>
-          </div>
-          <button
-            @click="refreshVersions(promptId)"
-            class="rounded border border-border/70 px-3 py-2 text-sm"
-          >
-            Refresh
-          </button>
-        </header>
-        <div class="flex-1 min-h-0 overflow-auto overscroll-contain pr-1">
-          <table class="w-full text-sm table-fixed">
-            <thead class="text-subtle-foreground sticky top-0 bg-surface">
-              <tr>
-                <th class="text-left py-2 pr-2">Version</th>
-                <th class="text-left py-2 pr-2">Created</th>
-                <th class="text-left py-2">Hash</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr
-                v-for="version in versions"
-                :key="version.id"
-                class="border-t border-border/60 cursor-pointer transition-colors"
-                :class="{
-                  'bg-accent/10': version.id === selectedVersionId,
-                  'hover:bg-muted/60': version.id !== selectedVersionId,
-                }"
-                @click="selectVersion(version.id)"
-              >
-                <td class="py-2 pr-2 font-medium">
-                  {{ version.semver || version.id }}
-                </td>
-                <td class="py-2 pr-2 text-subtle-foreground">
-                  {{ formatDate(version.createdAt) }}
-                </td>
-                <td
-                  class="py-2 text-xs font-mono text-subtle-foreground break-all"
-                >
-                  {{ version.contentHash || "—" }}
-                </td>
-              </tr>
-              <tr v-if="versionsLoading">
-                <td colspan="3" class="py-3 text-center text-subtle-foreground">
-                  Loading…
-                </td>
-              </tr>
-              <tr v-else-if="versions.length === 0">
-                <td colspan="3" class="py-3 text-center text-subtle-foreground">
-                  No versions yet.
-                </td>
-              </tr>
-            </tbody>
-          </table>
+        ← All Prompts
+      </RouterLink>
+
+      <div class="min-w-0 flex-1">
+        <h2 class="truncate text-base font-semibold leading-tight">{{ prompt.name }}</h2>
+        <div class="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0 text-xs text-subtle-foreground">
+          <span v-if="prompt.description" class="max-w-sm truncate">{{ prompt.description }}</span>
+          <span v-if="prompt.tags?.length">{{ prompt.tags.join(", ") }}</span>
+          <span>{{ formatDate(prompt.createdAt) }}</span>
+          <span>{{ versions.length }} version{{ versions.length !== 1 ? "s" : "" }}</span>
         </div>
-      </section>
-
-      <!-- Right: Selected version details + Create form -->
-      <div class="flex min-h-0 flex-col overflow-hidden gap-6">
-        <!-- Selected version details -->
-        <section
-          v-if="selectedVersion"
-          class="flex-1 min-h-0 flex flex-col gap-4"
-        >
-          <header class="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h3 class="text-lg font-semibold">Selected Version</h3>
-              <p class="text-sm text-subtle-foreground">
-                Version {{ selectedVersion.semver || selectedVersion.id }} ·
-                Created {{ formatDate(selectedVersion.createdAt) }}
-              </p>
-            </div>
-            <div class="flex items-center gap-2">
-              <button
-                @click="loadIntoForm(selectedVersion)"
-                class="rounded border border-border/70 px-3 py-2 text-sm"
-              >
-                Load into form
-              </button>
-            </div>
-          </header>
-        </section>
-        <section
-          v-else
-          class="text-sm text-subtle-foreground"
-        >
-          Select a version to view details.
-        </section>
-
-        <!-- Create Version -->
-        <section
-          class="space-y-4"
-        >
-          <header>
-            <h3 class="text-lg font-semibold">Create Version</h3>
-            <p class="text-sm text-subtle-foreground">
-              Provide a template and optional configuration.
-            </p>
-          </header>
-          <form
-            class="grid gap-3 md:grid-cols-2"
-            @submit.prevent="handleCreateVersion"
-          >
-            <label class="text-sm">
-              <span class="text-subtle-foreground mb-1">Version (semver)</span>
-              <input
-                v-model="versionForm.semver"
-                placeholder="1.0.0"
-                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2"
-              />
-            </label>
-            <label class="text-sm">
-              <span class="text-subtle-foreground mb-1"
-                >Variables (JSON map)</span
-              >
-              <textarea
-                v-model="versionForm.variables"
-                rows="3"
-                placeholder='{"name":{"type":"string"}}'
-                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2"
-              ></textarea>
-            </label>
-            <label class="text-sm md:col-span-2">
-              <span class="text-subtle-foreground mb-1">Template</span>
-              <textarea
-                v-model="versionForm.template"
-                required
-                rows="6"
-                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 font-mono text-sm"
-              ></textarea>
-            </label>
-            <label class="text-sm md:col-span-2">
-              <span class="text-subtle-foreground mb-1">Guardrails (JSON)</span>
-              <textarea
-                v-model="versionForm.guardrails"
-                rows="3"
-                placeholder='{"maxTokens": 200}'
-                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2"
-              ></textarea>
-            </label>
-            <div class="md:col-span-2 flex gap-3 items-center">
-              <button
-                type="submit"
-                class="rounded border border-border/70 px-3 py-2 text-sm font-semibold"
-              >
-                Create version
-              </button>
-              <span
-                v-if="createMessage"
-                class="text-sm text-subtle-foreground"
-                >{{ createMessage }}</span
-              >
-            </div>
-          </form>
-        </section>
       </div>
+
+      <button
+        class="shrink-0 rounded border border-danger/50 px-3 py-1.5 text-sm text-danger/70 transition-colors hover:bg-danger/10"
+        @click="deletePrompt(promptId)"
+      >
+        Delete
+      </button>
+    </header>
+
+    <!-- Two-column workspace: editor left, versions right -->
+    <div class="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_280px] gap-4">
+
+      <!-- Editor column -->
+      <form class="flex min-h-0 flex-col" @submit.prevent="handleCreateVersion">
+        <textarea
+          v-model="versionForm.template"
+          required
+          placeholder="Write the system prompt here…"
+          class="min-h-0 flex-1 resize-none rounded-t-xl border border-border/70 bg-surface-muted/60 px-4 py-3 font-mono text-sm leading-6 outline-none placeholder:text-subtle-foreground/50 focus:border-accent/60"
+        ></textarea>
+
+        <!-- Action bar — attached flush to the textarea bottom -->
+        <div class="flex flex-wrap items-center gap-3 rounded-b-xl border border-t-0 border-border/70 bg-surface/80 px-4 py-2.5">
+          <input
+            v-model="versionForm.semver"
+            placeholder="semver (1.0.0)"
+            class="w-28 shrink-0 rounded border border-border/70 bg-surface-muted/70 px-2.5 py-1.5 text-xs outline-none focus:border-accent/60"
+          />
+          <label class="flex min-w-0 flex-1 items-center gap-2">
+            <span class="shrink-0 text-xs text-subtle-foreground">Variables</span>
+            <input
+              v-model="versionForm.variables"
+              placeholder='{"name":{"type":"string"}}'
+              class="min-w-0 flex-1 rounded border border-border/70 bg-surface-muted/70 px-2.5 py-1.5 font-mono text-xs outline-none focus:border-accent/60"
+            />
+          </label>
+          <label class="flex min-w-0 flex-1 items-center gap-2">
+            <span class="shrink-0 text-xs text-subtle-foreground">Guardrails</span>
+            <input
+              v-model="versionForm.guardrails"
+              placeholder='{"maxTokens":200}'
+              class="min-w-0 flex-1 rounded border border-border/70 bg-surface-muted/70 px-2.5 py-1.5 font-mono text-xs outline-none focus:border-accent/60"
+            />
+          </label>
+          <div class="flex shrink-0 items-center gap-3">
+            <span v-if="createMessage" class="text-xs text-subtle-foreground">{{ createMessage }}</span>
+            <button
+              type="submit"
+              class="rounded border border-border/70 px-4 py-1.5 text-sm font-semibold transition-colors hover:bg-muted/60"
+            >
+              Save version
+            </button>
+          </div>
+        </div>
+      </form>
+
+      <!-- Versions sidebar -->
+      <aside class="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border/60 bg-surface/60">
+        <div class="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-2.5">
+          <h3 class="text-sm font-semibold">Versions</h3>
+          <span class="text-xs text-subtle-foreground">{{ versions.length }} total</span>
+        </div>
+
+        <div class="min-h-0 flex-1 overflow-auto overscroll-contain">
+          <div v-if="versionsLoading" class="p-4 text-center text-sm text-subtle-foreground">
+            Loading…
+          </div>
+          <div v-else-if="versions.length === 0" class="p-4 text-center text-sm text-subtle-foreground">
+            No versions yet.
+          </div>
+          <div
+            v-else
+            v-for="version in versions"
+            :key="version.id"
+            class="flex cursor-pointer items-center justify-between gap-3 border-b border-border/40 px-4 py-2.5 transition-colors"
+            :class="{
+              'bg-accent/10': version.id === selectedVersionId,
+              'hover:bg-muted/60': version.id !== selectedVersionId,
+            }"
+            @click="selectVersion(version.id)"
+          >
+            <div class="min-w-0">
+              <div class="truncate text-sm font-medium">{{ version.semver || version.id }}</div>
+              <div class="text-xs text-subtle-foreground">{{ formatDate(version.createdAt) }}</div>
+            </div>
+            <button
+              v-if="version.id === selectedVersionId"
+              @click.stop="loadIntoForm(version)"
+              class="shrink-0 rounded border border-border/70 px-2.5 py-1 text-xs transition-colors hover:bg-muted/60"
+            >
+              Load
+            </button>
+          </div>
+        </div>
+      </aside>
     </div>
   </div>
-  <p v-else class="text-subtle-foreground text-sm">Loading prompt…</p>
+  <p v-else class="text-sm text-subtle-foreground">Loading prompt…</p>
 </template>
 
 <script setup lang="ts">
@@ -336,7 +251,6 @@ function prefillFromLatest() {
     versionForm.template = v.template || "";
     versionForm.variables = v.variables ? asPrettyJSON(v.variables) : "";
     versionForm.guardrails = v.guardrails ? asPrettyJSON(v.guardrails) : "";
-    // leave semver blank by default for new version
   }
 }
 
@@ -349,12 +263,9 @@ function selectVersion(id: string) {
   }
 }
 
-// Track manual edits to avoid overwriting user's input
 watch(
   () => ({ ...versionForm }),
   () => {
-    // If user starts typing, mark dirty. Programmatic updates also trigger this,
-    // but we explicitly set formDirty in loadIntoForm/prefillFromLatest accordingly.
     formDirty.value = true;
   },
 );

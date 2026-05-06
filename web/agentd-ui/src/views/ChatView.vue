@@ -1,11 +1,11 @@
 <template>
   <div class="flex h-full min-h-0 flex-1 overflow-hidden chat-modern">
     <section
-      class="grid h-full flex-1 min-h-0 overflow-hidden gap-4 lg:gap-0 lg:grid-cols-[280px_1fr] xl:grid-cols-[300px_1fr_260px] chat-grid"
+      class="grid h-full min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)_260px] overflow-hidden chat-grid"
     >
       <!-- Sessions sidebar -->
       <aside
-        class="hidden h-full min-h-0 lg:flex flex-col gap-3 overflow-hidden p-4 lg:border-r lg:border-border/60 lg:pr-5"
+        class="flex h-full min-h-0 flex-col gap-3 overflow-hidden border-r border-border/60 p-4 pr-5"
       >
         <header class="flex items-center justify-between gap-2">
           <h2 class="text-sm font-semibold text-foreground">Conversations</h2>
@@ -161,7 +161,7 @@
 
       <!-- Chat pane -->
       <section
-        class="relative flex h-full min-h-0 flex-col overflow-hidden chat-pane xl:px-5"
+        class="relative flex h-full min-h-0 flex-col overflow-hidden px-5 chat-pane"
       >
         <header
           class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 pb-4 pt-1"
@@ -262,144 +262,277 @@
             </p>
           </div>
 
-          <article
+          <div
             v-for="message in chatMessages"
             :key="message.id"
-            class="relative max-w-[72ch] glass-surface rounded-[var(--radius,18px)] border border-white/12 p-5"
-            :class="message.role === 'user' ? 'ml-auto' : ''"
+            class="group/msg relative flex w-full flex-col"
+            :class="message.role === 'user' ? 'items-end' : 'items-center'"
           >
-            <header class="flex flex-wrap items-center gap-2">
-              <template v-if="message.role === 'assistant'">
-                <span
-                  class="rounded-full bg-accent/10 px-2 py-1 text-xs font-semibold text-accent"
-                >
-                  {{ agentNameFor(message) }}
-                </span>
-              </template>
-              <span
-                v-else
-                class="rounded-full bg-surface-muted px-2 py-1 text-xs font-semibold text-muted-foreground"
-              >
-                {{ labelForRole(message.role) }}
-              </span>
-              <span class="text-xs text-faint-foreground">{{
-                formatTimestamp(message.createdAt)
-              }}</span>
-              <span
-                v-if="shouldShowResponseTimer(message)"
-                class="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold tabular-nums"
-                :class="
-                  message.streaming
-                    ? 'border-accent/30 bg-accent/10 text-accent'
-                    : 'border-border/60 bg-surface-muted/40 text-faint-foreground'
-                "
-                :title="
-                  message.streaming
-                    ? 'Response time (running)'
-                    : 'Response time'
-                "
-              >
-                {{ formatDuration(responseElapsedMs(message.id)) }}
-              </span>
-              <span
-                v-if="message.streaming"
-                class="flex items-center gap-1 text-xs text-accent"
-              >
-                <span
-                  class="h-1.5 w-1.5 animate-pulse rounded-full bg-accent"
-                ></span>
-                Streaming
-              </span>
-              <span
-                v-if="message.error"
-                class="rounded bg-danger px-2 py-0.5 text-[11px] text-danger-foreground font-semibold"
-              >
-                {{ message.error }}
-              </span>
-            </header>
-
-            <div
-              class="mt-3 space-y-3 break-words text-sm leading-relaxed text-foreground"
+            <article
+              class="relative w-full max-w-[72ch] rounded-[var(--radius,18px)] p-5"
+              :class="message.role === 'user' ? 'glass-surface border border-white/12' : ''"
             >
-              <div
-                v-if="shouldShowResponseStatus(message)"
-                class="response-status"
-                :class="responseStatusClasses"
-              >
-                <div class="response-status__dot"></div>
-                <div class="response-status__body">
-                  <p class="response-status__title">
-                    {{ responseStatus?.title }}
-                  </p>
-                  <p
-                    v-if="responseStatus?.detail"
-                    class="response-status__detail"
+              <header class="flex flex-wrap items-center gap-2">
+                <template v-if="message.role === 'assistant'">
+                  <span
+                    class="rounded-full bg-accent/10 px-2 py-1 text-xs font-semibold text-accent"
                   >
-                    {{ responseStatus.detail }}
-                  </p>
-                </div>
+                    {{ agentNameFor(message) }}
+                  </span>
+                </template>
                 <span
-                  class="response-status__pill"
-                  :class="responseStatusPillClasses"
+                  v-else
+                  class="rounded-full bg-surface-muted px-2 py-1 text-xs font-semibold text-muted-foreground"
                 >
-                  {{ responseStatus?.stateLabel }}
+                  {{ labelForRole(message.role) }}
                 </span>
-              </div>
-              <p v-if="message.title" class="font-semibold text-foreground">
-                {{ message.title }}
-              </p>
-              <pre
-                v-if="message.toolArgs"
-                class="whitespace-pre-wrap rounded-4 border border-border bg-surface-muted/60 p-3 text-xs text-subtle-foreground"
-                >{{ message.toolArgs }}</pre
-              >
-              <!-- Thought summaries are streamed into the Active Specialist panel. -->
-              <div
-                v-if="message.content"
-                class="chat-markdown"
-                v-html="renderMarkdownOrHtml(message.content)"
-              ></div>
-              <div v-if="message.attachments?.length" class="space-y-2">
-                <div
-                  v-if="message.attachments.some((a) => a.kind === 'image')"
-                  class="flex gap-2 overflow-x-auto pb-1"
+                <span
+                  v-if="shouldShowResponseTimer(message)"
+                  class="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold tabular-nums"
+                  :class="
+                    message.streaming
+                      ? 'border-accent/30 bg-accent/10 text-accent'
+                      : 'border-border/60 bg-surface-muted/40 text-faint-foreground'
+                  "
+                  :title="
+                    message.streaming
+                      ? 'Response time (running)'
+                      : 'Response time'
+                  "
                 >
-                  <img
-                    v-for="img in message.attachments.filter(
-                      (a) => a.kind === 'image',
-                    )"
-                    :key="img.id"
-                    :src="img.previewUrl"
-                    :alt="img.name"
-                    class="h-16 w-16 rounded object-cover border border-border cursor-zoom-in"
-                    @click="openImageModal(img)"
-                  />
-                </div>
-                <div
-                  v-if="message.attachments.some((a) => a.kind === 'text')"
-                  class="flex flex-wrap gap-2"
+                  {{ formatDuration(responseElapsedMs(message.id)) }}
+                </span>
+                <span
+                  v-if="message.streaming"
+                  class="flex items-center gap-1 text-xs text-accent"
                 >
                   <span
-                    v-for="t in message.attachments.filter(
-                      (a) => a.kind === 'text',
-                    )"
-                    :key="t.id"
-                    class="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-1 text-[11px]"
-                  >
-                    <span class="max-w-[180px] truncate">{{ t.name }}</span>
-                  </span>
-                </div>
-              </div>
-              <audio
-                v-if="message.audioUrl"
-                :src="message.audioUrl"
-                controls
-                class="w-full"
-              ></audio>
-            </div>
+                    class="h-1.5 w-1.5 animate-pulse rounded-full bg-accent"
+                  ></span>
+                  Streaming
+                </span>
+                <span
+                  v-if="message.error"
+                  class="rounded bg-danger px-2 py-0.5 text-[11px] text-danger-foreground font-semibold"
+                >
+                  {{ message.error }}
+                </span>
+              </header>
 
-            <footer
-              class="mt-3 flex flex-wrap items-center justify-end gap-1 text-xs text-subtle-foreground"
+              <div
+                class="mt-3 space-y-3 break-words text-sm leading-relaxed text-foreground"
+              >
+                <!-- Parallel specialist activity (sub-agents invoked concurrently) -->
+                <div
+                  v-if="message.id === lastAssistantId && visibleParticipantActivityItems.length > 0"
+                  class="parallel-activity-grid"
+                  :class="visibleParticipantActivityItems.length <= 2 ? 'parallel-activity-grid--row' : 'parallel-activity-grid--col'"
+                >
+                  <div
+                    v-for="thread in visibleParticipantActivityItems"
+                    :key="thread.id"
+                    class="parallel-activity-card"
+                  >
+                    <Transition name="activity-pill">
+                      <button
+                        v-if="isActivityCollapsed(thread.id)"
+                        type="button"
+                        class="direct-activity-pill"
+                        @click="expandActivity(thread.id)"
+                      >
+                        <span
+                          class="direct-activity-pill-dot"
+                          :class="thread.status === 'running' ? 'direct-activity-pill-dot--live' : ''"
+                        ></span>
+                        <span class="direct-activity-pill-label">{{ thread.name }}</span>
+                        <span class="direct-activity-pill-chevron">›</span>
+                      </button>
+                    </Transition>
+                    <Transition
+                      @before-enter="drawerBeforeEnter"
+                      @enter="drawerEnter"
+                      @after-enter="drawerAfterEnter"
+                      @before-leave="drawerBeforeLeave"
+                      @leave="drawerLeave"
+                    >
+                      <div
+                        v-if="!isActivityCollapsed(thread.id)"
+                        class="direct-activity"
+                      >
+                        <div class="direct-activity-header">
+                          <span class="direct-activity-label">{{ thread.name }}</span>
+                          <button
+                            v-if="thread.status !== 'running'"
+                            type="button"
+                            class="direct-activity-collapse-btn"
+                            @click="collapseActivity(thread.id)"
+                            title="Collapse"
+                          >collapse ›</button>
+                          <span v-else class="direct-activity-streaming-dot"></span>
+                        </div>
+                        <div
+                          class="direct-activity-body"
+                          :ref="(el) => registerThreadBody(el as Element | null, thread.id)"
+                          @scroll="handleThreadBodyScroll($event, thread.id)"
+                        >
+                        <div
+                          v-if="thread.toolEntries.length"
+                          class="direct-activity-row"
+                        >
+                          <span class="direct-activity-label">Tool</span>
+                          <span class="direct-activity-value">
+                            {{ thread.toolEntries[thread.toolEntries.length - 1]?.title || '' }}
+                          </span>
+                        </div>
+                        <div
+                          v-if="thread.thoughtSummaries.length"
+                          class="direct-activity-thought"
+                        >
+                          <span class="direct-activity-label">Thought summary</span>
+                          <div
+                            class="chat-markdown direct-activity-summary"
+                            v-html="renderMarkdownOrHtml(thread.thoughtSummaries[thread.thoughtSummaries.length - 1] || '')"
+                          ></div>
+                        </div>
+                        <div
+                          v-if="thread.response && thread.status !== 'running'"
+                          class="direct-activity-thought"
+                        >
+                          <span class="direct-activity-label">Response</span>
+                          <div
+                            class="chat-markdown direct-activity-summary"
+                            v-html="renderMarkdownOrHtml(thread.response)"
+                          ></div>
+                        </div>
+                        </div>
+                      </div>
+                    </Transition>
+                  </div>
+                </div>
+
+                <div
+                  v-if="shouldShowDirectActivity(message)"
+                  class="direct-activity-wrapper"
+                >
+                  <!-- Collapsed pill: click to expand -->
+                  <Transition name="activity-pill">
+                  <button
+                    v-if="isActivityCollapsed(message.id)"
+                    type="button"
+                    class="direct-activity-pill"
+                    @click="expandActivity(message.id)"
+                  >
+                    <span class="direct-activity-pill-dot"></span>
+                    <span class="direct-activity-pill-label">{{ agentNameFor(message) }} activity</span>
+                    <span class="direct-activity-pill-chevron">›</span>
+                  </button>
+                  </Transition>
+
+                  <!-- Expanded panel (drawer animation) -->
+                  <Transition
+                    @before-enter="drawerBeforeEnter"
+                    @enter="drawerEnter"
+                    @after-enter="drawerAfterEnter"
+                    @before-leave="drawerBeforeLeave"
+                    @leave="drawerLeave"
+                  >
+                  <div
+                    v-if="!isActivityCollapsed(message.id)"
+                    class="direct-activity"
+                  >
+                    <!-- Header row: name + collapse button -->
+                    <div class="direct-activity-header">
+                      <span class="direct-activity-label">{{ agentNameFor(message) }} activity</span>
+                      <button
+                        v-if="!message.streaming"
+                        type="button"
+                        class="direct-activity-collapse-btn"
+                        @click="collapseActivity(message.id)"
+                        title="Collapse"
+                      >collapse ›</button>
+                      <span v-else class="direct-activity-streaming-dot"></span>
+                    </div>
+                    <div class="direct-activity-body">
+                    <div
+                      v-if="message.activityToolTitle"
+                      class="direct-activity-row"
+                    >
+                      <span class="direct-activity-label">Tool</span>
+                      <span class="direct-activity-value">
+                        {{ message.activityToolTitle }}
+                      </span>
+                    </div>
+                    <div
+                      v-if="shouldShowDirectThought(message)"
+                      class="direct-activity-thought"
+                    >
+                      <span class="direct-activity-label">Thought summary</span>
+                      <div
+                        class="chat-markdown direct-activity-summary"
+                        v-html="renderMarkdownOrHtml(message.activityThoughtSummary || '')"
+                      ></div>
+                    </div>
+                    </div>
+                  </div>
+                  </Transition>
+                </div>
+                <p v-if="message.title" class="font-semibold text-foreground">
+                  {{ message.title }}
+                </p>
+                <pre
+                  v-if="message.toolArgs"
+                  class="whitespace-pre-wrap rounded-4 border border-border bg-surface-muted/60 p-3 text-xs text-subtle-foreground"
+                  >{{ message.toolArgs }}</pre
+                >
+                <!-- Thought summaries are streamed into the Active Specialist panel. -->
+                <div
+                  v-if="message.content"
+                  class="chat-markdown"
+                  v-html="renderMarkdownOrHtml(message.content)"
+                ></div>
+                <div v-if="message.attachments?.length" class="space-y-2">
+                  <div
+                    v-if="message.attachments.some((a) => a.kind === 'image')"
+                    class="flex gap-2 overflow-x-auto pb-1"
+                  >
+                    <img
+                      v-for="img in message.attachments.filter(
+                        (a) => a.kind === 'image',
+                      )"
+                      :key="img.id"
+                      :src="img.previewUrl"
+                      :alt="img.name"
+                      class="h-16 w-16 rounded object-cover border border-border cursor-zoom-in"
+                      @click="openImageModal(img)"
+                    />
+                  </div>
+                  <div
+                    v-if="message.attachments.some((a) => a.kind === 'text')"
+                    class="flex flex-wrap gap-2"
+                  >
+                    <span
+                      v-for="t in message.attachments.filter(
+                        (a) => a.kind === 'text',
+                      )"
+                      :key="t.id"
+                      class="inline-flex items-center gap-1 rounded-full border border-border bg-surface px-2 py-1 text-[11px]"
+                    >
+                      <span class="max-w-[180px] truncate">{{ t.name }}</span>
+                    </span>
+                  </div>
+                </div>
+                <audio
+                  v-if="message.audioUrl"
+                  :src="message.audioUrl"
+                  controls
+                  class="w-full"
+                ></audio>
+              </div>
+            </article>
+
+            <!-- Action toolbar: outside article, visible only on hover -->
+            <div
+              class="flex items-center gap-1 text-xs text-subtle-foreground mt-1 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-150"
             >
               <button
                 v-if="message.role === 'assistant'"
@@ -454,8 +587,8 @@
               >
                 <SolarTrashIcon class="h-4 w-4" />
               </button>
-            </footer>
-          </article>
+            </div>
+          </div>
         </div>
 
         <button
@@ -522,7 +655,7 @@
               </div>
 
               <div
-                class="flex flex-wrap items-center gap-2 sm:gap-3 sm:flex-nowrap"
+                class="flex items-center gap-3"
               >
                 <textarea
                   ref="composer"
@@ -831,119 +964,10 @@
 
       <!-- Participants sidebar -->
       <aside
-        class="hidden h-full min-h-0 xl:flex xl:flex-col xl:border-l xl:border-border/60 xl:pl-5 text-sm text-subtle-foreground chat-side"
+        class="flex h-full min-h-0 flex-col border-l border-border/60 pl-5 text-sm text-subtle-foreground chat-side"
       >
-        <div ref="sidePanelsPane" class="flex min-h-0 flex-1 flex-col">
-          <div
-            ref="activeSpecialistPane"
-            class="min-h-0"
-            :style="activeSpecialistPaneStyle"
-          >
-            <GlassCard
-              flat
-              class="flex h-full flex-col overflow-hidden"
-            >
-              <div class="flex min-h-0 flex-1 flex-col">
-                <header class="flex items-center justify-between">
-                  <h2 class="text-sm font-semibold text-foreground">
-                    Active specialist
-                  </h2>
-                  <span class="text-[11px] text-faint-foreground"
-                    >Live view</span
-                  >
-                </header>
-                <div class="mt-2 flex min-h-0 flex-1 flex-col">
-                  <div
-                    class="active-specialist-card"
-                    :class="activeSpecialistCardClasses"
-                  >
-                    <div class="active-specialist-avatar">
-                      <span>{{ activeSpecialistInitials }}</span>
-                    </div>
-                    <div class="active-specialist-body">
-                      <p class="active-specialist-name">
-                        {{ activeSpecialistName }}
-                      </p>
-                      <p class="active-specialist-model">
-                        {{
-                          activeSpecialistModel
-                            ? `${activeSpecialistModel}`
-                            : "Model pending"
-                        }}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div class="mt-3 flex min-h-0 flex-1 flex-col">
-                    <header class="flex items-center justify-between">
-                      <div
-                        v-if="displayedThoughtSummaries.length"
-                        class="flex items-center gap-2"
-                      >
-                        <button
-                          type="button"
-                          class="text-[11px] text-faint-foreground hover:text-foreground"
-                          @click="copyThoughtSummaries()"
-                        >
-                          {{ copiedThoughtSummaries ? "Copied" : "Copy" }}
-                        </button>
-                        <button
-                          type="button"
-                          class="text-[11px] text-faint-foreground hover:text-foreground"
-                          @click="chat.clearThoughtSummaries()"
-                        >
-                          Clear
-                        </button>
-                      </div>
-                    </header>
-
-                    <div
-                      ref="thoughtStreamPane"
-                      class="mt-2 flex-1 min-h-0 overflow-y-auto rounded-4 border border-border bg-surface px-3 py-2"
-                    >
-                      <div
-                        v-if="!displayedThoughtSummaries.length"
-                        class="text-[11px] text-faint-foreground"
-                      >
-                        No thought summaries yet.
-                      </div>
-                      <ul v-else class="space-y-1 text-[12px] text-foreground">
-                        <li
-                          v-for="(summary, idx) in displayedThoughtSummaries"
-                          :key="`${idx}:${summary}`"
-                          class="flex gap-2"
-                        >
-                          <span aria-hidden="true">💭</span>
-                          <div
-                            class="chat-markdown min-w-0 flex-1 break-words"
-                            v-html="renderMarkdownOrHtml(summary)"
-                          ></div>
-                        </li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </GlassCard>
-          </div>
-
-          <div
-            ref="panelSplitter"
-            class="panel-splitter"
-            :class="{ 'panel-splitter--dragging': isPanelSplitterDragging }"
-            role="separator"
-            aria-orientation="horizontal"
-            @pointerdown="handlePanelSplitterPointerDown"
-          >
-            <span class="panel-splitter__line"></span>
-            <span class="panel-splitter__handle"></span>
-          </div>
-
-          <GlassCard
-            flat
-            class="flex min-h-0 flex-1 flex-col overflow-hidden"
-            :style="participantsPaneStyle"
-          >
+        <div class="flex min-h-0 flex-1 flex-col">
+          <GlassCard flat class="flex min-h-0 flex-1 flex-col overflow-hidden">
             <div class="flex min-h-0 flex-1 flex-col">
               <header class="flex items-center justify-between">
                 <h2 class="text-sm font-semibold text-foreground">
@@ -974,23 +998,39 @@
                   <li
                     v-for="participant in participantList"
                     :key="participant.name"
-                    class="participant-row"
-                    :class="participantRowClasses(participant.name)"
+                    class="participant-list-item"
                   >
-                    <span
-                      class="participant-dot"
-                      :class="participantDotClasses(participant.name)"
-                    ></span>
-                    <div class="participant-body">
-                      <p class="participant-name">{{ participant.name }}</p>
-                      <p class="participant-model">
-                        {{
-                          participant.model
-                            ? `${participant.model}`
-                            : "Model pending"
-                        }}
-                      </p>
-                    </div>
+                      <button
+                        type="button"
+                        class="participant-row"
+                        :class="participantRowClasses(participant.name)"
+                        :aria-label="`Open activity for ${participant.name}`"
+                        @click="openParticipantActivity(participant.name)"
+                      >
+                        <span
+                          class="participant-dot"
+                          :class="participantDotClasses(participant.name)"
+                        ></span>
+                        <span class="participant-body">
+                          <span class="participant-name">{{ participant.name }}</span>
+                          <span class="participant-model">
+                            {{
+                              participant.model
+                                ? `${participant.model}`
+                                : "Model pending"
+                            }}
+                          </span>
+                        </span>
+                        <span class="participant-status">
+                          {{ participantStatusLabel(participant.name) }}
+                        </span>
+                        <span
+                          v-if="participantActivityItems(participant.name).length"
+                          class="participant-activity-action"
+                        >
+                          View activity
+                        </span>
+                      </button>
                   </li>
                 </ul>
               </div>
@@ -999,6 +1039,125 @@
         </div>
       </aside>
     </section>
+
+    <div
+      v-if="selectedParticipantActivityName"
+      class="activity-modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="`${selectedParticipantActivity?.name || 'Specialist'} activity`"
+      @click.self="closeParticipantActivity"
+    >
+      <div class="activity-modal">
+        <header class="activity-modal-header">
+          <div class="min-w-0">
+            <p class="activity-modal-title">
+              {{ selectedParticipantActivity?.name || "Specialist activity" }}
+            </p>
+            <p class="activity-modal-model">
+              {{ selectedParticipantActivity?.model || "Model pending" }}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="activity-modal-close"
+            aria-label="Close specialist activity"
+            @click="closeParticipantActivity"
+          >
+            Close
+          </button>
+        </header>
+
+        <div
+          ref="participantActivityPane"
+          class="activity-detail-scroll activity-modal-scroll"
+          @scroll="handleActivityPaneScroll"
+        >
+          <section
+            v-for="item in selectedParticipantActivityItems"
+            :key="item.id"
+            class="activity-detail-section"
+          >
+            <div v-if="item.toolEntries.length">
+              <h3 class="activity-detail-section-title">
+                Tool activity
+              </h3>
+              <ul class="activity-tool-list">
+                <li
+                  v-for="entry in item.toolEntries"
+                  :key="entry.id"
+                  class="activity-tool-item"
+                >
+                  <p class="activity-tool-title">
+                    {{ entry.title || "Tool" }}
+                  </p>
+                </li>
+              </ul>
+            </div>
+
+            <div
+              v-if="item.thoughtSummaries.length"
+              class="activity-detail-subsection"
+            >
+              <h3 class="activity-detail-section-title">
+                Thought summaries
+              </h3>
+              <ul class="activity-thought-list text-foreground">
+                <li
+                  v-for="(summary, idx) in item.thoughtSummaries"
+                  :key="`${item.id}:summary:${idx}:${summary}`"
+                  class="activity-thought-item"
+                >
+                  <div
+                    class="chat-markdown min-w-0 flex-1 break-words"
+                    v-html="renderMarkdownOrHtml(summary)"
+                  ></div>
+                </li>
+              </ul>
+            </div>
+
+            <div
+              v-if="item.response"
+              class="activity-detail-subsection"
+            >
+              <h3 class="activity-detail-section-title">
+                Response stream
+              </h3>
+              <div
+                class="chat-markdown activity-response"
+                v-html="renderMarkdownOrHtml(item.response)"
+              ></div>
+            </div>
+
+            <div
+              v-if="item.error"
+              class="activity-detail-subsection"
+            >
+              <h3 class="activity-detail-section-title">
+                Error
+              </h3>
+              <p class="activity-error-text">
+                {{ item.error }}
+              </p>
+            </div>
+
+            <div
+              v-if="!item.toolEntries.length && !item.thoughtSummaries.length && !item.response && !item.error"
+              class="activity-detail-empty"
+            >
+              No activity details yet.
+            </div>
+          </section>
+
+          <div
+            v-if="!selectedParticipantActivityItems.length"
+            class="activity-detail-empty"
+          >
+            No specialist activity yet.
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -1130,8 +1289,15 @@ const messagesPane = ref<HTMLDivElement | null>(null);
 const composer = ref<HTMLTextAreaElement | null>(null);
 const copiedMessageId = ref<string | null>(null);
 const copiedThoughtSummaries = ref(false);
+const selectedActivityId = ref<string | null>(null);
 const autoScrollEnabled = ref(true);
 const lastScrollTop = ref(0);
+const activityAutoScrollEnabled = ref(true);
+const activityLastScrollTop = ref(0);
+// Per-thread scroll state for parallel activity cards
+const threadBodyEls = new Map<string, HTMLElement>();
+const threadScrollEnabled = new Map<string, boolean>();
+const threadScrollLastTop = new Map<string, number>();
 // Attachments state for composer
 const fileInput = ref<HTMLInputElement | null>(null);
 const pendingAttachments = ref<ChatAttachment[]>([]);
@@ -1168,21 +1334,8 @@ const selectedSessionIds = ref<string[]>([]);
 const showBulkDeleteDialog = ref(false);
 const bulkDeletePending = ref(false);
 const bulkDeleteError = ref("");
-const sidePanelsPane = ref<HTMLElement | null>(null);
-const activeSpecialistPane = ref<HTMLElement | null>(null);
-const panelSplitter = ref<HTMLElement | null>(null);
-const activeSpecialistPaneHeight = ref<number | null>(null);
-const panelSplitAuto = ref(true);
-const isPanelSplitterDragging = ref(false);
-const PANEL_MIN_HEIGHT = 160;
-const panelContainerHeight = ref(0);
-const panelSplitterHeight = ref(12);
-let panelDragStartY = 0;
-let panelDragStartHeight = 0;
-let panelPointerId: number | null = null;
-let previousBodyCursor: string | null = null;
-let previousBodyUserSelect: string | null = null;
-let panelResizeObserver: ResizeObserver | null = null;
+const participantActivityPane = ref<HTMLElement | null>(null);
+const selectedParticipantActivityName = ref<string | null>(null);
 
 // Specialists dropdown state
 const { data: specialistsData } = useQuery({
@@ -1547,15 +1700,6 @@ const activeMessages = computed(() => chat.activeMessages);
 const chatMessages = computed(() => chat.chatMessages);
 const toolMessages = computed(() => chat.toolMessages);
 const activeThoughtSummaries = computed(() => chat.activeThoughtSummaries);
-// Combined thought summaries: show delegated agent's thoughts when one is running,
-// otherwise show orchestrator thoughts
-const displayedThoughtSummaries = computed(() => {
-  const running = latestRunningAgentThread.value;
-  if (running && running.thoughtSummaries?.length) {
-    return running.thoughtSummaries;
-  }
-  return activeThoughtSummaries.value;
-});
 const toolActivityMsById = ref<Record<string, number>>({});
 const activeSummaryEvent = computed(() => chat.activeSummaryEvent);
 const sessionAgentDefaults = computed(() =>
@@ -1564,21 +1708,6 @@ const sessionAgentDefaults = computed(() =>
 const showScrollToBottom = computed(
   () => !autoScrollEnabled.value && chatMessages.value.length > 0,
 );
-const activeSpecialistPaneStyle = computed(() => {
-  const style: Record<string, string> = {
-    minHeight: `${PANEL_MIN_HEIGHT}px`,
-  };
-  if (panelSplitAuto.value) {
-    style.flex = "1 1 0";
-  } else if (activeSpecialistPaneHeight.value !== null) {
-    style.height = `${activeSpecialistPaneHeight.value}px`;
-    style.flex = "0 0 auto";
-  }
-  return style;
-});
-const participantsPaneStyle = computed(() => ({
-  minHeight: `${PANEL_MIN_HEIGHT}px`,
-}));
 const sessionMessageCounts = computed<Record<string, number>>(() => {
   const counts: Record<string, number> = {};
   for (const session of sessions.value) {
@@ -1678,12 +1807,24 @@ function shouldShowResponseTimer(message: ChatMessage) {
   return message.id in responseElapsedMsByMessageId.value;
 }
 
-type ResponseStatusState = "running" | "done" | "error";
-type ResponseStatus = {
-  title: string;
-  detail: string;
-  state: ResponseStatusState;
-  stateLabel: string;
+type ActivityStatus = "running" | "done" | "error" | "idle";
+type SpecialistActivityItem = {
+  id: string;
+  name: string;
+  model: string;
+  status: ActivityStatus;
+  statusLabel: string;
+  description: string;
+  initials: string;
+  thoughtSummaries: string[];
+  response: string;
+  toolEntries: AgentThread["entries"];
+  error: string;
+  startedAt: string;
+  finishedAt?: string;
+  updatedAt: number;
+  depth: number;
+  isOrchestrator: boolean;
 };
 type Participant = {
   name: string;
@@ -1707,152 +1848,360 @@ function agentThreadTimestamp(thread: AgentThread) {
   return safeTimestampMs(stamp);
 }
 
-function responseStateLabel(state: ResponseStatusState) {
+function activityStateLabel(state: ActivityStatus) {
   switch (state) {
     case "running":
-      return "Running";
+      return "Live";
     case "done":
       return "Complete";
     case "error":
       return "Error";
     default:
-      return "Running";
+      return "Ready";
   }
 }
 
-function statusFromTool(tool: ChatMessage): ResponseStatus {
-  const state: ResponseStatusState = tool.error
-    ? "error"
-    : tool.streaming
-      ? "running"
-      : "done";
-  const name = (tool.title || "Tool").trim() || "Tool";
-  const title =
-    state === "running"
-      ? `Using ${name}...`
-      : state === "done"
-        ? `Used ${name}`
-        : `${name} failed`;
-  const argDetail = tool.toolArgs ? snippet(tool.toolArgs) : "";
-  return {
-    title,
-    detail: argDetail ? `Args: ${argDetail}` : "Tool call",
-    state,
-    stateLabel: responseStateLabel(state),
-  };
+function initialsForName(name: string) {
+  const parts = (name || "Agent").split(/[\s_-]+/).filter(Boolean);
+  if (!parts.length) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
 }
 
-function statusFromThread(thread: AgentThread): ResponseStatus {
-  const state = thread.status;
+function latestThreadEntry(thread: AgentThread) {
+  return thread.entries[thread.entries.length - 1] || null;
+}
+
+function activityDescriptionForThread(thread: AgentThread) {
+  const latestEntry = latestThreadEntry(thread);
+  if (thread.error) return thread.error;
+  if (latestEntry?.type === "tool") {
+    return latestEntry.title ? `Tool: ${latestEntry.title}` : "Using a tool";
+  }
+  const latestThought = thread.thoughtSummaries[thread.thoughtSummaries.length - 1];
+  if (latestThought) return snippet(latestThought, 96);
+  if (thread.content) return snippet(thread.content, 96);
+  if (thread.prompt) return snippet(thread.prompt, 96);
+  return thread.status === "running" ? "Working" : "No details yet";
+}
+
+function activityItemFromThread(thread: AgentThread): SpecialistActivityItem {
   const name = (thread.agent || "Delegated agent").trim() || "Delegated agent";
-  const title =
-    state === "running"
-      ? `Delegating to ${name}...`
-      : state === "done"
-        ? `${name} responded`
-        : `${name} error`;
-  const detail = thread.model ? `Model ${thread.model}` : "Delegation";
+  const status = thread.status as ActivityStatus;
+  const toolEntries = thread.entries.filter((entry) => entry.type === "tool");
   return {
-    title,
-    detail,
-    state,
-    stateLabel: responseStateLabel(state),
+    id: thread.callId,
+    name,
+    model: (thread.model || "").trim(),
+    status,
+    statusLabel: activityStateLabel(status),
+    description: activityDescriptionForThread(thread),
+    initials: initialsForName(name),
+    thoughtSummaries: thread.thoughtSummaries || [],
+    response: thread.content || "",
+    toolEntries,
+    error: thread.error || "",
+    startedAt: thread.startedAt,
+    finishedAt: thread.finishedAt,
+    updatedAt: agentThreadTimestamp(thread),
+    depth: thread.depth,
+    isOrchestrator: false,
   };
 }
 
-const latestToolMessage = computed(() => {
+function orchestratorActivityItem(): SpecialistActivityItem {
+  const { agentName, agentModel } = resolveAgentContext();
   const assistant = lastAssistant.value;
-  if (!assistant) return null;
-  const cutoff = safeTimestampMs(assistant.createdAt);
-  let latest: ChatMessage | null = null;
-  let latestStamp = 0;
-  for (const tool of toolMessages.value) {
-    const createdStamp = safeTimestampMs(tool.createdAt);
-    if (createdStamp < cutoff) continue;
-    const activityStamp =
-      toolActivityMsById.value[tool.id] || createdStamp || 0;
-    if (!latest || activityStamp >= latestStamp) {
-      latest = tool;
-      latestStamp = activityStamp;
-    }
+  const status: ActivityStatus = assistant?.error
+    ? "error"
+    : isStreaming.value
+      ? "running"
+      : assistant?.content
+        ? "done"
+        : "idle";
+  const latestThought = activeThoughtSummaries.value[activeThoughtSummaries.value.length - 1];
+  return {
+    id: "orchestrator",
+    name: agentName || "orchestrator",
+    model: agentModel || "",
+    status,
+    statusLabel: activityStateLabel(status),
+    description: latestThought
+      ? snippet(latestThought, 96)
+      : assistant?.content
+        ? snippet(assistant.content, 96)
+        : status === "running"
+          ? "Coordinating response"
+          : "Ready",
+    initials: initialsForName(agentName || "orchestrator"),
+    thoughtSummaries: activeThoughtSummaries.value,
+    response: assistant?.content || "",
+    toolEntries: [],
+    error: assistant?.error || "",
+    startedAt: assistant?.createdAt || new Date().toISOString(),
+    finishedAt: status === "done" ? assistant?.createdAt : undefined,
+    updatedAt: assistant ? safeTimestampMs(assistant.createdAt) || Date.now() : Date.now(),
+    depth: 0,
+    isOrchestrator: true,
+  };
+}
+
+const runActivityItems = computed<SpecialistActivityItem[]>(() => {
+  const items = agentThreads.value.map(activityItemFromThread);
+  const shouldShowOrchestrator =
+    activeThoughtSummaries.value.length > 0 ||
+    (isStreaming.value && items.length === 0);
+  if (shouldShowOrchestrator) items.unshift(orchestratorActivityItem());
+
+  return items.sort((a, b) => {
+    if (a.status === "running" && b.status !== "running") return -1;
+    if (a.status !== "running" && b.status === "running") return 1;
+    return b.updatedAt - a.updatedAt;
+  });
+});
+
+const visibleParticipantActivityItems = computed(() =>
+  runActivityItems.value.filter((item) => !item.isOrchestrator),
+);
+
+const runActivityCounts = computed(() => {
+  const counts = { running: 0, done: 0, error: 0, idle: 0 };
+  for (const item of runActivityItems.value) counts[item.status] += 1;
+  return counts;
+});
+
+const runActivityState = computed<ActivityStatus>(() => {
+  if (runActivityCounts.value.error > 0) return "error";
+  if (runActivityCounts.value.running > 0 || isStreaming.value) return "running";
+  if (runActivityCounts.value.done > 0) return "done";
+  return "idle";
+});
+
+const runActivityStateLabel = computed(() =>
+  activityStateLabel(runActivityState.value),
+);
+
+const runActivityTitle = computed(() => {
+  const count = runActivityItems.value.length;
+  if (!count) return "Drafting response";
+  if (runActivityCounts.value.running > 0) {
+    return `${runActivityCounts.value.running} specialist${runActivityCounts.value.running === 1 ? "" : "s"} working`;
   }
-  return latest;
+  if (runActivityCounts.value.error > 0) return "Specialist work needs attention";
+  return `${count} specialist${count === 1 ? "" : "s"} complete`;
 });
 
-const latestAgentThread = computed(() => {
-  if (!agentThreads.value.length) return null;
-  return agentThreads.value.reduce((latest, thread) =>
-    agentThreadTimestamp(thread) >= agentThreadTimestamp(latest)
-      ? thread
-      : latest,
+const runActivityDetail = computed(() => {
+  const parts = [];
+  if (runActivityCounts.value.done) parts.push(`${runActivityCounts.value.done} complete`);
+  if (runActivityCounts.value.running) parts.push(`${runActivityCounts.value.running} running`);
+  if (runActivityCounts.value.error) parts.push(`${runActivityCounts.value.error} error`);
+  return parts.length ? parts.join(" / ") : "Synthesizing output";
+});
+
+const runActivitySidebarLabel = computed(() => {
+  const count = runActivityItems.value.length;
+  if (!count) return "Idle";
+  return `${count} thread${count === 1 ? "" : "s"}`;
+});
+
+const runActivityClasses = computed(() => ({
+  "run-activity--running": runActivityState.value === "running",
+  "run-activity--done": runActivityState.value === "done",
+  "run-activity--error": runActivityState.value === "error",
+}));
+
+const runActivityPillClasses = computed(() => ({
+  "run-activity-pill--running": runActivityState.value === "running",
+  "run-activity-pill--done": runActivityState.value === "done",
+  "run-activity-pill--error": runActivityState.value === "error",
+}));
+
+const selectedActivityItem = computed(() => {
+  const selected = selectedActivityId.value;
+  return (
+    visibleParticipantActivityItems.value.find((item) => item.id === selected) ||
+    visibleParticipantActivityItems.value[0] ||
+    null
   );
 });
 
-const latestRunningAgentThread = computed(() => {
-  const running = agentThreads.value.filter(
-    (thread) => thread.status === "running",
-  );
-  if (!running.length) return null;
-  return running.reduce((latest, thread) =>
-    agentThreadTimestamp(thread) >= agentThreadTimestamp(latest)
-      ? thread
-      : latest,
-  );
-});
+const selectedActivityThoughtSummaries = computed(
+  () => selectedActivityItem.value?.thoughtSummaries || [],
+);
 
-const responseStatus = computed<ResponseStatus | null>(() => {
-  const assistant = lastAssistant.value;
-  if (!assistant || !assistant.streaming) return null;
-
-  const tool = latestToolMessage.value;
-  const thread = latestAgentThread.value;
-  const toolTs = tool
-    ? toolActivityMsById.value[tool.id] || safeTimestampMs(tool.createdAt)
-    : 0;
-  const threadTs = thread ? agentThreadTimestamp(thread) : 0;
-  const toolRunning = tool?.streaming ?? false;
-  const threadRunning = thread?.status === "running";
-
-  if (tool && toolRunning && !threadRunning) return statusFromTool(tool);
-  if (thread && threadRunning && !toolRunning) return statusFromThread(thread);
-  if (toolTs || threadTs) {
-    if (tool && toolTs >= threadTs) return statusFromTool(tool);
-    if (thread) return statusFromThread(thread);
-  }
-
-  return {
-    title: "Drafting response",
-    detail: "Synthesizing output",
-    state: "running",
-    stateLabel: "Working",
-  };
-});
-
-const responseStatusClasses = computed(() => {
-  const state = responseStatus.value?.state || "running";
-  return {
-    "response-status--running": state === "running",
-    "response-status--done": state === "done",
-    "response-status--error": state === "error",
-  };
-});
-
-const responseStatusPillClasses = computed(() => {
-  const state = responseStatus.value?.state || "running";
-  return {
-    "response-status__pill--running": state === "running",
-    "response-status__pill--done": state === "done",
-    "response-status__pill--error": state === "error",
-  };
-});
-
-function shouldShowResponseStatus(message: ChatMessage) {
+function shouldShowDirectActivity(message: ChatMessage) {
   return (
     message.role === "assistant" &&
-    message.id === lastAssistantId.value &&
-    message.streaming &&
-    Boolean(responseStatus.value)
+    Boolean(message.activityToolTitle || shouldShowDirectThought(message))
   );
+}
+
+function shouldShowDirectThought(message: ChatMessage) {
+  return Boolean(message.activityThoughtSummary);
+}
+
+// --- Collapsible activity panel per message ---
+const collapsedActivityIds = ref<Set<string>>(new Set());
+
+function isActivityCollapsed(id: string): boolean {
+  return collapsedActivityIds.value.has(id);
+}
+
+function collapseActivity(id: string) {
+  collapsedActivityIds.value = new Set([...collapsedActivityIds.value, id]);
+}
+
+function expandActivity(id: string) {
+  const next = new Set(collapsedActivityIds.value);
+  next.delete(id);
+  collapsedActivityIds.value = next;
+}
+
+// Drawer JS transition hooks
+function drawerBeforeEnter(el: Element) {
+  const e = el as HTMLElement;
+  e.style.height = '0';
+  e.style.overflow = 'hidden';
+}
+function drawerEnter(el: Element, done: () => void) {
+  const e = el as HTMLElement;
+  const h = e.scrollHeight;
+  e.style.transition = 'height 0.28s cubic-bezier(0.4, 0, 0.2, 1)';
+  e.style.height = h + 'px';
+  e.addEventListener('transitionend', done, { once: true });
+}
+function drawerAfterEnter(el: Element) {
+  const e = el as HTMLElement;
+  e.style.height = 'auto';
+  e.style.overflow = '';
+  e.style.transition = '';
+}
+function drawerBeforeLeave(el: Element) {
+  const e = el as HTMLElement;
+  e.style.height = e.scrollHeight + 'px';
+  e.style.overflow = 'hidden';
+}
+function drawerLeave(el: Element, done: () => void) {
+  const e = el as HTMLElement;
+  requestAnimationFrame(() => {
+    e.style.transition = 'height 0.22s cubic-bezier(0.4, 0, 0.2, 1)';
+    e.style.height = '0';
+    e.addEventListener('transitionend', done, { once: true });
+  });
+}
+
+// Auto-collapse activity panel when streaming finishes
+watch(
+  () => activeMessages.value.map((m) => `${m.id}:${m.streaming ? 1 : 0}`),
+  (cur, prev) => {
+    if (!prev) return;
+    for (let i = 0; i < cur.length; i++) {
+      const [id, streaming] = (cur[i] || "").split(":");
+      const [, prevStreaming] = (prev[i] || "").split(":");
+      // Transitioned from streaming → done
+      if (prevStreaming === "1" && streaming === "0" && id) {
+        const msg = activeMessages.value.find((m) => m.id === id);
+        if (msg && shouldShowDirectActivity(msg)) {
+          collapseActivity(id);
+        }
+      }
+    }
+  },
+  { flush: "post" },
+);
+
+// Auto-scroll parallel activity card bodies on content changes
+watch(
+  () => visibleParticipantActivityItems.value.map(
+    (i) => `${i.id}:${i.description}:${i.thoughtSummaries.length}:${i.response.length}`,
+  ),
+  () => {
+    for (const item of visibleParticipantActivityItems.value) {
+      if (threadBodyEls.has(item.id)) {
+        scrollThreadBodyToBottom(item.id);
+      }
+    }
+  },
+  { flush: 'post' },
+);
+
+// Auto-collapse parallel activity cards only after all running threads finish
+watch(
+  () => visibleParticipantActivityItems.value.map((i) => `${i.id}:${i.status}`),
+  () => {
+    const items = visibleParticipantActivityItems.value;
+    if (!items.length || items.some((item) => item.status === "running")) {
+      return;
+    }
+    for (const item of items) {
+      if (item.status === "done") collapseActivity(item.id);
+    }
+  },
+  { flush: "post", immediate: true },
+);
+
+function selectActivity(id: string) {
+  selectedActivityId.value = id;
+  activityAutoScrollEnabled.value = true;
+  activityLastScrollTop.value = 0;
+  scrollActivityPaneToBottom({ force: true });
+}
+
+function participantActivityItems(name: string) {
+  const key = name.trim().toLowerCase();
+  return visibleParticipantActivityItems.value.filter(
+    (item) => item.name.toLowerCase() === key,
+  );
+}
+
+function participantActivityKey(name: string) {
+  return name.trim().toLowerCase();
+}
+
+const selectedParticipantActivity = computed(() => {
+  const key = selectedParticipantActivityName.value;
+  if (!key) return null;
+  return (
+    participantList.value.find(
+      (participant) => participantActivityKey(participant.name) === key,
+    ) || null
+  );
+});
+
+const selectedParticipantActivityItems = computed(() => {
+  const participant = selectedParticipantActivity.value;
+  return participant ? participantActivityItems(participant.name) : [];
+});
+
+function openParticipantActivity(name: string) {
+  selectedParticipantActivityName.value = participantActivityKey(name);
+  activityAutoScrollEnabled.value = true;
+  activityLastScrollTop.value = 0;
+  nextTick(() => {
+    scrollActivityPaneToBottom({ force: true, behavior: "auto" });
+  });
+}
+
+function closeParticipantActivity() {
+  selectedParticipantActivityName.value = null;
+}
+
+function activityStatusClasses(item: SpecialistActivityItem) {
+  return {
+    "activity-status--running": item.status === "running",
+    "activity-status--done": item.status === "done",
+    "activity-status--error": item.status === "error",
+    "activity-status--idle": item.status === "idle",
+  };
+}
+
+function activityMonitorRowClasses(item: SpecialistActivityItem) {
+  return {
+    "activity-monitor-row--selected": selectedActivityItem.value?.id === item.id,
+    "activity-monitor-row--running": item.status === "running",
+    "activity-monitor-row--error": item.status === "error",
+  };
 }
 
 const participantList = computed<Participant[]>(() => {
@@ -1908,49 +2257,52 @@ const participantList = computed<Participant[]>(() => {
   return list;
 });
 
-const activeSpecialistName = computed(() => {
-  const running = latestRunningAgentThread.value;
-  if (running?.agent) return running.agent.trim();
-  const selected = (selectedSpecialist.value || "orchestrator").trim();
-  return selected || "orchestrator";
-});
-
-const activeSpecialistModel = computed(() => {
-  const running = latestRunningAgentThread.value;
-  if (running?.model) return running.model.trim();
-  const key = activeSpecialistName.value.toLowerCase();
-  if (key === "orchestrator") {
-    const teamModel = (
-      selectedTeamConfig.value?.orchestrator?.model || ""
-    ).trim();
-    if (teamModel) return teamModel;
-    return sessionAgentDefaults.value.model || "";
-  }
-  const spec = specialistsByName.value.get(key);
-  if (spec?.model) return spec.model.trim();
-  return "";
-});
-
-const activeSpecialistInitials = computed(() => {
-  const name = activeSpecialistName.value || "Agent";
-  const parts = name.split(/[\s_-]+/).filter(Boolean);
-  if (!parts.length) return "?";
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-});
-
-const activeSpecialistCardClasses = computed(() => ({
-  "active-specialist-card--live": isStreaming.value,
-  "active-specialist-card--delegated": Boolean(latestRunningAgentThread.value),
-}));
-
 function participantIsActive(name: string) {
-  return name.trim().toLowerCase() === activeSpecialistName.value.toLowerCase();
+  const key = name.trim().toLowerCase();
+
+  // Find the currently streaming assistant message to determine who is live.
+  const streamingMsg = activeMessages.value.find(
+    (m) => m.role === "assistant" && m.streaming,
+  );
+
+  if (streamingMsg) {
+    // Prefer the agent name embedded in the message; fall back to selectedSpecialist.
+    const liveAgent = (
+      streamingMsg.agentName ||
+      streamingMsg.agent ||
+      selectedSpecialist.value ||
+      "orchestrator"
+    ).trim().toLowerCase();
+
+    // During streaming, only the agent whose name matches is live.
+    // Never mark orchestrator live just because runActivityCounts > 0 here —
+    // that count includes the specialist itself and causes false positives.
+    return liveAgent === key;
+  }
+
+  // No active stream: fall back to agent-thread activity counts.
+  if (key === "orchestrator") {
+    return runActivityCounts.value.running > 0;
+  }
+  return visibleParticipantActivityItems.value.some(
+    (item) => item.status === "running" && item.name.toLowerCase() === key,
+  );
 }
 
 function participantStatusLabel(name: string) {
-  if (!isStreaming.value) return "Idle";
-  return participantIsActive(name) ? "Live" : "Ready";
+  const key = name.trim().toLowerCase();
+  const active = participantIsActive(name);
+  if (active) return "Live";
+  if (key === "orchestrator") {
+    const label = runActivityStateLabel.value;
+    return (label && label.toLowerCase() !== "completed") ? label : "Idle";
+  }
+  const item = visibleParticipantActivityItems.value.find(
+    (activity) => activity.name.toLowerCase() === key,
+  );
+  if (!item) return "Idle";
+  const lbl = item.statusLabel;
+  return (lbl && lbl.toLowerCase() !== "completed") ? lbl : "Idle";
 }
 
 function participantRowClasses(name: string) {
@@ -2046,95 +2398,38 @@ watch(
   { flush: "post" },
 );
 
-const thoughtStreamPane = ref<HTMLElement | null>(null);
-
-function updateSidePanelMetrics() {
-  const container = sidePanelsPane.value;
-  if (!container) return;
-  panelContainerHeight.value = container.getBoundingClientRect().height;
-  const splitterEl = panelSplitter.value;
-  if (splitterEl) {
-    const measured = splitterEl.getBoundingClientRect().height;
-    if (measured) panelSplitterHeight.value = measured;
-  }
-}
-
-function clampActiveSpecialistPaneHeight(height: number) {
-  const containerHeight = panelContainerHeight.value;
-  const splitterHeight = panelSplitterHeight.value;
-  if (!containerHeight) return height;
-  const maxHeight = Math.max(
-    PANEL_MIN_HEIGHT,
-    containerHeight - splitterHeight - PANEL_MIN_HEIGHT,
-  );
-  return Math.min(Math.max(height, PANEL_MIN_HEIGHT), maxHeight);
-}
-
-function defaultActiveSpecialistPaneHeight() {
-  const containerHeight = panelContainerHeight.value;
-  const splitterHeight = panelSplitterHeight.value;
-  if (!containerHeight) return null;
-  const available = containerHeight - splitterHeight;
-  if (!Number.isFinite(available) || available <= 0) return null;
-  return clampActiveSpecialistPaneHeight(available / 2);
-}
-
-function stopPanelSplitterDrag() {
-  if (!isPanelSplitterDragging.value || !isBrowser) return;
-  isPanelSplitterDragging.value = false;
-  if (panelPointerId !== null && panelSplitter.value?.releasePointerCapture) {
-    panelSplitter.value.releasePointerCapture(panelPointerId);
-  }
-  panelPointerId = null;
-  document.body.style.cursor = previousBodyCursor || "";
-  document.body.style.userSelect = previousBodyUserSelect || "";
-  window.removeEventListener("pointermove", handlePanelSplitterPointerMove);
-  window.removeEventListener("pointerup", handlePanelSplitterPointerUp);
-  window.removeEventListener("pointercancel", handlePanelSplitterPointerUp);
-}
-
-function handlePanelSplitterPointerDown(event: PointerEvent) {
-  if (event.button !== 0) return;
-  if (!isBrowser || !sidePanelsPane.value || !activeSpecialistPane.value)
-    return;
-  event.preventDefault();
-  panelSplitAuto.value = false;
-  updateSidePanelMetrics();
-  isPanelSplitterDragging.value = true;
-  panelDragStartY = event.clientY;
-  panelDragStartHeight =
-    activeSpecialistPane.value.getBoundingClientRect().height;
-  panelPointerId = event.pointerId;
-  panelSplitter.value?.setPointerCapture?.(event.pointerId);
-  previousBodyCursor = document.body.style.cursor;
-  previousBodyUserSelect = document.body.style.userSelect;
-  document.body.style.cursor = "row-resize";
-  document.body.style.userSelect = "none";
-  window.addEventListener("pointermove", handlePanelSplitterPointerMove);
-  window.addEventListener("pointerup", handlePanelSplitterPointerUp);
-  window.addEventListener("pointercancel", handlePanelSplitterPointerUp);
-}
-
-function handlePanelSplitterPointerMove(event: PointerEvent) {
-  if (!isPanelSplitterDragging.value) return;
-  const delta = event.clientY - panelDragStartY;
-  activeSpecialistPaneHeight.value = clampActiveSpecialistPaneHeight(
-    panelDragStartHeight + delta,
-  );
-}
-
-function handlePanelSplitterPointerUp() {
-  stopPanelSplitterDrag();
-}
+watch(
+  () =>
+    visibleParticipantActivityItems.value.map((item) => item.id).join(":"),
+  () => {
+    if (
+      selectedActivityId.value &&
+      visibleParticipantActivityItems.value.some(
+        (item) => item.id === selectedActivityId.value,
+      )
+    ) {
+      return;
+    }
+    selectedActivityId.value = visibleParticipantActivityItems.value[0]?.id || null;
+  },
+  { immediate: true },
+);
 
 watch(
   () =>
-    displayedThoughtSummaries.value.map((summary) => summary.length).join(":"),
+    visibleParticipantActivityItems.value
+      .map((item) =>
+        [
+          item.id,
+          item.thoughtSummaries.map((summary) => summary.length).join(","),
+          item.response.length,
+          item.toolEntries.length,
+          item.error || "",
+        ].join("/"),
+      )
+      .join(":"),
   () => {
-    nextTick(() => {
-      if (!thoughtStreamPane.value) return;
-      thoughtStreamPane.value.scrollTop = thoughtStreamPane.value.scrollHeight;
-    });
+    scrollActivityPaneToBottom();
   },
   { flush: "post" },
 );
@@ -2184,38 +2479,10 @@ onMounted(() => {
   nextTick(() => {
     autoSizeComposer();
     scrollMessagesToBottom({ force: true, behavior: "auto" });
-    updateSidePanelMetrics();
-    if (activeSpecialistPane.value) {
-      const defaultHeight = defaultActiveSpecialistPaneHeight();
-      if (defaultHeight !== null) {
-        activeSpecialistPaneHeight.value = defaultHeight;
-        panelSplitAuto.value = true;
-      }
-    }
-    if (isBrowser && "ResizeObserver" in window && sidePanelsPane.value) {
-      panelResizeObserver = new ResizeObserver(() => {
-        updateSidePanelMetrics();
-        if (panelSplitAuto.value) {
-          const defaultHeight = defaultActiveSpecialistPaneHeight();
-          if (defaultHeight !== null) {
-            activeSpecialistPaneHeight.value = defaultHeight;
-            return;
-          }
-        }
-        if (activeSpecialistPaneHeight.value !== null) {
-          activeSpecialistPaneHeight.value = clampActiveSpecialistPaneHeight(
-            activeSpecialistPaneHeight.value,
-          );
-        }
-      });
-      panelResizeObserver.observe(sidePanelsPane.value);
-    }
   });
 });
 
 onBeforeUnmount(() => {
-  stopPanelSplitterDrag();
-  panelResizeObserver?.disconnect();
   stopAllResponseTimers();
   if (isBrowser && previousBodyOverflow !== null) {
     document.body.style.overflow = previousBodyOverflow;
@@ -2579,7 +2846,7 @@ async function deleteChatMessage(message: ChatMessage) {
 }
 
 function copyThoughtSummaries() {
-  const summaries = displayedThoughtSummaries.value || [];
+  const summaries = selectedActivityThoughtSummaries.value || [];
   if (!summaries.length) return;
 
   const text = summaries
@@ -2701,10 +2968,13 @@ function formatTimestamp(value?: string) {
   return timeFormatter.format(date);
 }
 
-function snippet(content: string) {
+function snippet(content: string, maxLength = 80) {
   if (!content) return "";
   const trimmed = content.replace(/\s+/g, " ").trim();
-  return trimmed.length > 80 ? `${trimmed.slice(0, 77)}…` : trimmed;
+  const safeLength = Math.max(4, maxLength);
+  return trimmed.length > safeLength
+    ? `${trimmed.slice(0, safeLength - 3)}...`
+    : trimmed;
 }
 
 function handleComposerKeydown(event: KeyboardEvent) {
@@ -2781,23 +3051,76 @@ type ScrollToBottomOptions = {
   behavior?: ScrollBehavior;
 };
 
+function scrollPaneToBottom(
+  container: HTMLElement | null,
+  enabledRef: { value: boolean },
+  options: ScrollToBottomOptions = {},
+) {
+  if (!container) return;
+  if (!options.force && !enabledRef.value) {
+    return;
+  }
+
+  const behavior = options.behavior ?? (options.force ? "smooth" : "auto");
+  const target = Math.max(container.scrollHeight - container.clientHeight, 0);
+  container.scrollTo({ top: target, behavior });
+
+  if (options.force) {
+    enabledRef.value = true;
+  }
+}
+
 function scrollMessagesToBottom(options: ScrollToBottomOptions = {}) {
   nextTick(() => {
-    const container = messagesPane.value;
-    if (!container) return;
-
-    if (!options.force && !autoScrollEnabled.value) {
-      return;
-    }
-
-    const behavior = options.behavior ?? (options.force ? "smooth" : "auto");
-    const target = Math.max(container.scrollHeight - container.clientHeight, 0);
-    container.scrollTo({ top: target, behavior });
-
-    if (options.force) {
-      autoScrollEnabled.value = true;
-    }
+    scrollPaneToBottom(messagesPane.value, autoScrollEnabled, options);
   });
+}
+
+function scrollActivityPaneToBottom(options: ScrollToBottomOptions = {}) {
+  nextTick(() => {
+    scrollPaneToBottom(participantActivityPane.value, activityAutoScrollEnabled, options);
+  });
+}
+
+function registerThreadBody(el: Element | null, threadId: string) {
+  if (el instanceof HTMLElement) {
+    if (threadBodyEls.get(threadId) === el) return;
+    threadBodyEls.set(threadId, el);
+    if (!threadScrollEnabled.has(threadId)) threadScrollEnabled.set(threadId, true);
+    if (!threadScrollLastTop.has(threadId)) threadScrollLastTop.set(threadId, 0);
+  } else {
+    threadBodyEls.delete(threadId);
+  }
+}
+
+function scrollThreadBodyToBottom(threadId: string, options: ScrollToBottomOptions = {}) {
+  nextTick(() => {
+    const el = threadBodyEls.get(threadId);
+    if (!el) return;
+    const enabledRef = {
+      get value() { return threadScrollEnabled.get(threadId) ?? true; },
+      set value(v: boolean) {
+        threadScrollEnabled.set(threadId, v);
+      },
+    };
+    scrollPaneToBottom(el, enabledRef, options);
+  });
+}
+
+function handleThreadBodyScroll(event: Event, threadId: string) {
+  const enabledRef = {
+    get value() { return threadScrollEnabled.get(threadId) ?? true; },
+    set value(v: boolean) {
+      threadScrollEnabled.set(threadId, v);
+    },
+  };
+  const lastTopRef = {
+    get value() { return threadScrollLastTop.get(threadId) ?? 0; },
+    set value(v: number) {
+      threadScrollLastTop.set(threadId, v);
+    },
+  };
+  handlePaneScroll(event, enabledRef, lastTopRef);
 }
 
 function isNearBottom(container: HTMLElement) {
@@ -2807,30 +3130,40 @@ function isNearBottom(container: HTMLElement) {
 }
 
 function handleMessagesScroll(event: Event) {
+  handlePaneScroll(event, autoScrollEnabled, lastScrollTop);
+}
+
+function handleActivityPaneScroll(event: Event) {
+  handlePaneScroll(event, activityAutoScrollEnabled, activityLastScrollTop);
+}
+
+function handlePaneScroll(
+  event: Event,
+  enabledRef: { value: boolean },
+  lastTopRef: { value: number },
+) {
   const container = event.target as HTMLElement | null;
   if (!container) return;
   if (container.scrollHeight <= container.clientHeight) {
-    autoScrollEnabled.value = true;
-    lastScrollTop.value = 0;
+    enabledRef.value = true;
+    lastTopRef.value = 0;
     return;
   }
 
   const currentTop = container.scrollTop;
-  const delta = currentTop - lastScrollTop.value;
-  lastScrollTop.value = currentTop;
+  const delta = currentTop - lastTopRef.value;
+  lastTopRef.value = currentTop;
 
   if (delta < -1) {
-    // User scrolls upward: stop auto-scroll immediately.
-    autoScrollEnabled.value = false;
+    enabledRef.value = false;
     return;
   }
 
   const nearBottom = isNearBottom(container);
   if (nearBottom) {
-    autoScrollEnabled.value = true;
+    enabledRef.value = true;
   } else if (delta > 0) {
-    // User scrolls down but not at bottom yet; keep auto-scroll off.
-    autoScrollEnabled.value = false;
+    enabledRef.value = false;
   }
 }
 
@@ -3039,107 +3372,285 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   min-height: 0;
 }
 
-.panel-splitter {
-  position: relative;
-  height: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: row-resize;
-  touch-action: none;
-  user-select: none;
-}
-
-.panel-splitter__line {
-  width: 100%;
-  height: 1px;
+.participant-status {
+  flex: 0 0 auto;
   border-radius: 999px;
-  background: rgb(var(--color-border) / 0.6);
-  transition:
-    background 0.2s ease,
-    box-shadow 0.2s ease;
+  border: 1px solid rgb(var(--color-border) / 0.55);
+  padding: 0.15rem 0.45rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: rgb(var(--color-subtle-foreground));
+  background: rgb(var(--color-surface) / 0.9);
 }
 
-.panel-splitter:hover .panel-splitter__line,
-.panel-splitter--dragging .panel-splitter__line {
+.direct-activity-wrapper {
+  width: 100%;
+}
+
+/* Parallel specialist activity grid */
+.parallel-activity-grid {
+  display: flex;
+  gap: 0.6rem;
+  width: 100%;
+}
+.parallel-activity-grid--row {
+  flex-direction: row;
+  align-items: flex-start;
+}
+.parallel-activity-grid--row .parallel-activity-card {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.parallel-activity-grid--col {
+  flex-direction: column;
+}
+.parallel-activity-grid--col .parallel-activity-card {
+  width: 100%;
+}
+
+/* Live dot variant for running threads */
+.direct-activity-pill-dot--live {
+  background: rgb(var(--color-accent)) !important;
+  animation: activityPulse 1.2s ease-in-out infinite;
+}
+
+/* Pill fade in/out */
+.activity-pill-enter-active {
+  transition: opacity 0.15s ease;
+}
+.activity-pill-leave-active {
+  transition: opacity 0.1s ease;
+}
+.activity-pill-enter-from,
+.activity-pill-leave-to {
+  opacity: 0;
+}
+
+/* Collapsed pill */
+.direct-activity-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 999px;
+  border: 1px solid rgb(var(--color-border) / 0.5);
+  background: rgb(var(--color-surface-muted) / 0.45);
+  padding: 0.3rem 0.75rem 0.3rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: rgb(var(--color-subtle-foreground));
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.direct-activity-pill:hover {
+  border-color: rgb(var(--color-accent) / 0.5);
+  color: rgb(var(--color-accent));
+}
+.direct-activity-pill-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: rgb(var(--color-subtle-foreground));
+  flex-shrink: 0;
+}
+.direct-activity-pill:hover .direct-activity-pill-dot {
   background: rgb(var(--color-accent));
 }
-
-.panel-splitter__handle {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 3.5rem;
-  height: 0.4rem;
-  transform: translate(-50%, -50%);
-  border-radius: 9999px;
-  background: rgb(var(--color-surface-muted));
-  border: 1px solid rgb(var(--color-border));
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-  transition:
-    border-color 0.2s ease,
-    background 0.2s ease,
-    box-shadow 0.2s ease;
-}
-
-.panel-splitter:hover .panel-splitter__handle,
-.panel-splitter--dragging .panel-splitter__handle {
-  border-color: rgb(var(--color-accent));
-  background: rgb(var(--color-surface));
-  box-shadow: 0 0 0 3px rgb(var(--color-accent) / 0.18);
-}
-
-.active-specialist-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-  padding: 0.75rem;
-  border-radius: 0.9rem;
-  border: 1px solid rgb(var(--color-border) / 0.6);
-  background: rgb(var(--color-surface-muted) / 0.94);
-  box-shadow: 0 18px 35px -30px rgb(0 0 0 / 0.6);
-}
-
-.active-specialist-card--live {
-  border-color: rgb(var(--color-accent) / 0.4);
-  box-shadow: 0 20px 40px -28px rgb(var(--color-accent) / 0.35);
-}
-
-.active-specialist-card--delegated {
-  background: rgb(var(--color-accent) / 0.12);
-}
-
-.active-specialist-avatar {
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
-  display: grid;
-  place-items: center;
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: rgb(var(--color-foreground));
-  background: rgb(var(--color-accent) / 0.28);
-  border: 1px solid rgb(var(--color-border) / 0.6);
-}
-
-.active-specialist-body {
-  min-width: 0;
+.direct-activity-pill-label {
   flex: 1;
 }
+.direct-activity-pill-chevron {
+  font-size: 0.85rem;
+  line-height: 1;
+  transform: rotate(0deg);
+}
 
-.active-specialist-name {
+/* Expanded panel */
+.direct-activity {
+  display: flex;
+  flex-direction: column;
+  border-radius: 0.8rem;
+  border: 1px solid rgb(var(--color-border) / 0.58);
+  background: rgb(var(--color-surface-muted) / 0.62);
+  overflow: hidden;
+}
+
+.direct-activity-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid rgb(var(--color-border) / 0.35);
+}
+
+.direct-activity-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  max-height: 14rem;
+  overflow-y: auto;
+  padding: 0.65rem 0.75rem 0.75rem;
+}
+
+.direct-activity-collapse-btn {
+  font-size: 0.68rem;
   font-weight: 600;
-  color: rgb(var(--color-foreground));
+  color: rgb(var(--color-subtle-foreground));
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.3rem;
+  transition: color 0.15s;
+}
+.direct-activity-collapse-btn:hover {
+  color: rgb(var(--color-accent));
+}
+
+.direct-activity-streaming-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: rgb(var(--color-accent));
+  animation: activityPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes activityPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.direct-activity-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.direct-activity-label {
+  flex: 0 0 auto;
+  color: rgb(var(--color-subtle-foreground));
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.direct-activity-value {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: rgb(var(--color-foreground));
+  font-size: 0.76rem;
+  font-weight: 700;
 }
 
-.active-specialist-model {
-  margin-top: 0.15rem;
-  font-size: 0.75rem;
+.direct-activity-thought {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.direct-activity-summary {
+  color: rgb(var(--color-foreground));
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.activity-detail-empty {
+  padding: 0.75rem;
+  border: 1px dashed rgb(var(--color-border) / 0.65);
+  border-radius: 0.75rem;
   color: rgb(var(--color-subtle-foreground));
-  white-space: normal;
+  font-size: 0.78rem;
+}
+
+.activity-detail-scroll {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.activity-detail-section {
+  border-top: 1px solid rgb(var(--color-border) / 0.5);
+  padding-top: 1rem;
+}
+
+.activity-detail-section:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.activity-detail-subsection {
+  min-height: 0;
+  margin-top: 1.15rem;
+}
+
+.activity-detail-section-title {
+  margin-bottom: 0.62rem;
+  color: rgb(var(--color-subtle-foreground));
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.activity-thought-item,
+.activity-response,
+.activity-tool-item,
+.activity-error-text {
+  border-radius: 0.65rem;
+  border: 1px solid rgb(var(--color-border) / 0.55);
+  background: rgb(var(--color-surface-muted) / 0.72);
+  padding: 0.65rem;
+}
+
+.activity-thought-item {
+  color: rgb(var(--color-foreground));
+  font-size: 0.72rem;
+  line-height: 1.42;
+  white-space: pre-wrap;
+}
+
+.activity-thought-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.activity-response {
+  color: rgb(var(--color-foreground));
+  font-size: 0.71rem;
+  line-height: 1.42;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.activity-tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-bottom: 0.2rem;
+}
+
+.activity-tool-title {
+  margin-bottom: 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 650;
+  color: rgb(var(--color-foreground));
+}
+
+.activity-error-text {
+  color: rgb(var(--color-danger));
+  font-size: 0.72rem;
+  line-height: 1.4;
 }
 
 .participant-list {
@@ -3147,20 +3658,38 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   flex-direction: column;
 }
 
-.participant-row {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.5rem 0.75rem;
+.participant-list-item {
   border-bottom: 1px solid rgb(var(--color-border) / 0.4);
 }
 
-.participant-row:last-child {
+.participant-list-item:last-child {
   border-bottom: none;
 }
 
+.participant-row {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.participant-row:hover,
+.participant-row:focus-visible {
+  background: rgb(var(--color-surface-muted) / 0.65);
+  outline: none;
+}
+
 .participant-row--active {
-  border-color: rgb(var(--color-accent) / 0.4);
+  background: rgb(var(--color-accent) / 0.08);
 }
 
 .participant-dot {
@@ -3186,6 +3715,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 }
 
 .participant-name {
+  display: block;
   font-size: 0.82rem;
   font-weight: 600;
   color: rgb(var(--color-foreground));
@@ -3195,105 +3725,188 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 }
 
 .participant-model {
+  display: block;
   margin-top: 0.1rem;
   font-size: 0.7rem;
   color: rgb(var(--color-subtle-foreground));
-  white-space: normal;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.response-status {
+.participant-activity-action {
+  flex: 0 0 auto;
+  color: rgb(var(--color-accent));
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
+.activity-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.7rem 0.85rem;
-  border-radius: 0.9rem;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgb(0 0 0 / 0.62);
+  backdrop-filter: blur(8px);
+}
+
+.activity-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(68rem, 94vw);
+  height: min(44rem, 88vh);
+  border-radius: 0.95rem;
+  border: 1px solid rgb(var(--color-border) / 0.72);
+  background: rgb(var(--color-surface) / 0.98);
+  box-shadow: 0 28px 80px -36px rgb(0 0 0 / 0.9);
+  overflow: hidden;
+}
+
+.activity-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border-bottom: 1px solid rgb(var(--color-border) / 0.58);
+}
+
+.activity-modal-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgb(var(--color-foreground));
+  font-size: 1rem;
+  font-weight: 750;
+}
+
+.activity-modal-model {
+  margin-top: 0.2rem;
+  max-width: 44rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgb(var(--color-subtle-foreground));
+  font-size: 0.76rem;
+}
+
+.activity-modal-close {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  border: 1px solid rgb(var(--color-border) / 0.72);
+  background: rgb(var(--color-surface-muted) / 0.8);
+  color: rgb(var(--color-foreground));
+  padding: 0.35rem 0.7rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.activity-modal-close:hover,
+.activity-modal-close:focus-visible {
+  border-color: rgb(var(--color-accent) / 0.7);
+  outline: none;
+}
+
+.activity-modal-scroll {
+  flex: 1;
+  padding: 1rem 1.1rem 1.2rem;
+}
+
+.run-activity {
+  margin-top: 0.75rem;
+  padding: 0.85rem;
+  border-radius: 0.85rem;
   border: 1px solid rgb(var(--color-border) / 0.6);
   background: rgb(var(--color-surface-muted) / 0.92);
   box-shadow: 0 14px 32px -24px rgb(0 0 0 / 0.6);
 }
 
-.response-status__dot {
-  width: 0.65rem;
-  height: 0.65rem;
-  border-radius: 999px;
-  background: rgb(var(--color-accent));
+.run-activity-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.15rem 0.75rem;
+  align-items: center;
 }
 
-.response-status__body {
+.run-activity-title {
   min-width: 0;
-  flex: 1;
-}
-
-.response-status__title {
-  font-weight: 600;
-  font-size: 0.9rem;
-  color: rgb(var(--color-foreground));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.response-status__detail {
-  margin-top: 0.1rem;
-  font-size: 0.75rem;
-  color: rgb(var(--color-subtle-foreground));
-}
-
-.response-status__pill {
-  flex-shrink: 0;
-  font-size: 0.62rem;
+  font-size: 0.9rem;
   font-weight: 700;
-  text-transform: uppercase;
+  color: rgb(var(--color-foreground));
+}
+
+.run-activity-detail {
+  grid-column: 1 / 2;
+  color: rgb(var(--color-subtle-foreground));
+  font-size: 0.74rem;
+}
+
+.run-activity-pill {
+  grid-column: 2 / 3;
+  grid-row: 1 / 3;
+  flex-shrink: 0;
+  align-self: start;
+  font-size: 0.62rem;
+  font-weight: 800;
   letter-spacing: 0.08em;
+  text-transform: uppercase;
   padding: 0.2rem 0.55rem;
   border-radius: 999px;
-  border: 1px solid transparent;
+  border: 1px solid rgb(var(--color-border) / 0.55);
+  color: rgb(var(--color-subtle-foreground));
+  background: rgb(var(--color-surface) / 0.88);
 }
 
-.response-status--running {
+.run-activity--running {
   border-color: rgb(var(--color-accent) / 0.35);
 }
 
-.response-status--running .response-status__dot {
-  background: rgb(var(--color-accent));
-  box-shadow: 0 0 0 6px rgb(var(--color-accent) / 0.18);
-  animation: statusPulse 1.8s ease-in-out infinite;
+.run-activity--done {
+  border-color: rgb(var(--color-success) / 0.35);
 }
 
-.response-status__pill--running {
+.run-activity--error {
+  border-color: rgb(var(--color-danger) / 0.35);
+}
+
+.activity-status--running,
+.run-activity-pill--running {
   border-color: rgb(var(--color-accent) / 0.4);
   color: rgb(var(--color-accent));
   background: rgb(var(--color-accent) / 0.12);
 }
 
-.response-status--done {
-  border-color: rgb(var(--color-success) / 0.35);
+.activity-status--running {
+  animation: statusPulse 1.8s ease-in-out infinite;
 }
 
-.response-status--done .response-status__dot {
-  background: rgb(var(--color-success));
-  box-shadow: 0 0 0 6px rgb(var(--color-success) / 0.18);
-}
-
-.response-status__pill--done {
+.activity-status--done,
+.run-activity-pill--done {
   border-color: rgb(var(--color-success) / 0.35);
   color: rgb(var(--color-success));
   background: rgb(var(--color-success) / 0.12);
 }
 
-.response-status--error {
-  border-color: rgb(var(--color-danger) / 0.35);
-}
-
-.response-status--error .response-status__dot {
-  background: rgb(var(--color-danger));
-  box-shadow: 0 0 0 6px rgb(var(--color-danger) / 0.2);
-}
-
-.response-status__pill--error {
+.activity-status--error,
+.run-activity-pill--error {
   border-color: rgb(var(--color-danger) / 0.4);
   color: rgb(var(--color-danger));
   background: rgb(var(--color-danger) / 0.12);
+}
+
+.activity-status--idle {
+  border-color: rgb(var(--color-warning) / 0.35);
+  color: rgb(var(--color-warning));
+  background: rgb(var(--color-warning) / 0.12);
 }
 
 @keyframes statusPulse {
@@ -3433,10 +4046,14 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 }
 
 .chat-markdown :deep(pre.hljs) {
-  border-radius: 0.5rem;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  border-bottom-left-radius: 0.5rem;
+  border-bottom-right-radius: 0.5rem;
   overflow-x: auto;
   padding: 0.75rem;
-  background-color: rgb(var(--color-surface-muted) / 0.9);
+  background-color: rgb(var(--color-surface-muted) / 0.78);
+  border-color: rgb(var(--color-surface-muted) / 0.78);
   max-width: 100%;
 }
 
@@ -3445,6 +4062,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   white-space: pre;
   max-width: 100%;
   overflow-x: auto;
+  background: transparent !important;
 }
 /* Code block wrapper and toolbar */
 .chat-markdown :deep(.md-codeblock) {

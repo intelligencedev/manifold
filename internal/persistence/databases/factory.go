@@ -2,9 +2,11 @@ package databases
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	"manifold/internal/agent/belief"
 	"manifold/internal/config"
 	"manifold/internal/persistence"
 
@@ -53,6 +55,17 @@ func NewManager(ctx context.Context, cfg config.DBConfig) (m Manager, err error)
 		return Manager{}, err
 	}
 
+	m.SpecialistActivity, err = buildSpecialistActivityStore(ctx, cfg.Chat.Backend, chatDSN)
+	if err != nil {
+		return Manager{}, err
+	}
+	if m.SpecialistActivity == nil {
+		m.SpecialistActivity = NewMemorySpecialistActivityStore()
+	}
+	if err := initStore(ctx, "specialist activity store", m.SpecialistActivity); err != nil {
+		return Manager{}, err
+	}
+
 	if err := initializeDefaultStores(ctx, &m, cfg, chatDSN); err != nil {
 		return Manager{}, err
 	}
@@ -91,6 +104,10 @@ func buildVectorStore(ctx context.Context, cfg config.VectorConfig, dsn string) 
 		return NewMemoryVector(), nil
 	case "auto":
 		if pool := openOptionalPostgresPool(ctx, dsn); pool != nil {
+			if err := ensureVectorExtension(ctx, pool); err != nil {
+				pool.Close()
+				return NewMemoryVector(), nil
+			}
 			return NewPostgresVector(pool, cfg.Dimensions, cfg.Metric), nil
 		}
 		return NewMemoryVector(), nil
@@ -100,6 +117,10 @@ func buildVectorStore(ctx context.Context, cfg config.VectorConfig, dsn string) 
 		}
 		pool, err := newPgPool(ctx, dsn)
 		if err != nil {
+			return nil, fmt.Errorf("connect postgres (vector): %w", err)
+		}
+		if err := ensureVectorExtension(ctx, pool); err != nil {
+			pool.Close()
 			return nil, fmt.Errorf("connect postgres (vector): %w", err)
 		}
 		return NewPostgresVector(pool, cfg.Dimensions, cfg.Metric), nil
@@ -167,8 +188,31 @@ func buildChatStore(ctx context.Context, backend, dsn string) (persistence.ChatS
 	}
 }
 
+func buildSpecialistActivityStore(ctx context.Context, backend, dsn string) (persistence.SpecialistActivityStore, error) {
+	switch backend {
+	case "", "memory", "none", "disabled":
+		return NewMemorySpecialistActivityStore(), nil
+	case "auto":
+		if pool := openOptionalPostgresPool(ctx, dsn); pool != nil {
+			return NewPostgresSpecialistActivityStore(pool), nil
+		}
+		return NewMemorySpecialistActivityStore(), nil
+	case "postgres", "pg":
+		if dsn == "" {
+			return nil, fmt.Errorf("specialist activity backend postgres requires DSN")
+		}
+		pool, err := newPgPool(ctx, dsn)
+		if err != nil {
+			return nil, fmt.Errorf("connect postgres (specialist activity): %w", err)
+		}
+		return NewPostgresSpecialistActivityStore(pool), nil
+	default:
+		return nil, fmt.Errorf("unsupported specialist activity backend: %s", backend)
+	}
+}
+
 func initializeDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfig, chatDSN string) error {
-	configureDefaultPostgresStores(ctx, m, cfg.DefaultDSN)
+	configureDefaultPostgresStores(ctx, m, cfg)
 
 	m.FlowV2 = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPostgresFlowV2Store)
 	if err := initStore(ctx, "flow v2 store", m.FlowV2); err != nil {
@@ -209,20 +253,27 @@ func initializeDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfi
 		return err
 	}
 
+	m.Belief = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, func(pool *pgxpool.Pool) belief.Store {
+		return NewBeliefStoreWithDimensions(pool, cfg.Vector.Dimensions)
+	})
+	if err := initStore(ctx, "belief store", m.Belief); err != nil {
+		return err
+	}
+
 	return nil
 }
 
-func configureDefaultPostgresStores(ctx context.Context, m *Manager, defaultDSN string) {
-	if defaultDSN == "" {
+func configureDefaultPostgresStores(ctx context.Context, m *Manager, cfg config.DBConfig) {
+	if cfg.DefaultDSN == "" {
 		return
 	}
 
-	pool := openOptionalPostgresPool(ctx, defaultDSN)
+	pool := openOptionalPostgresPool(ctx, cfg.DefaultDSN)
 	if pool == nil {
 		return
 	}
 
-	m.EvolvingMemory = NewPostgresEvolvingMemoryStore(pool)
+	m.EvolvingMemory = NewPostgresEvolvingMemoryStoreWithDimensions(pool, cfg.Vector.Dimensions)
 	if store, ok := m.EvolvingMemory.(interface{ Init(context.Context) error }); ok {
 		_ = store.Init(ctx)
 	}
@@ -308,4 +359,21 @@ func newPgPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 		return nil, err
 	}
 	return pool, nil
+}
+
+func ensureVectorExtension(ctx context.Context, pool *pgxpool.Pool) error {
+	if pool == nil {
+		return errors.New("postgres pool is nil")
+	}
+	if _, err := pool.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS vector`); err != nil {
+		return fmt.Errorf("enable vector extension: %w", err)
+	}
+	var exists bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'vector')`).Scan(&exists); err != nil {
+		return fmt.Errorf("check vector type: %w", err)
+	}
+	if !exists {
+		return errors.New("pgvector extension is unavailable")
+	}
+	return nil
 }

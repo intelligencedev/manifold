@@ -16,7 +16,9 @@ For a fresh clone, the supported first-run path is:
 Optional services can be added later:
 
 - `keycloak-db` and `keycloak` for authentication testing
-- `clickhouse` and `otel-collector` for observability
+- `clickhouse` and `otel-collector` for persistent observability
+
+The default dashboard does not require ClickHouse. When `obs.local.enabled` is true, `agentd` serves metrics, logs, and traces from bounded process-local buffers.
 
 ### Local Host Builds
 
@@ -25,6 +27,8 @@ Local host builds are supported through the Makefile, but they are a developer w
 - iterate on Go code with `make build-agentd` or `make build-manifold`
 - run the frontend separately with `pnpm -C web/agentd-ui dev`
 - build `manibot` directly on the host
+
+Host builds can also run with embedded Postgres. In that mode Manifold starts a bundled PostgreSQL process during `agentd` startup and no external database service is required.
 
 ## Prerequisites
 
@@ -72,6 +76,7 @@ databases:
 ```dotenv
 OPENAI_API_KEY="your_real_api_key"
 DATABASE_URL="postgres://manifold:manifold@pg-manifold:5432/manifold?sslmode=disable"
+CLICKHOUSE_DSN=""
 ```
 
 1. Start the required services:
@@ -82,6 +87,68 @@ docker compose up -d pg-manifold manifold
 
 1. Open the UI at <http://localhost:32180>.
 
+## Self-Contained Host Deployment
+
+This mode runs without Compose services, external Postgres, ClickHouse, or an OpenTelemetry Collector. It is useful for local single-machine installs and development environments where you want durable Manifold state without managing a separate database server.
+
+Prerequisites:
+
+- Go toolchain for building `agentd`
+- An LLM provider, either remote or local OpenAI-compatible
+
+Build:
+
+```bash
+make build-manifold
+```
+
+Set `.env` values so no external database or telemetry service is selected:
+
+```dotenv
+DATABASE_URL=""
+CLICKHOUSE_DSN=""
+OPENAI_API_KEY="your_real_api_key"
+```
+
+Configure `config.yaml`:
+
+```yaml
+databases:
+  embedded: true
+  embeddedPort: 5433
+  embeddedDataDir: ""
+  defaultDSN: ""
+  chat:
+    backend: auto
+    dsn: ""
+  search:
+    backend: auto
+    dsn: ""
+  vector:
+    backend: auto
+    dsn: ""
+  graph:
+    backend: auto
+    dsn: ""
+
+obs:
+  otlp: ""
+  local:
+    enabled: true
+  clickhouse:
+    dsn: ""
+```
+
+Run:
+
+```bash
+./dist/agentd
+```
+
+When `databases.embedded` is true, `agentd` starts bundled Postgres before initializing stores, sets the runtime default DSN internally, and stops the embedded process during shutdown. The default data directory is `~/.manifold/embedded-postgres`; set `embeddedDataDir` to choose a different persistent location.
+
+The embedded mode installs the configured extensions (`pgvector`, `postgis`, and `pgrouting` by default) when available. If `pgvector` cannot be installed, vector storage falls back to memory while the rest of the Postgres-backed stores continue to use the embedded database.
+
 ## Service Map
 
 Core services:
@@ -91,8 +158,8 @@ Core services:
 
 Optional services:
 
-- `clickhouse`: metrics, traces, and logs query backend
-- `otel-collector`: OTLP ingestion pipeline
+- `clickhouse`: optional persistent metrics, traces, and logs query backend
+- `otel-collector`: optional OTLP ingestion pipeline
 - `keycloak-db`: Postgres for Keycloak
 - `keycloak`: local OIDC provider for auth testing
 
@@ -112,6 +179,8 @@ Inside the compose network, Manifold connects to Postgres at `pg-manifold:5432`.
 - The runtime validates that `workdir` exists and is a directory.
 - `config.yaml.example` is the full runtime reference. `specialists.yaml.example` and `mcp.yaml.example` document the optional external specialist and MCP config files.
 - `databases.defaultDSN` and the per-subsystem DSNs in `config.yaml.example` are wired to `${DATABASE_URL}` for the compose network.
+- For embedded Postgres, set `databases.embedded: true` and leave `DATABASE_URL`, `databases.defaultDSN`, and per-subsystem DSNs empty so `agentd` can supply the embedded DSN at runtime.
+- `obs.local.enabled: true` gives the dashboard local process telemetry without ClickHouse or an OpenTelemetry Collector. `obs.clickhouse.dsn` upgrades the dashboard to persistent telemetry when ClickHouse is available.
 - If you use `llm_client.openai.api: responses`, you can tune context-management behavior through `llm_client.openai.extraParams` in [config.yaml.example](../config.yaml.example).
 - Voice input requires an OpenAI-compatible transcription endpoint through the `stt` section in [config.yaml.example](../config.yaml.example).
 
@@ -134,13 +203,14 @@ See [storage.md](./storage.md) for details.
 ## Auth And Observability
 
 - Authentication is optional and disabled by default. See [auth.md](./auth.md).
-- Observability is optional and disabled unless you start the extra services and configure OTLP or ClickHouse. See [observability.md](./observability.md).
+- Local dashboard observability is enabled by default through process-local buffers. ClickHouse and OTLP export are optional for persistent or external observability. See [observability.md](./observability.md).
 
 ## Backup And Recovery
 
 Back up:
 
 - PostgreSQL data from `pg-manifold`
+- embedded Postgres data from `embeddedDataDir` or `~/.manifold/embedded-postgres` when `databases.embedded` is enabled
 - the entire `workdir`
 
 At minimum, a recoverable local deployment needs both the database state and the project filesystem.

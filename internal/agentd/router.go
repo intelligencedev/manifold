@@ -40,6 +40,8 @@ func newRouter(a *app) *http.ServeMux {
 
 	mux.HandleFunc("/api/projects", a.projectsHandler())
 	mux.HandleFunc("/api/projects/", a.projectDetailHandler())
+	mux.HandleFunc("/api/codeqa/runs", a.codeQARunsHandler())
+	mux.HandleFunc("/api/codeqa/runs/", a.codeQARunDetailHandler())
 
 	mux.HandleFunc("/api/runs", a.runsHandler())
 	mux.HandleFunc("/api/chat/sessions", a.chatSessionsHandler())
@@ -66,8 +68,10 @@ func newRouter(a *app) *http.ServeMux {
 	mux.HandleFunc("/api/teams/", a.teamDetailHandler())
 
 	mux.HandleFunc("/api/metrics/tokens", a.metricsTokensHandler())
+	mux.HandleFunc("/api/metrics/memory", a.metricsMemoryHandler())
 	mux.HandleFunc("/api/metrics/traces", a.metricsTracesHandler())
 	mux.HandleFunc("/api/metrics/logs", a.metricsLogsHandler())
+	mux.HandleFunc("/api/metrics/logs/detail", a.metricsLogDetailHandler())
 	// Agentd configuration (GET + POST/PUT/PATCH)
 	mux.HandleFunc("/api/config/agentd", a.agentdConfigHandler())
 	mux.HandleFunc("/api/flows/v2/tools", a.flowV2ToolsHandler())
@@ -98,6 +102,10 @@ func newRouter(a *app) *http.ServeMux {
 	mux.HandleFunc("/debug/memory/", a.debugMemoryHandler())
 	mux.HandleFunc("/api/debug/memory", a.debugMemoryHandler())
 	mux.HandleFunc("/api/debug/memory/", a.debugMemoryHandler())
+	mux.HandleFunc("/debug/beliefs", a.debugBeliefsHandler())
+	mux.HandleFunc("/debug/beliefs/", a.debugBeliefsHandler())
+	mux.HandleFunc("/api/debug/beliefs", a.debugBeliefsHandler())
+	mux.HandleFunc("/api/debug/beliefs/", a.debugBeliefsHandler())
 
 	return mux
 }

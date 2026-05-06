@@ -13,6 +13,7 @@ import {
   deleteChatSession as apiDeleteChatSession,
   deleteChatMessage as apiDeleteChatMessage,
   deleteChatMessagesAfter as apiDeleteChatMessagesAfter,
+  fetchChatActivities,
   fetchChatMessages,
   generateChatSessionTitle,
   listChatSessions,
@@ -181,6 +182,21 @@ export const useChatStore = defineStore("chat", () => {
     const next = { ...agentThreadsBySession.value, [sessionId]: [] };
     agentThreadsBySession.value = next;
     agentThreadIndex.delete(sessionId);
+  }
+
+  function setAgentThreads(sessionId: string, threads: AgentThread[]) {
+    const nextThreads = [...threads].sort((a, b) => {
+      const aTime = Date.parse(a.finishedAt || a.startedAt || "") || 0;
+      const bTime = Date.parse(b.finishedAt || b.startedAt || "") || 0;
+      return bTime - aTime;
+    });
+    agentThreadsBySession.value = {
+      ...agentThreadsBySession.value,
+      [sessionId]: nextThreads,
+    };
+    const idx = new Map<string, AgentThread>();
+    nextThreads.forEach((thread) => idx.set(thread.callId, thread));
+    agentThreadIndex.set(sessionId, idx);
   }
 
   function resetThoughtSummaries(sessionId: string) {
@@ -415,7 +431,10 @@ export const useChatStore = defineStore("chat", () => {
     if (!options.force && fetchedMessageSessions.has(sessionId)) return;
     const beforeFetch = messagesBySession.value[sessionId] || [];
     try {
-      const data = (await fetchChatMessages(sessionId)) ?? [];
+      const [data, activities] = await Promise.all([
+        fetchChatMessages(sessionId),
+        fetchChatActivities(sessionId),
+      ]);
       fetchedMessageSessions.add(sessionId);
       const current = messagesBySession.value[sessionId] || [];
       const changedDuringFetch = current !== beforeFetch;
@@ -427,6 +446,7 @@ export const useChatStore = defineStore("chat", () => {
         return;
       }
       setMessages(sessionId, data);
+      setAgentThreads(sessionId, activities || []);
     } catch (error) {
       const status = httpStatus(error);
       if (status === 403)
@@ -459,6 +479,9 @@ export const useChatStore = defineStore("chat", () => {
     const nextSessions = sessions.value.filter((s) => s.id !== sessionId);
     const { [sessionId]: _removed, ...rest } = messagesBySession.value;
     messagesBySession.value = rest;
+    const { [sessionId]: _removedThreads, ...restThreads } = agentThreadsBySession.value;
+    agentThreadsBySession.value = restThreads;
+    agentThreadIndex.delete(sessionId);
     fetchedMessageSessions.delete(sessionId);
     if (!nextSessions.length) {
       const fresh = await apiCreateChatSession("New Chat");
@@ -515,7 +538,6 @@ export const useChatStore = defineStore("chat", () => {
     const agentName = (options.agentName || "").trim();
     const agentModel = (options.agentModel || "").trim();
 
-    resetAgentThreads(sessionId);
     if (!wasStreaming) resetThoughtSummaries(sessionId);
 
     if (content) {
@@ -708,6 +730,10 @@ export const useChatStore = defineStore("chat", () => {
       case "thought_summary": {
         if (typeof event.data === "string" && event.data.trim()) {
           appendThoughtSummary(sessionId, event.data);
+          updateMessage(sessionId, assistantId, (m) => ({
+            ...m,
+            activityThoughtSummary: event.data,
+          }));
         }
         break;
       }
@@ -734,73 +760,18 @@ export const useChatStore = defineStore("chat", () => {
         break;
       }
       case "tool_start": {
-        const now = new Date().toISOString();
-        const key =
-          typeof event.tool_id === "string" && event.tool_id.trim()
-            ? event.tool_id
-            : null;
-        const messageId = crypto.randomUUID();
-        if (key) toolIndexFor(sessionId, streamId).set(key, messageId);
-        appendMessage(
-          sessionId,
-          {
-            id: messageId,
-            role: "tool" as ChatRole,
-            title: event.title || "Tool call",
-            content: "",
-            toolArgs: typeof event.args === "string" ? event.args : undefined,
-            createdAt: now,
-            streaming: true,
-          },
-          false,
-        );
+        updateMessage(sessionId, assistantId, (m) => ({
+          ...m,
+          activityToolTitle: event.title || "Tool call",
+        }));
         break;
       }
       case "tool_result": {
-        const now = new Date().toISOString();
-        const result = typeof event.data === "string" ? event.data : "";
-        const key =
-          typeof event.tool_id === "string" && event.tool_id.trim()
-            ? event.tool_id
-            : null;
-        const toolIndex = toolIndexFor(sessionId, streamId);
-        if (key && toolIndex.has(key)) {
-          const messageId = toolIndex.get(key) as string;
-          updateMessage(sessionId, messageId, (m) => ({
+        if (typeof event.title === "string" && event.title.trim()) {
+          updateMessage(sessionId, assistantId, (m) => ({
             ...m,
-            title: m.title || event.title || "Tool result",
-            content: m.content ? `${m.content}${result}` : result,
-            streaming: false,
+            activityToolTitle: event.title,
           }));
-          toolIndex.delete(key);
-        } else {
-          // Fallback: attach to last streaming tool message
-          const msgs = messagesBySession.value[sessionId] || [];
-          const pendingIdx = findLastIndex(
-            msgs,
-            (msg) => msg.role === "tool" && !!msg.streaming,
-          );
-          if (pendingIdx !== -1) {
-            const messageId = msgs[pendingIdx].id;
-            updateMessage(sessionId, messageId, (m) => ({
-              ...m,
-              title: m.title || event.title || "Tool result",
-              content: m.content ? `${m.content}${result}` : result,
-              streaming: false,
-            }));
-          } else {
-            appendMessage(
-              sessionId,
-              {
-                id: crypto.randomUUID(),
-                role: "tool",
-                title: event.title || "Tool result",
-                content: result,
-                createdAt: now,
-              },
-              false,
-            );
-          }
         }
         break;
       }
@@ -899,7 +870,7 @@ export const useChatStore = defineStore("chat", () => {
       case "agent_tool_result":
       case "agent_error":
       case "agent_thought_summary": {
-        handleAgentTraceEvent(event, sessionId);
+        handleAgentTraceEvent(event, sessionId, assistantId);
         break;
       }
       default:
@@ -907,7 +878,11 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
-  function handleAgentTraceEvent(event: ChatStreamEvent, sessionId: string) {
+  function handleAgentTraceEvent(
+    event: ChatStreamEvent,
+    sessionId: string,
+    assistantId: string,
+  ) {
     const now = new Date().toISOString();
     const callId =
       typeof event.call_id === "string" && event.call_id.trim()
@@ -925,6 +900,16 @@ export const useChatStore = defineStore("chat", () => {
       typeof event.content === "string" ? event.content : undefined;
     const args = typeof event.args === "string" ? event.args : undefined;
     const data = typeof event.data === "string" ? event.data : undefined;
+
+    if (!parentCallId?.trim()) {
+      handleDirectAgentTraceEvent(event, sessionId, assistantId, {
+        agentName,
+        model,
+        contentText,
+        data,
+      });
+      return;
+    }
 
     switch (event.type) {
       case "agent_start": {
@@ -1159,6 +1144,80 @@ export const useChatStore = defineStore("chat", () => {
             return { ...thread, thoughtSummaries: [...existing, summary] };
           },
         );
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  function handleDirectAgentTraceEvent(
+    event: ChatStreamEvent,
+    sessionId: string,
+    assistantId: string,
+    values: {
+      agentName?: string;
+      model?: string;
+      contentText?: string;
+      data?: string;
+    },
+  ) {
+    switch (event.type) {
+      case "agent_start": {
+        updateMessage(sessionId, assistantId, (m) => ({
+          ...m,
+          agentName: m.agentName || values.agentName,
+          agentModel: m.agentModel || values.model,
+          model: m.model || values.model,
+        }));
+        break;
+      }
+      case "agent_delta": {
+        if (values.contentText) {
+          updateMessage(sessionId, assistantId, (m) => ({
+            ...m,
+          }));
+        }
+        break;
+      }
+      case "agent_final": {
+        updateMessage(sessionId, assistantId, (m) => ({
+          ...m,
+        }));
+        break;
+      }
+      case "agent_tool_start":
+      case "agent_tool_result": {
+        if (typeof event.title === "string" && event.title.trim()) {
+          updateMessage(sessionId, assistantId, (m) => ({
+            ...m,
+            activityToolTitle: event.title,
+          }));
+        }
+        break;
+      }
+      case "agent_error": {
+        const errText =
+          typeof event.error === "string"
+            ? event.error
+            : values.data || "Agent error";
+        updateMessage(sessionId, assistantId, (m) => ({
+          ...m,
+          streaming: false,
+          error: errText,
+        }));
+        break;
+      }
+      case "agent_thought_summary": {
+        const summary =
+          typeof event.thought_summary === "string"
+            ? event.thought_summary.trim()
+            : "";
+        if (!summary) break;
+        updateMessage(sessionId, assistantId, (m) => ({
+          ...m,
+          activityThoughtSummary: summary,
+        }));
         break;
       }
       default:

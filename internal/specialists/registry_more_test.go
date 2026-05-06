@@ -25,11 +25,14 @@ func TestNewRegistry_PopulatesAgentFields(t *testing.T) {
 	if !strings.Contains(a.System, "mysys") {
 		t.Fatalf("system prompt missing base content: %q", a.System)
 	}
-	if !strings.Contains(a.System, "Available specialists you can invoke:") {
-		t.Fatalf("system prompt missing specialist addendum: %q", a.System)
+	if !strings.Contains(a.UserPromptContext, "Available specialists you can invoke:") {
+		t.Fatalf("user prompt context missing specialist addendum: %q", a.UserPromptContext)
 	}
-	if !strings.Contains(a.System, "s1: desc") {
-		t.Fatalf("system prompt missing specialist details: %q", a.System)
+	if !strings.Contains(a.UserPromptContext, "s1: desc") {
+		t.Fatalf("user prompt context missing specialist details: %q", a.UserPromptContext)
+	}
+	if strings.Contains(a.System, "Available specialists you can invoke:") {
+		t.Fatalf("did not expect specialist addendum in system prompt: %q", a.System)
 	}
 	if a.Model != "specModel" {
 		t.Fatalf("unexpected model: %q", a.Model)
@@ -70,8 +73,8 @@ func TestRegistry_AppendsSpecialistsToSystemPrompt(t *testing.T) {
 		t.Fatalf("expected alphabetical ordering, got %q", combined)
 	}
 	a, _ := r.Get("alpha")
-	if !strings.Contains(a.System, "Available specialists you can invoke:") {
-		t.Fatalf("agent system prompt missing specialist addendum: %q", a.System)
+	if !strings.Contains(a.UserPromptContext, "Available specialists you can invoke:") {
+		t.Fatalf("agent user prompt context missing specialist addendum: %q", a.UserPromptContext)
 	}
 }
 
@@ -92,11 +95,14 @@ func TestSetWorkdirRebuildsSpecialistSystemPrompt(t *testing.T) {
 	if !strings.Contains(a.System, "mysys") {
 		t.Fatalf("expected rebuilt system prompt to preserve specialist system, got %q", a.System)
 	}
-	if !strings.Contains(a.System, "Available specialists you can invoke:") {
-		t.Fatalf("expected rebuilt system prompt to preserve specialist catalog, got %q", a.System)
+	if !strings.Contains(a.UserPromptContext, "Available specialists you can invoke:") {
+		t.Fatalf("expected rebuilt user prompt context to preserve specialist catalog, got %q", a.UserPromptContext)
 	}
-	if !strings.Contains(a.System, "alpha: first") {
-		t.Fatalf("expected rebuilt system prompt to include specialist metadata, got %q", a.System)
+	if !strings.Contains(a.UserPromptContext, "alpha: first") {
+		t.Fatalf("expected rebuilt user prompt context to include specialist metadata, got %q", a.UserPromptContext)
+	}
+	if strings.Contains(a.System, "alpha: first") {
+		t.Fatalf("did not expect rebuilt system prompt to include specialist metadata, got %q", a.System)
 	}
 	if !strings.Contains(a.System, "locked working directory") {
 		t.Fatalf("expected rebuilt prompt to include default workdir guidance, got %q", a.System)

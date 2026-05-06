@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -15,6 +16,44 @@ import (
 	"manifold/internal/tools"
 	"manifold/internal/tools/utility"
 )
+
+func TestFlowV2WorkflowDetailHandlerSupportsSlashesInWorkflowID(t *testing.T) {
+	t.Parallel()
+
+	a := &app{
+		cfg:    &config.Config{},
+		flowV2: newFlowV2Runtime(nil),
+	}
+	workflowID := "folder/custom_flow"
+	_, _, err := a.flowV2.upsertWorkflow(context.Background(), systemUserID, flow.Workflow{
+		ID:      workflowID,
+		Name:    "Custom Flow",
+		Trigger: flow.Trigger{Type: flow.TriggerTypeManual},
+		Nodes: []flow.Node{{
+			ID:   "n1",
+			Name: "Step One",
+			Kind: flow.NodeKindData,
+			Type: "set",
+		}},
+	}, flow.WorkflowCanvas{})
+	if err != nil {
+		t.Fatalf("upsert workflow: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/flows/v2/workflows/"+url.PathEscape(workflowID), nil)
+	a.flowV2WorkflowDetailHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for encoded workflow id, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp flow.GetWorkflowResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal workflow response: %v", err)
+	}
+	if resp.Workflow.ID != workflowID {
+		t.Fatalf("unexpected workflow id: %s", resp.Workflow.ID)
+	}
+}
 
 func TestFlowV2WorkflowCRUD(t *testing.T) {
 	t.Parallel()

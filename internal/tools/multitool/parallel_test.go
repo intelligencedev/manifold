@@ -308,6 +308,51 @@ func TestParallelToolInfersRunCLI(t *testing.T) {
 	}, seen)
 }
 
+func TestParallelToolLiftsFlatAskAgentShape(t *testing.T) {
+	reg := tools.NewRegistry()
+	type call struct {
+		To     string `json:"to"`
+		Prompt string `json:"prompt"`
+	}
+	var mu sync.Mutex
+	seen := make([]call, 0, 2)
+	reg.Register(fakeTool{
+		name: "ask_agent",
+		call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var payload call
+			require.NoError(t, json.Unmarshal(raw, &payload))
+			mu.Lock()
+			seen = append(seen, payload)
+			mu.Unlock()
+			return map[string]any{"ok": true}, nil
+		},
+	})
+
+	pt := NewParallel(reg)
+	reg.Register(pt)
+
+	// Local models often emit this flat shape (siblings instead of nested
+	// parameters). Mix in a fully-correct call to ensure both work together.
+	raw := json.RawMessage(`{"tool_uses":[
+		{"recipient_name":"functions.ask_agent","to":"researcher","prompt":"find X"},
+		{"recipient_name":"ask_agent","parameters":{"to":"writer","prompt":"draft Y"}}
+	]}`)
+
+	payload, err := reg.Dispatch(context.Background(), pt.Name(), raw)
+	require.NoError(t, err)
+
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal(payload, &parsed))
+	require.True(t, parsed["ok"].(bool), "payload: %s", string(payload))
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.ElementsMatch(t, []call{
+		{To: "researcher", Prompt: "find X"},
+		{To: "writer", Prompt: "draft Y"},
+	}, seen)
+}
+
 func TestParallelToolDetectsEmbeddedErrors(t *testing.T) {
 	reg := tools.NewRegistry()
 	// register a tool that always returns an error payload without returning Go error
@@ -345,4 +390,78 @@ func TestDetectEmbeddedError(t *testing.T) {
 	require.Equal(t, "tool not found", detectEmbeddedError([]byte(`{"error":"tool not found"}`)))
 	require.Equal(t, "simulated", detectEmbeddedError([]byte(`{"ok":false,"error":"simulated"}`)))
 	require.Equal(t, "", detectEmbeddedError([]byte(`{"ok":true}`)))
+}
+
+func TestParallelToolUsesDispatchRegistryFromContext(t *testing.T) {
+	reg := tools.NewRegistry()
+	reg.Register(fakeTool{
+		name: "allowed",
+		call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			return map[string]any{"ok": true}, nil
+		},
+	})
+	reg.Register(fakeTool{
+		name: "blocked",
+		call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			return map[string]any{"ok": true}, nil
+		},
+	})
+	pt := NewParallel(reg)
+	reg.Register(pt)
+
+	filtered := tools.NewFilteredRegistry(reg, []string{pt.Name(), "allowed"})
+	raw := json.RawMessage(`{"tool_uses":[{"recipient_name":"functions.blocked","parameters":{}}]}`)
+	payload, err := filtered.Dispatch(context.Background(), pt.Name(), raw)
+	require.NoError(t, err)
+
+	var parsed struct {
+		OK      bool `json:"ok"`
+		Results []struct {
+			Error string `json:"error"`
+		} `json:"results"`
+		Error string `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(payload, &parsed))
+	require.False(t, parsed.OK)
+	require.Contains(t, parsed.Error, "blocked")
+	require.Len(t, parsed.Results, 1)
+	require.Contains(t, parsed.Results[0].Error, "tool not allowed")
+}
+
+func TestParallelToolVisibleInFilteredRegistryWhenAllowListed(t *testing.T) {
+	reg := tools.NewRegistry()
+	pt := NewParallel(reg)
+	reg.Register(pt)
+
+	filtered := tools.NewFilteredRegistry(reg, []string{pt.Name()})
+	require.Contains(t, tools.SchemaNames(filtered), pt.Name())
+}
+
+func TestParallelToolUsesNestedToolDispatcher(t *testing.T) {
+	reg := tools.NewRegistry()
+	pt := NewParallel(reg)
+	reg.Register(pt)
+
+	raw := json.RawMessage(`{"tool_uses":[{"recipient_name":"functions.agent_call","tool_call_id":"child-1","parameters":{"prompt":"write"}}]}`)
+	ctx := tools.WithNestedToolDispatcher(context.Background(), func(ctx context.Context, name string, raw json.RawMessage, toolCallID string) ([]byte, bool) {
+		require.Equal(t, "agent_call", name)
+		require.Equal(t, "child-1", toolCallID)
+		return []byte(`{"ok":true,"output":"nested"}`), true
+	})
+
+	payload, err := reg.Dispatch(ctx, pt.Name(), raw)
+	require.NoError(t, err)
+
+	var parsed struct {
+		OK      bool `json:"ok"`
+		Results []struct {
+			Payload json.RawMessage `json:"payload"`
+			Error   string          `json:"error"`
+		} `json:"results"`
+	}
+	require.NoError(t, json.Unmarshal(payload, &parsed))
+	require.True(t, parsed.OK)
+	require.Len(t, parsed.Results, 1)
+	require.Empty(t, parsed.Results[0].Error)
+	require.JSONEq(t, `{"ok":true,"output":"nested"}`, string(parsed.Results[0].Payload))
 }

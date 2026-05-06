@@ -258,9 +258,28 @@ func (a *app) executeStreamChat(w http.ResponseWriter, r *http.Request, runCtx c
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	var activityCollector *chatActivityCollector
+	if a.activityStore != nil && !req.EphemeralSession {
+		activityCollector = newChatActivityCollector(req.SessionID, runID, userID)
+		defer func() {
+			if activityCollector == nil {
+				return
+			}
+			activities := activityCollector.Snapshot()
+			if len(activities) == 0 {
+				return
+			}
+			if err := a.activityStore.UpsertSessionActivities(r.Context(), userID, req.SessionID, activities); err != nil {
+				log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_activities")
+			}
+		}()
+	}
 	if opts.Tracer != nil {
 		if opts.Tracer.mu == nil {
 			opts.Tracer.mu = &stream.mu
+		}
+		if activityCollector != nil {
+			opts.Tracer.onTrace = activityCollector.Handle
 		}
 		eng.AgentTracer = opts.Tracer
 	}

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"manifold/internal/agent/memory"
 	"manifold/internal/config"
@@ -16,6 +17,52 @@ import (
 
 type stubDebugEvolvingStore struct {
 	sessionIDs []string
+}
+
+func TestHandleDebugMemoryExplainReturnsScoreComponents(t *testing.T) {
+	t.Parallel()
+
+	em := memory.NewEvolvingMemory(memory.EvolvingMemoryConfig{
+		EmbedFn: func(_ context.Context, _ config.EmbeddingConfig, texts []string) ([][]float32, error) {
+			out := make([][]float32, len(texts))
+			for i := range texts {
+				out[i] = []float32{1, 0}
+			}
+			return out, nil
+		},
+		TopK: 1,
+	})
+	if err := em.EvolveEnhanced(context.Background(), "explain query", "ok", "success", &memory.StructuredFeedback{Type: memory.FeedbackSuccess}, nil, ""); err != nil {
+		t.Fatalf("EvolveEnhanced failed: %v", err)
+	}
+
+	a := &app{
+		cfg: &config.Config{},
+		userEvolving: map[int64]map[string]*memory.EvolvingMemory{
+			systemUserID: {"default": em},
+		},
+		evolvingLastUsed: map[int64]map[string]time.Time{
+			systemUserID: {"default": time.Now()},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/debug/memory/explain?query=explain+query", nil)
+	a.handleDebugMemoryExplain(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp debugMemoryExplainResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if !resp.Enabled || len(resp.Explanations) != 1 {
+		t.Fatalf("expected one explanation, got %#v", resp)
+	}
+	if resp.Explanations[0].Similarity == 0 || resp.Explanations[0].Composite == 0 {
+		t.Fatalf("expected score components, got %#v", resp.Explanations[0])
+	}
 }
 
 func (s *stubDebugEvolvingStore) Load(_ context.Context, _ int64, _ string) ([]*memory.MemoryEntry, error) {
@@ -71,6 +118,44 @@ func TestHandleDebugMemorySessionsIncludesEvolvingOnlySessions(t *testing.T) {
 	}
 	if _, ok := seen["memory-only"]; !ok {
 		t.Fatalf("expected evolving-memory-only session to be present: %#v", sessions)
+	}
+}
+
+func TestHandleDebugMemorySessionDetailReturnsPlainSummary(t *testing.T) {
+	t.Parallel()
+
+	chatStore := newPromptHandlerChatStore()
+	chatStore.sessions["sess-plain"] = persistence.ChatSession{
+		ID:              "sess-plain",
+		Name:            "Plain Summary Session",
+		Summary:         `{"compaction":"{\"type\":\"compaction\",\"encrypted_content\":\"opaque\"}","plain":"plain summary text"}`,
+		SummarizedCount: 2,
+	}
+	chatStore.messages["sess-plain"] = []persistence.ChatMessage{
+		{Role: "user", Content: "first message"},
+		{Role: "assistant", Content: "second message"},
+	}
+
+	app := newDebugMemoryTestApp(t)
+	app.cfg.Auth.Enabled = false
+	app.chatStore = chatStore
+	app.chatMemory = memory.NewManager(chatStore, nil, memory.Config{Enabled: false, ContextWindowTokens: 1024, ReserveBufferTokens: 64})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/debug/memory/sessions/sess-plain", nil)
+
+	app.handleDebugMemorySessionDetail(rec, req, "sess-plain")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp debugMemorySessionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.Summary != "plain summary text" {
+		t.Fatalf("expected plain summary text, got %q", resp.Summary)
 	}
 }
 
@@ -150,7 +235,7 @@ func TestDebugMemoryTargetSupportsCompactionTeamOverride(t *testing.T) {
 func newDebugMemoryTestApp(t *testing.T) *app {
 	t.Helper()
 	app := newChatEngineBuilderTestApp(t)
-	provider := openaillm.New(config.OpenAIConfig{APIKey: "test", BaseURL: "http://127.0.0.1:1", Model: "gpt-5.4"}, nil)
+	provider := openaillm.New(config.OpenAIConfig{APIKey: "test", BaseURL: "https://api.openai.com/v1", Model: "gpt-5.4", API: "responses"}, nil)
 	app.llm = provider
 	app.engine.LLM = provider
 	return app

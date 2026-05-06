@@ -15,8 +15,7 @@
     ></div>
 
     <div class="relative z-10 flex h-full flex-col">
-      <div class="px-1.5 pt-1.5 md:px-3 md:pt-2.5">
-        <Topbar>
+      <Topbar>
           <template #logo>
             <div class="flex items-center gap-3 min-w-0">
               <img
@@ -50,7 +49,6 @@
             </div>
           </template>
         </Topbar>
-      </div>
 
       <div class="md:hidden px-1.5 pt-1 pb-0.5">
         <div class="flex items-center gap-2 overflow-x-auto text-sm">
@@ -104,13 +102,27 @@ onMounted(async () => {
   }
 });
 
-const navigation = [
+interface NavigationItem {
+  label: string;
+  to: string;
+}
+
+const betaNavigation: NavigationItem[] =
+  import.meta.env.VITE_MANIFOLD_FEATURE_GATE === "beta"
+    ? [
+        { label: "Code QA", to: "/codeqa" },
+        { label: "Beliefs", to: "/beliefs" },
+      ]
+    : [];
+
+const navigation: NavigationItem[] = [
   { label: "Overview", to: "/" },
   { label: "Projects", to: "/projects" },
   { label: "Specialists", to: "/specialists" },
   { label: "Chat", to: "/chat" },
   { label: "Playground", to: "/playground" },
   { label: "Flow", to: "/flow" },
+  ...betaNavigation,
   { label: "Settings", to: "/settings" },
 ];
 

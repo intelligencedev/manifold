@@ -196,20 +196,30 @@ func applyDefaults(cfg *Config) {
 	if cfg.LLMClient.OpenAI.Model == "" {
 		cfg.LLMClient.OpenAI.Model = "gpt-4o-mini"
 	}
-	if cfg.LLMClient.OpenAI.SummaryModel == "" {
-		cfg.LLMClient.OpenAI.SummaryModel = cfg.LLMClient.OpenAI.Model
-	}
-	if cfg.LLMClient.OpenAI.SummaryBaseURL == "" {
-		cfg.LLMClient.OpenAI.SummaryBaseURL = cfg.LLMClient.OpenAI.BaseURL
-	}
 	if cfg.LLMClient.OpenAI.API == "" {
 		cfg.LLMClient.OpenAI.API = "completions"
 	}
+	applySummaryDefaults(cfg)
 	if cfg.Obs.ServiceName == "" {
 		cfg.Obs.ServiceName = "manifold"
 	}
 	if cfg.Obs.Environment == "" {
 		cfg.Obs.Environment = "dev"
+	}
+	if cfg.Obs.Local.MetricsWindowMinutes <= 0 {
+		cfg.Obs.Local.MetricsWindowMinutes = 60
+	}
+	if cfg.Obs.Local.MetricsBucketSeconds <= 0 {
+		cfg.Obs.Local.MetricsBucketSeconds = 30
+	}
+	if cfg.Obs.Local.MaxLogs <= 0 {
+		cfg.Obs.Local.MaxLogs = 5000
+	}
+	if cfg.Obs.Local.MaxTraces <= 0 {
+		cfg.Obs.Local.MaxTraces = 1000
+	}
+	if cfg.Obs.Local.MaxSpansPerTrace <= 0 {
+		cfg.Obs.Local.MaxSpansPerTrace = 256
 	}
 	if cfg.Obs.ClickHouse.MetricsTable == "" {
 		cfg.Obs.ClickHouse.MetricsTable = "metrics"
@@ -255,6 +265,66 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.MaxDiscoveredTools <= 0 {
 		cfg.MaxDiscoveredTools = 20
+	}
+	if cfg.CodeQA.ArtifactDir == "" {
+		cfg.CodeQA.ArtifactDir = "codeqa-artifacts"
+	}
+	if cfg.CodeQA.MaxConcurrentRuns <= 0 {
+		cfg.CodeQA.MaxConcurrentRuns = 1
+	}
+	if cfg.CodeQA.MaxGateParallelism <= 0 {
+		cfg.CodeQA.MaxGateParallelism = 2
+	}
+	if cfg.CodeQA.MaxJudgeParallelism <= 0 {
+		cfg.CodeQA.MaxJudgeParallelism = 2
+	}
+	if cfg.CodeQA.DefaultMaxDiffBytes <= 0 {
+		cfg.CodeQA.DefaultMaxDiffBytes = 128 * 1024
+	}
+	if cfg.CodeQA.DefaultMaxChangedFiles <= 0 {
+		cfg.CodeQA.DefaultMaxChangedFiles = 12
+	}
+	if cfg.CodeQA.AcceptThreshold == 0 {
+		cfg.CodeQA.AcceptThreshold = 0.10
+	}
+	if cfg.CodeQA.MinConfidence == 0 {
+		cfg.CodeQA.MinConfidence = 0.70
+	}
+	if cfg.BeliefMemory.MaxBeliefsPerPrompt <= 0 {
+		cfg.BeliefMemory.MaxBeliefsPerPrompt = 5
+	}
+	if cfg.BeliefMemory.MaxEvidencePerBelief <= 0 {
+		cfg.BeliefMemory.MaxEvidencePerBelief = 3
+	}
+	if cfg.BeliefMemory.DefaultConfidence == 0 {
+		cfg.BeliefMemory.DefaultConfidence = 0.50
+	}
+	if cfg.BeliefMemory.PromotionThreshold == 0 {
+		cfg.BeliefMemory.PromotionThreshold = 0.80
+	}
+	if cfg.BeliefMemory.MaxRAGEvidencePerPrompt <= 0 {
+		cfg.BeliefMemory.MaxRAGEvidencePerPrompt = 3
+	}
+	if cfg.BeliefMemory.RAGRetrievalK <= 0 {
+		cfg.BeliefMemory.RAGRetrievalK = 8
+	}
+	if cfg.BeliefMemory.RAGMinScore < 0 {
+		cfg.BeliefMemory.RAGMinScore = 0
+	}
+	if strings.TrimSpace(cfg.CodeQA.JudgeModel) == "" {
+		cfg.CodeQA.JudgeModel = cfg.LLMClient.OpenAI.Model
+	}
+	if strings.TrimSpace(cfg.CodeQA.ProposerModel) == "" {
+		cfg.CodeQA.ProposerModel = cfg.CodeQA.JudgeModel
+	}
+	if len(cfg.CodeQA.AllowedCommands) == 0 {
+		cfg.CodeQA.AllowedCommands = []string{"go", "gofmt", "ruff", "pytest", "python", "prettier", "eslint", "tsc", "npm", "npx", "stylelint", "html-validate", "cargo", "rustfmt"}
+	}
+	if len(cfg.CodeQA.HighRiskGlobs) == 0 {
+		cfg.CodeQA.HighRiskGlobs = []string{"**/auth/**", "**/migrations/**", "**/*crypto*", "**/deploy/**", "**/.github/**"}
+	}
+	if len(cfg.CodeQA.ForbiddenGlobs) == 0 {
+		cfg.CodeQA.ForbiddenGlobs = []string{"**/*.pem", "**/*.key", "**/.env*", "**/node_modules/**", "**/dist/**"}
 	}
 	if cfg.AgentRunTimeoutSeconds < 0 {
 		cfg.AgentRunTimeoutSeconds = 0
@@ -335,11 +405,15 @@ func applyDefaults(cfg *Config) {
 
 func applyDerivedConfig(cfg *Config) {
 	cfg.LLMClient.Provider = strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider))
+	cfg.Summary.LLMClient.Provider = strings.ToLower(strings.TrimSpace(cfg.Summary.LLMClient.Provider))
 	cfg.EvolvingMemory.Provider = strings.ToLower(strings.TrimSpace(cfg.EvolvingMemory.Provider))
 	cfg.EvolvingMemory.LLMClient.Provider = strings.ToLower(strings.TrimSpace(cfg.EvolvingMemory.LLMClient.Provider))
 
 	if cfg.LLMClient.Provider == "local" {
 		cfg.LLMClient.OpenAI.API = "completions"
+	}
+	if cfg.Summary.LLMClient.Provider == "local" {
+		cfg.Summary.LLMClient.OpenAI.API = "completions"
 	}
 	cfg.OpenAI = cfg.LLMClient.OpenAI
 
@@ -361,6 +435,11 @@ func validateConfig(cfg *Config) error {
 	}
 	if cfg.EvolvingMemory.LLMClient.Provider != "" {
 		if err := validateProvider("evolvingMemory.llmClient.provider", cfg.EvolvingMemory.LLMClient.Provider); err != nil {
+			return err
+		}
+	}
+	if cfg.Summary.Enabled {
+		if err := validateProvider("summary.llm_client.provider", cfg.Summary.LLMClient.Provider); err != nil {
 			return err
 		}
 	}
@@ -400,6 +479,12 @@ func validateConfig(cfg *Config) error {
 		if strings.Contains(binary, "/") || strings.Contains(binary, "\\") {
 			return fmt.Errorf("exec.blockBinaries must contain bare binary names only (no paths): %q", binary)
 		}
+	}
+	if cfg.BeliefMemory.DefaultConfidence < 0 || cfg.BeliefMemory.DefaultConfidence > 1 {
+		return fmt.Errorf("beliefMemory.defaultConfidence must be between 0 and 1 (got %g)", cfg.BeliefMemory.DefaultConfidence)
+	}
+	if cfg.BeliefMemory.PromotionThreshold < 0 || cfg.BeliefMemory.PromotionThreshold > 1 {
+		return fmt.Errorf("beliefMemory.promotionThreshold must be between 0 and 1 (got %g)", cfg.BeliefMemory.PromotionThreshold)
 	}
 
 	return nil
@@ -442,6 +527,112 @@ func mergeOpenAIConfig(dst *OpenAIConfig, src OpenAIConfig) {
 	if !dst.LogPayloads && src.LogPayloads {
 		dst.LogPayloads = true
 	}
+}
+
+func applySummaryDefaults(cfg *Config) {
+	if cfg.Summary.Enabled || cfg.SummaryEnabled {
+		cfg.Summary.Enabled = true
+		cfg.SummaryEnabled = true
+	}
+	if cfg.Summary.ContextWindowTokens == 0 {
+		cfg.Summary.ContextWindowTokens = cfg.SummaryContextWindowTokens
+	}
+	if cfg.SummaryContextWindowTokens == 0 {
+		cfg.SummaryContextWindowTokens = cfg.Summary.ContextWindowTokens
+	}
+	if cfg.Summary.PlainTextContextWindowTokens == 0 {
+		cfg.Summary.PlainTextContextWindowTokens = cfg.SummaryPlainTextContextWindowTokens
+	}
+	if cfg.SummaryPlainTextContextWindowTokens == 0 {
+		cfg.SummaryPlainTextContextWindowTokens = cfg.Summary.PlainTextContextWindowTokens
+	}
+	if cfg.Summary.ReserveBufferTokens == 0 {
+		cfg.Summary.ReserveBufferTokens = cfg.SummaryReserveBufferTokens
+	}
+	if cfg.SummaryReserveBufferTokens == 0 {
+		cfg.SummaryReserveBufferTokens = cfg.Summary.ReserveBufferTokens
+	}
+	if cfg.Summary.MinKeepLastMessages == 0 {
+		cfg.Summary.MinKeepLastMessages = cfg.SummaryMinKeepLastMessages
+	}
+	if cfg.SummaryMinKeepLastMessages == 0 {
+		cfg.SummaryMinKeepLastMessages = cfg.Summary.MinKeepLastMessages
+	}
+	if cfg.Summary.MaxKeepLastMessages == 0 {
+		cfg.Summary.MaxKeepLastMessages = cfg.SummaryMaxKeepLastMessages
+	}
+	if cfg.SummaryMaxKeepLastMessages == 0 {
+		cfg.SummaryMaxKeepLastMessages = cfg.Summary.MaxKeepLastMessages
+	}
+	if cfg.Summary.MaxSummaryChunkTokens == 0 {
+		cfg.Summary.MaxSummaryChunkTokens = cfg.SummaryMaxSummaryChunkTokens
+	}
+	if cfg.SummaryMaxSummaryChunkTokens == 0 {
+		cfg.SummaryMaxSummaryChunkTokens = cfg.Summary.MaxSummaryChunkTokens
+	}
+
+	if cfg.Summary.LLMClient.Provider == "" {
+		cfg.Summary.LLMClient.Provider = cfg.LLMClient.Provider
+	}
+	if cfg.Summary.LLMClient.OpenAI.APIKey == "" {
+		cfg.Summary.LLMClient.OpenAI.APIKey = cfg.LLMClient.OpenAI.APIKey
+	}
+	if cfg.Summary.LLMClient.OpenAI.Model == "" {
+		cfg.Summary.LLMClient.OpenAI.Model = firstNonEmpty(cfg.LLMClient.OpenAI.SummaryModel, cfg.OpenAI.SummaryModel, cfg.LLMClient.OpenAI.Model)
+	}
+	if cfg.Summary.LLMClient.OpenAI.BaseURL == "" {
+		cfg.Summary.LLMClient.OpenAI.BaseURL = firstNonEmpty(cfg.LLMClient.OpenAI.SummaryBaseURL, cfg.OpenAI.SummaryBaseURL, cfg.LLMClient.OpenAI.BaseURL)
+	}
+	if cfg.Summary.LLMClient.OpenAI.API == "" {
+		cfg.Summary.LLMClient.OpenAI.API = cfg.LLMClient.OpenAI.API
+		if cfg.Summary.LLMClient.OpenAI.API == "" {
+			cfg.Summary.LLMClient.OpenAI.API = "completions"
+		}
+	}
+	if len(cfg.Summary.LLMClient.OpenAI.ExtraHeaders) == 0 && len(cfg.LLMClient.OpenAI.ExtraHeaders) > 0 {
+		cfg.Summary.LLMClient.OpenAI.ExtraHeaders = cfg.LLMClient.OpenAI.ExtraHeaders
+	}
+	if len(cfg.Summary.LLMClient.OpenAI.ExtraParams) == 0 && len(cfg.LLMClient.OpenAI.ExtraParams) > 0 {
+		cfg.Summary.LLMClient.OpenAI.ExtraParams = cfg.LLMClient.OpenAI.ExtraParams
+	}
+	if !cfg.Summary.LLMClient.OpenAI.LogPayloads && cfg.LLMClient.OpenAI.LogPayloads {
+		cfg.Summary.LLMClient.OpenAI.LogPayloads = true
+	}
+	if cfg.Summary.LLMClient.Anthropic.APIKey == "" {
+		cfg.Summary.LLMClient.Anthropic.APIKey = cfg.LLMClient.Anthropic.APIKey
+	}
+	if cfg.Summary.LLMClient.Anthropic.Model == "" {
+		cfg.Summary.LLMClient.Anthropic.Model = cfg.LLMClient.Anthropic.Model
+	}
+	if cfg.Summary.LLMClient.Anthropic.BaseURL == "" {
+		cfg.Summary.LLMClient.Anthropic.BaseURL = cfg.LLMClient.Anthropic.BaseURL
+	}
+	if cfg.Summary.LLMClient.Anthropic.MaxTokens == 0 {
+		cfg.Summary.LLMClient.Anthropic.MaxTokens = cfg.LLMClient.Anthropic.MaxTokens
+	}
+	if len(cfg.Summary.LLMClient.Anthropic.ExtraParams) == 0 && len(cfg.LLMClient.Anthropic.ExtraParams) > 0 {
+		cfg.Summary.LLMClient.Anthropic.ExtraParams = cfg.LLMClient.Anthropic.ExtraParams
+	}
+	if cfg.Summary.LLMClient.Google.APIKey == "" {
+		cfg.Summary.LLMClient.Google.APIKey = cfg.LLMClient.Google.APIKey
+	}
+	if cfg.Summary.LLMClient.Google.Model == "" {
+		cfg.Summary.LLMClient.Google.Model = cfg.LLMClient.Google.Model
+	}
+	if cfg.Summary.LLMClient.Google.BaseURL == "" {
+		cfg.Summary.LLMClient.Google.BaseURL = cfg.LLMClient.Google.BaseURL
+	}
+	if cfg.Summary.LLMClient.Google.Timeout == 0 {
+		cfg.Summary.LLMClient.Google.Timeout = cfg.LLMClient.Google.Timeout
+	}
+	if len(cfg.Summary.LLMClient.Google.ExtraParams) == 0 && len(cfg.LLMClient.Google.ExtraParams) > 0 {
+		cfg.Summary.LLMClient.Google.ExtraParams = cfg.LLMClient.Google.ExtraParams
+	}
+
+	cfg.LLMClient.OpenAI.SummaryModel = cfg.Summary.LLMClient.OpenAI.Model
+	cfg.LLMClient.OpenAI.SummaryBaseURL = cfg.Summary.LLMClient.OpenAI.BaseURL
+	cfg.OpenAI.SummaryModel = cfg.Summary.LLMClient.OpenAI.Model
+	cfg.OpenAI.SummaryBaseURL = cfg.Summary.LLMClient.OpenAI.BaseURL
 }
 
 func firstNonEmpty(vals ...string) string {

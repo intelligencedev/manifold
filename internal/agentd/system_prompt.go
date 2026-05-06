@@ -6,24 +6,22 @@ import (
 	"manifold/internal/agent/prompts"
 )
 
-// composeSystemPrompt builds the base system prompt (including AGENTS.md, if present)
-// and appends the current specialists catalog so LLM clients see available names.
+// composeSystemPrompt builds the stable base system prompt (including AGENTS.md,
+// if present). Dynamic specialist catalogs are prepended to the current user
+// prompt so provider system-prompt caches remain effective.
 func (a *app) composeSystemPrompt() string {
 	base := prompts.DefaultSystemPrompt(a.cfg.Workdir, a.cfg.SystemPrompt)
 	if a.cfg.AutoDiscover {
 		base = prompts.EnsureToolDiscoveryInstructions(base)
 	}
-	if a.specRegistry != nil {
-		base = a.specRegistry.AppendToSystemPrompt(base)
-	}
 	return base
 }
 
-// composeSystemPromptForUser builds the base system prompt (including AGENTS.md)
-// and appends the specialists catalog for the provided user.
+// composeSystemPromptForUser builds the stable base system prompt (including AGENTS.md)
+// for the provided user.
 //
-// IMPORTANT: specialists are scoped per user. Non-system users must not receive
-// the system (user=0) specialists catalog.
+// IMPORTANT: specialists are scoped per user. The user-scoped catalog is
+// exposed via composeUserPromptContextForUser instead of this system prompt.
 func (a *app) composeSystemPromptForUser(ctx context.Context, userID int64) string {
 	return a.composeSystemPromptForUserWithOverride(ctx, userID, a.cfg.SystemPrompt)
 }
@@ -33,11 +31,22 @@ func (a *app) composeSystemPromptForUserWithOverride(ctx context.Context, userID
 	if a.cfg.AutoDiscover {
 		base = prompts.EnsureToolDiscoveryInstructions(base)
 	}
+	return base
+}
+
+func (a *app) composeUserPromptContext() string {
+	if a.specRegistry == nil {
+		return ""
+	}
+	return a.specRegistry.UserPromptContext()
+}
+
+func (a *app) composeUserPromptContextForUser(ctx context.Context, userID int64) string {
 	reg, err := a.specialistsRegistryForUser(ctx, userID)
 	if err != nil || reg == nil {
-		return base
+		return ""
 	}
-	return reg.AppendToSystemPrompt(base)
+	return reg.UserPromptContext()
 }
 
 // refreshEngineSystemPrompt recomputes and assigns the system prompt on the live engine.
@@ -46,4 +55,5 @@ func (a *app) refreshEngineSystemPrompt() {
 		return
 	}
 	a.engine.System = a.composeSystemPrompt()
+	a.engine.UserPromptContext = a.composeUserPromptContext()
 }

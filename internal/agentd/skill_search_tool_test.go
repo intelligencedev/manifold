@@ -31,6 +31,10 @@ func TestSkillSearchToolFindsRelevantSkills(t *testing.T) {
 	if len(matches) == 0 || matches[0].Name != "pdf-context-builder" {
 		t.Fatalf("expected pdf-context-builder first, got %#v", matches)
 	}
+	// Paths must be project-relative (no absolute paths leaked to agents).
+	if filepath.IsAbs(matches[0].Path) {
+		t.Fatalf("expected relative path, got absolute: %q", matches[0].Path)
+	}
 }
 
 func TestSkillSearchToolLoadsExactSkillByName(t *testing.T) {
@@ -57,6 +61,10 @@ func TestSkillSearchToolLoadsExactSkillByName(t *testing.T) {
 	}
 	if matches[0].Path == "" {
 		t.Fatalf("expected skill path, got %#v", matches[0])
+	}
+	// Paths must be project-relative (no absolute paths leaked to agents).
+	if filepath.IsAbs(matches[0].Path) {
+		t.Fatalf("expected relative path, got absolute: %q", matches[0].Path)
 	}
 }
 

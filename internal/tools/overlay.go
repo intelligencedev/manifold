@@ -62,6 +62,7 @@ func (r *overlayRegistry) Schemas() []llm.ToolSchema {
 }
 
 func (r *overlayRegistry) Dispatch(ctx context.Context, name string, raw json.RawMessage) ([]byte, error) {
+	ctx = WithDispatchRegistry(ctx, r)
 	if extra := r.extra[name]; extra != nil {
 		val, err := extra.Call(ctx, raw)
 		if err != nil {

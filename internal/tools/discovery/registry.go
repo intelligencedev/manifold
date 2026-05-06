@@ -77,6 +77,7 @@ func (r *DiscoverableRegistry) Schemas() []llm.ToolSchema {
 }
 
 func (r *DiscoverableRegistry) Dispatch(ctx context.Context, name string, raw json.RawMessage) ([]byte, error) {
+	ctx = tools.WithDispatchRegistry(ctx, r)
 	if name == r.searchTool.Name() {
 		result, err := r.searchTool.Call(ctx, raw)
 		if err != nil {

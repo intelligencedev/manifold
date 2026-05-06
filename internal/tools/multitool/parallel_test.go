@@ -346,3 +346,48 @@ func TestDetectEmbeddedError(t *testing.T) {
 	require.Equal(t, "simulated", detectEmbeddedError([]byte(`{"ok":false,"error":"simulated"}`)))
 	require.Equal(t, "", detectEmbeddedError([]byte(`{"ok":true}`)))
 }
+
+func TestParallelToolUsesDispatchRegistryFromContext(t *testing.T) {
+	reg := tools.NewRegistry()
+	reg.Register(fakeTool{
+		name: "allowed",
+		call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			return map[string]any{"ok": true}, nil
+		},
+	})
+	reg.Register(fakeTool{
+		name: "blocked",
+		call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			return map[string]any{"ok": true}, nil
+		},
+	})
+	pt := NewParallel(reg)
+	reg.Register(pt)
+
+	filtered := tools.NewFilteredRegistry(reg, []string{pt.Name(), "allowed"})
+	raw := json.RawMessage(`{"tool_uses":[{"recipient_name":"functions.blocked","parameters":{}}]}`)
+	payload, err := filtered.Dispatch(context.Background(), pt.Name(), raw)
+	require.NoError(t, err)
+
+	var parsed struct {
+		OK      bool `json:"ok"`
+		Results []struct {
+			Error string `json:"error"`
+		} `json:"results"`
+		Error string `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(payload, &parsed))
+	require.False(t, parsed.OK)
+	require.Contains(t, parsed.Error, "blocked")
+	require.Len(t, parsed.Results, 1)
+	require.Contains(t, parsed.Results[0].Error, "tool not allowed")
+}
+
+func TestParallelToolVisibleInFilteredRegistryWhenAllowListed(t *testing.T) {
+	reg := tools.NewRegistry()
+	pt := NewParallel(reg)
+	reg.Register(pt)
+
+	filtered := tools.NewFilteredRegistry(reg, []string{pt.Name()})
+	require.Contains(t, tools.SchemaNames(filtered), pt.Name())
+}

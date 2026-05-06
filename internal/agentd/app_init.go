@@ -48,6 +48,7 @@ import (
 	"manifold/internal/tools/imagetool"
 	"manifold/internal/tools/llmparallel"
 	matrixroomtool "manifold/internal/tools/matrixroom"
+	"manifold/internal/tools/multitool"
 	"manifold/internal/tools/patchtool"
 	pulsetool "manifold/internal/tools/pulse"
 	ragtool "manifold/internal/tools/rag"
@@ -127,6 +128,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	toolRegistry.Register(matrixroomtool.New())
 	toolRegistry.Register(pulsetool.New(mgr.Pulse))
 	toolRegistry.Register(llmparallel.New(httpClient, cfg.OpenAI.BaseURL, cfg.OpenAI.Model, cfg.OpenAI.APIKey))
+	toolRegistry.Register(multitool.NewParallel(baseToolRegistry, multitool.WithMaxParallel(cfg.MaxToolParallelism)))
 	toolRegistry.Register(tts.New(*cfg, httpClient))
 
 	// Register RAG tools backed by the internal rag service.

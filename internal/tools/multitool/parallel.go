@@ -68,7 +68,7 @@ func (t *ParallelTool) Name() string { return ToolName }
 func (t *ParallelTool) JSONSchema() map[string]any {
 	return map[string]any{
 		"name":        t.Name(),
-		"description": "Run multiple functions tools concurrently when their work is independent.",
+		"description": "Run multiple function tools concurrently when their work is independent. This is Manifold's multi_tool_use.parallel tool.",
 		"parameters": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -138,7 +138,10 @@ func (t *ParallelTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	if err != nil {
 		return nil, err
 	}
-	reg := t.registryView()
+	reg := tools.DispatchRegistryFromContext(ctx)
+	if reg == nil {
+		reg = t.registryView()
+	}
 	if reg == nil {
 		return map[string]any{"ok": false, "error": "tool registry unavailable"}, nil
 	}

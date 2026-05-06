@@ -82,6 +82,12 @@ func (t *ResponsesTokenizer) CountMessagesTokens(ctx context.Context, msgs []llm
 	if len(msgs) == 0 {
 		return 0, nil
 	}
+	if t == nil || t.client == nil {
+		return llm.EstimateTokensForMessages(msgs), nil
+	}
+	if t.client.inputTokensUnsupported.Load() {
+		return llm.EstimateTokensForMessages(msgs), nil
+	}
 
 	log := observability.LoggerWithTrace(ctx)
 
@@ -113,7 +119,7 @@ func (t *ResponsesTokenizer) CountMessagesTokens(ctx context.Context, msgs []llm
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+t.client.apiKey)
+	t.client.applyAuthHeader(httpReq)
 
 	resp, err := t.client.httpClient.Do(httpReq)
 	if err != nil {
@@ -127,6 +133,23 @@ func (t *ResponsesTokenizer) CountMessagesTokens(ctx context.Context, msgs []llm
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusNotFound {
+			t.client.inputTokensUnsupported.Store(true)
+			if t.client.isSelfHosted() {
+				local := NewLocalTokenizer(t.client, t.model, t.cache)
+				if count, localErr := local.CountMessagesTokens(ctx, msgs); localErr == nil {
+					log.Debug().
+						Int("status", resp.StatusCode).
+						Int("total_tokens", count).
+						Msg("input_tokens_endpoint_unsupported_used_local_tokenizer")
+					return count, nil
+				}
+			}
+			log.Debug().
+				Int("status", resp.StatusCode).
+				Msg("input_tokens_endpoint_unsupported_using_heuristic")
+			return llm.EstimateTokensForMessages(msgs), nil
+		}
 		log.Warn().
 			Int("status", resp.StatusCode).
 			Str("body", string(respBody)).

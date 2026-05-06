@@ -548,7 +548,7 @@ func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, 
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
-	// Note: API key header handling is configured at higher layers or via server settings.
+	c.applyAuthHeader(req)
 
 	// Allow custom headers via ExtraParams["extra_headers"] if provided by config
 	// But we already support config.OpenAI.ExtraHeaders at handlers layer; keeping minimal here

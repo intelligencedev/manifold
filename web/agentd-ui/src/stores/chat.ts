@@ -730,15 +730,10 @@ export const useChatStore = defineStore("chat", () => {
       case "thought_summary": {
         if (typeof event.data === "string" && event.data.trim()) {
           appendThoughtSummary(sessionId, event.data);
-          updateMessage(sessionId, assistantId, (m) =>
-            m.content
-              ? m
-              : {
-                  ...m,
-                  activityThoughtSummary: event.data,
-                  activityResponseStarted: false,
-                },
-          );
+          updateMessage(sessionId, assistantId, (m) => ({
+            ...m,
+            activityThoughtSummary: event.data,
+          }));
         }
         break;
       }
@@ -747,8 +742,6 @@ export const useChatStore = defineStore("chat", () => {
           updateMessage(sessionId, assistantId, (m) => ({
             ...m,
             content: m.content + event.data,
-            activityThoughtSummary: undefined,
-            activityResponseStarted: true,
           }));
         }
         break;
@@ -759,8 +752,6 @@ export const useChatStore = defineStore("chat", () => {
           ...m,
           content: text || m.content,
           streaming: false,
-          activityThoughtSummary: undefined,
-          activityResponseStarted: true,
         }));
         if (text) touchSession(sessionId, snippet(text));
         try {
@@ -1185,8 +1176,6 @@ export const useChatStore = defineStore("chat", () => {
         if (values.contentText) {
           updateMessage(sessionId, assistantId, (m) => ({
             ...m,
-            activityThoughtSummary: undefined,
-            activityResponseStarted: true,
           }));
         }
         break;
@@ -1194,8 +1183,6 @@ export const useChatStore = defineStore("chat", () => {
       case "agent_final": {
         updateMessage(sessionId, assistantId, (m) => ({
           ...m,
-          activityThoughtSummary: undefined,
-          activityResponseStarted: true,
         }));
         break;
       }
@@ -1227,15 +1214,10 @@ export const useChatStore = defineStore("chat", () => {
             ? event.thought_summary.trim()
             : "";
         if (!summary) break;
-        updateMessage(sessionId, assistantId, (m) =>
-          m.content
-            ? m
-            : {
-                ...m,
-                activityThoughtSummary: summary,
-                activityResponseStarted: false,
-              },
-        );
+        updateMessage(sessionId, assistantId, (m) => ({
+          ...m,
+          activityThoughtSummary: summary,
+        }));
         break;
       }
       default:

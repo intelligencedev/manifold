@@ -429,6 +429,7 @@ func TestBuildCompactionInputFiltersMissingToolOutputs(t *testing.T) {
 // mlx_lm.server backends receive the Accept: text/event-stream header.
 func TestSelfHostedSSEHeaderInjection(t *testing.T) {
 	var completionsAcceptHeader string
+	var completionsAuthorizationHeader string
 	var requestMade bool
 
 	// Create a test server that records the Accept header from streaming requests
@@ -437,6 +438,7 @@ func TestSelfHostedSSEHeaderInjection(t *testing.T) {
 		// Capture the Accept header specifically for /chat/completions endpoint
 		if strings.Contains(r.URL.Path, "/chat/completions") {
 			completionsAcceptHeader = r.Header.Get("Accept")
+			completionsAuthorizationHeader = r.Header.Get("Authorization")
 			t.Logf("Chat completions Accept header: %q", completionsAcceptHeader)
 		}
 
@@ -490,6 +492,26 @@ func TestSelfHostedSSEHeaderInjection(t *testing.T) {
 	// Verify Accept header was injected for chat completions
 	if completionsAcceptHeader != "text/event-stream" {
 		t.Errorf("Expected Accept: text/event-stream header on /chat/completions, got %q", completionsAcceptHeader)
+	}
+	if completionsAuthorizationHeader != "Bearer test" {
+		t.Errorf("Expected Authorization: Bearer test header on /chat/completions, got %q", completionsAuthorizationHeader)
+	}
+}
+
+func TestApplyAuthHeaderPreservesExplicitAuthorization(t *testing.T) {
+	t.Parallel()
+
+	cli := New(config.OpenAIConfig{APIKey: "configured-key", BaseURL: "http://localhost:1234/v1", Model: "m"}, &http.Client{Transport: &http.Transport{}})
+	req, err := http.NewRequest(http.MethodPost, "http://localhost:1234/v1/chat/completions", nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	req.Header.Set("Authorization", "Bearer explicit-key")
+
+	cli.applyAuthHeader(req)
+
+	if got := req.Header.Get("Authorization"); got != "Bearer explicit-key" {
+		t.Fatalf("expected explicit Authorization header to be preserved, got %q", got)
 	}
 }
 

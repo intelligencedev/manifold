@@ -38,7 +38,6 @@ export interface ChatMessage {
   model?: string;
   activityToolTitle?: string;
   activityThoughtSummary?: string;
-  activityResponseStarted?: boolean;
 }
 
 export interface ChatSessionMeta {

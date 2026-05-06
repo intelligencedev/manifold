@@ -164,9 +164,6 @@ func (t *DescribeTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	} else {
 		userContent = "Describe the image below in plain text. Include objects, colors, scene, and any readable text."
 	}
-	// Use markdown image data URL so the assistant can detect an image in the text
-	userContent = userContent + "\n\n![image](data:" + mime + ";base64," + b64 + ")\n"
-
 	msgs := []llm.Message{{Role: "system", Content: sys}, {Role: "user", Content: userContent}}
 
 	// Prefer provider from context if the caller (agent/specialist) propagated one.
@@ -200,6 +197,7 @@ func (t *DescribeTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	}
 
 	// Fallback to original data URL method for other providers
+	msgs[1].Content = userContent + "\n\n![image](data:" + mime + ";base64," + b64 + ")\n"
 	out, err := p.Chat(ctx, msgs, nil, model)
 	if err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}, nil

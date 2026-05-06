@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	sdk "github.com/openai/openai-go/v2"
@@ -18,15 +19,18 @@ import (
 )
 
 type Client struct {
-	sdk         sdk.Client
-	model       string
-	extra       map[string]any
-	policy      responsesContextPolicy
-	logPayloads bool
-	baseURL     string
-	httpClient  *http.Client
-	api         string // "completions" (default) or "responses"
-	apiKey      string // Stored for raw HTTP requests (e.g., Gemini)
+	sdk                      sdk.Client
+	model                    string
+	extra                    map[string]any
+	policy                   responsesContextPolicy
+	logPayloads              bool
+	baseURL                  string
+	httpClient               *http.Client
+	api                      string // "completions" (default) or "responses"
+	apiKey                   string // Stored for raw HTTP requests (e.g., Gemini)
+	inputTokensUnsupported   atomic.Bool
+	applyTemplateUnsupported atomic.Bool
+	tokenizeUnsupported      atomic.Bool
 }
 
 // SupportsCompaction reports whether this OpenAI client is configured for the
@@ -107,6 +111,19 @@ func New(c config.OpenAIConfig, httpClient *http.Client) *Client {
 	}
 }
 
+func (c *Client) applyAuthHeader(req *http.Request) {
+	if c == nil || req == nil {
+		return
+	}
+	if strings.TrimSpace(c.apiKey) == "" {
+		return
+	}
+	if strings.TrimSpace(req.Header.Get("Authorization")) != "" {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+}
+
 // isSelfHosted returns true when we should use the fallback /tokenize endpoint
 // for counting tokens instead of relying on OpenAI usage fields.
 func (c *Client) isSelfHosted() bool {
@@ -133,6 +150,7 @@ func (c *Client) tokenizeCount(ctx context.Context, text string) int {
 		return 0
 	}
 	req.Header.Set("Content-Type", "application/json")
+	c.applyAuthHeader(req)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return 0
@@ -204,18 +222,25 @@ func (c *Client) chatCompletionMessages(msgs []llm.Message) []llm.Message {
 	return normalizeSelfHostedChatMessages(msgs)
 }
 
-// Tokenizer returns a ResponsesTokenizer for accurate token counting.
-// Returns nil if the client is not configured for the Responses API.
+// Tokenizer returns the most accurate tokenizer available for the configured
+// OpenAI-compatible API surface.
 func (c *Client) Tokenizer(cache *llm.TokenCache) llm.Tokenizer {
-	if c.api != "responses" {
+	if c == nil {
 		return nil
 	}
-	policy := c.responsesContextPolicy(c.model)
-	return NewResponsesTokenizer(c, c.model, cache, policy.ToolOutputMaxChars)
+	if c.api == "responses" {
+		policy := c.responsesContextPolicy(c.model)
+		return NewResponsesTokenizer(c, c.model, cache, policy.ToolOutputMaxChars)
+	}
+	if c.isSelfHosted() {
+		return NewLocalTokenizer(c, c.model, cache)
+	}
+	return nil
 }
 
-// SupportsTokenization returns true if the client supports the Responses API
-// input_tokens endpoint for accurate token counting.
+// SupportsTokenization returns true when the client can attempt provider-backed
+// token counting. Official OpenAI uses Responses input_tokens; local compatible
+// servers such as llama-server can expose /apply-template and /tokenize.
 func (c *Client) SupportsTokenization() bool {
-	return c.api == "responses"
+	return c != nil && (c.api == "responses" || c.isSelfHosted())
 }

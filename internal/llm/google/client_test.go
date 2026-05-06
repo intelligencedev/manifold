@@ -68,6 +68,42 @@ func TestChatSuccess(t *testing.T) {
 	}
 }
 
+func TestTokenizerCountMessages(t *testing.T) {
+	t.Parallel()
+
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		defer r.Body.Close()
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode countTokens request: %v", err)
+		}
+		if _, ok := body["contents"]; !ok {
+			t.Fatalf("expected contents in request body: %#v", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"totalTokens":7}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := New(config.GoogleConfig{APIKey: "k", Model: "test-model", BaseURL: srv.URL}, srv.Client())
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+	tok := client.Tokenizer(nil)
+	count, err := tok.CountMessagesTokens(context.Background(), []llm.Message{{Role: "user", Content: "hello"}})
+	if err != nil {
+		t.Fatalf("CountMessagesTokens returned error: %v", err)
+	}
+	if count != 7 {
+		t.Fatalf("expected 7 tokens, got %d", count)
+	}
+	if gotPath != "/v1beta/models/test-model:countTokens" {
+		t.Fatalf("unexpected path %q", gotPath)
+	}
+}
+
 func TestChatStream(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.URL.Path, ":streamGenerateContent") {

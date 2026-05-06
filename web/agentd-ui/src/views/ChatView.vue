@@ -1904,11 +1904,7 @@ function shouldShowDirectActivity(message: ChatMessage) {
 }
 
 function shouldShowDirectThought(message: ChatMessage) {
-  return Boolean(
-    message.activityThoughtSummary &&
-      !message.activityResponseStarted &&
-      !message.content,
-  );
+  return Boolean(message.activityThoughtSummary);
 }
 
 function selectActivity(id: string) {

@@ -68,23 +68,23 @@ func (t *ParallelTool) Name() string { return ToolName }
 func (t *ParallelTool) JSONSchema() map[string]any {
 	return map[string]any{
 		"name":        t.Name(),
-		"description": "Run multiple function tools concurrently when their work is independent. This is Manifold's multi_tool_use.parallel tool.",
+		"description": "Run multiple function tools concurrently when their work is independent. This is Manifold's multi_tool_use.parallel tool. Each entry in tool_uses MUST have shape {\"recipient_name\":\"functions.<tool>\",\"parameters\":{...tool args...}}. Example fanning out to two specialists via ask_agent: {\"tool_uses\":[{\"recipient_name\":\"functions.ask_agent\",\"parameters\":{\"to\":\"researcher\",\"prompt\":\"...\"}},{\"recipient_name\":\"functions.ask_agent\",\"parameters\":{\"to\":\"writer\",\"prompt\":\"...\"}}]}.",
 		"parameters": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"tool_uses": map[string]any{
 					"type":        "array",
-					"description": "List of tool invocations to execute in parallel.",
+					"description": "List of tool invocations to execute in parallel. Every item must nest tool arguments inside a parameters object.",
 					"items": map[string]any{
 						"type": "object",
 						"properties": map[string]any{
 							"recipient_name": map[string]any{
 								"type":        "string",
-								"description": "Tool identifier (e.g., functions.web_fetch).",
+								"description": "Tool identifier, e.g. functions.ask_agent or functions.web_fetch.",
 							},
 							"parameters": map[string]any{
 								"type":        "object",
-								"description": "JSON arguments for the tool.",
+								"description": "JSON arguments object for the tool. For ask_agent use {\"to\":\"<specialist>\",\"prompt\":\"...\"}; for agent_call use {\"agent_name\":\"<specialist>\",\"prompt\":\"...\"}.",
 							},
 							"tool_call_id": map[string]any{
 								"type":        "string",
@@ -405,7 +405,7 @@ func decodeCall(raw json.RawMessage) (parallelCall, error) {
 	}
 
 	if call.Parameters == nil {
-		if params := synthesizeParameters(envelope); params != nil {
+		if params := liftSiblingParameters(envelope); params != nil {
 			call.Parameters = params
 		}
 	}
@@ -431,16 +431,35 @@ func readString(src map[string]json.RawMessage, key string) string {
 	return strings.TrimSpace(s)
 }
 
-func synthesizeParameters(envelope map[string]json.RawMessage) json.RawMessage {
-	keys := []string{"command", "args", "stdin", "timeout_seconds", "timeout", "working_directory"}
-	out := make(map[string]any)
-	for _, k := range keys {
-		if raw, ok := envelope[k]; ok {
-			var v any
-			if err := json.Unmarshal(raw, &v); err == nil {
-				out[k] = v
-			}
+// reservedEnvelopeKeys are keys consumed by the tool-use envelope itself; any
+// other top-level key is treated as a tool argument that the model forgot to
+// nest under "parameters".
+var reservedEnvelopeKeys = map[string]struct{}{
+	"recipient_name": {},
+	"name":           {},
+	"tool":           {},
+	"tool_name":      {},
+	"parameters":     {},
+	"arguments":      {},
+	"tool_call_id":   {},
+	"id":             {},
+}
+
+// liftSiblingParameters synthesizes a parameters object from any non-envelope
+// keys present in the call. This makes the parser tolerant of weaker models
+// that emit flat shapes like {"recipient_name":"ask_agent","to":"x","prompt":"y"}
+// instead of the schema-correct nested form.
+func liftSiblingParameters(envelope map[string]json.RawMessage) json.RawMessage {
+	out := make(map[string]any, len(envelope))
+	for k, raw := range envelope {
+		if _, reserved := reservedEnvelopeKeys[k]; reserved {
+			continue
 		}
+		var v any
+		if err := json.Unmarshal(raw, &v); err != nil {
+			continue
+		}
+		out[k] = v
 	}
 	if len(out) == 0 {
 		return nil

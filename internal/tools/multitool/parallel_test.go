@@ -308,6 +308,51 @@ func TestParallelToolInfersRunCLI(t *testing.T) {
 	}, seen)
 }
 
+func TestParallelToolLiftsFlatAskAgentShape(t *testing.T) {
+	reg := tools.NewRegistry()
+	type call struct {
+		To     string `json:"to"`
+		Prompt string `json:"prompt"`
+	}
+	var mu sync.Mutex
+	seen := make([]call, 0, 2)
+	reg.Register(fakeTool{
+		name: "ask_agent",
+		call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			var payload call
+			require.NoError(t, json.Unmarshal(raw, &payload))
+			mu.Lock()
+			seen = append(seen, payload)
+			mu.Unlock()
+			return map[string]any{"ok": true}, nil
+		},
+	})
+
+	pt := NewParallel(reg)
+	reg.Register(pt)
+
+	// Local models often emit this flat shape (siblings instead of nested
+	// parameters). Mix in a fully-correct call to ensure both work together.
+	raw := json.RawMessage(`{"tool_uses":[
+		{"recipient_name":"functions.ask_agent","to":"researcher","prompt":"find X"},
+		{"recipient_name":"ask_agent","parameters":{"to":"writer","prompt":"draft Y"}}
+	]}`)
+
+	payload, err := reg.Dispatch(context.Background(), pt.Name(), raw)
+	require.NoError(t, err)
+
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal(payload, &parsed))
+	require.True(t, parsed["ok"].(bool), "payload: %s", string(payload))
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.ElementsMatch(t, []call{
+		{To: "researcher", Prompt: "find X"},
+		{To: "writer", Prompt: "draft Y"},
+	}, seen)
+}
+
 func TestParallelToolDetectsEmbeddedErrors(t *testing.T) {
 	reg := tools.NewRegistry()
 	// register a tool that always returns an error payload without returning Go error

@@ -3,6 +3,7 @@ package memory
 import (
 	"manifold/internal/llm"
 	"manifold/internal/persistence"
+	"time"
 )
 
 func NewManager(store persistence.ChatStore, provider llm.Provider, cfg Config) *Manager {
@@ -15,6 +16,7 @@ func NewManager(store persistence.ChatStore, provider llm.Provider, cfg Config) 
 		minKeepLastMessages:          cfg.MinKeepLastMessages,
 		maxKeepLastMessages:          cfg.MaxKeepLastMessages,
 		maxSummaryChunkTokens:        cfg.MaxSummaryChunkTokens,
+		summaryCallTimeout:           time.Duration(cfg.CallTimeoutSeconds) * time.Second,
 		plainTextContextWindowTokens: cfg.PlainTextContextWindowTokens,
 		contextWindowTokens:          cfg.ContextWindowTokens,
 	}
@@ -32,6 +34,9 @@ func NewManager(store persistence.ChatStore, provider llm.Provider, cfg Config) 
 	}
 	if m.maxSummaryChunkTokens <= 0 {
 		m.maxSummaryChunkTokens = maxSummarizeChunkSize
+	}
+	if m.summaryCallTimeout <= 0 {
+		m.summaryCallTimeout = 120 * time.Second
 	}
 	if m.contextWindowTokens <= 0 && cfg.SummaryModel != "" {
 		if size, _ := llm.ContextSize(cfg.SummaryModel); size > 0 {

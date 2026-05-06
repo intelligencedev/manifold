@@ -58,6 +58,9 @@ exec:
 # plain text summaries remain portable when switching providers.
 summary:
   enabled: true
+  # Maximum time a single summary-model request may block a chat request.
+  # Set to 0 to use the built-in default.
+  callTimeoutSeconds: 120
   contextWindowTokens: 32000
   # Optional global plain-text summary trigger budget. Set to 0 to fall back
   # to the configured summary model's context size.

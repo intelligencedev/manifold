@@ -363,8 +363,31 @@ func (m *Manager) reducePlainSummarySections(ctx context.Context, sections []str
 		return "", fmt.Errorf("empty summary input")
 	}
 
+	if len(current) == 1 {
+		summary, err := m.runPlainSummaryPass(ctx, current)
+		if err != nil {
+			return "", err
+		}
+		summary = strings.TrimSpace(summary)
+		if summary == "" {
+			return "", fmt.Errorf("empty summary returned")
+		}
+		return summary, nil
+	}
+
 	for pass := 0; pass < 8; pass++ {
 		chunks := packSummarySections(current, chunkBudget)
+		if len(chunks) == 1 {
+			summary, err := m.runPlainSummaryPass(ctx, chunks[0])
+			if err != nil {
+				return "", err
+			}
+			summary = strings.TrimSpace(summary)
+			if summary == "" {
+				return "", fmt.Errorf("empty summary returned")
+			}
+			return summary, nil
+		}
 		next := make([]string, 0, len(chunks))
 		for _, chunk := range chunks {
 			summary, err := m.runPlainSummaryPass(ctx, chunk)
@@ -442,7 +465,17 @@ func (m *Manager) runPlainSummaryPass(ctx context.Context, sections []string) (s
 		return truncateForSummary(strings.TrimSpace(sections[0]), maxInt(32, limit*4)), nil
 	}
 
-	resp, err := m.summary.Chat(ctx, msgs, nil, m.summaryModel)
+	var (
+		resp llm.Message
+		err  error
+	)
+	if m.summaryCallTimeout > 0 {
+		callCtx, cancel := context.WithTimeout(ctx, m.summaryCallTimeout)
+		defer cancel()
+		resp, err = m.summary.Chat(callCtx, msgs, nil, m.summaryModel)
+	} else {
+		resp, err = m.summary.Chat(ctx, msgs, nil, m.summaryModel)
+	}
 	if err != nil {
 		return "", fmt.Errorf("summarize chat: %w", err)
 	}
@@ -485,9 +518,6 @@ func (m *Manager) summaryReductionChunkBudget() int {
 	budget := m.summaryPromptTokenLimit()
 	if budget <= 0 {
 		budget = maxSummarizeChunkSize
-	}
-	if m.maxSummaryChunkTokens > 0 && m.maxSummaryChunkTokens < budget {
-		budget = m.maxSummaryChunkTokens
 	}
 	budget -= 256
 	if budget < 64 {

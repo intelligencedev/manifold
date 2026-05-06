@@ -67,6 +67,46 @@ func TestChatWithOptions_ServerReturnsChoice(t *testing.T) {
 	}
 }
 
+func TestSelfHostedChatUsesReturnedUsageWithoutTokenizeFallback(t *testing.T) {
+	t.Parallel()
+
+	chatCalls := 0
+	tokenizeCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/chat/completions":
+			chatCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"hello","tool_calls":[]}}],"usage":{"prompt_tokens":12,"completion_tokens":4,"total_tokens":16}}`))
+		case "/tokenize":
+			tokenizeCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"tokens":[1,2,3]}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m"}, srv.Client())
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	msg, err := cli.Chat(ctx, []llm.Message{{Role: "user", Content: "hi"}}, nil, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if msg.Content != "hello" {
+		t.Fatalf("expected hello, got %q", msg.Content)
+	}
+	if chatCalls != 1 {
+		t.Fatalf("expected one chat completion call, got %d", chatCalls)
+	}
+	if tokenizeCalls != 0 {
+		t.Fatalf("expected no tokenize fallback when usage is present, got %d calls", tokenizeCalls)
+	}
+}
+
 func TestChatWithOptions_AppendsWebSearchOptions(t *testing.T) {
 	var payload map[string]any
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -322,29 +322,151 @@
               <div
                 class="mt-3 space-y-3 break-words text-sm leading-relaxed text-foreground"
               >
+                <!-- Parallel specialist activity (sub-agents invoked concurrently) -->
                 <div
-                  v-if="shouldShowDirectActivity(message)"
-                  class="direct-activity"
+                  v-if="message.id === lastAssistantId && visibleParticipantActivityItems.length > 0"
+                  class="parallel-activity-grid"
+                  :class="visibleParticipantActivityItems.length <= 3 ? 'parallel-activity-grid--row' : 'parallel-activity-grid--col'"
                 >
                   <div
-                    v-if="message.activityToolTitle"
-                    class="direct-activity-row"
+                    v-for="thread in visibleParticipantActivityItems"
+                    :key="thread.id"
+                    class="parallel-activity-card"
                   >
-                    <span class="direct-activity-label">Tool</span>
-                    <span class="direct-activity-value">
-                      {{ message.activityToolTitle }}
-                    </span>
+                    <Transition name="activity-pill">
+                      <button
+                        v-if="isActivityCollapsed(thread.id)"
+                        type="button"
+                        class="direct-activity-pill"
+                        @click="expandActivity(thread.id)"
+                      >
+                        <span
+                          class="direct-activity-pill-dot"
+                          :class="thread.status === 'running' ? 'direct-activity-pill-dot--live' : ''"
+                        ></span>
+                        <span class="direct-activity-pill-label">{{ thread.name }}</span>
+                        <span class="direct-activity-pill-chevron">›</span>
+                      </button>
+                    </Transition>
+                    <Transition
+                      @before-enter="drawerBeforeEnter"
+                      @enter="drawerEnter"
+                      @after-enter="drawerAfterEnter"
+                      @before-leave="drawerBeforeLeave"
+                      @leave="drawerLeave"
+                    >
+                      <div
+                        v-if="!isActivityCollapsed(thread.id)"
+                        class="direct-activity"
+                      >
+                        <div class="direct-activity-header">
+                          <span class="direct-activity-label">{{ thread.name }}</span>
+                          <button
+                            v-if="thread.status !== 'running'"
+                            type="button"
+                            class="direct-activity-collapse-btn"
+                            @click="collapseActivity(thread.id)"
+                            title="Collapse"
+                          >collapse ›</button>
+                          <span v-else class="direct-activity-streaming-dot"></span>
+                        </div>
+                        <div
+                          v-if="thread.toolEntries.length"
+                          class="direct-activity-row"
+                        >
+                          <span class="direct-activity-label">Tool</span>
+                          <span class="direct-activity-value">
+                            {{ thread.toolEntries[thread.toolEntries.length - 1]?.title || '' }}
+                          </span>
+                        </div>
+                        <div
+                          v-if="thread.thoughtSummaries.length"
+                          class="direct-activity-thought"
+                        >
+                          <span class="direct-activity-label">Thought summary</span>
+                          <div
+                            class="chat-markdown direct-activity-summary"
+                            v-html="renderMarkdownOrHtml(thread.thoughtSummaries[thread.thoughtSummaries.length - 1] || '')"
+                          ></div>
+                        </div>
+                        <div
+                          v-if="thread.response && thread.status !== 'running'"
+                          class="direct-activity-thought"
+                        >
+                          <span class="direct-activity-label">Response</span>
+                          <div
+                            class="chat-markdown direct-activity-summary"
+                            v-html="renderMarkdownOrHtml(thread.response)"
+                          ></div>
+                        </div>
+                      </div>
+                    </Transition>
                   </div>
+                </div>
+
+                <div
+                  v-if="shouldShowDirectActivity(message)"
+                  class="direct-activity-wrapper"
+                >
+                  <!-- Collapsed pill: click to expand -->
+                  <Transition name="activity-pill">
+                  <button
+                    v-if="isActivityCollapsed(message.id)"
+                    type="button"
+                    class="direct-activity-pill"
+                    @click="expandActivity(message.id)"
+                  >
+                    <span class="direct-activity-pill-dot"></span>
+                    <span class="direct-activity-pill-label">{{ agentNameFor(message) }} activity</span>
+                    <span class="direct-activity-pill-chevron">›</span>
+                  </button>
+                  </Transition>
+
+                  <!-- Expanded panel (drawer animation) -->
+                  <Transition
+                    @before-enter="drawerBeforeEnter"
+                    @enter="drawerEnter"
+                    @after-enter="drawerAfterEnter"
+                    @before-leave="drawerBeforeLeave"
+                    @leave="drawerLeave"
+                  >
                   <div
-                    v-if="shouldShowDirectThought(message)"
-                    class="direct-activity-thought"
+                    v-if="!isActivityCollapsed(message.id)"
+                    class="direct-activity"
                   >
-                    <span class="direct-activity-label">Thought summary</span>
+                    <!-- Header row: name + collapse button -->
+                    <div class="direct-activity-header">
+                      <span class="direct-activity-label">{{ agentNameFor(message) }} activity</span>
+                      <button
+                        v-if="!message.streaming"
+                        type="button"
+                        class="direct-activity-collapse-btn"
+                        @click="collapseActivity(message.id)"
+                        title="Collapse"
+                      >collapse ›</button>
+                      <span v-else class="direct-activity-streaming-dot"></span>
+                    </div>
                     <div
-                      class="chat-markdown direct-activity-summary"
-                      v-html="renderMarkdownOrHtml(message.activityThoughtSummary || '')"
-                    ></div>
+                      v-if="message.activityToolTitle"
+                      class="direct-activity-row"
+                    >
+                      <span class="direct-activity-label">Tool</span>
+                      <span class="direct-activity-value">
+                        {{ message.activityToolTitle }}
+                      </span>
+                    </div>
+                    <div
+                      v-if="shouldShowDirectThought(message)"
+                      class="direct-activity-thought"
+                    >
+                      <span class="direct-activity-label">Thought summary</span>
+                      <div
+                        class="chat-markdown direct-activity-summary"
+                        v-html="renderMarkdownOrHtml(message.activityThoughtSummary || '')"
+                      ></div>
+                    </div>
                   </div>
+                  </Transition>
                 </div>
                 <p v-if="message.title" class="font-semibold text-foreground">
                   {{ message.title }}
@@ -1907,6 +2029,97 @@ function shouldShowDirectThought(message: ChatMessage) {
   return Boolean(message.activityThoughtSummary);
 }
 
+// --- Collapsible activity panel per message ---
+const collapsedActivityIds = ref<Set<string>>(new Set());
+
+function isActivityCollapsed(id: string): boolean {
+  return collapsedActivityIds.value.has(id);
+}
+
+function collapseActivity(id: string) {
+  collapsedActivityIds.value = new Set([...collapsedActivityIds.value, id]);
+}
+
+function expandActivity(id: string) {
+  const next = new Set(collapsedActivityIds.value);
+  next.delete(id);
+  collapsedActivityIds.value = next;
+}
+
+// Drawer JS transition hooks
+function drawerBeforeEnter(el: Element) {
+  const e = el as HTMLElement;
+  e.style.height = '0';
+  e.style.overflow = 'hidden';
+}
+function drawerEnter(el: Element, done: () => void) {
+  const e = el as HTMLElement;
+  const h = e.scrollHeight;
+  e.style.transition = 'height 0.28s cubic-bezier(0.4, 0, 0.2, 1)';
+  e.style.height = h + 'px';
+  e.addEventListener('transitionend', done, { once: true });
+}
+function drawerAfterEnter(el: Element) {
+  const e = el as HTMLElement;
+  e.style.height = 'auto';
+  e.style.overflow = '';
+  e.style.transition = '';
+}
+function drawerBeforeLeave(el: Element) {
+  const e = el as HTMLElement;
+  e.style.height = e.scrollHeight + 'px';
+  e.style.overflow = 'hidden';
+}
+function drawerLeave(el: Element, done: () => void) {
+  const e = el as HTMLElement;
+  requestAnimationFrame(() => {
+    e.style.transition = 'height 0.22s cubic-bezier(0.4, 0, 0.2, 1)';
+    e.style.height = '0';
+    e.addEventListener('transitionend', done, { once: true });
+  });
+}
+
+// Auto-collapse activity panel when streaming finishes
+watch(
+  () => activeMessages.value.map((m) => `${m.id}:${m.streaming ? 1 : 0}`),
+  (cur, prev) => {
+    if (!prev) return;
+    for (let i = 0; i < cur.length; i++) {
+      const [id, streaming] = (cur[i] || "").split(":");
+      const [, prevStreaming] = (prev[i] || "").split(":");
+      // Transitioned from streaming → done
+      if (prevStreaming === "1" && streaming === "0" && id) {
+        const msg = activeMessages.value.find((m) => m.id === id);
+        if (msg && shouldShowDirectActivity(msg)) {
+          collapseActivity(id);
+        }
+      }
+    }
+  },
+  { flush: "post" },
+);
+
+// Auto-collapse parallel activity cards when a thread finishes
+watch(
+  () => visibleParticipantActivityItems.value.map((i) => `${i.id}:${i.status}`),
+  (cur, prev) => {
+    if (!prev) return;
+    // Build lookup of previous statuses by id
+    const prevMap = new Map<string, string>();
+    for (const entry of prev) {
+      const [id, status] = entry.split(":");
+      if (id) prevMap.set(id, status);
+    }
+    for (const entry of cur) {
+      const [id, status] = entry.split(":");
+      if (id && prevMap.get(id) === "running" && status !== "running") {
+        collapseActivity(id);
+      }
+    }
+  },
+  { flush: "post" },
+);
+
 function selectActivity(id: string) {
   selectedActivityId.value = id;
   activityAutoScrollEnabled.value = true;
@@ -2025,8 +2238,30 @@ const participantList = computed<Participant[]>(() => {
 
 function participantIsActive(name: string) {
   const key = name.trim().toLowerCase();
+
+  // Find the currently streaming assistant message to determine who is live.
+  const streamingMsg = activeMessages.value.find(
+    (m) => m.role === "assistant" && m.streaming,
+  );
+
+  if (streamingMsg) {
+    // Prefer the agent name embedded in the message; fall back to selectedSpecialist.
+    const liveAgent = (
+      streamingMsg.agentName ||
+      streamingMsg.agent ||
+      selectedSpecialist.value ||
+      "orchestrator"
+    ).trim().toLowerCase();
+
+    // During streaming, only the agent whose name matches is live.
+    // Never mark orchestrator live just because runActivityCounts > 0 here —
+    // that count includes the specialist itself and causes false positives.
+    return liveAgent === key;
+  }
+
+  // No active stream: fall back to agent-thread activity counts.
   if (key === "orchestrator") {
-    return runActivityState.value === "running";
+    return runActivityCounts.value.running > 0;
   }
   return visibleParticipantActivityItems.value.some(
     (item) => item.status === "running" && item.name.toLowerCase() === key,
@@ -2035,14 +2270,18 @@ function participantIsActive(name: string) {
 
 function participantStatusLabel(name: string) {
   const key = name.trim().toLowerCase();
+  const active = participantIsActive(name);
+  if (active) return "Live";
   if (key === "orchestrator") {
-    return runActivityStateLabel.value;
+    const label = runActivityStateLabel.value;
+    return (label && label.toLowerCase() !== "completed") ? label : "Idle";
   }
   const item = visibleParticipantActivityItems.value.find(
     (activity) => activity.name.toLowerCase() === key,
   );
-  if (!item) return isStreaming.value ? "Ready" : "Idle";
-  return item.statusLabel;
+  if (!item) return "Idle";
+  const lbl = item.statusLabel;
+  return (lbl && lbl.toLowerCase() !== "completed") ? lbl : "Idle";
 }
 
 function participantRowClasses(name: string) {
@@ -3083,6 +3322,88 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   background: rgb(var(--color-surface) / 0.9);
 }
 
+.direct-activity-wrapper {
+  width: 100%;
+}
+
+/* Parallel specialist activity grid */
+.parallel-activity-grid {
+  display: flex;
+  gap: 0.6rem;
+  width: 100%;
+}
+.parallel-activity-grid--row {
+  flex-direction: row;
+  align-items: flex-start;
+}
+.parallel-activity-grid--row .parallel-activity-card {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.parallel-activity-grid--col {
+  flex-direction: column;
+}
+.parallel-activity-grid--col .parallel-activity-card {
+  width: 100%;
+}
+
+/* Live dot variant for running threads */
+.direct-activity-pill-dot--live {
+  background: rgb(var(--color-accent)) !important;
+  animation: activityPulse 1.2s ease-in-out infinite;
+}
+
+/* Pill fade in/out */
+.activity-pill-enter-active {
+  transition: opacity 0.15s ease;
+}
+.activity-pill-leave-active {
+  transition: opacity 0.1s ease;
+}
+.activity-pill-enter-from,
+.activity-pill-leave-to {
+  opacity: 0;
+}
+
+/* Collapsed pill */
+.direct-activity-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 999px;
+  border: 1px solid rgb(var(--color-border) / 0.5);
+  background: rgb(var(--color-surface-muted) / 0.45);
+  padding: 0.3rem 0.75rem 0.3rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: rgb(var(--color-subtle-foreground));
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.direct-activity-pill:hover {
+  border-color: rgb(var(--color-accent) / 0.5);
+  color: rgb(var(--color-accent));
+}
+.direct-activity-pill-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: rgb(var(--color-subtle-foreground));
+  flex-shrink: 0;
+}
+.direct-activity-pill:hover .direct-activity-pill-dot {
+  background: rgb(var(--color-accent));
+}
+.direct-activity-pill-label {
+  flex: 1;
+}
+.direct-activity-pill-chevron {
+  font-size: 0.85rem;
+  line-height: 1;
+  transform: rotate(0deg);
+}
+
+/* Expanded panel */
 .direct-activity {
   display: flex;
   flex-direction: column;
@@ -3091,6 +3412,41 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   border: 1px solid rgb(var(--color-border) / 0.58);
   background: rgb(var(--color-surface-muted) / 0.62);
   padding: 0.75rem;
+}
+
+.direct-activity-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.direct-activity-collapse-btn {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: rgb(var(--color-subtle-foreground));
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.3rem;
+  transition: color 0.15s;
+}
+.direct-activity-collapse-btn:hover {
+  color: rgb(var(--color-accent));
+}
+
+.direct-activity-streaming-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: rgb(var(--color-accent));
+  animation: activityPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes activityPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 
 .direct-activity-row {

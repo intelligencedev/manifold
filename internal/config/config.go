@@ -199,6 +199,7 @@ type ExecConfig struct {
 // SummaryConfig controls rolling chat summaries and their dedicated LLM client.
 type SummaryConfig struct {
 	Enabled                      bool            `yaml:"enabled" json:"enabled"`
+	CallTimeoutSeconds           int             `yaml:"callTimeoutSeconds" json:"callTimeoutSeconds"`
 	ContextWindowTokens          int             `yaml:"contextWindowTokens" json:"contextWindowTokens"`
 	PlainTextContextWindowTokens int             `yaml:"plainTextContextWindowTokens" json:"plainTextContextWindowTokens"`
 	ReserveBufferTokens          int             `yaml:"reserveBufferTokens" json:"reserveBufferTokens"`

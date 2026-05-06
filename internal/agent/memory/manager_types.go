@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"manifold/internal/llm"
 	"manifold/internal/persistence"
@@ -110,6 +111,7 @@ type Config struct {
 	MinKeepLastMessages          int `yaml:"minKeepLastMessages" json:"minKeepLastMessages"`
 	MaxKeepLastMessages          int `yaml:"maxKeepLastMessages" json:"maxKeepLastMessages"`
 	MaxSummaryChunkTokens        int `yaml:"maxSummaryChunkTokens" json:"maxSummaryChunkTokens"`
+	CallTimeoutSeconds           int `yaml:"callTimeoutSeconds" json:"callTimeoutSeconds"`
 	PlainTextContextWindowTokens int `yaml:"plainTextContextWindowTokens" json:"plainTextContextWindowTokens"`
 	// ContextWindowTokens can be pre-computed by the caller; if 0, ContextSize
 	// is used as a fallback.
@@ -132,6 +134,7 @@ type Manager struct {
 	minKeepLastMessages          int
 	maxKeepLastMessages          int
 	maxSummaryChunkTokens        int
+	summaryCallTimeout           time.Duration
 	plainTextContextWindowTokens int
 	contextWindowTokens          int
 	compactionUnavailable        atomic.Bool

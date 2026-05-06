@@ -84,6 +84,18 @@ func (l *limitEnforcingLLM) ChatStream(ctx context.Context, msgs []llm.Message, 
 	return nil
 }
 
+type blockingLLM struct{}
+
+func (b *blockingLLM) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string) (llm.Message, error) {
+	<-ctx.Done()
+	return llm.Message{}, ctx.Err()
+}
+
+func (b *blockingLLM) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, h llm.StreamHandler) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
 // stubChatStore is a minimal in-memory ChatStore for testing without import cycles.
 type stubChatStore struct {
 	mu       sync.Mutex
@@ -553,6 +565,43 @@ func TestSummarizeChunkRecursivelyReducesOversizedExistingSummary(t *testing.T) 
 	}
 }
 
+func TestSummarizeChunkUsesSinglePassWhenInputFitsPromptBudget(t *testing.T) {
+	ctx := context.Background()
+	store := newStubChatStore()
+	provider := &limitEnforcingLLM{
+		response:        "condensed summary",
+		maxPromptTokens: 65000,
+	}
+	manager := NewManager(store, provider, Config{
+		Enabled:                      true,
+		SummaryModel:                 "stub",
+		ContextWindowTokens:          90000,
+		PlainTextContextWindowTokens: 90000,
+		ReserveBufferTokens:          25000,
+		MaxSummaryChunkTokens:        4096,
+	})
+
+	existing := strings.Repeat("existing summary detail ", 1000)
+	chunk := []persistence.ChatMessage{
+		{Role: "user", Content: strings.Repeat("The user asks for a detailed update about the current investigation and wants the exact cause preserved. ", 40)},
+		{Role: "assistant", Content: strings.Repeat("The assistant reports intermediate findings, tool outputs, and unresolved questions that still fit in the summary prompt budget. ", 40)},
+	}
+
+	summary, err := manager.summarizeChunk(ctx, existing, chunk, nil, "")
+	if err != nil {
+		t.Fatalf("summarizeChunk: %v", err)
+	}
+	if strings.TrimSpace(summary) != "condensed summary" {
+		t.Fatalf("unexpected summary: %q", summary)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("expected a single summarizer call when the prompt fits the model budget, got %d", provider.calls)
+	}
+	if provider.maxSeenTokens > provider.maxPromptTokens {
+		t.Fatalf("expected summary prompt to stay within limit, saw %d > %d", provider.maxSeenTokens, provider.maxPromptTokens)
+	}
+}
+
 func TestPlainTextSummary(t *testing.T) {
 	t.Parallel()
 
@@ -585,6 +634,59 @@ func TestPlainTextSummary(t *testing.T) {
 				t.Fatalf("PlainTextSummary() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestBuildContextForProvider_SummaryTimeoutKeepsPriorState(t *testing.T) {
+	ctx := context.Background()
+	store := newStubChatStore()
+
+	if _, err := store.EnsureSession(ctx, nil, "sess", "Chat"); err != nil {
+		t.Fatalf("EnsureSession: %v", err)
+	}
+
+	now := time.Now().UTC()
+	for i := 0; i < 3; i++ {
+		messages := []persistence.ChatMessage{
+			{Role: "user", Content: strings.Repeat("user message with enough content to trigger summary ", 8), CreatedAt: now.Add(time.Duration(i*2) * time.Second)},
+			{Role: "assistant", Content: strings.Repeat("assistant message with enough content to trigger summary ", 8), CreatedAt: now.Add(time.Duration(i*2+1) * time.Second)},
+		}
+		if err := store.AppendMessages(ctx, nil, "sess", messages, "a", "model"); err != nil {
+			t.Fatalf("AppendMessages: %v", err)
+		}
+	}
+
+	manager := NewManager(store, &blockingLLM{}, Config{
+		Enabled:                      true,
+		ReserveBufferTokens:          5,
+		MinKeepLastMessages:          2,
+		MaxKeepLastMessages:          2,
+		ContextWindowTokens:          5000,
+		PlainTextContextWindowTokens: 5000,
+		SummaryModel:                 "stub",
+	})
+	manager.summaryCallTimeout = 10 * time.Millisecond
+
+	history, summaryResult, err := manager.BuildContextForProvider(ctx, nil, "sess", nil, "", SummaryPolicy{})
+	if err != nil {
+		t.Fatalf("BuildContextForProvider: %v", err)
+	}
+	if len(history) == 0 {
+		t.Fatalf("expected raw history fallback after summary timeout")
+	}
+	if summaryResult == nil || !summaryResult.Triggered {
+		t.Fatalf("expected summary attempt metadata on timeout")
+	}
+
+	session, err := store.GetSession(ctx, nil, "sess")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if session.Summary != "" {
+		t.Fatalf("expected summary to remain empty after timeout, got %q", session.Summary)
+	}
+	if session.SummarizedCount != 0 {
+		t.Fatalf("expected summarized count to remain 0 after timeout, got %d", session.SummarizedCount)
 	}
 }
 

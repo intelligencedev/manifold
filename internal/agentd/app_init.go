@@ -473,6 +473,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	}
 	app.chatMemory = memory.NewManager(app.chatStore, summaryLLM, memory.Config{
 		Enabled:                      cfg.Summary.Enabled,
+		CallTimeoutSeconds:           cfg.Summary.CallTimeoutSeconds,
 		ReserveBufferTokens:          cfg.Summary.ReserveBufferTokens,
 		MinKeepLastMessages:          cfg.Summary.MinKeepLastMessages,
 		MaxKeepLastMessages:          cfg.Summary.MaxKeepLastMessages,

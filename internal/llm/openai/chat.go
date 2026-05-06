@@ -146,11 +146,15 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 	llm.LogRedactedResponse(ctx, comp.Choices)
 
 	if c.isSelfHosted() {
-		// Override token metrics using /tokenize endpoint
-		promptText := buildPromptText(msgs)
-		promptTokens := c.tokenizeCount(ctx, promptText)
-		completionTokens := c.tokenizeCount(ctx, out.Content)
-		totalTokens := promptTokens + completionTokens
+		promptTokens := int(comp.Usage.PromptTokens)
+		completionTokens := int(comp.Usage.CompletionTokens)
+		totalTokens := int(comp.Usage.TotalTokens)
+		if !hasChatCompletionUsage(comp.Usage) {
+			promptText := buildPromptText(msgs)
+			promptTokens = c.tokenizeCount(ctx, promptText)
+			completionTokens = c.tokenizeCount(ctx, out.Content)
+			totalTokens = promptTokens + completionTokens
+		}
 		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
 		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
 	} else {
@@ -276,9 +280,14 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 
 	llm.LogRedactedResponse(ctx, comp.Choices)
 	if c.isSelfHosted() {
-		promptTokens := c.tokenizeCount(ctx, buildPromptText(msgs))
-		completionTokens := c.tokenizeCount(ctx, out.Content)
-		totalTokens := promptTokens + completionTokens
+		promptTokens := int(comp.Usage.PromptTokens)
+		completionTokens := int(comp.Usage.CompletionTokens)
+		totalTokens := int(comp.Usage.TotalTokens)
+		if !hasChatCompletionUsage(comp.Usage) {
+			promptTokens = c.tokenizeCount(ctx, buildPromptText(msgs))
+			completionTokens = c.tokenizeCount(ctx, out.Content)
+			totalTokens = promptTokens + completionTokens
+		}
 		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
 		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
 	} else {
@@ -289,6 +298,10 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 		return llm.Message{}, nil
 	}
 	return out, nil
+}
+
+func hasChatCompletionUsage(usage sdk.CompletionUsage) bool {
+	return usage.TotalTokens > 0 || usage.PromptTokens > 0 || usage.CompletionTokens > 0
 }
 
 // ChatStream implements streaming chat completions using OpenAI's streaming API.

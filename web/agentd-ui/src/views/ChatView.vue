@@ -326,7 +326,7 @@
                 <div
                   v-if="message.id === lastAssistantId && visibleParticipantActivityItems.length > 0"
                   class="parallel-activity-grid"
-                  :class="visibleParticipantActivityItems.length <= 3 ? 'parallel-activity-grid--row' : 'parallel-activity-grid--col'"
+                  :class="visibleParticipantActivityItems.length <= 2 ? 'parallel-activity-grid--row' : 'parallel-activity-grid--col'"
                 >
                   <div
                     v-for="thread in visibleParticipantActivityItems"
@@ -371,6 +371,11 @@
                           <span v-else class="direct-activity-streaming-dot"></span>
                         </div>
                         <div
+                          class="direct-activity-body"
+                          :ref="(el) => registerThreadBody(el as Element | null, thread.id)"
+                          @scroll="handleThreadBodyScroll($event, thread.id)"
+                        >
+                        <div
                           v-if="thread.toolEntries.length"
                           class="direct-activity-row"
                         >
@@ -398,6 +403,7 @@
                             class="chat-markdown direct-activity-summary"
                             v-html="renderMarkdownOrHtml(thread.response)"
                           ></div>
+                        </div>
                         </div>
                       </div>
                     </Transition>
@@ -446,6 +452,7 @@
                       >collapse ›</button>
                       <span v-else class="direct-activity-streaming-dot"></span>
                     </div>
+                    <div class="direct-activity-body">
                     <div
                       v-if="message.activityToolTitle"
                       class="direct-activity-row"
@@ -464,6 +471,7 @@
                         class="chat-markdown direct-activity-summary"
                         v-html="renderMarkdownOrHtml(message.activityThoughtSummary || '')"
                       ></div>
+                    </div>
                     </div>
                   </div>
                   </Transition>
@@ -1286,6 +1294,10 @@ const autoScrollEnabled = ref(true);
 const lastScrollTop = ref(0);
 const activityAutoScrollEnabled = ref(true);
 const activityLastScrollTop = ref(0);
+// Per-thread scroll state for parallel activity cards
+const threadBodyEls = new Map<string, HTMLElement>();
+const threadScrollEnabled = new Map<string, boolean>();
+const threadScrollLastTop = new Map<string, number>();
 // Attachments state for composer
 const fileInput = ref<HTMLInputElement | null>(null);
 const pendingAttachments = ref<ChatAttachment[]>([]);
@@ -2099,25 +2111,34 @@ watch(
   { flush: "post" },
 );
 
-// Auto-collapse parallel activity cards when a thread finishes
+// Auto-scroll parallel activity card bodies on content changes
 watch(
-  () => visibleParticipantActivityItems.value.map((i) => `${i.id}:${i.status}`),
-  (cur, prev) => {
-    if (!prev) return;
-    // Build lookup of previous statuses by id
-    const prevMap = new Map<string, string>();
-    for (const entry of prev) {
-      const [id, status] = entry.split(":");
-      if (id) prevMap.set(id, status);
-    }
-    for (const entry of cur) {
-      const [id, status] = entry.split(":");
-      if (id && prevMap.get(id) === "running" && status !== "running") {
-        collapseActivity(id);
+  () => visibleParticipantActivityItems.value.map(
+    (i) => `${i.id}:${i.description}:${i.thoughtSummaries.length}:${i.response.length}`,
+  ),
+  () => {
+    for (const item of visibleParticipantActivityItems.value) {
+      if (threadBodyEls.has(item.id)) {
+        scrollThreadBodyToBottom(item.id);
       }
     }
   },
-  { flush: "post" },
+  { flush: 'post' },
+);
+
+// Auto-collapse parallel activity cards only after all running threads finish
+watch(
+  () => visibleParticipantActivityItems.value.map((i) => `${i.id}:${i.status}`),
+  () => {
+    const items = visibleParticipantActivityItems.value;
+    if (!items.length || items.some((item) => item.status === "running")) {
+      return;
+    }
+    for (const item of items) {
+      if (item.status === "done") collapseActivity(item.id);
+    }
+  },
+  { flush: "post", immediate: true },
 );
 
 function selectActivity(id: string) {
@@ -3061,6 +3082,47 @@ function scrollActivityPaneToBottom(options: ScrollToBottomOptions = {}) {
   });
 }
 
+function registerThreadBody(el: Element | null, threadId: string) {
+  if (el instanceof HTMLElement) {
+    if (threadBodyEls.get(threadId) === el) return;
+    threadBodyEls.set(threadId, el);
+    if (!threadScrollEnabled.has(threadId)) threadScrollEnabled.set(threadId, true);
+    if (!threadScrollLastTop.has(threadId)) threadScrollLastTop.set(threadId, 0);
+  } else {
+    threadBodyEls.delete(threadId);
+  }
+}
+
+function scrollThreadBodyToBottom(threadId: string, options: ScrollToBottomOptions = {}) {
+  nextTick(() => {
+    const el = threadBodyEls.get(threadId);
+    if (!el) return;
+    const enabledRef = {
+      get value() { return threadScrollEnabled.get(threadId) ?? true; },
+      set value(v: boolean) {
+        threadScrollEnabled.set(threadId, v);
+      },
+    };
+    scrollPaneToBottom(el, enabledRef, options);
+  });
+}
+
+function handleThreadBodyScroll(event: Event, threadId: string) {
+  const enabledRef = {
+    get value() { return threadScrollEnabled.get(threadId) ?? true; },
+    set value(v: boolean) {
+      threadScrollEnabled.set(threadId, v);
+    },
+  };
+  const lastTopRef = {
+    get value() { return threadScrollLastTop.get(threadId) ?? 0; },
+    set value(v: number) {
+      threadScrollLastTop.set(threadId, v);
+    },
+  };
+  handlePaneScroll(event, enabledRef, lastTopRef);
+}
+
 function isNearBottom(container: HTMLElement) {
   const distance =
     container.scrollHeight - (container.scrollTop + container.clientHeight);
@@ -3407,18 +3469,29 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 .direct-activity {
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
   border-radius: 0.8rem;
   border: 1px solid rgb(var(--color-border) / 0.58);
   background: rgb(var(--color-surface-muted) / 0.62);
-  padding: 0.75rem;
+  overflow: hidden;
 }
 
 .direct-activity-header {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid rgb(var(--color-border) / 0.35);
+}
+
+.direct-activity-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  max-height: 14rem;
+  overflow-y: auto;
+  padding: 0.65rem 0.75rem 0.75rem;
 }
 
 .direct-activity-collapse-btn {

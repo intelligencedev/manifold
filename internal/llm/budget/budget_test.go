@@ -1,5 +1,4 @@
 package budget
-package budget
 
 import (
 	"strings"

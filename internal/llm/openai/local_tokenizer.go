@@ -14,7 +14,7 @@ import (
 )
 
 // LocalTokenizer counts tokens for OpenAI-compatible local servers that expose
-// llama-server style /apply-template and /tokenize endpoints.
+// a llama-server style /tokenize endpoint.
 type LocalTokenizer struct {
 	client *Client
 	model  string
@@ -52,11 +52,7 @@ func (t *LocalTokenizer) CountMessagesTokens(ctx context.Context, msgs []llm.Mes
 		return llm.EstimateTokensForMessages(msgs), nil
 	}
 
-	prompt, err := t.applyTemplate(ctx, msgs)
-	if err != nil {
-		observability.LoggerWithTrace(ctx).Debug().Err(err).Msg("local_apply_template_failed_using_flat_prompt")
-		prompt = buildPromptText(t.client.chatCompletionMessages(msgs))
-	}
+	prompt := buildPromptText(t.client.chatCompletionMessages(msgs))
 	count, err := t.tokenizeText(ctx, prompt)
 	if err != nil {
 		observability.LoggerWithTrace(ctx).Debug().Err(err).Msg("local_tokenize_failed_using_heuristic")
@@ -64,36 +60,6 @@ func (t *LocalTokenizer) CountMessagesTokens(ctx context.Context, msgs []llm.Mes
 	}
 	observability.LoggerWithTrace(ctx).Debug().Int("total_tokens", count).Int("message_count", len(msgs)).Msg("local_tokens_counted")
 	return count, nil
-}
-
-func (t *LocalTokenizer) applyTemplate(ctx context.Context, msgs []llm.Message) (string, error) {
-	if t.client.applyTemplateUnsupported.Load() {
-		return "", fmt.Errorf("apply-template unsupported")
-	}
-
-	requestMsgs := t.client.chatCompletionMessages(msgs)
-	bodyObj := map[string]any{"messages": requestMsgs}
-	if strings.TrimSpace(t.model) != "" {
-		bodyObj["model"] = t.model
-	}
-	var parsed struct {
-		Prompt string `json:"prompt"`
-	}
-	status, body, err := t.postJSON(ctx, t.rootURL()+"/apply-template", bodyObj, &parsed)
-	if err != nil {
-		return "", err
-	}
-	if status == http.StatusNotFound {
-		t.client.applyTemplateUnsupported.Store(true)
-		return "", fmt.Errorf("apply-template returned 404")
-	}
-	if status != http.StatusOK {
-		return "", fmt.Errorf("apply-template returned status %d: %s", status, string(body))
-	}
-	if strings.TrimSpace(parsed.Prompt) == "" {
-		return "", fmt.Errorf("apply-template returned empty prompt")
-	}
-	return parsed.Prompt, nil
 }
 
 func (t *LocalTokenizer) tokenizeText(ctx context.Context, text string) (int, error) {

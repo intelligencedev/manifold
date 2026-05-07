@@ -81,6 +81,17 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 		return session.Summary, session.SummarizedCount, nil
 	}
 
+	// When force-by-count is the only trigger (token budget is still within
+	// limits), defer summarization until a minimum batch of new messages has
+	// accumulated.  Calling the summary model on every single new message is
+	// expensive — for slow local/thinking models each call can block for 60-120 s.
+	if forceByCount && estimated <= budget {
+		potentialDelta := (total - maxTail) - session.SummarizedCount
+		if potentialDelta < minForceCountBatch {
+			return session.Summary, session.SummarizedCount, nil
+		}
+	}
+
 	// Decide how many early messages to include in the next summary chunk.
 	// For classic summarization we keep a small raw tail; for Responses compaction
 	// we prefer to compact the full eligible delta so the compaction blob fully

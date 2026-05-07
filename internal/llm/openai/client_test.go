@@ -538,6 +538,53 @@ func TestSelfHostedSSEHeaderInjection(t *testing.T) {
 	}
 }
 
+func TestSelfHostedSSEFallbackUsesFinalUsageChunkForMetrics(t *testing.T) {
+	t.Parallel()
+
+	model := "self-hosted-usage-model"
+	totalsBefore, _ := llm.TokenTotalsForWindow(0)
+	before := tokenTotalForModel(totalsBefore, model)
+	var tokenizeCalls int
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/chat/completions":
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"hello\"},\"finish_reason\":null}]}\n\n"))
+			_, _ = w.Write([]byte("data: {\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":3,\"total_tokens\":10}}\n\n"))
+			_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		case "/tokenize":
+			tokenizeCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"tokens":[1]}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: model}, srv.Client())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	handler := &testStreamHandler{}
+	if err := cli.ChatStream(ctx, []llm.Message{{Role: "user", Content: "say hi"}}, nil, "", handler); err != nil {
+		t.Fatalf("ChatStream returned error: %v", err)
+	}
+
+	totalsAfter, _ := llm.TokenTotalsForWindow(0)
+	after := tokenTotalForModel(totalsAfter, model)
+	if got, want := after.Prompt-before.Prompt, int64(7); got != want {
+		t.Fatalf("expected prompt token delta %d, got %d", want, got)
+	}
+	if got, want := after.Completion-before.Completion, int64(3); got != want {
+		t.Fatalf("expected completion token delta %d, got %d", want, got)
+	}
+	if tokenizeCalls != 0 {
+		t.Fatalf("expected final usage chunk to avoid /tokenize calls, got %d", tokenizeCalls)
+	}
+}
+
 func TestApplyAuthHeaderPreservesExplicitAuthorization(t *testing.T) {
 	t.Parallel()
 
@@ -575,6 +622,15 @@ func (h *testStreamHandler) OnThoughtSummary(summary string) {
 }
 
 func (h *testStreamHandler) OnThoughtSignature(string) {
+}
+
+func tokenTotalForModel(totals []llm.TokenTotal, model string) llm.TokenTotal {
+	for _, total := range totals {
+		if total.Model == model {
+			return total
+		}
+	}
+	return llm.TokenTotal{Model: model}
 }
 
 func TestSelfHostedChatStripsTaggedThoughtContent(t *testing.T) {

@@ -39,7 +39,6 @@ func TestResponsesTokenizer_CountMessagesTokensCachesUnsupportedEndpoint(t *test
 	t.Parallel()
 
 	var inputTokensCount atomic.Int32
-	var applyTemplateCount atomic.Int32
 	var tokenizeCount atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -48,9 +47,7 @@ func TestResponsesTokenizer_CountMessagesTokensCachesUnsupportedEndpoint(t *test
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = io.WriteString(w, `{"error":{"message":"File Not Found","type":"not_found_error","code":404}}`)
 		case "/apply-template":
-			applyTemplateCount.Add(1)
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = io.WriteString(w, `{"error":{"message":"File Not Found","type":"not_found_error","code":404}}`)
+			t.Fatal("local tokenizer should not call /apply-template")
 		case "/tokenize":
 			tokenizeCount.Add(1)
 			w.WriteHeader(http.StatusNotFound)
@@ -83,38 +80,27 @@ func TestResponsesTokenizer_CountMessagesTokensCachesUnsupportedEndpoint(t *test
 	if got := inputTokensCount.Load(); got != 1 {
 		t.Fatalf("expected one input_tokens HTTP attempt, got %d", got)
 	}
-	if got := applyTemplateCount.Load(); got == 0 {
-		t.Fatal("expected local apply-template fallback to be attempted")
-	}
 	if got := tokenizeCount.Load(); got == 0 {
 		t.Fatal("expected local tokenize fallback to be attempted")
 	}
 }
 
-func TestLocalTokenizerCountMessagesUsesApplyTemplateAndTokenize(t *testing.T) {
+func TestLocalTokenizerCountMessagesUsesTokenizeOnly(t *testing.T) {
 	t.Parallel()
 
-	var sawModel bool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
 		switch r.URL.Path {
 		case "/apply-template":
-			var body map[string]any
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				t.Fatalf("decode apply-template: %v", err)
-			}
-			if body["model"] == "model" {
-				sawModel = true
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"prompt":"<s>[INST] hello [/INST]"}`)
+			t.Fatal("local tokenizer should not call /apply-template")
 		case "/tokenize":
 			var body map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Fatalf("decode tokenize: %v", err)
 			}
-			if !strings.Contains(body["content"].(string), "[INST]") {
-				t.Fatalf("expected rendered prompt to be tokenized, got %#v", body["content"])
+			content := body["content"].(string)
+			if !strings.Contains(content, "user") || !strings.Contains(content, "hello") {
+				t.Fatalf("expected flattened prompt to be tokenized, got %#v", content)
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, `{"tokens":[1,2,3,4]}`)
@@ -133,9 +119,6 @@ func TestLocalTokenizerCountMessagesUsesApplyTemplateAndTokenize(t *testing.T) {
 	if count != 4 {
 		t.Fatalf("expected 4 tokens, got %d", count)
 	}
-	if !sawModel {
-		t.Fatal("expected apply-template request to include model")
-	}
 }
 
 func TestResponsesTokenizerFallsBackToLocalTokenizerOnInputTokens404(t *testing.T) {
@@ -147,8 +130,7 @@ func TestResponsesTokenizerFallsBackToLocalTokenizerOnInputTokens404(t *testing.
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = io.WriteString(w, `{"error":{"message":"File Not Found","type":"not_found_error","code":404}}`)
 		case "/apply-template":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"prompt":"rendered prompt"}`)
+			t.Fatal("responses local tokenizer fallback should not call /apply-template")
 		case "/tokenize":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = io.WriteString(w, `{"tokens":[1,2,3,4,5]}`)

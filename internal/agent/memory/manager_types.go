@@ -19,6 +19,14 @@ const (
 	// we must (budget overflow), and we treat tool-heavy phases as milestones.
 	compactionMinDeltaMessages     = 6
 	compactionToolMilestoneOutputs = 2
+
+	// minForceCountBatch is the minimum number of unsummarized messages that must
+	// have accumulated before a force-by-count summarization fires.  Without
+	// this guard the system tries to summarize a single new message on every
+	// user turn (once the raw tail fills up), which causes a full LLM round-trip
+	// — and up to 120 s of latency with thinking-enabled local models — for
+	// every single request.
+	minForceCountBatch = 4
 )
 
 const compactionContinuationRule = "When continuing from prior context (including compacted context), do not restate prior final answers unless the user asks. Only provide new information, the next steps, or the requested delta."

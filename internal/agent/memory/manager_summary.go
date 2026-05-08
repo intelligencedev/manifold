@@ -54,13 +54,34 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 	if budget <= 0 {
 		budget = ctxSize / 2
 	}
-	forceByCount := !compactionEnabled && maxTail > 0 && total > maxTail
 
-	estimated := 0
-	for _, msg := range messages {
-		estimated += len([]rune(strings.TrimSpace(msg.Content)))/4 + 1
+	// Determine the effective context size the model will actually see on this
+	// turn. Messages already folded into session.Summary are not re-sent, so the
+	// trigger must compare summary + unsummarized tail against the budget.
+	// Counting the full raw transcript caused summarization to fire every turn
+	// once a large session crossed the budget, even though the existing summary
+	// had already replaced that history.
+	summarizedCursor := session.SummarizedCount
+	if summarizedCursor < 0 {
+		summarizedCursor = 0
 	}
-	if !forceByCount && estimated <= budget {
+	if summarizedCursor > total {
+		summarizedCursor = total
+	}
+	unsummarizedCount := total - summarizedCursor
+
+	summaryTokens := 0
+	if trimmed := strings.TrimSpace(session.Summary); trimmed != "" {
+		summaryTokens = len([]rune(trimmed))/4 + 1
+	}
+	effective := summaryTokens
+	for _, msg := range messages[summarizedCursor:] {
+		effective += len([]rune(strings.TrimSpace(msg.Content)))/4 + 1
+	}
+
+	forceByCount := !compactionEnabled && maxTail > 0 && unsummarizedCount > maxTail
+
+	if !forceByCount && effective <= budget {
 		// Compaction mode: compact after milestones, not every turn.
 		if compactionEnabled {
 			delta := total - session.SummarizedCount
@@ -86,36 +107,18 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 	// limits), defer summarization until a minimum batch of new messages has
 	// accumulated.  Calling the summary model on every single new message is
 	// expensive — for slow local/thinking models each call can block for 60-120 s.
-	if forceByCount && estimated <= budget {
-		potentialDelta := (total - maxTail) - session.SummarizedCount
+	if forceByCount && effective <= budget {
+		potentialDelta := unsummarizedCount - maxTail
 		if potentialDelta < minForceCountBatch {
 			return session.Summary, session.SummarizedCount, nil
 		}
 	}
 
-	// Decide how many early messages to include in the next summary chunk.
-	// For classic summarization we keep a small raw tail; for Responses compaction
-	// we prefer to compact the full eligible delta so the compaction blob fully
-	// represents prior state.
-	minTail := m.minKeepLastMessages
-	if compactionEnabled {
-		minTail = 0
-	} else {
-		if minTail <= 0 {
-			minTail = 4
-		}
-		if forceByCount {
-			minTail = maxTail
-		}
-	}
-	if total <= minTail {
-		return session.Summary, session.SummarizedCount, nil
-	}
-
-	target := total - minTail
-	if target <= 0 {
-		return session.Summary, session.SummarizedCount, nil
-	}
+	// Once summarization is triggered, fold the full eligible history into the
+	// persisted summary. Keeping a raw tail here makes large resumed sessions
+	// eligible for another summary pass on the next turn, even though the summary
+	// is supposed to replace prior history.
+	target := total
 
 	summarizedCount := session.SummarizedCount
 	if summarizedCount > target {
@@ -154,7 +157,9 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 	log.Info().
 		Str("session", session.ID).
 		Int("messages", total).
-		Int("estimated_tokens", estimated).
+		Int("effective_tokens", effective).
+		Int("summary_tokens", summaryTokens).
+		Int("unsummarized_count", unsummarizedCount).
 		Int("token_budget", budget).
 		Int("context_window", ctxSize).
 		Int("target_context_window", targetCtxSize).
@@ -166,7 +171,7 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 	// Build result metadata for the caller to notify users
 	result := &SummaryResult{
 		Triggered:       true,
-		EstimatedTokens: estimated,
+		EstimatedTokens: effective,
 		TokenBudget:     budget,
 		MessageCount:    total,
 		SummarizedCount: len(chunk),
@@ -217,6 +222,18 @@ func (m *Manager) resolvePlainTextContextWindowTokens(policy SummaryPolicy) int 
 		ctxSize = 32_000
 	}
 	return ctxSize
+}
+
+func estimatePersistedSummaryTokens(summary string, compactionEnabled bool) int {
+	if strings.TrimSpace(summary) == "" {
+		return 0
+	}
+	ds := decodeDualSummary(summary)
+	content := ds.Plain
+	if compactionEnabled && ds.Compaction != "" {
+		content = ds.Compaction
+	}
+	return estimateSummaryTextTokens(content)
 }
 
 func minPositiveInt(vals ...int) int {
@@ -329,13 +346,13 @@ func (m *Manager) plainSummarize(ctx context.Context, existingPlainSummary strin
 
 func (m *Manager) buildPlainSummarySections(existingPlainSummary string, chunk []persistence.ChatMessage) []string {
 	sections := make([]string, 0, len(chunk)+1)
-	if existing := strings.TrimSpace(existingPlainSummary); existing != "" {
-		sections = append(sections, "Existing summary:\n"+existing)
-	}
-
 	limit := maxSummarizeChunkSize
 	if m.maxSummaryChunkTokens > 0 {
 		limit = m.maxSummaryChunkTokens
+	}
+
+	if existing := strings.TrimSpace(existingPlainSummary); existing != "" {
+		sections = append(sections, "Existing summary:\n"+truncateForSummary(existing, limit))
 	}
 
 	for _, msg := range chunk {

@@ -290,14 +290,11 @@ func TestManagerBuildContextWithSummary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildContext: %v", err)
 	}
-	if len(history) != 3 {
-		t.Fatalf("expected 3 messages (summary + 2 turns), got %d: %+v", len(history), history)
+	if len(history) != 1 {
+		t.Fatalf("expected 1 message (summary replaces prior history), got %d: %+v", len(history), history)
 	}
 	if history[0].Role != "system" || history[0].Content == "" {
 		t.Fatalf("expected system summary message, got %#v", history[0])
-	}
-	if history[1].Content != "user message three with some content" || history[2].Content != "assistant message three with some content" {
-		t.Fatalf("unexpected tail messages: %#v", history[1:])
 	}
 	if summaryResult == nil || !summaryResult.Triggered {
 		t.Fatalf("expected summaryResult.Triggered to be true")
@@ -310,8 +307,8 @@ func TestManagerBuildContextWithSummary(t *testing.T) {
 	if session.Summary == "" {
 		t.Fatalf("expected summary to be stored")
 	}
-	if session.SummarizedCount != 4 {
-		t.Fatalf("expected summarized count 4, got %d", session.SummarizedCount)
+	if session.SummarizedCount != 6 {
+		t.Fatalf("expected summarized count 6, got %d", session.SummarizedCount)
 	}
 }
 
@@ -821,9 +818,9 @@ func TestManagerBuildContextForcesSummaryWhenTailTooLong(t *testing.T) {
 	if summaryResult == nil || !summaryResult.Triggered {
 		t.Fatalf("expected summaryResult.Triggered to be true")
 	}
-	// Expect: 1 system summary + last 4 messages (raw).
-	if len(history) != 5 {
-		t.Fatalf("expected 5 messages (summary + 4 tail), got %d", len(history))
+	// Expect: summary only; it replaces all previous raw history.
+	if len(history) != 1 {
+		t.Fatalf("expected 1 message (summary replaces prior history), got %d", len(history))
 	}
 	if history[0].Role != "system" {
 		t.Fatalf("expected system summary message, got %#v", history[0])
@@ -833,8 +830,76 @@ func TestManagerBuildContextForcesSummaryWhenTailTooLong(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetSession: %v", err)
 	}
-	if session.SummarizedCount != 8 {
-		// total messages = 12, keep tail 4 => summarizedCount should advance to 8
-		t.Fatalf("expected summarized count 8, got %d", session.SummarizedCount)
+	if session.SummarizedCount != 12 {
+		t.Fatalf("expected summarized count 12, got %d", session.SummarizedCount)
+	}
+}
+
+func TestBuildContextForProvider_DoesNotResummarizeAfterReplacingHistory(t *testing.T) {
+	ctx := context.Background()
+	store := newStubChatStore()
+
+	if _, err := store.EnsureSession(ctx, nil, "sess", "Chat"); err != nil {
+		t.Fatalf("EnsureSession: %v", err)
+	}
+
+	now := time.Now().UTC()
+	for i := 0; i < 6; i++ {
+		messages := []persistence.ChatMessage{
+			{Role: "user", Content: "u", CreatedAt: now.Add(time.Duration(i*2) * time.Second)},
+			{Role: "assistant", Content: "a", CreatedAt: now.Add(time.Duration(i*2+1) * time.Second)},
+		}
+		if err := store.AppendMessages(ctx, nil, "sess", messages, "a", "model"); err != nil {
+			t.Fatalf("AppendMessages: %v", err)
+		}
+	}
+
+	provider := &limitEnforcingLLM{response: "summary", maxPromptTokens: 50_000}
+	manager := NewManager(store, provider, Config{
+		Enabled:             true,
+		ReserveBufferTokens: 1,
+		MinKeepLastMessages: 2,
+		MaxKeepLastMessages: 4,
+		ContextWindowTokens: 50_000,
+		SummaryModel:        "stub",
+	})
+
+	_, summaryResult, err := manager.BuildContextForProvider(ctx, nil, "sess", nil, "", SummaryPolicy{})
+	if err != nil {
+		t.Fatalf("first BuildContextForProvider: %v", err)
+	}
+	if summaryResult == nil || !summaryResult.Triggered {
+		t.Fatalf("expected first build to trigger summary")
+	}
+	if provider.calls != 1 {
+		t.Fatalf("expected one summary call after first build, got %d", provider.calls)
+	}
+
+	messages := []persistence.ChatMessage{
+		{Role: "user", Content: "follow up", CreatedAt: now.Add(20 * time.Second)},
+		{Role: "assistant", Content: "answer", CreatedAt: now.Add(21 * time.Second)},
+	}
+	if err := store.AppendMessages(ctx, nil, "sess", messages, "answer", "model"); err != nil {
+		t.Fatalf("AppendMessages follow-up: %v", err)
+	}
+
+	history, summaryResult, err := manager.BuildContextForProvider(ctx, nil, "sess", nil, "", SummaryPolicy{})
+	if err != nil {
+		t.Fatalf("second BuildContextForProvider: %v", err)
+	}
+	if summaryResult != nil && summaryResult.Triggered {
+		t.Fatalf("did not expect second build to trigger summary")
+	}
+	if provider.calls != 1 {
+		t.Fatalf("expected no additional summary call after second build, got %d", provider.calls)
+	}
+	if len(history) != 3 {
+		t.Fatalf("expected summary plus follow-up tail, got %d messages", len(history))
+	}
+	if history[0].Role != "system" || !strings.Contains(history[0].Content, "summary") {
+		t.Fatalf("expected prior summary in history, got %#v", history[0])
+	}
+	if history[1].Content != "follow up" || history[2].Content != "answer" {
+		t.Fatalf("unexpected follow-up tail: %#v", history[1:])
 	}
 }

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"manifold/internal/agent/prompts"
 	"manifold/internal/llm"
 	"manifold/internal/observability"
 	"strings"
@@ -228,10 +229,7 @@ func (e *Engine) buildSummarizedMessages(
 		currentTokens += msgTokens
 	}
 
-	sys := "You are a concise summarizer. Produce a short, factual summary (<= 300 characters) of the conversation that follows. Keep important facts, omit chit-chat. Return only the summary text."
-	user := "Summarize the following conversation:\n\n" + b.String()
-
-	summReq := []llm.Message{{Role: "system", Content: sys}, {Role: "user", Content: user}}
+	summReq := prompts.BuildConversationSummaryMessages(b.String())
 	summReq = e.enforceContextBudget(ctx, summReq)
 	sumMsg, err := e.LLM.Chat(ctx, summReq, nil, e.model())
 	if err != nil {

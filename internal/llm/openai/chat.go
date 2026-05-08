@@ -553,6 +553,18 @@ func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, 
 			body[k] = v
 		}
 	}
+	streamOptions := map[string]any{"include_usage": true}
+	if existing, ok := body["stream_options"].(map[string]any); ok {
+		for key, value := range existing {
+			streamOptions[key] = value
+		}
+	} else if existing, ok := body["streamOptions"].(map[string]any); ok {
+		for key, value := range existing {
+			streamOptions[key] = value
+		}
+	}
+	body["stream_options"] = streamOptions
+	delete(body, "streamOptions")
 
 	payload, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
@@ -581,6 +593,7 @@ func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, 
 
 	// Accumulate for token metrics fallback
 	var assistantContentBuilder strings.Builder
+	var reportedPromptTokens, reportedCompletionTokens, reportedTotalTokens int
 	// Tool calls accumulation
 	toolCalls := make(map[int]*llm.ToolCall)
 	toolCallsFlushed := false
@@ -615,6 +628,14 @@ func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, 
 		if err := json.Unmarshal([]byte(data), &m); err != nil {
 			// Skip invalid JSON chunks rather than aborting the stream
 			continue
+		}
+		if usage, ok := m["usage"].(map[string]any); ok {
+			reportedPromptTokens = usageInt(usage["prompt_tokens"])
+			reportedCompletionTokens = usageInt(usage["completion_tokens"])
+			reportedTotalTokens = usageInt(usage["total_tokens"])
+			if reportedTotalTokens == 0 {
+				reportedTotalTokens = reportedPromptTokens + reportedCompletionTokens
+			}
 		}
 
 		// Try OpenAI-style: choices[0].delta.content
@@ -702,9 +723,14 @@ func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, 
 
 	// Token metrics fallback using /tokenize if available
 	if c.isSelfHosted() {
-		promptTokens := c.tokenizeCount(ctx, buildPromptText(msgs))
-		completionTokens := c.tokenizeCount(ctx, assistantContentBuilder.String())
-		totalTokens := promptTokens + completionTokens
+		promptTokens := reportedPromptTokens
+		completionTokens := reportedCompletionTokens
+		totalTokens := reportedTotalTokens
+		if promptTokens == 0 && completionTokens == 0 && totalTokens == 0 {
+			promptTokens = c.tokenizeCount(ctx, buildPromptText(msgs))
+			completionTokens = c.tokenizeCount(ctx, assistantContentBuilder.String())
+			totalTokens = promptTokens + completionTokens
+		}
 		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
 		if promptTokens > 0 || completionTokens > 0 {
 			llm.RecordTokenMetricsFromContext(ctx, firstNonEmpty(model, c.model), promptTokens, completionTokens)
@@ -720,4 +746,19 @@ func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, 
 	}
 	observability.LoggerWithTrace(ctx).Debug().Dur("duration", dur).Msg("chat_stream_sse_fallback_ok")
 	return nil
+}
+
+func usageInt(value any) int {
+	switch v := value.(type) {
+	case float64:
+		return int(v)
+	case float32:
+		return int(v)
+	case int:
+		return v
+	case int64:
+		return int(v)
+	default:
+		return 0
+	}
 }

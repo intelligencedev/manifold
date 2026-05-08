@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"manifold/internal/agent/prompts"
 	"manifold/internal/llm"
 	"manifold/internal/observability"
 	"manifold/internal/persistence"
@@ -494,23 +495,7 @@ func (m *Manager) runPlainSummaryPass(ctx context.Context, sections []string) (s
 }
 
 func (m *Manager) buildPlainSummaryPassMessages(sections []string) []llm.Message {
-	var userPrompt strings.Builder
-	userPrompt.WriteString("Update the running summary of this chat. Keep it concise but information-dense.\n")
-	userPrompt.WriteString("Preserve user goals, preferences, decisions, key facts, identifiers (files, URLs, IDs), tool results/errors, and open questions.\n")
-	userPrompt.WriteString("If content includes [TRUNCATED], assume important details may be missing.\n")
-	userPrompt.WriteString("\nConversation material:\n")
-	for i, section := range sections {
-		if i > 0 {
-			userPrompt.WriteString("\n\n---\n\n")
-		}
-		userPrompt.WriteString(strings.TrimSpace(section))
-	}
-	userPrompt.WriteString("\n\nReturn only the updated summary. Aim for <= 1200 characters; use short bullets if helpful.")
-
-	return []llm.Message{
-		{Role: "system", Content: "You are a concise summarizer. Maintain an accurate running summary of a conversation."},
-		{Role: "user", Content: userPrompt.String()},
-	}
+	return prompts.BuildRunningSummaryMessages(sections)
 }
 
 func (m *Manager) truncateSectionForPromptLimit(section string, limit int) string {

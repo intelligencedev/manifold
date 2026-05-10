@@ -75,6 +75,13 @@ func (a *app) executeMatrixScopedRun(ctx context.Context, req chatRunRequest, ta
 		Image:            req.Image,
 		ImageSize:        req.ImageSize,
 	}
+	if request.ProjectID == "" && request.RoomID != "" {
+		projectID, err := a.ensureMatrixRoomProject(ctx, request.RoomID)
+		if err != nil {
+			return "", nil, fmt.Errorf("ensure matrix room project: %w", err)
+		}
+		request.ProjectID = projectID
+	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "/matrix-gateway", nil)
 	if err != nil {

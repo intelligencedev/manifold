@@ -16,10 +16,12 @@ import (
 	"manifold/internal/config"
 	"manifold/internal/llm"
 	"manifold/internal/persistence"
+	"manifold/internal/projects"
 	"manifold/internal/sandbox"
 	"manifold/internal/specialists"
 	"manifold/internal/testhelpers"
 	"manifold/internal/tools"
+	"manifold/internal/workspaces"
 )
 
 type promptHandlerChatStore struct {
@@ -387,8 +389,9 @@ func newSpecialistTestApp(t *testing.T, baseURL string, specs []config.Specialis
 	chatStore := newPromptHandlerChatStore()
 	baseProvider := &testhelpers.FakeProvider{Resp: llm.Message{Role: "assistant", Content: "orchestrator response"}}
 	baseTools := tools.NewRegistry()
+	workdir := t.TempDir()
 	cfg := config.Config{
-		Workdir:  ".",
+		Workdir:  workdir,
 		MaxSteps: 2,
 		LLMClient: config.LLMClientConfig{
 			Provider: "openai",
@@ -399,6 +402,7 @@ func newSpecialistTestApp(t *testing.T, baseURL string, specs []config.Specialis
 			},
 		},
 	}
+	projectsService := projects.NewService(workdir, "")
 
 	return &app{
 		cfg:              &cfg,
@@ -408,6 +412,8 @@ func newSpecialistTestApp(t *testing.T, baseURL string, specs []config.Specialis
 		chatStore:        chatStore,
 		chatMemory:       memory.NewManager(chatStore, baseProvider, memory.Config{}),
 		runs:             newRunStore(),
+		projectsService:  projectsService,
+		workspaceManager: workspaces.NewManager(&cfg),
 		engine: &agent.Engine{
 			LLM:   baseProvider,
 			Tools: baseTools,

@@ -35,7 +35,7 @@ func (t *Tool) Name() string { return toolName }
 func (t *Tool) JSONSchema() map[string]any {
 	return map[string]any{
 		"name":        toolName,
-		"description": "Queue a plain-text message for the current Matrix room. Use this only when the current task explicitly requires notifying the room.",
+		"description": "Send a plain-text message to the current Matrix room. Use this only when the current task explicitly requires notifying the room.",
 		"parameters": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -68,6 +68,8 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 	if text == "" {
 		return toolResponse{OK: false, Queued: false, Error: "text is required"}, nil
 	}
-	outbox.Add(roomID, text)
+	if err := outbox.Dispatch(ctx, roomID, text); err != nil {
+		return toolResponse{OK: false, Queued: false, Error: fmt.Sprintf("failed to send message: %v", err)}, nil
+	}
 	return toolResponse{OK: true, Queued: true, RoomID: roomID, Text: text}, nil
 }

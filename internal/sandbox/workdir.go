@@ -14,8 +14,12 @@ type sessionIDCtxKey struct{}
 type projectIDCtxKey struct{}
 type objectiveIDCtxKey struct{}
 type roomIDCtxKey struct{}
-type botIDCtxKey struct{}
+type routeTargetCtxKey struct{}
 type matrixOutboxCtxKey struct{}
+
+// MatrixDispatchFunc delivers a Matrix message immediately when attached to a
+// MatrixOutbox.
+type MatrixDispatchFunc func(context.Context, MatrixMessage) error
 
 // Context key for forwarding auth cookies to internal service calls.
 type authCookieCtxKey struct{}
@@ -30,26 +34,56 @@ type MatrixMessage struct {
 type MatrixOutbox struct {
 	mu       sync.Mutex
 	messages []MatrixMessage
+	dispatch MatrixDispatchFunc
 }
 
 // NewMatrixOutbox constructs an empty Matrix outbox.
-func NewMatrixOutbox() *MatrixOutbox {
-	return &MatrixOutbox{messages: make([]MatrixMessage, 0, 4)}
+func NewMatrixOutbox(options ...func(*MatrixOutbox)) *MatrixOutbox {
+	outbox := &MatrixOutbox{messages: make([]MatrixMessage, 0, 4)}
+	for _, option := range options {
+		if option != nil {
+			option(outbox)
+		}
+	}
+	return outbox
+}
+
+// WithMatrixDispatchHandler attaches an immediate Matrix delivery handler to a
+// MatrixOutbox while preserving the recorded message snapshot.
+func WithMatrixDispatchHandler(handler MatrixDispatchFunc) func(*MatrixOutbox) {
+	return func(outbox *MatrixOutbox) {
+		if outbox == nil {
+			return
+		}
+		outbox.dispatch = handler
+	}
 }
 
 // Add queues a Matrix message when room ID and text are both non-empty.
 func (o *MatrixOutbox) Add(roomID, text string) {
+	_ = o.Dispatch(context.Background(), roomID, text)
+}
+
+// Dispatch records a Matrix message and, when configured, immediately forwards
+// it to the attached Matrix delivery handler.
+func (o *MatrixOutbox) Dispatch(ctx context.Context, roomID, text string) error {
 	if o == nil {
-		return
+		return nil
 	}
 	roomID = strings.TrimSpace(roomID)
 	text = strings.TrimSpace(text)
 	if roomID == "" || text == "" {
-		return
+		return nil
 	}
+	message := MatrixMessage{RoomID: roomID, Text: text}
 	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.messages = append(o.messages, MatrixMessage{RoomID: roomID, Text: text})
+	o.messages = append(o.messages, message)
+	handler := o.dispatch
+	o.mu.Unlock()
+	if handler != nil {
+		return handler(ctx, message)
+	}
+	return nil
 }
 
 // Messages returns a snapshot of queued Matrix messages.
@@ -108,12 +142,12 @@ func WithRoomID(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, roomIDCtxKey{}, id)
 }
 
-// WithBotID attaches a bot identifier to ctx.
-func WithBotID(ctx context.Context, id string) context.Context {
+// WithRouteTarget attaches a Matrix route target to ctx.
+func WithRouteTarget(ctx context.Context, id string) context.Context {
 	if ctx == nil {
-		return context.WithValue(context.Background(), botIDCtxKey{}, id)
+		return context.WithValue(context.Background(), routeTargetCtxKey{}, id)
 	}
-	return context.WithValue(ctx, botIDCtxKey{}, id)
+	return context.WithValue(ctx, routeTargetCtxKey{}, id)
 }
 
 // WithMatrixOutbox attaches a Matrix outbox to ctx.
@@ -179,12 +213,12 @@ func RoomIDFromContext(ctx context.Context) (string, bool) {
 	return "", false
 }
 
-// BotIDFromContext returns the bot ID previously set with WithBotID.
-func BotIDFromContext(ctx context.Context) (string, bool) {
+// RouteTargetFromContext returns the route target previously set with WithRouteTarget.
+func RouteTargetFromContext(ctx context.Context) (string, bool) {
 	if ctx == nil {
 		return "", false
 	}
-	if v := ctx.Value(botIDCtxKey{}); v != nil {
+	if v := ctx.Value(routeTargetCtxKey{}); v != nil {
 		if s, ok := v.(string); ok && s != "" {
 			return s, true
 		}

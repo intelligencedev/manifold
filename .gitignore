@@ -77,9 +77,7 @@ playground-artifacts
 .github/chatmodes/ManifoldAgent.chatmode.md
 /agentd
 /agent
-/manibot
 /openapi
-docker-compose.manibots.yml
 docker-compose.matrixfold.yml
 docs/backend-rewrite.md
 mcp.yaml

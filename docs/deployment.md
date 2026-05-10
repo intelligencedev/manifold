@@ -26,7 +26,6 @@ Local host builds are supported through the Makefile, but they are a developer w
 
 - iterate on Go code with `make build-agentd` or `make build-manifold`
 - run the frontend separately with `pnpm -C web/agentd-ui dev`
-- build `manibot` directly on the host
 
 Host builds can also run with embedded Postgres. In that mode Manifold starts a bundled PostgreSQL process during `agentd` startup and no external database service is required.
 

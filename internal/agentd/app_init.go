@@ -22,6 +22,7 @@ import (
 	llmpkg "manifold/internal/llm"
 	openaillm "manifold/internal/llm/openai"
 	llmproviders "manifold/internal/llm/providers"
+	"manifold/internal/matrixgw"
 	"manifold/internal/mcpclient"
 	"manifold/internal/observability"
 	"manifold/internal/persistence/databases"
@@ -328,6 +329,18 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		workspaceManager:   wsMgr,
 		transitService:     transitSvc,
 		ragService:         runtimeRAGService,
+	}
+	app.matrixGateway, err = matrixgw.New(cfg.Matrix)
+	if err != nil {
+		return nil, fmt.Errorf("init matrix gateway: %w", err)
+	}
+	app.matrixGateway.SetHandler(matrixgw.MessageHandlerFunc(app.handleMatrixMessage))
+	if err := app.matrixGateway.Start(ctx); err != nil {
+		return nil, fmt.Errorf("start matrix gateway: %w", err)
+	}
+	app.pulseRuntime = newPulseRuntime(app, mgr.Pulse)
+	if err := app.pulseRuntime.Start(ctx); err != nil {
+		return nil, fmt.Errorf("start matrix pulse runtime: %w", err)
 	}
 	janitorInterval := defaultEvolvingJanitorInterval
 	if cfg.EvolvingMemory.SessionTTLMinutes > 0 {

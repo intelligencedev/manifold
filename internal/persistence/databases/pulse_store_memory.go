@@ -19,17 +19,17 @@ type memPulseStore struct {
 
 func (s *memPulseStore) Init(ctx context.Context) error { return nil }
 
-func pulseScopeKey(roomID, botID string) string {
-	return strings.TrimSpace(roomID) + "\x00" + strings.TrimSpace(botID)
+func pulseScopeKey(roomID, routeTarget string) string {
+	return strings.TrimSpace(roomID) + "\x00" + strings.TrimSpace(routeTarget)
 }
 
-func (s *memPulseStore) EnsureRoom(ctx context.Context, roomID, botID string) (persistence.PulseRoom, error) {
+func (s *memPulseStore) EnsureRoom(ctx context.Context, roomID, routeTarget string) (persistence.PulseRoom, error) {
 	roomID = strings.TrimSpace(roomID)
-	botID = strings.TrimSpace(botID)
+	routeTarget = strings.TrimSpace(routeTarget)
 	if roomID == "" {
 		return persistence.PulseRoom{}, persistence.ErrNotFound
 	}
-	scopeKey := pulseScopeKey(roomID, botID)
+	scopeKey := pulseScopeKey(roomID, routeTarget)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -38,41 +38,41 @@ func (s *memPulseStore) EnsureRoom(ctx context.Context, roomID, botID string) (p
 	}
 	now := time.Now().UTC()
 	room := persistence.PulseRoom{
-		RoomID:    roomID,
-		BotID:     botID,
-		Enabled:   true,
-		Revision:  1,
-		CreatedAt: now,
-		UpdatedAt: now,
+		RoomID:      roomID,
+		RouteTarget: routeTarget,
+		Enabled:     true,
+		Revision:    1,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 	s.rooms[scopeKey] = room
 	return clonePulseRoom(room), nil
 }
 
-func (s *memPulseStore) GetRoom(ctx context.Context, roomID, botID string) (persistence.PulseRoom, error) {
+func (s *memPulseStore) GetRoom(ctx context.Context, roomID, routeTarget string) (persistence.PulseRoom, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	room, ok := s.rooms[pulseScopeKey(roomID, botID)]
+	room, ok := s.rooms[pulseScopeKey(roomID, routeTarget)]
 	if !ok {
 		return persistence.PulseRoom{}, persistence.ErrNotFound
 	}
 	return clonePulseRoom(room), nil
 }
 
-func (s *memPulseStore) ListRooms(ctx context.Context, botID string) ([]persistence.PulseRoom, error) {
+func (s *memPulseStore) ListRooms(ctx context.Context, routeTarget string) ([]persistence.PulseRoom, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	botID = strings.TrimSpace(botID)
+	routeTarget = strings.TrimSpace(routeTarget)
 	out := make([]persistence.PulseRoom, 0, len(s.rooms))
 	for _, room := range s.rooms {
-		if room.BotID != botID {
+		if routeTarget != "" && room.RouteTarget != routeTarget {
 			continue
 		}
 		out = append(out, clonePulseRoom(room))
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].RoomID == out[j].RoomID {
-			return out[i].BotID < out[j].BotID
+			return out[i].RouteTarget < out[j].RouteTarget
 		}
 		return out[i].RoomID < out[j].RoomID
 	})
@@ -81,11 +81,11 @@ func (s *memPulseStore) ListRooms(ctx context.Context, botID string) ([]persiste
 
 func (s *memPulseStore) UpsertRoom(ctx context.Context, room persistence.PulseRoom) (persistence.PulseRoom, error) {
 	roomID := strings.TrimSpace(room.RoomID)
-	botID := strings.TrimSpace(room.BotID)
+	routeTarget := strings.TrimSpace(room.RouteTarget)
 	if roomID == "" {
 		return persistence.PulseRoom{}, persistence.ErrNotFound
 	}
-	scopeKey := pulseScopeKey(roomID, botID)
+	scopeKey := pulseScopeKey(roomID, routeTarget)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -115,16 +115,16 @@ func (s *memPulseStore) UpsertRoom(ctx context.Context, room persistence.PulseRo
 		room.Revision = 1
 	}
 	room.RoomID = roomID
-	room.BotID = botID
+	room.RouteTarget = routeTarget
 	room.UpdatedAt = now
 	s.rooms[scopeKey] = room
 	return clonePulseRoom(room), nil
 }
 
-func (s *memPulseStore) ListTasks(ctx context.Context, roomID, botID string) ([]persistence.PulseTask, error) {
+func (s *memPulseStore) ListTasks(ctx context.Context, roomID, routeTarget string) ([]persistence.PulseTask, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	roomTasks := s.tasks[pulseScopeKey(roomID, botID)]
+	roomTasks := s.tasks[pulseScopeKey(roomID, routeTarget)]
 	out := make([]persistence.PulseTask, 0, len(roomTasks))
 	for _, task := range roomTasks {
 		out = append(out, clonePulseTask(task))
@@ -140,14 +140,14 @@ func (s *memPulseStore) ListTasks(ctx context.Context, roomID, botID string) ([]
 
 func (s *memPulseStore) UpsertTask(ctx context.Context, task persistence.PulseTask) (persistence.PulseTask, error) {
 	roomID := strings.TrimSpace(task.RoomID)
-	botID := strings.TrimSpace(task.BotID)
+	routeTarget := strings.TrimSpace(task.RouteTarget)
 	if roomID == "" {
 		return persistence.PulseTask{}, persistence.ErrNotFound
 	}
-	if _, err := s.EnsureRoom(ctx, roomID, botID); err != nil {
+	if _, err := s.EnsureRoom(ctx, roomID, routeTarget); err != nil {
 		return persistence.PulseTask{}, err
 	}
-	scopeKey := pulseScopeKey(roomID, botID)
+	scopeKey := pulseScopeKey(roomID, routeTarget)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -159,7 +159,7 @@ func (s *memPulseStore) UpsertTask(ctx context.Context, task persistence.PulseTa
 		task.ID = uuid.NewString()
 	}
 	task.RoomID = roomID
-	task.BotID = botID
+	task.RouteTarget = routeTarget
 	existing, ok := s.tasks[scopeKey][task.ID]
 	if ok {
 		task.CreatedAt = existing.CreatedAt
@@ -180,10 +180,10 @@ func (s *memPulseStore) UpsertTask(ctx context.Context, task persistence.PulseTa
 	return clonePulseTask(task), nil
 }
 
-func (s *memPulseStore) DeleteTask(ctx context.Context, roomID, botID, taskID string) error {
+func (s *memPulseStore) DeleteTask(ctx context.Context, roomID, routeTarget, taskID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	roomTasks := s.tasks[pulseScopeKey(roomID, botID)]
+	roomTasks := s.tasks[pulseScopeKey(roomID, routeTarget)]
 	if roomTasks == nil {
 		return persistence.ErrNotFound
 	}
@@ -194,10 +194,10 @@ func (s *memPulseStore) DeleteTask(ctx context.Context, roomID, botID, taskID st
 	return nil
 }
 
-func (s *memPulseStore) ClaimRoom(ctx context.Context, roomID, botID, token string, leaseUntil time.Time) (bool, error) {
+func (s *memPulseStore) ClaimRoom(ctx context.Context, roomID, routeTarget, token string, leaseUntil time.Time) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	room, ok := s.rooms[pulseScopeKey(roomID, botID)]
+	room, ok := s.rooms[pulseScopeKey(roomID, routeTarget)]
 	if !ok {
 		return false, persistence.ErrNotFound
 	}
@@ -210,14 +210,14 @@ func (s *memPulseStore) ClaimRoom(ctx context.Context, roomID, botID, token stri
 	room.LastPulseAttemptAt = now
 	room.UpdatedAt = now
 	room.Revision++
-	s.rooms[pulseScopeKey(room.RoomID, room.BotID)] = room
+	s.rooms[pulseScopeKey(room.RoomID, room.RouteTarget)] = room
 	return true, nil
 }
 
-func (s *memPulseStore) ClearRoomClaim(ctx context.Context, roomID, botID string) error {
+func (s *memPulseStore) ClearRoomClaim(ctx context.Context, roomID, routeTarget string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	room, ok := s.rooms[pulseScopeKey(roomID, botID)]
+	room, ok := s.rooms[pulseScopeKey(roomID, routeTarget)]
 	if !ok {
 		return persistence.ErrNotFound
 	}
@@ -226,14 +226,14 @@ func (s *memPulseStore) ClearRoomClaim(ctx context.Context, roomID, botID string
 	room.ActiveClaimUntil = time.Time{}
 	room.UpdatedAt = now
 	room.Revision++
-	s.rooms[pulseScopeKey(room.RoomID, room.BotID)] = room
+	s.rooms[pulseScopeKey(room.RoomID, room.RouteTarget)] = room
 	return nil
 }
 
-func (s *memPulseStore) CompleteRoomPulse(ctx context.Context, roomID, botID, token string, completedAt time.Time, summary, pulseErr string, dueTaskIDs []string) error {
+func (s *memPulseStore) CompleteRoomPulse(ctx context.Context, roomID, routeTarget, token string, completedAt time.Time, summary, pulseErr string, dueTaskIDs []string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	scopeKey := pulseScopeKey(roomID, botID)
+	scopeKey := pulseScopeKey(roomID, routeTarget)
 	room, ok := s.rooms[scopeKey]
 	if !ok {
 		return persistence.ErrNotFound

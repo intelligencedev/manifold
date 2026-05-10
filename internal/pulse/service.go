@@ -39,13 +39,13 @@ func NewService() *Service {
 }
 
 // EvaluateRoom determines which tasks are due at the provided time.
-func (s *Service) EvaluateRoom(now time.Time, room persistence.PulseRoom, tasks []persistence.PulseTask, botID string) Plan {
+func (s *Service) EvaluateRoom(now time.Time, room persistence.PulseRoom, tasks []persistence.PulseTask, routeTarget string) Plan {
 	now = now.UTC()
-	botID = strings.TrimSpace(botID)
+	routeTarget = strings.TrimSpace(routeTarget)
 	statuses := make([]TaskStatus, 0, len(tasks))
 	dueTasks := make([]persistence.PulseTask, 0, len(tasks))
 	for _, task := range tasks {
-		if botID != "" && strings.TrimSpace(task.BotID) != "" && strings.TrimSpace(task.BotID) != botID {
+		if routeTarget != "" && strings.TrimSpace(task.RouteTarget) != "" && strings.TrimSpace(task.RouteTarget) != routeTarget {
 			continue
 		}
 		status := buildTaskStatus(now, room.Enabled, task)
@@ -72,15 +72,16 @@ func (s *Service) BuildPrompt(now time.Time, plan Plan, pollInterval time.Durati
 	b.WriteString("[pulse mode]\n")
 	b.WriteString("You are running an automated pulse for a Matrix room. Work only on the tasks listed below.\n")
 	b.WriteString("Use the pulse_tasks tool when you need to add, modify, disable, enable, or delete tasks.\n")
-	b.WriteString("Your final response will be posted directly to the Matrix room, so write it for the room audience.\n")
-	b.WriteString("Keep the response concise and relevant to the completed tasks.\n\n")
+	b.WriteString("Use the matrix_room_message tool only when a due task explicitly requires notifying the room.\n")
+	b.WriteString("Your final response is an internal pulse run log and is not automatically posted to Matrix.\n")
+	b.WriteString("Keep that internal log concise and focused on what the run did.\n\n")
 	b.WriteString(fmt.Sprintf("Current time (UTC): %s\n", now.UTC().Format(time.RFC3339)))
 	if pollInterval > 0 {
 		b.WriteString(fmt.Sprintf("Pulse poll interval: %s\n", pollInterval.Round(time.Second)))
 	}
 	b.WriteString(fmt.Sprintf("Room ID: %s\n", plan.Room.RoomID))
-	if strings.TrimSpace(plan.Room.BotID) != "" {
-		b.WriteString(fmt.Sprintf("Bot ID: %s\n", plan.Room.BotID))
+	if strings.TrimSpace(plan.Room.RouteTarget) != "" {
+		b.WriteString(fmt.Sprintf("Route target: %s\n", plan.Room.RouteTarget))
 	}
 	if strings.TrimSpace(plan.Room.ProjectID) != "" {
 		b.WriteString(fmt.Sprintf("Project ID: %s\n", plan.Room.ProjectID))
@@ -103,8 +104,8 @@ func (s *Service) BuildPrompt(now time.Time, plan Plan, pollInterval time.Durati
 		}
 		b.WriteString(fmt.Sprintf("- id: %s\n", status.Task.ID))
 		b.WriteString(fmt.Sprintf("  title: %s\n", strings.TrimSpace(status.Task.Title)))
-		if strings.TrimSpace(status.Task.BotID) != "" {
-			b.WriteString(fmt.Sprintf("  bot_id: %s\n", status.Task.BotID))
+		if strings.TrimSpace(status.Task.RouteTarget) != "" {
+			b.WriteString(fmt.Sprintf("  route_target: %s\n", status.Task.RouteTarget))
 		}
 		b.WriteString(fmt.Sprintf("  interval: %s\n", status.IntervalHuman))
 		b.WriteString(fmt.Sprintf("  state: %s\n", state))
@@ -127,7 +128,7 @@ func (s *Service) BuildPrompt(now time.Time, plan Plan, pollInterval time.Durati
 	if len(plan.DueTasks) == 0 {
 		b.WriteString("No tasks are due in this poll. Review the schedule, optionally tidy the task list, and return a very short log note.\n")
 	} else {
-		b.WriteString("Execute the tasks marked due now. Your response will be sent to the room. You may update the task list if priorities, wording, or intervals should change based on the run.\n")
+		b.WriteString("Execute the tasks marked due now. Use matrix_room_message only when a task requires a room-facing message. You may update the task list if priorities, wording, or intervals should change based on the run.\n")
 	}
 	return b.String()
 }

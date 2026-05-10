@@ -357,6 +357,16 @@ func (a *app) executeStreamChat(w http.ResponseWriter, r *http.Request, runCtx c
 }
 
 func (a *app) executeJSONChat(w http.ResponseWriter, r *http.Request, runCtx context.Context, eng *agent.Engine, req chatRunRequest, history []llm.Message, runID string, userID *int64, checkedOutWorkspace *workspaces.Workspace, opts chatJSONOptions) {
+	payload, err := a.executeInternalJSONChat(r.Context(), runCtx, eng, req, history, runID, userID, checkedOutWorkspace, opts)
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(payload)
+}
+
+func (a *app) executeInternalJSONChat(storeCtx, runCtx context.Context, eng *agent.Engine, req chatRunRequest, history []llm.Message, runID string, userID *int64, checkedOutWorkspace *workspaces.Workspace, opts chatJSONOptions) (map[string]any, error) {
 	if req.EphemeralSession {
 		defer cleanupEphemeralChatSession(a.chatStore, userID, req.SessionID)
 	}
@@ -379,17 +389,16 @@ func (a *app) executeJSONChat(w http.ResponseWriter, r *http.Request, runCtx con
 		} else {
 			log.Error().Err(err).Msg("agent run error")
 		}
-		http.Error(w, "internal server error", http.StatusInternalServerError)
 		a.runs.updateStatus(runID, "failed", 0)
 		a.commitWorkspace(ctx, checkedOutWorkspace)
-		return
+		return nil, err
 	}
 	result = collector.resultText(result)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(buildChatJSONPayload(result, ctx, opts.IncludeMatrixMessages))
+	payload := buildChatJSONPayload(result, ctx, opts.IncludeMatrixMessages)
 	a.runs.updateStatus(runID, "completed", 0)
-	if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, collector.turnMessages, result, chatStoreModel(eng, opts.StoreModel)); err != nil {
+	if err := storeChatTurnWithHistory(storeCtx, a.chatStore, userID, req.SessionID, req.Prompt, collector.turnMessages, result, chatStoreModel(eng, opts.StoreModel)); err != nil {
 		log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")
 	}
 	a.commitWorkspace(ctx, checkedOutWorkspace)
+	return payload, nil
 }

@@ -123,6 +123,7 @@ For the full deployment walkthrough, see:
 
 - [QUICKSTART.md](./QUICKSTART.md)
 - [docs/deployment.md](./docs/deployment.md)
+- [docs/matrix-gateway.md](./docs/matrix-gateway.md)
 
 ## Developers
 

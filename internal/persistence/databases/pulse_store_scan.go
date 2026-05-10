@@ -7,12 +7,12 @@ import (
 	"time"
 )
 
-func (s *pgPulseStore) getTask(ctx context.Context, roomID, botID, taskID string) (persistence.PulseTask, error) {
+func (s *pgPulseStore) getTask(ctx context.Context, roomID, routeTarget, taskID string) (persistence.PulseTask, error) {
 	rows, err := s.pool.Query(ctx, `
-SELECT id, room_id, bot_id, title, prompt, interval_seconds, enabled, last_run_at, last_result_summary, created_at, updated_at
+SELECT id, room_id, route_target, title, prompt, interval_seconds, enabled, last_run_at, last_result_summary, created_at, updated_at
 FROM pulse_tasks
-WHERE room_id = $1 AND bot_id = $2 AND id = $3
-`, strings.TrimSpace(roomID), strings.TrimSpace(botID), strings.TrimSpace(taskID))
+WHERE room_id = $1 AND route_target = $2 AND id = $3
+`, strings.TrimSpace(roomID), strings.TrimSpace(routeTarget), strings.TrimSpace(taskID))
 	if err != nil {
 		return persistence.PulseTask{}, err
 	}
@@ -29,7 +29,7 @@ func scanPulseRoom(rows interface{ Scan(...any) error }) (persistence.PulseRoom,
 	var claimUntil, attemptAt, completedAt *time.Time
 	if err := rows.Scan(
 		&room.RoomID,
-		&room.BotID,
+		&room.RouteTarget,
 		&projectID,
 		&room.Enabled,
 		&room.Revision,
@@ -75,7 +75,7 @@ func scanPulseTask(rows interface{ Scan(...any) error }) (persistence.PulseTask,
 	if err := rows.Scan(
 		&task.ID,
 		&task.RoomID,
-		&task.BotID,
+		&task.RouteTarget,
 		&task.Title,
 		&task.Prompt,
 		&task.IntervalSeconds,

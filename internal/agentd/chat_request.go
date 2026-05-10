@@ -1,6 +1,7 @@
 package agentd
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
@@ -19,10 +20,44 @@ type chatRunRequest struct {
 	ProjectID        string `json:"project_id,omitempty"`
 	ObjectiveID      string `json:"objective_id,omitempty"`
 	RoomID           string `json:"room_id,omitempty"`
-	BotID            string `json:"bot_id,omitempty"`
+	RouteTarget      string `json:"route_target,omitempty"`
 	SystemPrompt     string `json:"system_prompt,omitempty"`
 	Image            bool   `json:"image,omitempty"`
 	ImageSize        string `json:"image_size,omitempty"`
+}
+
+func (req *chatRunRequest) UnmarshalJSON(data []byte) error {
+	type rawChatRunRequest struct {
+		Prompt           string `json:"prompt"`
+		SessionID        string `json:"session_id,omitempty"`
+		EphemeralSession bool   `json:"ephemeral_session,omitempty"`
+		ProjectID        string `json:"project_id,omitempty"`
+		ObjectiveID      string `json:"objective_id,omitempty"`
+		RoomID           string `json:"room_id,omitempty"`
+		RouteTarget      string `json:"route_target,omitempty"`
+		BotID            string `json:"bot_id,omitempty"`
+		SystemPrompt     string `json:"system_prompt,omitempty"`
+		Image            bool   `json:"image,omitempty"`
+		ImageSize        string `json:"image_size,omitempty"`
+	}
+	var decoded rawChatRunRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	req.Prompt = decoded.Prompt
+	req.SessionID = decoded.SessionID
+	req.EphemeralSession = decoded.EphemeralSession
+	req.ProjectID = decoded.ProjectID
+	req.ObjectiveID = decoded.ObjectiveID
+	req.RoomID = decoded.RoomID
+	req.RouteTarget = decoded.RouteTarget
+	if req.RouteTarget == "" {
+		req.RouteTarget = decoded.BotID
+	}
+	req.SystemPrompt = decoded.SystemPrompt
+	req.Image = decoded.Image
+	req.ImageSize = decoded.ImageSize
+	return nil
 }
 
 type chatDispatchTarget struct {
@@ -38,7 +73,7 @@ func (req *chatRunRequest) normalize() {
 	req.ProjectID = strings.TrimSpace(req.ProjectID)
 	req.ObjectiveID = strings.TrimSpace(req.ObjectiveID)
 	req.RoomID = strings.TrimSpace(req.RoomID)
-	req.BotID = strings.TrimSpace(req.BotID)
+	req.RouteTarget = strings.TrimSpace(req.RouteTarget)
 	req.SystemPrompt = strings.TrimSpace(req.SystemPrompt)
 	req.ImageSize = strings.TrimSpace(req.ImageSize)
 }
@@ -63,8 +98,8 @@ func (a *app) prepareChatRunRequest(r *http.Request, userID *int64, req chatRunR
 		ctx = sandbox.WithRoomID(ctx, req.RoomID)
 		ctx = sandbox.WithMatrixOutbox(ctx, sandbox.NewMatrixOutbox())
 	}
-	if req.BotID != "" {
-		ctx = sandbox.WithBotID(ctx, req.BotID)
+	if req.RouteTarget != "" {
+		ctx = sandbox.WithRouteTarget(ctx, req.RouteTarget)
 	}
 
 	if a.cfg.Auth.Enabled {

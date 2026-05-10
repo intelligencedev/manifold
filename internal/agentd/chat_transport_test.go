@@ -49,3 +49,19 @@ func TestPrepareChatTransportDecodesAndNormalizesPostBody(t *testing.T) {
 		t.Fatalf("expected normalized default session, got %q", decoded.SessionID)
 	}
 }
+
+func TestPrepareChatTransportAcceptsLegacyBotIDAlias(t *testing.T) {
+	t.Parallel()
+
+	body := bytes.NewBufferString(`{"prompt":"hello","bot_id":"@legacy:matrix.example.com"}`)
+	req := httptest.NewRequest(http.MethodPost, "/agent/run", body)
+	rr := httptest.NewRecorder()
+
+	decoded, ok := prepareChatTransport(rr, req, chatTransportOptions{})
+	if !ok {
+		t.Fatalf("expected POST body to decode: %d %s", rr.Code, rr.Body.String())
+	}
+	if decoded.RouteTarget != "@legacy:matrix.example.com" {
+		t.Fatalf("expected legacy bot_id to map to route target, got %q", decoded.RouteTarget)
+	}
+}

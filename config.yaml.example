@@ -153,6 +153,26 @@ obs:
 web:
   searXNGURL: http://localhost:8080
 
+# Optional built-in Matrix gateway.
+matrix:
+  enabled: false
+  homeserverURL: https://matrix.example.com
+  userID: "${MATRIX_USER_ID}"
+  accessToken: "${MATRIX_ACCESS_TOKEN}"
+  deviceID: manifold-agentd
+  syncTimeoutSeconds: 30
+  syncRetryDelaySeconds: 3
+  processBacklog: false
+  rooms:
+    - roomID: "!example:matrix.example.com"
+      defaultTarget: orchestrator
+      allowUnmentioned: true
+      mentions:
+        "@razer": razer
+        "@gpt": gpt
+      systemPromptRef: assets/prompts/matrix/default.txt
+      maxConcurrent: 1
+
 # Optional authentication.
 auth:
   enabled: false

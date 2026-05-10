@@ -18,7 +18,7 @@ const toolName = "pulse_tasks"
 
 type toolArgs struct {
 	Action          string  `json:"action"`
-	BotID           string  `json:"bot_id"`
+	RouteTarget     string  `json:"route_target"`
 	TaskID          string  `json:"task_id"`
 	Title           string  `json:"title"`
 	Prompt          string  `json:"prompt"`
@@ -49,9 +49,9 @@ func (t *Tool) JSONSchema() map[string]any {
 					"type":        "string",
 					"description": "One of: list, configure_room, upsert_task, delete_task, enable_task, disable_task, set_interval, clear_claim.",
 				},
-				"bot_id": map[string]any{
+				"route_target": map[string]any{
 					"type":        "string",
-					"description": "Optional target bot identity. Defaults to the current bot for this Matrix request. Use this to inspect or assign tasks for another bot in the same room.",
+					"description": "Optional route target for this room scope. Defaults to the current Matrix route target for this request. Use this to inspect or assign tasks for another route target in the same room.",
 				},
 				"task_id": map[string]any{
 					"type":        "string",
@@ -91,74 +91,74 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 	if !ok {
 		return map[string]any{"ok": false, "error": "pulse_tasks requires a room-scoped request"}, nil
 	}
-	currentBotID, _ := sandbox.BotIDFromContext(ctx)
+	currentRouteTarget, _ := sandbox.RouteTargetFromContext(ctx)
 	var args toolArgs
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &args); err != nil {
 			return map[string]any{"ok": false, "error": fmt.Sprintf("invalid arguments: %v", err)}, nil
 		}
 	}
-	targetBotID := strings.TrimSpace(args.BotID)
-	if targetBotID == "" {
-		targetBotID = strings.TrimSpace(currentBotID)
+	targetRouteTarget := strings.TrimSpace(args.RouteTarget)
+	if targetRouteTarget == "" {
+		targetRouteTarget = strings.TrimSpace(currentRouteTarget)
 	}
-	if targetBotID == "" {
-		return map[string]any{"ok": false, "error": "pulse_tasks requires bot_id in the request context or arguments"}, nil
+	if targetRouteTarget == "" {
+		return map[string]any{"ok": false, "error": "pulse_tasks requires route_target in the request context or arguments"}, nil
 	}
 	switch strings.TrimSpace(strings.ToLower(args.Action)) {
 	case "list":
-		return t.handleList(ctx, roomID, targetBotID)
+		return t.handleList(ctx, roomID, targetRouteTarget)
 	case "configure_room":
-		return t.handleConfigureRoom(ctx, roomID, targetBotID, args.ProjectID, args.Enabled)
+		return t.handleConfigureRoom(ctx, roomID, targetRouteTarget, args.ProjectID, args.Enabled)
 	case "clear_claim":
-		return t.handleClearClaim(ctx, roomID, targetBotID)
+		return t.handleClearClaim(ctx, roomID, targetRouteTarget)
 	case "upsert_task":
-		return t.handleUpsertTask(ctx, roomID, targetBotID, args)
+		return t.handleUpsertTask(ctx, roomID, targetRouteTarget, args)
 	case "delete_task":
-		return t.handleDeleteTask(ctx, roomID, targetBotID, args.TaskID)
+		return t.handleDeleteTask(ctx, roomID, targetRouteTarget, args.TaskID)
 	case "enable_task":
-		return t.handleSetTaskEnabled(ctx, roomID, targetBotID, args.TaskID, true)
+		return t.handleSetTaskEnabled(ctx, roomID, targetRouteTarget, args.TaskID, true)
 	case "disable_task":
-		return t.handleSetTaskEnabled(ctx, roomID, targetBotID, args.TaskID, false)
+		return t.handleSetTaskEnabled(ctx, roomID, targetRouteTarget, args.TaskID, false)
 	case "set_interval":
-		return t.handleSetTaskInterval(ctx, roomID, targetBotID, args.TaskID, args.IntervalSeconds)
+		return t.handleSetTaskInterval(ctx, roomID, targetRouteTarget, args.TaskID, args.IntervalSeconds)
 	default:
 		return map[string]any{"ok": false, "error": "unsupported action"}, nil
 	}
 }
 
-func (t *Tool) handleClearClaim(ctx context.Context, roomID, botID string) (any, error) {
-	if err := t.store.ClearRoomClaim(ctx, roomID, botID); err != nil {
+func (t *Tool) handleClearClaim(ctx context.Context, roomID, routeTarget string) (any, error) {
+	if err := t.store.ClearRoomClaim(ctx, roomID, routeTarget); err != nil {
 		return nil, err
 	}
-	room, err := t.store.GetRoom(ctx, roomID, botID)
+	room, err := t.store.GetRoom(ctx, roomID, routeTarget)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"ok": true, "room": room}, nil
+	return map[string]any{"ok": true, "room": room, "route_target": routeTarget}, nil
 }
 
-func (t *Tool) handleList(ctx context.Context, roomID, botID string) (any, error) {
-	room, err := t.store.EnsureRoom(ctx, roomID, botID)
+func (t *Tool) handleList(ctx context.Context, roomID, routeTarget string) (any, error) {
+	room, err := t.store.EnsureRoom(ctx, roomID, routeTarget)
 	if err != nil {
 		return nil, err
 	}
-	tasks, err := t.store.ListTasks(ctx, roomID, botID)
+	tasks, err := t.store.ListTasks(ctx, roomID, routeTarget)
 	if err != nil {
 		return nil, err
 	}
-	plan := t.service.EvaluateRoom(time.Now().UTC(), room, tasks, botID)
+	plan := t.service.EvaluateRoom(time.Now().UTC(), room, tasks, routeTarget)
 	return map[string]any{
-		"ok":         true,
-		"room":       room,
-		"task_count": len(tasks),
-		"plan":       plan,
-		"bot_id":     botID,
+		"ok":           true,
+		"room":         room,
+		"task_count":   len(tasks),
+		"plan":         plan,
+		"route_target": routeTarget,
 	}, nil
 }
 
-func (t *Tool) handleConfigureRoom(ctx context.Context, roomID, botID string, projectID *string, enabled *bool) (any, error) {
-	room, err := t.store.EnsureRoom(ctx, roomID, botID)
+func (t *Tool) handleConfigureRoom(ctx context.Context, roomID, routeTarget string, projectID *string, enabled *bool) (any, error) {
+	room, err := t.store.EnsureRoom(ctx, roomID, routeTarget)
 	if err != nil {
 		return nil, err
 	}
@@ -184,15 +184,15 @@ func (t *Tool) handleConfigureRoom(ctx context.Context, roomID, botID string, pr
 	if enabled != nil {
 		room.Enabled = *enabled
 	}
-	room.BotID = botID
+	room.RouteTarget = routeTarget
 	updated, err := t.store.UpsertRoom(ctx, room)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"ok": true, "room": updated, "bot_id": botID}, nil
+	return map[string]any{"ok": true, "room": updated, "route_target": routeTarget}, nil
 }
 
-func (t *Tool) handleUpsertTask(ctx context.Context, roomID, botID string, args toolArgs) (any, error) {
+func (t *Tool) handleUpsertTask(ctx context.Context, roomID, routeTarget string, args toolArgs) (any, error) {
 	if strings.TrimSpace(args.Title) == "" {
 		return map[string]any{"ok": false, "error": "title is required"}, nil
 	}
@@ -202,14 +202,14 @@ func (t *Tool) handleUpsertTask(ctx context.Context, roomID, botID string, args 
 	if args.IntervalSeconds <= 0 {
 		return map[string]any{"ok": false, "error": "interval_seconds must be positive"}, nil
 	}
-	room, err := t.store.EnsureRoom(ctx, roomID, botID)
+	room, err := t.store.EnsureRoom(ctx, roomID, routeTarget)
 	if err != nil {
 		return nil, err
 	}
 	task := persistence.PulseTask{
 		ID:              strings.TrimSpace(args.TaskID),
 		RoomID:          roomID,
-		BotID:           botID,
+		RouteTarget:     routeTarget,
 		Title:           strings.TrimSpace(args.Title),
 		Prompt:          strings.TrimSpace(args.Prompt),
 		IntervalSeconds: args.IntervalSeconds,
@@ -219,7 +219,7 @@ func (t *Tool) handleUpsertTask(ctx context.Context, roomID, botID string, args 
 		task.Enabled = *args.Enabled
 	}
 	if task.ID != "" {
-		existingTasks, err := t.store.ListTasks(ctx, roomID, botID)
+		existingTasks, err := t.store.ListTasks(ctx, roomID, routeTarget)
 		if err != nil {
 			return nil, err
 		}
@@ -235,21 +235,21 @@ func (t *Tool) handleUpsertTask(ctx context.Context, roomID, botID string, args 
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"ok": true, "room": room, "task": created, "bot_id": botID}, nil
+	return map[string]any{"ok": true, "room": room, "task": created, "route_target": routeTarget}, nil
 }
 
-func (t *Tool) handleDeleteTask(ctx context.Context, roomID, botID, taskID string) (any, error) {
+func (t *Tool) handleDeleteTask(ctx context.Context, roomID, routeTarget, taskID string) (any, error) {
 	if strings.TrimSpace(taskID) == "" {
 		return map[string]any{"ok": false, "error": "task_id is required"}, nil
 	}
-	if err := t.store.DeleteTask(ctx, roomID, botID, taskID); err != nil {
+	if err := t.store.DeleteTask(ctx, roomID, routeTarget, taskID); err != nil {
 		return nil, err
 	}
-	return map[string]any{"ok": true, "deleted": strings.TrimSpace(taskID), "bot_id": botID}, nil
+	return map[string]any{"ok": true, "deleted": strings.TrimSpace(taskID), "route_target": routeTarget}, nil
 }
 
-func (t *Tool) handleSetTaskEnabled(ctx context.Context, roomID, botID, taskID string, enabled bool) (any, error) {
-	updated, err := t.updateExistingTask(ctx, roomID, botID, taskID, func(task persistence.PulseTask) persistence.PulseTask {
+func (t *Tool) handleSetTaskEnabled(ctx context.Context, roomID, routeTarget, taskID string, enabled bool) (any, error) {
+	updated, err := t.updateExistingTask(ctx, roomID, routeTarget, taskID, func(task persistence.PulseTask) persistence.PulseTask {
 		task.Enabled = enabled
 		return task
 	})
@@ -259,11 +259,11 @@ func (t *Tool) handleSetTaskEnabled(ctx context.Context, roomID, botID, taskID s
 	return map[string]any{"ok": true, "task": updated}, nil
 }
 
-func (t *Tool) handleSetTaskInterval(ctx context.Context, roomID, botID, taskID string, intervalSeconds int) (any, error) {
+func (t *Tool) handleSetTaskInterval(ctx context.Context, roomID, routeTarget, taskID string, intervalSeconds int) (any, error) {
 	if intervalSeconds <= 0 {
 		return map[string]any{"ok": false, "error": "interval_seconds must be positive"}, nil
 	}
-	updated, err := t.updateExistingTask(ctx, roomID, botID, taskID, func(task persistence.PulseTask) persistence.PulseTask {
+	updated, err := t.updateExistingTask(ctx, roomID, routeTarget, taskID, func(task persistence.PulseTask) persistence.PulseTask {
 		task.IntervalSeconds = intervalSeconds
 		return task
 	})
@@ -273,12 +273,12 @@ func (t *Tool) handleSetTaskInterval(ctx context.Context, roomID, botID, taskID 
 	return map[string]any{"ok": true, "task": updated}, nil
 }
 
-func (t *Tool) updateExistingTask(ctx context.Context, roomID, botID, taskID string, mutate func(persistence.PulseTask) persistence.PulseTask) (persistence.PulseTask, error) {
+func (t *Tool) updateExistingTask(ctx context.Context, roomID, routeTarget, taskID string, mutate func(persistence.PulseTask) persistence.PulseTask) (persistence.PulseTask, error) {
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
 		return persistence.PulseTask{}, fmt.Errorf("task_id is required")
 	}
-	tasks, err := t.store.ListTasks(ctx, roomID, botID)
+	tasks, err := t.store.ListTasks(ctx, roomID, routeTarget)
 	if err != nil {
 		return persistence.PulseTask{}, err
 	}

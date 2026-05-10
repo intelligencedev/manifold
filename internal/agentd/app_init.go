@@ -335,13 +335,6 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		return nil, fmt.Errorf("init matrix gateway: %w", err)
 	}
 	app.matrixGateway.SetHandler(matrixgw.MessageHandlerFunc(app.handleMatrixMessage))
-	if err := app.matrixGateway.Start(ctx); err != nil {
-		return nil, fmt.Errorf("start matrix gateway: %w", err)
-	}
-	app.pulseRuntime = newPulseRuntime(app, mgr.Pulse)
-	if err := app.pulseRuntime.Start(ctx); err != nil {
-		return nil, fmt.Errorf("start matrix pulse runtime: %w", err)
-	}
 	janitorInterval := defaultEvolvingJanitorInterval
 	if cfg.EvolvingMemory.SessionTTLMinutes > 0 {
 		app.evolvingSessionTTL = time.Duration(cfg.EvolvingMemory.SessionTTLMinutes) * time.Minute
@@ -615,6 +608,14 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		cancelRefresh()
 	}
 	app.syncWarppTools(context.Background())
+
+	if err := app.matrixGateway.Start(ctx); err != nil {
+		return nil, fmt.Errorf("start matrix gateway: %w", err)
+	}
+	app.pulseRuntime = newPulseRuntime(app, mgr.Pulse)
+	if err := app.pulseRuntime.Start(ctx); err != nil {
+		return nil, fmt.Errorf("start matrix pulse runtime: %w", err)
+	}
 
 	return app, nil
 }

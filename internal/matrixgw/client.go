@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -28,12 +29,22 @@ type SyncResponse struct {
 	Joined    map[string][]Event
 }
 
+// ImageMessage is the gateway-local representation of a Matrix m.image event.
+type ImageMessage struct {
+	Body     string
+	URL      string
+	MIMEType string
+	Size     int64
+}
+
 // SyncClient abstracts Matrix sync operations for the gateway runtime.
 type SyncClient interface {
 	Sync(ctx context.Context, since string, timeoutMS int, setPresence string) (SyncResponse, error)
 	JoinRoom(ctx context.Context, roomID string) error
 	SendText(ctx context.Context, roomID, text string) error
 	SendFormattedText(ctx context.Context, roomID, text, formattedText string) error
+	UploadMedia(ctx context.Context, content io.Reader, contentType string, contentLength int64) (string, error)
+	SendImage(ctx context.Context, roomID string, image ImageMessage) error
 }
 
 type gomatrixSyncClient struct {
@@ -143,5 +154,27 @@ func (c *gomatrixSyncClient) SendText(_ context.Context, roomID, text string) er
 
 func (c *gomatrixSyncClient) SendFormattedText(_ context.Context, roomID, text, formattedText string) error {
 	_, err := c.client.SendFormattedText(roomID, text, formattedText)
+	return err
+}
+
+func (c *gomatrixSyncClient) UploadMedia(_ context.Context, content io.Reader, contentType string, contentLength int64) (string, error) {
+	resp, err := c.client.UploadToContentRepo(content, contentType, contentLength)
+	if err != nil {
+		return "", err
+	}
+	return resp.ContentURI, nil
+}
+
+func (c *gomatrixSyncClient) SendImage(_ context.Context, roomID string, image ImageMessage) error {
+	content := gomatrix.ImageMessage{
+		MsgType: "m.image",
+		Body:    image.Body,
+		URL:     image.URL,
+		Info: gomatrix.ImageInfo{
+			Mimetype: image.MIMEType,
+			Size:     uint(image.Size),
+		},
+	}
+	_, err := c.client.SendMessageEvent(roomID, "m.room.message", content)
 	return err
 }

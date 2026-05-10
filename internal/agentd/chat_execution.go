@@ -41,6 +41,8 @@ type chatJSONOptions struct {
 	StoreModel            string
 }
 
+const defaultImagePromptSize = "1K"
+
 type chatSSEWriter struct {
 	w  io.Writer
 	fl http.Flusher
@@ -129,8 +131,11 @@ func (c *chatTurnCollector) resultText(result string) string {
 	return appendImageSummary(result, c.savedImages)
 }
 
-func buildChatJSONPayload(result string, ctx context.Context, includeMatrixMessages bool) map[string]any {
+func buildChatJSONPayload(result string, images []savedImage, ctx context.Context, includeMatrixMessages bool) map[string]any {
 	payload := map[string]any{"result": result}
+	if len(images) > 0 {
+		payload["images"] = append([]savedImage(nil), images...)
+	}
 	if includeMatrixMessages {
 		if outbox, ok := sandbox.MatrixOutboxFromContext(ctx); ok {
 			if messages := outbox.Messages(); len(messages) > 0 {
@@ -237,6 +242,16 @@ func applyChatImagePrompt(ctx, runCtx context.Context, req chatRunRequest, inher
 		return llm.WithImagePrompt(ctx, llm.ImagePromptOptions{Size: req.ImageSize})
 	}
 	return ctx
+}
+
+func applyBuildImagePrompt(ctx context.Context, build chatEngineBuildResult) context.Context {
+	if !build.ImageGeneration {
+		return ctx
+	}
+	if _, ok := llm.ImagePromptFromContext(ctx); ok {
+		return ctx
+	}
+	return llm.WithImagePrompt(ctx, llm.ImagePromptOptions{Size: defaultImagePromptSize})
 }
 
 func chatStoreModel(eng *agent.Engine, override string) string {
@@ -394,7 +409,7 @@ func (a *app) executeInternalJSONChat(storeCtx, runCtx context.Context, eng *age
 		return nil, err
 	}
 	result = collector.resultText(result)
-	payload := buildChatJSONPayload(result, ctx, opts.IncludeMatrixMessages)
+	payload := buildChatJSONPayload(result, collector.savedImages, ctx, opts.IncludeMatrixMessages)
 	a.runs.updateStatus(runID, "completed", 0)
 	if err := storeChatTurnWithHistory(storeCtx, a.chatStore, userID, req.SessionID, req.Prompt, collector.turnMessages, result, chatStoreModel(eng, opts.StoreModel)); err != nil {
 		log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")

@@ -316,6 +316,8 @@ type SpecialistConfig struct {
 	// API, when set, overrides which API surface to use for this specialist: "completions" or "responses".
 	API         string `yaml:"api" json:"api"`
 	EnableTools bool   `yaml:"enableTools" json:"enableTools"`
+	// ImageGeneration routes specialist chat requests through provider image generation.
+	ImageGeneration bool `yaml:"imageGeneration" json:"imageGeneration"`
 	// AutoDiscover overrides the global auto-discovery setting for this specialist.
 	// Nil means inherit the global default.
 	AutoDiscover *bool `yaml:"autoDiscover" json:"autoDiscover"`

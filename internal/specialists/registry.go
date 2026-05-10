@@ -30,6 +30,7 @@ type Agent struct {
 	Model                      string
 	SummaryContextWindowTokens int
 	EnableTools                bool
+	ImageGeneration            bool
 	AutoDiscover               bool
 	ReasoningEffort            string // optional: "low"|"medium"|"high"
 	ExtraParams                map[string]any
@@ -41,6 +42,8 @@ type Agent struct {
 type chatWithOptionsProvider interface {
 	ChatWithOptions(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, extra map[string]any) (llm.Message, error)
 }
+
+const defaultImagePromptSize = "1K"
 
 // Registry holds addressable specialists by name.
 type Registry struct {
@@ -172,10 +175,10 @@ func buildProvider(provider string, base config.LLMClientConfig, sc config.Speci
 		extra := map[string]any{}
 		if len(sc.ExtraParams) > 0 {
 			extra = copyAnyMap(sc.ExtraParams)
-		} else if len(oc.ExtraParams) > 0 {
+		} else if !sc.ImageGeneration && len(oc.ExtraParams) > 0 {
 			extra = copyAnyMap(oc.ExtraParams)
 		}
-		if re := strings.TrimSpace(sc.ReasoningEffort); re != "" {
+		if re := strings.TrimSpace(sc.ReasoningEffort); !sc.ImageGeneration && re != "" {
 			if extra == nil {
 				extra = map[string]any{}
 			}
@@ -247,6 +250,7 @@ func (r *Registry) rebuildLocked() {
 			Model:                      model,
 			SummaryContextWindowTokens: sc.SummaryContextWindowTokens,
 			EnableTools:                sc.EnableTools,
+			ImageGeneration:            sc.ImageGeneration,
 			AutoDiscover:               resolvedAutoDiscover,
 			ReasoningEffort:            strings.TrimSpace(sc.ReasoningEffort),
 			ExtraParams:                sc.ExtraParams,
@@ -355,6 +359,13 @@ func (a *Agent) Inference(ctx context.Context, user string, history []llm.Messag
 	if a.provider == nil {
 		return "", errors.New("provider not configured")
 	}
+	if a.ImageGeneration {
+		msg, err := a.provider.Chat(llm.WithImagePrompt(ctx, llm.ImagePromptOptions{Size: defaultImagePromptSize}), a.buildMessages(nil, user), nil, a.Model)
+		if err != nil {
+			return "", err
+		}
+		return msg.Content, nil
+	}
 	msgs := a.buildMessages(history, user)
 
 	// Extra fields for the request: start with configured extra params
@@ -405,6 +416,9 @@ func (a *Agent) Stream(ctx context.Context, user string, history []llm.Message, 
 	if a.provider == nil {
 		return errors.New("provider not configured")
 	}
+	if a.ImageGeneration {
+		return a.provider.ChatStream(llm.WithImagePrompt(ctx, llm.ImagePromptOptions{Size: defaultImagePromptSize}), a.buildMessages(nil, user), nil, a.Model, handler)
+	}
 	msgs := a.buildMessages(history, user)
 	// Streaming path intentionally skips tool schemas to avoid executing tools
 	// mid-stream. This keeps the UX similar to a plain chat completion.
@@ -412,6 +426,12 @@ func (a *Agent) Stream(ctx context.Context, user string, history []llm.Message, 
 }
 
 func (a *Agent) buildMessages(history []llm.Message, user string) []llm.Message {
+	if a.ImageGeneration {
+		if strings.TrimSpace(user) == "" {
+			return nil
+		}
+		return []llm.Message{{Role: "user", Content: user}}
+	}
 	msgs := make([]llm.Message, 0, len(history)+2)
 	if sys := strings.TrimSpace(a.System); sys != "" {
 		msgs = append(msgs, llm.Message{Role: "system", Content: sys})

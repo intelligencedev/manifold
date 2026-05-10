@@ -116,6 +116,7 @@ type Specialist struct {
 	// for this specialist. Zero means use the global fallback.
 	SummaryContextWindowTokens int               `json:"summaryContextWindowTokens"`
 	EnableTools                bool              `json:"enableTools"`
+	ImageGeneration            bool              `json:"imageGeneration"`
 	AutoDiscover               *bool             `json:"autoDiscover,omitempty"`
 	Paused                     bool              `json:"paused"`
 	AllowTools                 []string          `json:"allowTools"`

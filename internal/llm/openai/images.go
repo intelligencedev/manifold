@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,6 +36,7 @@ func (c *Client) chatWithImageGeneration(ctx context.Context, msgs []llm.Message
 		N:      param.NewOpt[int64](1),
 		Size:   sdk.ImageGenerateParamsSize(size),
 	}
+	applyImageExtraParams(&params, c.extra)
 
 	start := time.Now()
 	resp, err := c.sdk.Images.Generate(ctx, params)
@@ -66,6 +68,130 @@ func (c *Client) chatWithImageGeneration(ctx context.Context, msgs []llm.Message
 		content = fmt.Sprintf("Generated %d images", len(images))
 	}
 	return llm.Message{Role: "assistant", Content: content, Images: images}, nil
+}
+
+func applyImageExtraParams(params *sdk.ImageGenerateParams, extra map[string]any) {
+	if params == nil || len(extra) == 0 {
+		return
+	}
+	remaining := make(map[string]any, len(extra))
+	for k, v := range extra {
+		remaining[k] = v
+	}
+	if v, ok := popStringImageExtraParam(remaining, "size"); ok {
+		params.Size = sdk.ImageGenerateParamsSize(normalizeImageSize(v))
+	}
+	if v, ok := popStringImageExtraParam(remaining, "quality"); ok {
+		params.Quality = sdk.ImageGenerateParamsQuality(v)
+	}
+	if v, ok := popStringImageExtraParam(remaining, "background"); ok {
+		params.Background = sdk.ImageGenerateParamsBackground(v)
+	}
+	if v, ok := popStringImageExtraParam(remaining, "moderation"); ok {
+		params.Moderation = sdk.ImageGenerateParamsModeration(v)
+	}
+	if v, ok := popStringImageExtraParam(remaining, "output_format", "outputFormat"); ok {
+		params.OutputFormat = sdk.ImageGenerateParamsOutputFormat(v)
+	}
+	if v, ok := popStringImageExtraParam(remaining, "response_format", "responseFormat"); ok {
+		params.ResponseFormat = sdk.ImageGenerateParamsResponseFormat(v)
+	}
+	if v, ok := popStringImageExtraParam(remaining, "style"); ok {
+		params.Style = sdk.ImageGenerateParamsStyle(v)
+	}
+	if v, ok := popStringImageExtraParam(remaining, "user"); ok {
+		params.User = param.NewOpt(v)
+	}
+	if v, ok := popIntImageExtraParam(remaining, "n"); ok {
+		params.N = param.NewOpt(v)
+	}
+	if v, ok := popIntImageExtraParam(remaining, "output_compression", "outputCompression"); ok {
+		params.OutputCompression = param.NewOpt(v)
+	}
+	if v, ok := popIntImageExtraParam(remaining, "partial_images", "partialImages"); ok {
+		params.PartialImages = param.NewOpt(v)
+	}
+}
+
+func popStringImageExtraParam(extra map[string]any, keys ...string) (string, bool) {
+	keyset := imageExtraKeyset(keys...)
+	for k, v := range extra {
+		if _, ok := keyset[normalizeImageExtraKey(k)]; !ok {
+			continue
+		}
+		delete(extra, k)
+		s := strings.TrimSpace(fmt.Sprint(v))
+		return s, s != ""
+	}
+	return "", false
+}
+
+func popIntImageExtraParam(extra map[string]any, keys ...string) (int64, bool) {
+	keyset := imageExtraKeyset(keys...)
+	for k, v := range extra {
+		if _, ok := keyset[normalizeImageExtraKey(k)]; !ok {
+			continue
+		}
+		delete(extra, k)
+		if n, ok := imageExtraInt64(v); ok {
+			return n, true
+		}
+		return 0, false
+	}
+	return 0, false
+}
+
+func imageExtraKeyset(keys ...string) map[string]struct{} {
+	keyset := make(map[string]struct{}, len(keys))
+	for _, key := range keys {
+		if normalized := normalizeImageExtraKey(key); normalized != "" {
+			keyset[normalized] = struct{}{}
+		}
+	}
+	return keyset
+}
+
+func normalizeImageExtraKey(key string) string {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return ""
+	}
+	key = strings.ReplaceAll(key, "_", "")
+	key = strings.ReplaceAll(key, "-", "")
+	return strings.ToLower(key)
+}
+
+func imageExtraInt64(v any) (int64, bool) {
+	switch tv := v.(type) {
+	case int:
+		return int64(tv), true
+	case int64:
+		return tv, true
+	case int32:
+		return int64(tv), true
+	case float64:
+		return int64(tv), true
+	case float32:
+		return int64(tv), true
+	case json.Number:
+		if i, err := tv.Int64(); err == nil {
+			return i, true
+		}
+		if f, err := tv.Float64(); err == nil {
+			return int64(f), true
+		}
+		return 0, false
+	case string:
+		if s := strings.TrimSpace(tv); s != "" {
+			if i, err := strconv.ParseInt(s, 10, 64); err == nil {
+				return i, true
+			}
+			if f, err := strconv.ParseFloat(s, 64); err == nil {
+				return int64(f), true
+			}
+		}
+	}
+	return 0, false
 }
 
 func lastUserPrompt(msgs []llm.Message) string {

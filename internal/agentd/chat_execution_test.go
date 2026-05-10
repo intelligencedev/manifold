@@ -15,7 +15,7 @@ func TestBuildChatJSONPayloadIncludesMatrixMessages(t *testing.T) {
 	outbox.Add("room-1", "hello")
 	ctx := sandbox.WithMatrixOutbox(context.Background(), outbox)
 
-	payload := buildChatJSONPayload("done", ctx, true)
+	payload := buildChatJSONPayload("done", nil, ctx, true)
 
 	if payload["result"] != "done" {
 		t.Fatalf("expected result payload, got %#v", payload["result"])
@@ -26,6 +26,21 @@ func TestBuildChatJSONPayloadIncludesMatrixMessages(t *testing.T) {
 	}
 	if len(messages) != 1 || messages[0].RoomID != "room-1" || messages[0].Text != "hello" {
 		t.Fatalf("unexpected matrix messages: %#v", messages)
+	}
+}
+
+func TestBuildChatJSONPayloadIncludesImages(t *testing.T) {
+	t.Parallel()
+
+	images := []savedImage{{Name: "image-1.png", MIME: "image/png", URL: "/api/projects/p/files?path=images%2Fimage-1.png"}}
+	payload := buildChatJSONPayload("done", images, context.Background(), false)
+
+	got, ok := payload["images"].([]savedImage)
+	if !ok {
+		t.Fatalf("expected images in payload, got %#v", payload["images"])
+	}
+	if len(got) != 1 || got[0].Name != "image-1.png" || got[0].MIME != "image/png" {
+		t.Fatalf("unexpected images payload: %#v", got)
 	}
 }
 

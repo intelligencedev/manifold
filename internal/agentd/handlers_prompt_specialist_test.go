@@ -343,6 +343,65 @@ func TestHandleChatTarget_JSONIncludesQueuedMatrixMessages(t *testing.T) {
 	}
 }
 
+func TestHandleChatTargetUsesImageAPIForImageGenerationSpecialist(t *testing.T) {
+	t.Parallel()
+
+	var gotPath string
+	var gotBody map[string]any
+	specialistServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		defer r.Body.Close()
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		if r.URL.Path != "/images/generations" {
+			http.Error(w, "unexpected chat request", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"b64_json":"cG5nYnl0ZXM="}]}`))
+	}))
+	defer specialistServer.Close()
+
+	a := newSpecialistTestApp(t, specialistServer.URL, []config.SpecialistConfig{{
+		Name:            "image-maker",
+		Description:     "Image generation specialist",
+		Provider:        "openai",
+		BaseURL:         specialistServer.URL,
+		APIKey:          "test",
+		Model:           "gpt-image-2",
+		System:          "Never send this system prompt to image generation.",
+		EnableTools:     true,
+		ImageGeneration: true,
+		ExtraParams:     map[string]any{"size": "2048x2048"},
+	}})
+	store := a.chatStore.(*promptHandlerChatStore)
+	store.messages["sess-image"] = []persistence.ChatMessage{
+		{Role: "user", Content: "previous prompt that must be ignored"},
+		{Role: "assistant", Content: "previous answer that must be ignored"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/prompt?specialist=image-maker", nil)
+	rr := httptest.NewRecorder()
+
+	handled := a.handleChatTarget(rr, req, chatDispatchTarget{SpecialistName: "image-maker"}, "draw a river", "sess-image", "", "", false, "", nil, 0, chatTargetDescriptor{})
+	if !handled {
+		t.Fatalf("expected specialist handler to process request")
+	}
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if gotPath != "/images/generations" {
+		t.Fatalf("expected image generation endpoint, got %q", gotPath)
+	}
+	if model, _ := gotBody["model"].(string); model != "gpt-image-2" {
+		t.Fatalf("expected gpt-image-2 model, got %#v", gotBody["model"])
+	}
+	if prompt, _ := gotBody["prompt"].(string); prompt != "draw a river" {
+		t.Fatalf("expected prompt forwarded to image API, got %#v", gotBody["prompt"])
+	}
+	if size, _ := gotBody["size"].(string); size != "2048x2048" {
+		t.Fatalf("expected configured image size, got %#v", gotBody["size"])
+	}
+}
+
 func TestHandleChatTarget_SSEIncludesQueuedMatrixMessages(t *testing.T) {
 	t.Parallel()
 

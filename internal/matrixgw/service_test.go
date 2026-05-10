@@ -3,6 +3,7 @@ package matrixgw
 import (
 	"context"
 	"errors"
+	"io"
 	"strings"
 	"sync"
 	"testing"
@@ -17,12 +18,18 @@ type fakeSyncClient struct {
 	joinCalls []string
 	sentText  []sentMatrixMessage
 	sentHTML  []sentMatrixMessage
+	sentImage []sentImageMessage
 }
 
 type sentMatrixMessage struct {
 	roomID    string
 	text      string
 	formatted string
+}
+
+type sentImageMessage struct {
+	roomID string
+	image  ImageMessage
 }
 
 func (f *fakeSyncClient) Sync(_ context.Context, _ string, _ int, _ string) (SyncResponse, error) {
@@ -57,6 +64,17 @@ func (f *fakeSyncClient) SendFormattedText(_ context.Context, roomID, text, form
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.sentHTML = append(f.sentHTML, sentMatrixMessage{roomID: roomID, text: text, formatted: formattedText})
+	return nil
+}
+
+func (f *fakeSyncClient) UploadMedia(_ context.Context, _ io.Reader, _ string, _ int64) (string, error) {
+	return "mxc://matrix.example.com/uploaded", nil
+}
+
+func (f *fakeSyncClient) SendImage(_ context.Context, roomID string, image ImageMessage) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sentImage = append(f.sentImage, sentImageMessage{roomID: roomID, image: image})
 	return nil
 }
 
@@ -325,5 +343,41 @@ func TestSendAttributedFormatsMessage(t *testing.T) {
 	}
 	if !strings.Contains(client.sentHTML[0].formatted, "weather") {
 		t.Fatalf("expected formatted message to include target attribution, got %q", client.sentHTML[0].formatted)
+	}
+}
+
+func TestSendImageUploadsMediaAndSendsEvent(t *testing.T) {
+	service, err := New(config.MatrixConfig{
+		Enabled:       true,
+		HomeserverURL: "https://matrix.example.com",
+		UserID:        "@manifold:example.com",
+		AccessToken:   "token",
+		Rooms:         []config.MatrixRoomConfig{{RoomID: "!room:example.com"}},
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	client := &fakeSyncClient{}
+	service.SetSyncClient(client)
+
+	err = service.SendImage(context.Background(), "!room:example.com", UploadImage{
+		Body:     "generated.png",
+		Content:  []byte("pngbytes"),
+		MIMEType: "image/png",
+	})
+	if err != nil {
+		t.Fatalf("SendImage() error = %v", err)
+	}
+	if len(client.sentImage) != 1 {
+		t.Fatalf("expected one image event, got %#v", client.sentImage)
+	}
+	if client.sentImage[0].roomID != "!room:example.com" {
+		t.Fatalf("unexpected room id: %#v", client.sentImage[0])
+	}
+	if client.sentImage[0].image.URL != "mxc://matrix.example.com/uploaded" {
+		t.Fatalf("unexpected image URL: %#v", client.sentImage[0].image)
+	}
+	if client.sentImage[0].image.MIMEType != "image/png" || client.sentImage[0].image.Size != int64(len("pngbytes")) {
+		t.Fatalf("unexpected image metadata: %#v", client.sentImage[0].image)
 	}
 }

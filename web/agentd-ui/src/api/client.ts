@@ -399,6 +399,7 @@ export interface Specialist {
   model: string;
   summaryContextWindowTokens?: number;
   enableTools: boolean;
+  imageGeneration?: boolean;
   autoDiscover?: boolean | null;
   paused: boolean;
   allowTools?: string[];

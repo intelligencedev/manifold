@@ -888,6 +888,14 @@ func TestChatImageGeneration(t *testing.T) {
 		APIKey:  "k",
 		Model:   "gpt-image-1.5",
 		BaseURL: srv.URL,
+		ExtraParams: map[string]any{
+			"size":             "2048x2048",
+			"quality":          "high",
+			"n":                "2",
+			"reasoning_effort": "medium",
+			"prompt_cache_key": "manifold-",
+			"custom":           "kept",
+		},
 	}, srv.Client())
 
 	ctx := llm.WithImagePrompt(context.Background(), llm.ImagePromptOptions{Size: "1K"})
@@ -906,6 +914,24 @@ func TestChatImageGeneration(t *testing.T) {
 	}
 	if prompt, ok := gotBody["prompt"].(string); !ok || !strings.Contains(prompt, "cat") {
 		t.Fatalf("expected prompt forwarded, got %#v", gotBody["prompt"])
+	}
+	if size, _ := gotBody["size"].(string); size != "2048x2048" {
+		t.Fatalf("expected configured image size, got %#v", gotBody["size"])
+	}
+	if quality, _ := gotBody["quality"].(string); quality != "high" {
+		t.Fatalf("expected configured image quality, got %#v", gotBody["quality"])
+	}
+	if n, _ := gotBody["n"].(float64); n != 2 {
+		t.Fatalf("expected configured image count, got %#v", gotBody["n"])
+	}
+	if _, ok := gotBody["reasoning_effort"]; ok {
+		t.Fatalf("did not expect chat-only reasoning_effort on image request: %#v", gotBody)
+	}
+	if _, ok := gotBody["prompt_cache_key"]; ok {
+		t.Fatalf("did not expect prompt_cache_key on image request: %#v", gotBody)
+	}
+	if _, ok := gotBody["custom"]; ok {
+		t.Fatalf("did not expect unknown extra params on image request: %#v", gotBody)
 	}
 }
 

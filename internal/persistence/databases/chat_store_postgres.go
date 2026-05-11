@@ -32,6 +32,7 @@ func (s *pgChatStore) Init(ctx context.Context) error {
 CREATE TABLE IF NOT EXISTS chat_sessions (
     id UUID PRIMARY KEY,
     name TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'chat',
     user_id BIGINT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -59,6 +60,13 @@ ALTER TABLE chat_sessions
 
 ALTER TABLE chat_sessions
     ADD COLUMN IF NOT EXISTS user_id BIGINT;
+
+ALTER TABLE chat_sessions
+    ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'chat';
+
+UPDATE chat_sessions
+SET kind = 'matrix'
+WHERE kind = 'chat' AND name LIKE 'Matrix Room %';
 
 CREATE INDEX IF NOT EXISTS chat_sessions_user_updated_idx ON chat_sessions(user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS chat_sessions_user_created_idx ON chat_sessions(user_id, created_at DESC);

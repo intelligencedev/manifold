@@ -142,6 +142,7 @@ type MatrixConfig struct {
 	UserID                string             `yaml:"userID" json:"userID"`
 	AccessToken           string             `yaml:"accessToken" json:"accessToken"`
 	DeviceID              string             `yaml:"deviceID" json:"deviceID"`
+	MessageRetention      int                `yaml:"messageRetention" json:"messageRetention"`
 	SyncTimeoutSeconds    int                `yaml:"syncTimeoutSeconds" json:"syncTimeoutSeconds"`
 	SyncRetryDelaySeconds int                `yaml:"syncRetryDelaySeconds" json:"syncRetryDelaySeconds"`
 	ProcessBacklog        bool               `yaml:"processBacklog" json:"processBacklog"`
@@ -155,6 +156,7 @@ type MatrixRoomConfig struct {
 	AllowUnmentioned bool              `yaml:"allowUnmentioned" json:"allowUnmentioned"`
 	Mentions         map[string]string `yaml:"mentions" json:"mentions"`
 	SystemPromptRef  string            `yaml:"systemPromptRef" json:"systemPromptRef"`
+	MessageRetention int               `yaml:"messageRetention" json:"messageRetention"`
 	MaxConcurrent    int               `yaml:"maxConcurrent" json:"maxConcurrent"`
 }
 

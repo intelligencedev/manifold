@@ -57,6 +57,7 @@ type app struct {
 	rememMaxInnerSteps int
 	engine             *agent.Engine
 	chatStore          persist.ChatStore
+	matrixMessageStore persist.MatrixMessageStore
 	activityStore      persist.SpecialistActivityStore
 	chatMemory         *memory.Manager
 	runs               *runStore

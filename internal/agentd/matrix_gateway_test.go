@@ -84,6 +84,20 @@ func TestHandleMatrixMessageRunsSpecialistTarget(t *testing.T) {
 	}
 	client := &fakeGatewayClient{}
 	service.SetSyncClient(client)
+	service.SetOutboundRecorder(func(ctx context.Context, message matrixgw.OutboundMessage) error {
+		_, err := a.matrixMessageStore.Append(ctx, persistence.MatrixMessage{
+			RoomID:        message.RoomID,
+			Direction:     "outbound",
+			Target:        message.Target,
+			Body:          message.Body,
+			FormattedBody: message.FormattedBody,
+			MsgType:       message.MsgType,
+			MediaURL:      message.MediaURL,
+			MediaMIME:     message.MediaMIME,
+			MediaSize:     message.MediaSize,
+		}, defaultMatrixMessageRetention)
+		return err
+	})
 	a.matrixGateway = service
 	store := a.chatStore.(*promptHandlerChatStore)
 
@@ -99,7 +113,10 @@ func TestHandleMatrixMessageRunsSpecialistTarget(t *testing.T) {
 		t.Fatalf("handleMatrixMessage() error = %v", err)
 	}
 
-	sessionID := matrixSessionID("!room:test", "weather")
+	sessionID := matrixSessionID("!room:test")
+	if _, ok := store.sessions[sessionID]; !ok {
+		t.Fatalf("expected matrix chat session %q to be created", sessionID)
+	}
 	messages := store.messages[sessionID]
 	if len(messages) < 2 {
 		t.Fatalf("expected stored chat turn, got %#v", messages)
@@ -109,6 +126,87 @@ func TestHandleMatrixMessageRunsSpecialistTarget(t *testing.T) {
 	}
 	if len(client.sentHTML) != 1 || client.sentHTML[0] != "weather: specialist response" {
 		t.Fatalf("expected attributed Matrix reply to be sent, got %#v", client.sentHTML)
+	}
+	matrixMessages, err := a.matrixMessageStore.ListByRoom(context.Background(), "!room:test", 10, 0)
+	if err != nil {
+		t.Fatalf("ListByRoom() error = %v", err)
+	}
+	if len(matrixMessages) != 2 {
+		t.Fatalf("expected inbound and outbound matrix messages, got %#v", matrixMessages)
+	}
+	if matrixMessages[0].Direction != "outbound" || matrixMessages[1].Direction != "inbound" {
+		t.Fatalf("expected newest-first outbound/inbound ordering, got %#v", matrixMessages)
+	}
+}
+
+func TestHandleMatrixMessageUsesRoomScopedChatHistoryAcrossTargets(t *testing.T) {
+	var requests []map[string]any
+	specialistServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		requests = append(requests, body)
+		content := "first response"
+		if len(requests) > 1 {
+			content = "second response"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"` + content + `","tool_calls":[]}}]}`))
+	}))
+	defer specialistServer.Close()
+
+	a := newSpecialistTestApp(t, specialistServer.URL, []config.SpecialistConfig{
+		{Name: "weather", Description: "Weather specialist", Model: "spec-model"},
+		{Name: "planner", Description: "Planner specialist", Model: "spec-model"},
+	})
+	service, err := matrixgw.New(config.MatrixConfig{
+		Enabled:       true,
+		HomeserverURL: "https://matrix.example.com",
+		UserID:        "@manifold:example.com",
+		AccessToken:   "token",
+		Rooms:         []config.MatrixRoomConfig{{RoomID: "!room:test"}},
+	})
+	if err != nil {
+		t.Fatalf("matrixgw.New() error = %v", err)
+	}
+	service.SetSyncClient(&fakeGatewayClient{})
+	a.matrixGateway = service
+
+	if err := a.handleMatrixMessage(context.Background(), matrixgw.InboundMessage{
+		RoomID:  "!room:test",
+		EventID: "$event-1",
+		Sender:  "@user:test",
+		Body:    "@weather forecast please",
+		Prompt:  "forecast please",
+		Target:  "weather",
+	}); err != nil {
+		t.Fatalf("first handleMatrixMessage() error = %v", err)
+	}
+	if err := a.handleMatrixMessage(context.Background(), matrixgw.InboundMessage{
+		RoomID:  "!room:test",
+		EventID: "$event-2",
+		Sender:  "@user:test",
+		Body:    "@planner what did I ask before?",
+		Prompt:  "what did I ask before?",
+		Target:  "planner",
+	}); err != nil {
+		t.Fatalf("second handleMatrixMessage() error = %v", err)
+	}
+	if len(requests) != 2 {
+		t.Fatalf("expected two provider requests, got %d", len(requests))
+	}
+	encodedMessages, _ := json.Marshal(requests[1]["messages"])
+	if !strings.Contains(string(encodedMessages), "forecast please") || !strings.Contains(string(encodedMessages), "first response") {
+		t.Fatalf("expected second Matrix request to include prior room history, got %s", string(encodedMessages))
+	}
+
+	store := a.chatStore.(*promptHandlerChatStore)
+	sessionID := matrixSessionID("!room:test")
+	if _, ok := store.sessions[sessionID]; !ok {
+		t.Fatalf("expected room-scoped matrix session %q to exist", sessionID)
+	}
+	if messages := store.messages[sessionID]; len(messages) < 4 {
+		t.Fatalf("expected both Matrix turns in one room-scoped session, got %#v", messages)
 	}
 }
 
@@ -137,9 +235,9 @@ func TestEnsureMatrixRoomProjectReusesSystemProject(t *testing.T) {
 		t.Fatalf("expected project id %q to be reused, got %q", projectID, reusedProjectID)
 	}
 
-	list, err := a.projectsService.ListProjects(context.Background(), systemUserID)
+	list, err := a.projectsService.ListProjectsByKind(context.Background(), systemUserID, projects.ProjectKindMatrix)
 	if err != nil {
-		t.Fatalf("ListProjects() error = %v", err)
+		t.Fatalf("ListProjectsByKind() error = %v", err)
 	}
 	if len(list) != 1 {
 		t.Fatalf("expected one system project, got %d", len(list))
@@ -206,9 +304,9 @@ func TestHandleMatrixMessageAutoCreatesRoomProject(t *testing.T) {
 		t.Fatal("expected matrix run to resolve a project id before checkout")
 	}
 
-	list, err := a.projectsService.ListProjects(context.Background(), systemUserID)
+	list, err := a.projectsService.ListProjectsByKind(context.Background(), systemUserID, projects.ProjectKindMatrix)
 	if err != nil {
-		t.Fatalf("ListProjects() error = %v", err)
+		t.Fatalf("ListProjectsByKind() error = %v", err)
 	}
 	if len(list) != 1 {
 		t.Fatalf("expected one system project, got %d", len(list))
@@ -329,7 +427,7 @@ func TestHandleMatrixMessageUsesImageAPIForImageGenerationSpecialist(t *testing.
 	service.SetSyncClient(client)
 	a.matrixGateway = service
 	store := a.chatStore.(*promptHandlerChatStore)
-	store.messages[matrixSessionID("!room:test", "image-maker")] = []persistence.ChatMessage{
+	store.messages[matrixSessionID("!room:test")] = []persistence.ChatMessage{
 		{Role: "user", Content: "previous prompt that must be ignored"},
 		{Role: "assistant", Content: "previous answer that must be ignored"},
 	}

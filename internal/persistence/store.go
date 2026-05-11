@@ -94,6 +94,37 @@ type PulseStore interface {
 	CompleteRoomPulse(ctx context.Context, roomID, routeTarget, token string, completedAt time.Time, summary, pulseErr string, dueTaskIDs []string) error
 }
 
+type MatrixMessage struct {
+	ID            int64     `json:"id"`
+	RoomID        string    `json:"roomId"`
+	EventID       string    `json:"eventId,omitempty"`
+	Direction     string    `json:"direction"`
+	Sender        string    `json:"sender,omitempty"`
+	Target        string    `json:"target,omitempty"`
+	Body          string    `json:"body"`
+	FormattedBody string    `json:"formattedBody,omitempty"`
+	MsgType       string    `json:"msgType"`
+	MediaURL      string    `json:"mediaUrl,omitempty"`
+	MediaMIME     string    `json:"mediaMime,omitempty"`
+	MediaSize     int64     `json:"mediaSize,omitempty"`
+	CreatedAt     time.Time `json:"createdAt"`
+}
+
+type MatrixRoomStats struct {
+	RoomID         string    `json:"roomId"`
+	MessageCount   int       `json:"messageCount"`
+	LastActivityAt time.Time `json:"lastActivityAt,omitempty"`
+	LastSender     string    `json:"lastSender,omitempty"`
+}
+
+type MatrixMessageStore interface {
+	Init(ctx context.Context) error
+	Append(ctx context.Context, message MatrixMessage, maxMessages int) (MatrixMessage, error)
+	ListByRoom(ctx context.Context, roomID string, limit int, beforeID int64) ([]MatrixMessage, error)
+	Prune(ctx context.Context, roomID string, maxMessages int) error
+	RoomStats(ctx context.Context, roomID string) (MatrixRoomStats, error)
+}
+
 // ReactiveClaimStore persists short-lived room leases for reactive Matrix replies.
 type ReactiveClaimStore interface {
 	Init(ctx context.Context) error
@@ -160,10 +191,16 @@ type SpecialistTeamsStore interface {
 	ListMemberships(ctx context.Context, userID int64) (map[string][]string, error)
 }
 
+const (
+	ChatSessionKindChat   = "chat"
+	ChatSessionKindMatrix = "matrix"
+)
+
 // ChatSession represents a persisted conversation with metadata for display.
 type ChatSession struct {
 	ID                 string    `json:"id"`
 	Name               string    `json:"name"`
+	Kind               string    `json:"kind"`
 	UserID             *int64    `json:"userId,omitempty"`
 	CreatedAt          time.Time `json:"createdAt"`
 	UpdatedAt          time.Time `json:"updatedAt"`
@@ -190,9 +227,12 @@ type ChatMessage struct {
 type ChatStore interface {
 	Init(ctx context.Context) error
 	EnsureSession(ctx context.Context, userID *int64, id string, name string) (ChatSession, error)
+	EnsureSessionKind(ctx context.Context, userID *int64, id string, name string, kind string) (ChatSession, error)
 	ListSessions(ctx context.Context, userID *int64) ([]ChatSession, error)
+	ListSessionsByKind(ctx context.Context, userID *int64, kind string) ([]ChatSession, error)
 	GetSession(ctx context.Context, userID *int64, id string) (ChatSession, error)
 	CreateSession(ctx context.Context, userID *int64, name string) (ChatSession, error)
+	CreateSessionKind(ctx context.Context, userID *int64, name string, kind string) (ChatSession, error)
 	RenameSession(ctx context.Context, userID *int64, id, name string) (ChatSession, error)
 	DeleteSession(ctx context.Context, userID *int64, id string) error
 	ListMessages(ctx context.Context, userID *int64, sessionID string, limit int) ([]ChatMessage, error)

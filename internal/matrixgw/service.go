@@ -19,9 +19,21 @@ type Service struct {
 	rooms      map[string]RoomConfig
 	syncClient SyncClient
 	handler    MessageHandler
+	outbound   func(context.Context, OutboundMessage) error
 	mu         sync.Mutex
 	cancel     context.CancelFunc
 	done       chan struct{}
+}
+
+type OutboundMessage struct {
+	RoomID        string
+	Target        string
+	Body          string
+	FormattedBody string
+	MsgType       string
+	MediaURL      string
+	MediaMIME     string
+	MediaSize     int64
 }
 
 // New validates the Matrix gateway configuration and prepares room routing.
@@ -183,10 +195,25 @@ func (s *Service) SetSyncClient(client SyncClient) {
 	s.syncClient = client
 }
 
+func (s *Service) SetOutboundRecorder(recorder func(context.Context, OutboundMessage) error) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.outbound = recorder
+}
+
 func (s *Service) messageHandler() MessageHandler {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.handler
+}
+
+func (s *Service) outboundRecorder() func(context.Context, OutboundMessage) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.outbound
 }
 
 func (s *Service) syncTimeoutMS() int {

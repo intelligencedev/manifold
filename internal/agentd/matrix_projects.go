@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"manifold/internal/projects"
 )
 
 const matrixRoomProjectPrefix = "Matrix Room "
@@ -18,17 +20,17 @@ func (a *app) ensureMatrixRoomProject(ctx context.Context, roomID string) (strin
 	}
 
 	projectName := matrixRoomProjectName(trimmedRoomID)
-	projects, err := a.projectsService.ListProjects(ctx, systemUserID)
+	matrixProjects, err := a.projectsService.ListProjectsByKind(ctx, systemUserID, projects.ProjectKindMatrix)
 	if err != nil {
 		return "", fmt.Errorf("list projects: %w", err)
 	}
-	for _, project := range projects {
+	for _, project := range matrixProjects {
 		if project.Name == projectName {
 			return project.ID, nil
 		}
 	}
 
-	project, err := a.projectsService.CreateProject(ctx, systemUserID, projectName)
+	project, err := a.projectsService.CreateProjectKind(ctx, systemUserID, projectName, projects.ProjectKindMatrix)
 	if err != nil {
 		return "", fmt.Errorf("create project: %w", err)
 	}

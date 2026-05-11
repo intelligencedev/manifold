@@ -8,21 +8,39 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
 	"manifold/internal/agent/memory"
+	"manifold/internal/config"
 	"manifold/internal/llm"
 	"manifold/internal/matrixgw"
-	pulsecore "manifold/internal/pulse"
+	persist "manifold/internal/persistence"
 	"manifold/internal/sandbox"
 )
 
+const defaultMatrixMessageRetention = 100
+
 func (a *app) handleMatrixMessage(ctx context.Context, message matrixgw.InboundMessage) error {
+	if a.matrixMessageStore != nil {
+		if _, err := a.matrixMessageStore.Append(ctx, persist.MatrixMessage{
+			RoomID:    message.RoomID,
+			EventID:   message.EventID,
+			Direction: "inbound",
+			Sender:    message.Sender,
+			Target:    message.Target,
+			Body:      message.Body,
+			MsgType:   "m.text",
+			CreatedAt: time.Now().UTC(),
+		}, matrixMessageRetention(a.cfg.Matrix, message.RoomID)); err != nil {
+			return fmt.Errorf("persist matrix inbound message: %w", err)
+		}
+	}
 	result, images, matrixMessages, err := a.executeMatrixScopedRun(ctx, chatRunRequest{
 		Prompt:      message.Prompt,
-		SessionID:   matrixSessionID(message.RoomID, message.Target),
+		SessionID:   matrixSessionID(message.RoomID),
 		RoomID:      message.RoomID,
 		RouteTarget: message.Target,
 	}, message.Target)
@@ -55,7 +73,7 @@ func (a *app) handleMatrixMessage(ctx context.Context, message matrixgw.InboundM
 func (a *app) handlePulseRoom(ctx context.Context, roomID, target, projectID, prompt string) (string, error) {
 	result, _, matrixMessages, err := a.executeMatrixScopedRun(ctx, chatRunRequest{
 		Prompt:      prompt,
-		SessionID:   pulsecore.PulseSessionID("matrix:"+target, roomID),
+		SessionID:   matrixSessionID(roomID),
 		RoomID:      roomID,
 		RouteTarget: target,
 		ProjectID:   projectID,
@@ -100,6 +118,9 @@ func (a *app) executeMatrixScopedRun(ctx context.Context, req chatRunRequest, ta
 	httpReq, checkedOutWorkspace, statusCode, err := a.prepareChatRunRequest(httpReq, nil, request)
 	if err != nil {
 		return "", nil, nil, fmt.Errorf("prepare matrix chat request (status=%d): %w", statusCode, err)
+	}
+	if _, err := ensureMatrixChatSession(httpReq.Context(), a.chatStore, request.RoomID, request.SessionID); err != nil {
+		return "", nil, nil, fmt.Errorf("ensure matrix chat session: %w", err)
 	}
 	if request.RoomID != "" {
 		gatewayOutbox := sandbox.NewMatrixOutbox(sandbox.WithMatrixDispatchHandler(func(runCtx context.Context, msg sandbox.MatrixMessage) error {
@@ -234,7 +255,31 @@ func savedImageContent(img savedImage) ([]byte, error) {
 	return content, nil
 }
 
-func matrixSessionID(roomID, target string) string {
-	namespaceSeed := "matrix:" + roomID + ":" + target
+func ensureMatrixChatSession(ctx context.Context, store persist.ChatStore, roomID, sessionID string) (persist.ChatSession, error) {
+	name := "Matrix Conversation"
+	if strings.TrimSpace(roomID) != "" {
+		name = matrixRoomProjectName(roomID)
+	}
+	return store.EnsureSessionKind(ctx, nil, sessionID, name, persist.ChatSessionKindMatrix)
+}
+
+func matrixSessionID(roomID string) string {
+	namespaceSeed := "matrix:" + roomID
 	return uuid.NewSHA1(uuid.NameSpaceURL, []byte(namespaceSeed)).String()
+}
+
+func matrixMessageRetention(cfg config.MatrixConfig, roomID string) int {
+	for _, room := range cfg.Rooms {
+		if strings.TrimSpace(room.RoomID) != strings.TrimSpace(roomID) {
+			continue
+		}
+		if room.MessageRetention > 0 {
+			return room.MessageRetention
+		}
+		break
+	}
+	if cfg.MessageRetention > 0 {
+		return cfg.MessageRetention
+	}
+	return defaultMatrixMessageRetention
 }

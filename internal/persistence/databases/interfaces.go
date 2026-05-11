@@ -72,6 +72,7 @@ type Manager struct {
 	Projects           persistence.ProjectsStore
 	UserPreferences    persistence.UserPreferencesStore
 	Pulse              persistence.PulseStore
+	MatrixMessages     persistence.MatrixMessageStore
 	Transit            transit.Store
 	Belief             belief.Store
 }
@@ -89,6 +90,7 @@ func (m Manager) Close() {
 	closeIfPossible(m.Projects)
 	closeIfPossible(m.UserPreferences)
 	closeIfPossible(m.Pulse)
+	closeIfPossible(m.MatrixMessages)
 	closeIfPossible(m.Transit)
 	closeIfPossible(m.Belief)
 }

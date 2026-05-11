@@ -24,6 +24,11 @@ const router = createRouter({
       component: () => import("@/views/ChatView.vue"),
     },
     {
+      path: "/matrix",
+      name: "matrix",
+      component: () => import("@/views/MatrixView.vue"),
+    },
+    {
       path: "/flow",
       name: "flow",
       component: () => import("@/views/FlowView.vue"),

@@ -248,6 +248,11 @@ func initializeDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfi
 		return err
 	}
 
+	m.MatrixMessages = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewMatrixMessageStore)
+	if err := initStore(ctx, "matrix message store", m.MatrixMessages); err != nil {
+		return err
+	}
+
 	m.Transit = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPostgresTransitStore)
 	if err := initStore(ctx, "transit store", m.Transit); err != nil {
 		return err

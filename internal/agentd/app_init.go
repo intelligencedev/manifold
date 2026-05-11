@@ -25,6 +25,7 @@ import (
 	"manifold/internal/matrixgw"
 	"manifold/internal/mcpclient"
 	"manifold/internal/observability"
+	persist "manifold/internal/persistence"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/playground"
 	"manifold/internal/playground/artifacts"
@@ -335,6 +336,24 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		return nil, fmt.Errorf("init matrix gateway: %w", err)
 	}
 	app.matrixGateway.SetHandler(matrixgw.MessageHandlerFunc(app.handleMatrixMessage))
+	app.matrixGateway.SetOutboundRecorder(func(runCtx context.Context, message matrixgw.OutboundMessage) error {
+		if app.matrixMessageStore == nil {
+			return nil
+		}
+		_, err := app.matrixMessageStore.Append(runCtx, persist.MatrixMessage{
+			RoomID:        message.RoomID,
+			Direction:     "outbound",
+			Target:        message.Target,
+			Body:          message.Body,
+			FormattedBody: message.FormattedBody,
+			MsgType:       message.MsgType,
+			MediaURL:      message.MediaURL,
+			MediaMIME:     message.MediaMIME,
+			MediaSize:     message.MediaSize,
+			CreatedAt:     time.Now().UTC(),
+		}, matrixMessageRetention(cfg.Matrix, message.RoomID))
+		return err
+	})
 	janitorInterval := defaultEvolvingJanitorInterval
 	if cfg.EvolvingMemory.SessionTTLMinutes > 0 {
 		app.evolvingSessionTTL = time.Duration(cfg.EvolvingMemory.SessionTTLMinutes) * time.Minute
@@ -460,6 +479,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	if app.chatStore == nil {
 		return nil, fmt.Errorf("chat store not initialized")
 	}
+	app.matrixMessageStore = mgr.MatrixMessages
 	app.activityStore = mgr.SpecialistActivity
 	if app.activityStore == nil {
 		return nil, fmt.Errorf("specialist activity store not initialized")

@@ -120,6 +120,7 @@ const navigation: NavigationItem[] = [
   { label: "Projects", to: "/projects" },
   { label: "Specialists", to: "/specialists" },
   { label: "Chat", to: "/chat" },
+  { label: "Matrix", to: "/matrix" },
   { label: "Playground", to: "/playground" },
   { label: "Flow", to: "/flow" },
   ...betaNavigation,

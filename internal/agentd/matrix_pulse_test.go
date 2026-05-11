@@ -11,7 +11,6 @@ import (
 	"manifold/internal/matrixgw"
 	"manifold/internal/persistence"
 	"manifold/internal/persistence/databases"
-	pulsecore "manifold/internal/pulse"
 )
 
 func TestPulseRuntimePollOnceRunsDueTaskWithoutPostingFinalReply(t *testing.T) {
@@ -84,9 +83,14 @@ func TestPulseRuntimePollOnceRunsDueTaskWithoutPostingFinalReply(t *testing.T) {
 		t.Fatalf("expected no final Matrix send for pulse run, got html=%#v text=%#v", client.sentHTML, client.sentText)
 	}
 
-	storeMessages := a.chatStore.(*promptHandlerChatStore).messages[pulsecore.PulseSessionID("matrix:weather", room.RoomID)]
+	chatStore := a.chatStore.(*promptHandlerChatStore)
+	roomSessionID := matrixSessionID(room.RoomID)
+	if _, ok := chatStore.sessions[roomSessionID]; !ok {
+		t.Fatalf("expected room-scoped Matrix chat session %q to exist", roomSessionID)
+	}
+	storeMessages := chatStore.messages[roomSessionID]
 	if len(storeMessages) < 2 {
-		t.Fatalf("expected stored pulse chat turn, got %#v", storeMessages)
+		t.Fatalf("expected stored pulse chat turn in room-scoped Matrix session, got %#v", storeMessages)
 	}
 	if got := storeMessages[len(storeMessages)-1].Content; got != "specialist response" {
 		t.Fatalf("expected stored pulse assistant response, got %q", got)

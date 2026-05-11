@@ -16,6 +16,7 @@ import (
 	"manifold/internal/config"
 	"manifold/internal/llm"
 	"manifold/internal/persistence"
+	"manifold/internal/persistence/databases"
 	"manifold/internal/projects"
 	"manifold/internal/sandbox"
 	"manifold/internal/specialists"
@@ -39,18 +40,39 @@ func newPromptHandlerChatStore() *promptHandlerChatStore {
 func (s *promptHandlerChatStore) Init(context.Context) error { return nil }
 
 func (s *promptHandlerChatStore) EnsureSession(_ context.Context, userID *int64, id string, name string) (persistence.ChatSession, error) {
+	return s.EnsureSessionKind(context.Background(), userID, id, name, persistence.ChatSessionKindChat)
+}
+
+func (s *promptHandlerChatStore) EnsureSessionKind(_ context.Context, userID *int64, id string, name string, kind string) (persistence.ChatSession, error) {
 	if sess, ok := s.sessions[id]; ok {
 		return sess, nil
 	}
-	sess := persistence.ChatSession{ID: id, Name: name, UserID: userID, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	if strings.TrimSpace(kind) == "" {
+		kind = persistence.ChatSessionKindChat
+	}
+	sess := persistence.ChatSession{ID: id, Name: name, Kind: kind, UserID: userID, CreatedAt: time.Now(), UpdatedAt: time.Now()}
 	s.sessions[id] = sess
 	s.messages[id] = nil
 	return sess, nil
 }
 
 func (s *promptHandlerChatStore) ListSessions(context.Context, *int64) ([]persistence.ChatSession, error) {
+	return s.ListSessionsByKind(context.Background(), nil, persistence.ChatSessionKindChat)
+}
+
+func (s *promptHandlerChatStore) ListSessionsByKind(_ context.Context, _ *int64, kind string) ([]persistence.ChatSession, error) {
+	if strings.TrimSpace(kind) == "" {
+		kind = persistence.ChatSessionKindChat
+	}
 	out := make([]persistence.ChatSession, 0, len(s.sessions))
 	for _, sess := range s.sessions {
+		sessKind := strings.TrimSpace(sess.Kind)
+		if sessKind == "" {
+			sessKind = persistence.ChatSessionKindChat
+		}
+		if sessKind != kind {
+			continue
+		}
 		out = append(out, sess)
 	}
 	return out, nil
@@ -65,7 +87,11 @@ func (s *promptHandlerChatStore) GetSession(_ context.Context, _ *int64, id stri
 }
 
 func (s *promptHandlerChatStore) CreateSession(ctx context.Context, userID *int64, name string) (persistence.ChatSession, error) {
-	return s.EnsureSession(ctx, userID, name, name)
+	return s.CreateSessionKind(ctx, userID, name, persistence.ChatSessionKindChat)
+}
+
+func (s *promptHandlerChatStore) CreateSessionKind(ctx context.Context, userID *int64, name string, kind string) (persistence.ChatSession, error) {
+	return s.EnsureSessionKind(ctx, userID, name, name, kind)
 }
 
 func (s *promptHandlerChatStore) RenameSession(_ context.Context, _ *int64, id, name string) (persistence.ChatSession, error) {
@@ -464,15 +490,16 @@ func newSpecialistTestApp(t *testing.T, baseURL string, specs []config.Specialis
 	projectsService := projects.NewService(workdir, "")
 
 	return &app{
-		cfg:              &cfg,
-		llm:              baseProvider,
-		baseToolRegistry: baseTools,
-		specRegistry:     specialists.NewRegistry(cfg.LLMClient, specs, http.DefaultClient, baseTools),
-		chatStore:        chatStore,
-		chatMemory:       memory.NewManager(chatStore, baseProvider, memory.Config{}),
-		runs:             newRunStore(),
-		projectsService:  projectsService,
-		workspaceManager: workspaces.NewManager(&cfg),
+		cfg:                &cfg,
+		llm:                baseProvider,
+		baseToolRegistry:   baseTools,
+		specRegistry:       specialists.NewRegistry(cfg.LLMClient, specs, http.DefaultClient, baseTools),
+		chatStore:          chatStore,
+		matrixMessageStore: databases.NewMatrixMessageStore(nil),
+		chatMemory:         memory.NewManager(chatStore, baseProvider, memory.Config{}),
+		runs:               newRunStore(),
+		projectsService:    projectsService,
+		workspaceManager:   workspaces.NewManager(&cfg),
 		engine: &agent.Engine{
 			LLM:   baseProvider,
 			Tools: baseTools,

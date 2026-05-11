@@ -20,13 +20,13 @@ type UploadImage struct {
 
 // Send delivers a plain Matrix room message through the gateway client.
 func (s *Service) Send(ctx context.Context, message sandbox.MatrixMessage) error {
-	return s.sendMarkdown(ctx, strings.TrimSpace(message.RoomID), strings.TrimSpace(message.Text), strings.TrimSpace(message.Text))
+	return s.sendMarkdown(ctx, strings.TrimSpace(message.RoomID), strings.TrimSpace(message.Text), strings.TrimSpace(message.Text), "")
 }
 
 // SendAttributed delivers a final assistant reply with route-target attribution.
 func (s *Service) SendAttributed(ctx context.Context, roomID, target, text string) error {
 	plain, markdown := attributedMessage(target, text)
-	return s.sendMarkdown(ctx, roomID, plain, markdown)
+	return s.sendMarkdown(ctx, roomID, plain, markdown, target)
 }
 
 // SendImage uploads image bytes to Matrix media storage and sends an m.image message.
@@ -58,10 +58,22 @@ func (s *Service) SendImage(ctx context.Context, roomID string, image UploadImag
 	}); err != nil {
 		return fmt.Errorf("send matrix image: %w", err)
 	}
+	if recorder := s.outboundRecorder(); recorder != nil {
+		if err := recorder(ctx, OutboundMessage{
+			RoomID:    roomID,
+			Body:      body,
+			MsgType:   "m.image",
+			MediaURL:  contentURI,
+			MediaMIME: mimeType,
+			MediaSize: int64(len(image.Content)),
+		}); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-func (s *Service) sendMarkdown(ctx context.Context, roomID, plainText, markdownText string) error {
+func (s *Service) sendMarkdown(ctx context.Context, roomID, plainText, markdownText, target string) error {
 	if s == nil || s.syncClient == nil {
 		return nil
 	}
@@ -73,9 +85,21 @@ func (s *Service) sendMarkdown(ctx context.Context, roomID, plainText, markdownT
 	}
 	formatted, err := renderMatrixHTML(markdownText)
 	if err == nil && formatted != "" {
-		return s.syncClient.SendFormattedText(ctx, roomID, plainText, formatted)
+		if err := s.syncClient.SendFormattedText(ctx, roomID, plainText, formatted); err != nil {
+			return err
+		}
+		if recorder := s.outboundRecorder(); recorder != nil {
+			return recorder(ctx, OutboundMessage{RoomID: roomID, Target: target, Body: plainText, FormattedBody: formatted, MsgType: "m.text"})
+		}
+		return nil
 	}
-	return s.syncClient.SendText(ctx, roomID, plainText)
+	if err := s.syncClient.SendText(ctx, roomID, plainText); err != nil {
+		return err
+	}
+	if recorder := s.outboundRecorder(); recorder != nil {
+		return recorder(ctx, OutboundMessage{RoomID: roomID, Target: target, Body: plainText, FormattedBody: plainText, MsgType: "m.text"})
+	}
+	return nil
 }
 
 func attributedMessage(target, text string) (string, string) {

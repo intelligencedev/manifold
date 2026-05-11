@@ -2,10 +2,18 @@ package databases
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"manifold/internal/persistence"
 )
+
+func TestMatrixMessageInsertSQLMatchesPartialEventIndex(t *testing.T) {
+	t.Parallel()
+	if !strings.Contains(matrixMessageInsertSQL, "ON CONFLICT (event_id) WHERE event_id IS NOT NULL AND event_id <> ''") {
+		t.Fatalf("matrix message insert must target the partial unique event index: %s", matrixMessageInsertSQL)
+	}
+}
 
 func TestMemoryMatrixMessageStoreAppendAndPrune(t *testing.T) {
 	t.Parallel()

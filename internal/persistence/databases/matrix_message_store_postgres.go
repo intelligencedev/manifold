@@ -23,6 +23,12 @@ type pgMatrixMessageStore struct {
 	pool *pgxpool.Pool
 }
 
+const matrixMessageInsertSQL = `
+INSERT INTO matrix_messages (room_id, event_id, direction, sender, target, body, formatted_body, msg_type, media_url, media_mime, media_size, created_at)
+VALUES ($1, NULLIF($2, ''), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+ON CONFLICT (event_id) WHERE event_id IS NOT NULL AND event_id <> '' DO UPDATE SET event_id = EXCLUDED.event_id
+RETURNING id, room_id, COALESCE(event_id, ''), direction, sender, target, body, formatted_body, msg_type, media_url, media_mime, media_size, created_at`
+
 func (s *pgMatrixMessageStore) Init(ctx context.Context) error {
 	if s.pool == nil {
 		return errors.New("postgres matrix message store requires pool")
@@ -66,11 +72,7 @@ func (s *pgMatrixMessageStore) Append(ctx context.Context, message persistence.M
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	row := tx.QueryRow(ctx, `
-INSERT INTO matrix_messages (room_id, event_id, direction, sender, target, body, formatted_body, msg_type, media_url, media_mime, media_size, created_at)
-VALUES ($1, NULLIF($2, ''), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-ON CONFLICT (event_id) DO UPDATE SET event_id = EXCLUDED.event_id
-RETURNING id, room_id, COALESCE(event_id, ''), direction, sender, target, body, formatted_body, msg_type, media_url, media_mime, media_size, created_at`,
+	row := tx.QueryRow(ctx, matrixMessageInsertSQL,
 		message.RoomID, message.EventID, message.Direction, message.Sender, message.Target, message.Body, message.FormattedBody, message.MsgType, message.MediaURL, message.MediaMIME, message.MediaSize, message.CreatedAt)
 	if err := scanMatrixMessage(row, &message); err != nil {
 		return persistence.MatrixMessage{}, err

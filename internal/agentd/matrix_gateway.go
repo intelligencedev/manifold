@@ -43,7 +43,7 @@ func (a *app) handleMatrixMessage(ctx context.Context, message matrixgw.InboundM
 		SessionID:   matrixSessionID(message.RoomID),
 		RoomID:      message.RoomID,
 		RouteTarget: message.Target,
-	}, message.Target)
+	}, message.Target, true)
 	if err != nil {
 		return err
 	}
@@ -77,7 +77,7 @@ func (a *app) handlePulseRoom(ctx context.Context, roomID, target, projectID, pr
 		RoomID:      roomID,
 		RouteTarget: target,
 		ProjectID:   projectID,
-	}, target)
+	}, target, false)
 	if err != nil {
 		return "", err
 	}
@@ -90,7 +90,7 @@ func (a *app) handlePulseRoom(ctx context.Context, roomID, target, projectID, pr
 	return result, nil
 }
 
-func (a *app) executeMatrixScopedRun(ctx context.Context, req chatRunRequest, targetName string) (string, []savedImage, []sandbox.MatrixMessage, error) {
+func (a *app) executeMatrixScopedRun(ctx context.Context, req chatRunRequest, targetName string, includeHistory bool) (string, []savedImage, []sandbox.MatrixMessage, error) {
 	request := chatRunRequest{
 		Prompt:           req.Prompt,
 		SessionID:        req.SessionID,
@@ -153,7 +153,7 @@ func (a *app) executeMatrixScopedRun(ctx context.Context, req chatRunRequest, ta
 
 	var history []llm.Message
 	var summary *memory.SummaryResult
-	if !build.ImageGeneration {
+	if includeHistory && !build.ImageGeneration {
 		var err error
 		history, summary, err = a.chatMemory.BuildContextForProvider(httpReq.Context(), nil, request.SessionID, build.Engine.LLM, build.Engine.Model, memory.SummaryPolicy{
 			TargetContextWindowTokens:    build.Engine.ContextWindowTokens,

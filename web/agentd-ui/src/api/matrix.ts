@@ -57,8 +57,12 @@ export interface MatrixTask {
   routeTarget?: string;
   title: string;
   prompt: string;
+  scheduleType: "interval" | "daily_time" | "once_at";
+  scheduleLabel: string;
   intervalSeconds: number;
   intervalHuman: string;
+  specificTime?: string;
+  specificAt?: string;
   enabled: boolean;
   roomEnabled: boolean;
   due: boolean;
@@ -83,7 +87,10 @@ export interface MatrixTaskUpsertInput {
   routeTarget?: string;
   title: string;
   prompt: string;
-  intervalSeconds: number;
+  scheduleType?: "interval" | "daily_time" | "once_at";
+  intervalSeconds?: number;
+  specificTime?: string;
+  specificAt?: string;
   enabled?: boolean;
 }
 
@@ -91,7 +98,10 @@ export interface MatrixTaskPatchInput {
   routeTarget?: string;
   title?: string;
   prompt?: string;
+  scheduleType?: "interval" | "daily_time" | "once_at";
   intervalSeconds?: number;
+  specificTime?: string;
+  specificAt?: string;
   enabled?: boolean;
 }
 

@@ -14,6 +14,7 @@ import (
 	"manifold/internal/persistence"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/projects"
+	"manifold/internal/pulse"
 )
 
 func TestMatrixRoomsHandlerListsConfiguredRoomsWithStats(t *testing.T) {
@@ -153,6 +154,50 @@ func TestMatrixTaskHandlersCreatePatchAndList(t *testing.T) {
 	}
 	if len(relisted.Tasks) != 1 || relisted.Tasks[0].RouteTarget != "ops-team" {
 		t.Fatalf("expected moved task without duplication, got %#v", relisted.Tasks)
+	}
+}
+
+func TestMatrixTaskHandlersSpecificSchedules(t *testing.T) {
+	t.Parallel()
+	a := newSpecialistTestApp(t, "http://example.test", nil)
+	a.cfg.Matrix = config.MatrixConfig{
+		Enabled: true,
+		Rooms: []config.MatrixRoomConfig{{
+			RoomID:        "!room:test",
+			DefaultTarget: "orchestrator",
+		}},
+	}
+	a.matrixMessageStore = databases.NewMatrixMessageStore(nil)
+	a.pulseRuntime = newPulseRuntime(a, databases.NewPulseStore(nil))
+
+	createReq := httptest.NewRequest(http.MethodPost, "/api/matrix/rooms/%21room%3Atest/tasks", strings.NewReader(`{"title":"Morning digest","prompt":"Summarize status","scheduleType":"daily_time","specificTime":"09:15","enabled":true}`))
+	createReq.Header.Set("Content-Type", "application/json")
+	createResp := httptest.NewRecorder()
+	a.matrixRoomDetailHandler().ServeHTTP(createResp, createReq)
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", createResp.Code, createResp.Body.String())
+	}
+	var created matrixTaskResponse
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	if created.ScheduleType != pulse.ScheduleDailyTime || created.SpecificTime != "09:15" || created.IntervalSeconds != 0 {
+		t.Fatalf("unexpected daily schedule response: %#v", created)
+	}
+
+	patchReq := httptest.NewRequest(http.MethodPatch, "/api/matrix/rooms/%21room%3Atest/tasks/"+created.ID, strings.NewReader(`{"scheduleType":"once_at","specificAt":"2026-05-12T09:00"}`))
+	patchReq.Header.Set("Content-Type", "application/json")
+	patchResp := httptest.NewRecorder()
+	a.matrixRoomDetailHandler().ServeHTTP(patchResp, patchReq)
+	if patchResp.Code != http.StatusOK {
+		t.Fatalf("patch status = %d, body = %s", patchResp.Code, patchResp.Body.String())
+	}
+	var patched matrixTaskResponse
+	if err := json.NewDecoder(patchResp.Body).Decode(&patched); err != nil {
+		t.Fatalf("decode patch response: %v", err)
+	}
+	if patched.ScheduleType != pulse.ScheduleOnceAt || patched.SpecificAt.IsZero() || patched.SpecificTime != "" {
+		t.Fatalf("unexpected once_at schedule response: %#v", patched)
 	}
 }
 

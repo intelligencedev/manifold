@@ -126,6 +126,88 @@ func TestToolEnableDisableAndSetInterval(t *testing.T) {
 	}
 }
 
+func TestToolUpsertTaskWithDailyTimeSchedule(t *testing.T) {
+	t.Parallel()
+
+	store := databases.NewPulseStore(nil)
+	tool := &Tool{store: store, service: pulsecore.NewService()}
+	ctx := sandbox.WithRouteTarget(sandbox.WithRoomID(context.Background(), "!room:test"), "bot")
+
+	raw, err := json.Marshal(map[string]any{
+		"action":        "upsert_task",
+		"title":         "Morning check",
+		"prompt":        "Check status",
+		"schedule_type": "daily_time",
+		"specific_time": "09:30",
+	})
+	if err != nil {
+		t.Fatalf("marshal args: %v", err)
+	}
+	resp, err := tool.Call(ctx, raw)
+	if err != nil {
+		t.Fatalf("upsert daily task: %v", err)
+	}
+	task := resp.(map[string]any)["task"].(persistence.PulseTask)
+	if task.ScheduleType != pulsecore.ScheduleDailyTime || task.SpecificTime != "09:30" || task.IntervalSeconds != 0 {
+		t.Fatalf("unexpected daily task schedule: %#v", task)
+	}
+}
+
+func TestToolSetScheduleToOnceAt(t *testing.T) {
+	t.Parallel()
+
+	store := databases.NewPulseStore(nil)
+	tool := &Tool{store: store, service: pulsecore.NewService()}
+	ctx := sandbox.WithRouteTarget(sandbox.WithRoomID(context.Background(), "!room:test"), "bot")
+	created := createTestTask(t, tool, ctx)
+
+	raw, err := json.Marshal(map[string]any{
+		"action":        "set_schedule",
+		"task_id":       created.ID,
+		"schedule_type": "once_at",
+		"specific_at":   "2026-05-12T09:00",
+	})
+	if err != nil {
+		t.Fatalf("marshal args: %v", err)
+	}
+	resp, err := tool.Call(ctx, raw)
+	if err != nil {
+		t.Fatalf("set schedule: %v", err)
+	}
+	task := resp.(map[string]any)["task"].(persistence.PulseTask)
+	if task.ScheduleType != pulsecore.ScheduleOnceAt || task.SpecificAt.IsZero() || task.IntervalSeconds != 0 {
+		t.Fatalf("unexpected once_at schedule: %#v", task)
+	}
+}
+
+func TestToolRejectsConflictingScheduleFields(t *testing.T) {
+	t.Parallel()
+
+	store := databases.NewPulseStore(nil)
+	tool := &Tool{store: store, service: pulsecore.NewService()}
+	ctx := sandbox.WithRouteTarget(sandbox.WithRoomID(context.Background(), "!room:test"), "bot")
+
+	raw, err := json.Marshal(map[string]any{
+		"action":        "upsert_task",
+		"title":         "Bad schedule",
+		"prompt":        "Nope",
+		"schedule_type": "daily_time",
+		"specific_time": "09:30",
+		"specific_at":   "2026-05-12T09:00",
+	})
+	if err != nil {
+		t.Fatalf("marshal args: %v", err)
+	}
+	resp, err := tool.Call(ctx, raw)
+	if err != nil {
+		t.Fatalf("upsert conflicting schedule: %v", err)
+	}
+	respMap := resp.(map[string]any)
+	if ok, _ := respMap["ok"].(bool); ok {
+		t.Fatalf("expected conflicting schedule to fail, got %#v", respMap)
+	}
+}
+
 func TestToolClearClaim(t *testing.T) {
 	t.Parallel()
 

@@ -50,8 +50,12 @@ type matrixTaskResponse struct {
 	RouteTarget       string    `json:"routeTarget,omitempty"`
 	Title             string    `json:"title"`
 	Prompt            string    `json:"prompt"`
+	ScheduleType      string    `json:"scheduleType"`
+	ScheduleLabel     string    `json:"scheduleLabel"`
 	IntervalSeconds   int       `json:"intervalSeconds"`
 	IntervalHuman     string    `json:"intervalHuman"`
+	SpecificTime      string    `json:"specificTime,omitempty"`
+	SpecificAt        time.Time `json:"specificAt,omitempty"`
 	Enabled           bool      `json:"enabled"`
 	RoomEnabled       bool      `json:"roomEnabled"`
 	Due               bool      `json:"due"`
@@ -62,6 +66,28 @@ type matrixTaskResponse struct {
 	LastResultSummary string    `json:"lastResultSummary,omitempty"`
 	CreatedAt         time.Time `json:"createdAt"`
 	UpdatedAt         time.Time `json:"updatedAt"`
+}
+
+type matrixTaskUpsertRequest struct {
+	RouteTarget     string `json:"routeTarget"`
+	Title           string `json:"title"`
+	Prompt          string `json:"prompt"`
+	ScheduleType    string `json:"scheduleType"`
+	IntervalSeconds int    `json:"intervalSeconds"`
+	SpecificTime    string `json:"specificTime"`
+	SpecificAt      string `json:"specificAt"`
+	Enabled         *bool  `json:"enabled"`
+}
+
+type matrixTaskPatchRequest struct {
+	RouteTarget     *string `json:"routeTarget"`
+	Title           *string `json:"title"`
+	Prompt          *string `json:"prompt"`
+	ScheduleType    *string `json:"scheduleType"`
+	IntervalSeconds *int    `json:"intervalSeconds"`
+	SpecificTime    *string `json:"specificTime"`
+	SpecificAt      *string `json:"specificAt"`
+	Enabled         *bool   `json:"enabled"`
 }
 
 func (a *app) matrixRoomsHandler() http.HandlerFunc {
@@ -163,18 +189,12 @@ func (a *app) handleMatrixRoomTasks(w http.ResponseWriter, r *http.Request, room
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"tasks": tasks})
 	case http.MethodPost:
-		var req struct {
-			RouteTarget     string `json:"routeTarget"`
-			Title           string `json:"title"`
-			Prompt          string `json:"prompt"`
-			IntervalSeconds int    `json:"intervalSeconds"`
-			Enabled         *bool  `json:"enabled"`
-		}
+		var req matrixTaskUpsertRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		task, err := a.upsertMatrixTask(r.Context(), roomID, "", req.RouteTarget, req.Title, req.Prompt, req.IntervalSeconds, req.Enabled)
+		task, err := a.upsertMatrixTask(r.Context(), roomID, "", req)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -237,13 +257,7 @@ func (a *app) handleMatrixRoomTaskDetail(w http.ResponseWriter, r *http.Request,
 	}
 	switch r.Method {
 	case http.MethodPatch:
-		var req struct {
-			RouteTarget     *string `json:"routeTarget"`
-			Title           *string `json:"title"`
-			Prompt          *string `json:"prompt"`
-			IntervalSeconds *int    `json:"intervalSeconds"`
-			Enabled         *bool   `json:"enabled"`
-		}
+		var req matrixTaskPatchRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
@@ -386,8 +400,12 @@ func (a *app) matrixTaskResponses(ctx context.Context, roomID string) ([]matrixT
 				RouteTarget:       status.Task.RouteTarget,
 				Title:             status.Task.Title,
 				Prompt:            status.Task.Prompt,
+				ScheduleType:      status.Task.ScheduleType,
+				ScheduleLabel:     status.ScheduleLabel,
 				IntervalSeconds:   status.Task.IntervalSeconds,
 				IntervalHuman:     status.IntervalHuman,
+				SpecificTime:      status.Task.SpecificTime,
+				SpecificAt:        status.Task.SpecificAt,
 				Enabled:           status.Task.Enabled,
 				RoomEnabled:       room.Enabled,
 				Due:               status.Due,
@@ -397,9 +415,9 @@ func (a *app) matrixTaskResponses(ctx context.Context, roomID string) ([]matrixT
 				CreatedAt:         status.Task.CreatedAt,
 				UpdatedAt:         status.Task.UpdatedAt,
 			}
-			if nextRunAt, ok := matrixTaskNextRunAt(now, room.Enabled, status.Task); ok {
-				response.NextRunAt = nextRunAt
-				response.NextRunHuman = nextRunAt.Format(time.RFC3339)
+			if !status.NextRunAt.IsZero() {
+				response.NextRunAt = status.NextRunAt
+				response.NextRunHuman = status.NextRunAt.Format(time.RFC3339)
 			}
 			out = append(out, response)
 		}
@@ -422,41 +440,24 @@ func (a *app) matrixTaskResponses(ctx context.Context, roomID string) ([]matrixT
 	return out, nil
 }
 
-func matrixTaskNextRunAt(now time.Time, roomEnabled bool, task persistence.PulseTask) (time.Time, bool) {
-	if !roomEnabled || !task.Enabled {
-		return time.Time{}, false
-	}
-	interval := time.Duration(task.IntervalSeconds) * time.Second
-	if interval <= 0 {
-		interval = 5 * time.Minute
-	}
-	if task.LastRunAt.IsZero() {
-		return now, true
-	}
-	next := task.LastRunAt.UTC().Add(interval)
-	if next.Before(now) {
-		return now, true
-	}
-	return next, true
-}
-
-func (a *app) upsertMatrixTask(ctx context.Context, roomID, taskID, routeTarget, title, prompt string, intervalSeconds int, enabled *bool) (matrixTaskResponse, error) {
+func (a *app) upsertMatrixTask(ctx context.Context, roomID, taskID string, req matrixTaskUpsertRequest) (matrixTaskResponse, error) {
 	roomConfig, ok := a.matrixRoomConfig(roomID)
 	if !ok {
 		return matrixTaskResponse{}, errors.New("matrix room not configured")
 	}
-	resolvedTarget := strings.TrimSpace(routeTarget)
+	resolvedTarget := strings.TrimSpace(req.RouteTarget)
 	if resolvedTarget == "" {
 		resolvedTarget = strings.TrimSpace(roomConfig.DefaultTarget)
 	}
 	if resolvedTarget == "" {
 		return matrixTaskResponse{}, errors.New("route target required")
 	}
-	if strings.TrimSpace(title) == "" || strings.TrimSpace(prompt) == "" {
+	if strings.TrimSpace(req.Title) == "" || strings.TrimSpace(req.Prompt) == "" {
 		return matrixTaskResponse{}, errors.New("title and prompt are required")
 	}
-	if intervalSeconds <= 0 {
-		intervalSeconds = 300
+	schedule, err := matrixScheduleFromRequest(req.ScheduleType, req.IntervalSeconds, req.SpecificTime, req.SpecificAt)
+	if err != nil {
+		return matrixTaskResponse{}, err
 	}
 	room, err := a.pulseRuntime.store.EnsureRoom(ctx, roomID, resolvedTarget)
 	if err != nil {
@@ -466,13 +467,16 @@ func (a *app) upsertMatrixTask(ctx context.Context, roomID, taskID, routeTarget,
 		ID:              strings.TrimSpace(taskID),
 		RoomID:          roomID,
 		RouteTarget:     resolvedTarget,
-		Title:           strings.TrimSpace(title),
-		Prompt:          strings.TrimSpace(prompt),
-		IntervalSeconds: intervalSeconds,
+		Title:           strings.TrimSpace(req.Title),
+		Prompt:          strings.TrimSpace(req.Prompt),
+		ScheduleType:    schedule.ScheduleType,
+		IntervalSeconds: schedule.IntervalSeconds,
+		SpecificTime:    schedule.SpecificTime,
+		SpecificAt:      schedule.SpecificAt,
 		Enabled:         room.Enabled,
 	}
-	if enabled != nil {
-		task.Enabled = *enabled
+	if req.Enabled != nil {
+		task.Enabled = *req.Enabled
 	}
 	stored, err := a.pulseRuntime.store.UpsertTask(ctx, task)
 	if err != nil {
@@ -481,13 +485,7 @@ func (a *app) upsertMatrixTask(ctx context.Context, roomID, taskID, routeTarget,
 	return a.matrixTaskResponseFor(ctx, room, stored)
 }
 
-func (a *app) patchMatrixTask(ctx context.Context, roomID, taskID string, req struct {
-	RouteTarget     *string `json:"routeTarget"`
-	Title           *string `json:"title"`
-	Prompt          *string `json:"prompt"`
-	IntervalSeconds *int    `json:"intervalSeconds"`
-	Enabled         *bool   `json:"enabled"`
-}) (matrixTaskResponse, error) {
+func (a *app) patchMatrixTask(ctx context.Context, roomID, taskID string, req matrixTaskPatchRequest) (matrixTaskResponse, error) {
 	room, task, err := a.matrixTaskByID(ctx, roomID, taskID)
 	if err != nil {
 		return matrixTaskResponse{}, err
@@ -502,7 +500,58 @@ func (a *app) patchMatrixTask(ctx context.Context, roomID, taskID string, req st
 		task.Prompt = strings.TrimSpace(*req.Prompt)
 	}
 	if req.IntervalSeconds != nil {
+		task.ScheduleType = pulse.ScheduleInterval
 		task.IntervalSeconds = *req.IntervalSeconds
+		task.SpecificTime = ""
+		task.SpecificAt = time.Time{}
+	}
+	if req.ScheduleType != nil || req.SpecificTime != nil || req.SpecificAt != nil {
+		scheduleType := task.ScheduleType
+		if req.ScheduleType != nil {
+			scheduleType = *req.ScheduleType
+		}
+		intervalSeconds := task.IntervalSeconds
+		if req.IntervalSeconds != nil {
+			intervalSeconds = *req.IntervalSeconds
+		}
+		specificTime := task.SpecificTime
+		if req.SpecificTime != nil {
+			specificTime = *req.SpecificTime
+		}
+		specificAt := ""
+		if !task.SpecificAt.IsZero() {
+			specificAt = task.SpecificAt.Format(time.RFC3339)
+		}
+		if req.SpecificAt != nil {
+			specificAt = *req.SpecificAt
+		}
+		if req.ScheduleType != nil {
+			switch strings.TrimSpace(*req.ScheduleType) {
+			case pulse.ScheduleDailyTime:
+				if req.SpecificAt == nil {
+					specificAt = ""
+				}
+			case pulse.ScheduleOnceAt:
+				if req.SpecificTime == nil {
+					specificTime = ""
+				}
+			case pulse.ScheduleInterval:
+				if req.SpecificTime == nil {
+					specificTime = ""
+				}
+				if req.SpecificAt == nil {
+					specificAt = ""
+				}
+			}
+		}
+		schedule, err := matrixScheduleFromRequest(scheduleType, intervalSeconds, specificTime, specificAt)
+		if err != nil {
+			return matrixTaskResponse{}, err
+		}
+		task.ScheduleType = schedule.ScheduleType
+		task.IntervalSeconds = schedule.IntervalSeconds
+		task.SpecificTime = schedule.SpecificTime
+		task.SpecificAt = schedule.SpecificAt
 	}
 	if req.Enabled != nil {
 		task.Enabled = *req.Enabled
@@ -528,13 +577,7 @@ func (a *app) patchMatrixTask(ctx context.Context, roomID, taskID string, req st
 }
 
 func (a *app) patchMatrixTaskEnabled(ctx context.Context, roomID, taskID string, enabled *bool) (matrixTaskResponse, error) {
-	return a.patchMatrixTask(ctx, roomID, taskID, struct {
-		RouteTarget     *string `json:"routeTarget"`
-		Title           *string `json:"title"`
-		Prompt          *string `json:"prompt"`
-		IntervalSeconds *int    `json:"intervalSeconds"`
-		Enabled         *bool   `json:"enabled"`
-	}{Enabled: enabled})
+	return a.patchMatrixTask(ctx, roomID, taskID, matrixTaskPatchRequest{Enabled: enabled})
 }
 
 func (a *app) forceMatrixTaskRunNow(ctx context.Context, roomID, taskID string) (matrixTaskResponse, error) {
@@ -544,7 +587,7 @@ func (a *app) forceMatrixTaskRunNow(ctx context.Context, roomID, taskID string) 
 	}
 	interval := time.Duration(task.IntervalSeconds) * time.Second
 	if interval <= 0 {
-		interval = 5 * time.Minute
+		interval = 48 * time.Hour
 	}
 	task.LastRunAt = time.Now().UTC().Add(-interval - time.Second)
 	stored, err := a.pulseRuntime.store.UpsertTask(ctx, task)
@@ -597,8 +640,12 @@ func (a *app) matrixTaskResponseFor(ctx context.Context, room persistence.PulseR
 		RouteTarget:       status.Task.RouteTarget,
 		Title:             status.Task.Title,
 		Prompt:            status.Task.Prompt,
+		ScheduleType:      status.Task.ScheduleType,
+		ScheduleLabel:     status.ScheduleLabel,
 		IntervalSeconds:   status.Task.IntervalSeconds,
 		IntervalHuman:     status.IntervalHuman,
+		SpecificTime:      status.Task.SpecificTime,
+		SpecificAt:        status.Task.SpecificAt,
 		Enabled:           status.Task.Enabled,
 		RoomEnabled:       room.Enabled,
 		Due:               status.Due,
@@ -608,11 +655,37 @@ func (a *app) matrixTaskResponseFor(ctx context.Context, room persistence.PulseR
 		CreatedAt:         status.Task.CreatedAt,
 		UpdatedAt:         status.Task.UpdatedAt,
 	}
-	if nextRunAt, ok := matrixTaskNextRunAt(time.Now().UTC(), room.Enabled, status.Task); ok {
-		response.NextRunAt = nextRunAt
-		response.NextRunHuman = nextRunAt.Format(time.RFC3339)
+	if !status.NextRunAt.IsZero() {
+		response.NextRunAt = status.NextRunAt
+		response.NextRunHuman = status.NextRunAt.Format(time.RFC3339)
 	}
 	return response, nil
+}
+
+func matrixScheduleFromRequest(scheduleType string, intervalSeconds int, specificTime, specificAt string) (persistence.PulseTask, error) {
+	task := persistence.PulseTask{
+		ScheduleType:    strings.TrimSpace(scheduleType),
+		IntervalSeconds: intervalSeconds,
+		SpecificTime:    strings.TrimSpace(specificTime),
+	}
+	if strings.TrimSpace(specificAt) != "" {
+		parsed, err := parseMatrixSpecificAt(strings.TrimSpace(specificAt))
+		if err != nil {
+			return task, errors.New("specificAt must be RFC3339 or YYYY-MM-DDTHH:MM")
+		}
+		task.SpecificAt = parsed
+	}
+	return pulse.NormalizeTaskSchedule(task)
+}
+
+func parseMatrixSpecificAt(value string) (time.Time, error) {
+	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+		return parsed, nil
+	}
+	if parsed, err := time.ParseInLocation("2006-01-02T15:04", value, time.Local); err == nil {
+		return parsed, nil
+	}
+	return time.Time{}, errors.New("invalid specificAt")
 }
 
 func (a *app) matrixRoomConfig(roomID string) (configRoom matrixRoomResponse, ok bool) {

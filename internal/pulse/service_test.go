@@ -111,6 +111,80 @@ func TestEvaluateRoomFiltersOtherBotsTasks(t *testing.T) {
 	}
 }
 
+func TestEvaluateRoomDailyTimeDueOncePerDay(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService()
+	room := persistence.PulseRoom{RoomID: "!room:test", RouteTarget: "bot", Enabled: true}
+	now := time.Date(2026, 5, 11, 9, 5, 0, 0, time.Local)
+	tasks := []persistence.PulseTask{{
+		ID:           "daily",
+		RoomID:       room.RoomID,
+		RouteTarget:  room.RouteTarget,
+		Title:        "Daily check",
+		Prompt:       "Check things",
+		ScheduleType: ScheduleDailyTime,
+		SpecificTime: "09:00",
+		Enabled:      true,
+		LastRunAt:    time.Date(2026, 5, 10, 9, 10, 0, 0, time.Local),
+	}}
+
+	plan := svc.EvaluateRoom(now, room, tasks, room.RouteTarget)
+	if len(plan.DueTasks) != 1 || !plan.Tasks[0].Due {
+		t.Fatalf("expected daily task to be due, got %#v", plan.Tasks)
+	}
+
+	tasks[0].LastRunAt = time.Date(2026, 5, 11, 9, 1, 0, 0, time.Local)
+	plan = svc.EvaluateRoom(now, room, tasks, room.RouteTarget)
+	if len(plan.DueTasks) != 0 || plan.Tasks[0].Due {
+		t.Fatalf("expected daily task to run only once per day, got %#v", plan.Tasks)
+	}
+	if plan.Tasks[0].ScheduleLabel != "daily at 09:00 local time" {
+		t.Fatalf("unexpected schedule label %q", plan.Tasks[0].ScheduleLabel)
+	}
+}
+
+func TestEvaluateRoomSpecificSchedulesAreDueImmediatelyWhenNeverRun(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService()
+	now := time.Date(2026, 5, 11, 8, 0, 0, 0, time.Local)
+	room := persistence.PulseRoom{RoomID: "!room:test", RouteTarget: "bot", Enabled: true}
+	tasks := []persistence.PulseTask{
+		{ID: "daily", RoomID: room.RoomID, RouteTarget: room.RouteTarget, Title: "Daily", Prompt: "Daily", ScheduleType: ScheduleDailyTime, SpecificTime: "17:00", Enabled: true},
+		{ID: "once", RoomID: room.RoomID, RouteTarget: room.RouteTarget, Title: "Once", Prompt: "Once", ScheduleType: ScheduleOnceAt, SpecificAt: now.Add(24 * time.Hour), Enabled: true},
+	}
+
+	plan := svc.EvaluateRoom(now, room, tasks, room.RouteTarget)
+	if len(plan.DueTasks) != 2 {
+		t.Fatalf("expected never-run specific schedules to be due immediately, got %#v", plan.DueTasks)
+	}
+}
+
+func TestEvaluateRoomOnceAtDoesNotRepeat(t *testing.T) {
+	t.Parallel()
+
+	svc := NewService()
+	now := time.Date(2026, 5, 11, 8, 0, 0, 0, time.Local)
+	room := persistence.PulseRoom{RoomID: "!room:test", RouteTarget: "bot", Enabled: true}
+	tasks := []persistence.PulseTask{{
+		ID:           "once",
+		RoomID:       room.RoomID,
+		RouteTarget:  room.RouteTarget,
+		Title:        "Once",
+		Prompt:       "Once",
+		ScheduleType: ScheduleOnceAt,
+		SpecificAt:   now.Add(-time.Hour),
+		Enabled:      true,
+		LastRunAt:    now.Add(-30 * time.Minute),
+	}}
+
+	plan := svc.EvaluateRoom(now, room, tasks, room.RouteTarget)
+	if len(plan.DueTasks) != 0 || plan.Tasks[0].Due {
+		t.Fatalf("expected one-off task not to repeat, got %#v", plan.Tasks)
+	}
+}
+
 func TestPulseSessionIDDeterministic(t *testing.T) {
 	t.Parallel()
 

@@ -3,6 +3,7 @@ package databases
 import (
 	"context"
 	"manifold/internal/persistence"
+	pulsecore "manifold/internal/pulse"
 	"sort"
 	"strings"
 	"sync"
@@ -172,8 +173,10 @@ func (s *memPulseStore) UpsertTask(ctx context.Context, task persistence.PulseTa
 	} else {
 		task.CreatedAt = now
 	}
-	if task.IntervalSeconds <= 0 {
-		task.IntervalSeconds = 300
+	var err error
+	task, err = pulsecore.NormalizeTaskSchedule(task)
+	if err != nil {
+		return persistence.PulseTask{}, err
 	}
 	task.UpdatedAt = now
 	s.tasks[scopeKey][task.ID] = task

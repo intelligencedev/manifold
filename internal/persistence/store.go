@@ -61,7 +61,10 @@ type PulseTask struct {
 	RouteTarget       string    `json:"routeTarget,omitempty"`
 	Title             string    `json:"title"`
 	Prompt            string    `json:"prompt"`
+	ScheduleType      string    `json:"scheduleType,omitempty"`
 	IntervalSeconds   int       `json:"intervalSeconds"`
+	SpecificTime      string    `json:"specificTime,omitempty"`
+	SpecificAt        time.Time `json:"specificAt,omitempty"`
 	Enabled           bool      `json:"enabled"`
 	LastRunAt         time.Time `json:"lastRunAt,omitempty"`
 	LastResultSummary string    `json:"lastResultSummary,omitempty"`

@@ -371,6 +371,36 @@ Important behavior:
 - pulse execution runs inside `agentd`
 - pulse logs are internal by default
 - room-facing pulse messages should be sent intentionally through the Matrix message tool, not assumed automatically
+- interval tasks run every `interval_seconds`
+- daily-time tasks run at `specific_time` using the `agentd` server's local timezone
+- one-off tasks use `specific_at` and also interpret `YYYY-MM-DDTHH:MM` values in the `agentd` server's local timezone
+- newly created pulse tasks run immediately once, then follow their configured schedule after that first successful run
+
+Examples:
+
+```text
+@gpt Create a pulse task for this room:
+title: Hourly room check
+schedule_type: interval
+interval_seconds: 3600
+prompt: Review the room context. If there is anything useful to report, send a short update using matrix_room_message.
+```
+
+```text
+@gpt Create a daily pulse task for this room:
+title: Morning summary
+schedule_type: daily_time
+specific_time: 09:00
+prompt: Summarize important project updates and post them to this Matrix room using matrix_room_message.
+```
+
+```text
+@gpt Create a one-off pulse task for this room:
+title: Release reminder
+schedule_type: once_at
+specific_at: 2026-05-12T15:30
+prompt: Remind the room about the release checkpoint using matrix_room_message.
+```
 
 ## Summary
 

@@ -96,7 +96,10 @@ const editingTaskId = ref<string | null>(null);
 const blankDraft = (): MatrixTaskUpsertInput => ({
   title: "",
   prompt: "",
+  scheduleType: "interval",
   intervalSeconds: 3600,
+  specificTime: "09:00",
+  specificAt: defaultSpecificAt(),
   enabled: true,
 });
 
@@ -108,7 +111,10 @@ function startEditTask(task: MatrixTask) {
   editDraft.value = {
     title: task.title,
     prompt: task.prompt,
+    scheduleType: task.scheduleType || "interval",
     intervalSeconds: task.intervalSeconds,
+    specificTime: task.specificTime || "09:00",
+    specificAt: task.specificAt ? toLocalDatetimeInput(task.specificAt) : defaultSpecificAt(),
     routeTarget: task.routeTarget,
     enabled: task.enabled,
   };
@@ -124,7 +130,7 @@ function invalidateTasks() {
 }
 
 const createMutation = useMutation({
-  mutationFn: () => createMatrixRoomTask(selectedRoomId.value!, draft.value),
+  mutationFn: () => createMatrixRoomTask(selectedRoomId.value!, taskPayload(draft.value) as MatrixTaskUpsertInput),
   onSuccess: () => {
     showNewTask.value = false;
     draft.value = blankDraft();
@@ -134,7 +140,7 @@ const createMutation = useMutation({
 
 const patchMutation = useMutation({
   mutationFn: ({ id, patch }: { id: string; patch: MatrixTaskPatchInput }) =>
-    updateMatrixRoomTask(selectedRoomId.value!, id, patch),
+    updateMatrixRoomTask(selectedRoomId.value!, id, taskPayload(patch) as MatrixTaskPatchInput),
   onSuccess: () => {
     cancelEdit();
     invalidateTasks();
@@ -177,6 +183,39 @@ function humanInterval(seconds: number) {
   if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
   if (seconds < 86400) return `${Math.round(seconds / 3600)}h`;
   return `${Math.round(seconds / 86400)}d`;
+}
+
+function toLocalDatetimeInput(iso: string) {
+  const date = new Date(iso);
+  const offsetMs = date.getTimezoneOffset() * 60_000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function defaultSpecificAt() {
+  return toLocalDatetimeInput(new Date(Date.now() + 60 * 60_000).toISOString());
+}
+
+function scheduleLabel(task: MatrixTask) {
+  return task.scheduleLabel || (task.scheduleType === "interval" ? humanInterval(task.intervalSeconds) : task.scheduleType);
+}
+
+function taskPayload(input: MatrixTaskUpsertInput | MatrixTaskPatchInput) {
+  const payload: MatrixTaskUpsertInput | MatrixTaskPatchInput = {
+    routeTarget: input.routeTarget,
+    title: input.title,
+    prompt: input.prompt,
+    scheduleType: input.scheduleType,
+    enabled: input.enabled,
+  };
+  if (!payload.scheduleType || payload.scheduleType === "interval") {
+    payload.scheduleType = "interval";
+    payload.intervalSeconds = input.intervalSeconds || 3600;
+  } else if (payload.scheduleType === "daily_time") {
+    payload.specificTime = input.specificTime || "09:00";
+  } else {
+    payload.specificAt = input.specificAt || defaultSpecificAt();
+  }
+  return payload;
 }
 
 const mutErr = ref<string | null>(null);
@@ -408,6 +447,18 @@ async function doDelete(id: string) {
               </label>
 
               <label class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
+                Schedule
+                <select
+                  v-model="draft.scheduleType"
+                  class="rounded-lg border border-border/60 bg-surface px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40"
+                >
+                  <option value="interval">Interval</option>
+                  <option value="daily_time">Daily at time</option>
+                  <option value="once_at">Once at date/time</option>
+                </select>
+              </label>
+
+              <label v-if="draft.scheduleType === 'interval'" class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
                 Interval
                 <select
                   v-model.number="draft.intervalSeconds"
@@ -415,6 +466,24 @@ async function doDelete(id: string) {
                 >
                   <option v-for="p in INTERVAL_PRESETS" :key="p.value" :value="p.value">{{ p.label }}</option>
                 </select>
+              </label>
+
+              <label v-else-if="draft.scheduleType === 'daily_time'" class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
+                Local time
+                <input
+                  v-model="draft.specificTime"
+                  type="time"
+                  class="rounded-lg border border-border/60 bg-surface px-3 py-2 text-sm font-normal normal-case tracking-normal text-foreground focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40"
+                />
+              </label>
+
+              <label v-else class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
+                Local date/time
+                <input
+                  v-model="draft.specificAt"
+                  type="datetime-local"
+                  class="rounded-lg border border-border/60 bg-surface px-3 py-2 text-sm font-normal normal-case tracking-normal text-foreground focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40"
+                />
               </label>
 
               <label class="col-span-full flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
@@ -493,6 +562,17 @@ async function doDelete(id: string) {
                     />
                   </label>
                   <label class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
+                    Schedule
+                    <select
+                      v-model="editDraft.scheduleType"
+                      class="rounded-lg border border-border/60 bg-surface px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40"
+                    >
+                      <option value="interval">Interval</option>
+                      <option value="daily_time">Daily at time</option>
+                      <option value="once_at">Once at date/time</option>
+                    </select>
+                  </label>
+                  <label v-if="editDraft.scheduleType === 'interval'" class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
                     Interval
                     <select
                       v-model.number="editDraft.intervalSeconds"
@@ -500,6 +580,22 @@ async function doDelete(id: string) {
                     >
                       <option v-for="p in INTERVAL_PRESETS" :key="p.value" :value="p.value">{{ p.label }}</option>
                     </select>
+                  </label>
+                  <label v-else-if="editDraft.scheduleType === 'daily_time'" class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
+                    Local time
+                    <input
+                      v-model="editDraft.specificTime"
+                      type="time"
+                      class="rounded-lg border border-border/60 bg-surface px-3 py-2 text-sm font-normal normal-case tracking-normal text-foreground focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40"
+                    />
+                  </label>
+                  <label v-else class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
+                    Local date/time
+                    <input
+                      v-model="editDraft.specificAt"
+                      type="datetime-local"
+                      class="rounded-lg border border-border/60 bg-surface px-3 py-2 text-sm font-normal normal-case tracking-normal text-foreground focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40"
+                    />
                   </label>
                   <label class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
                     Prompt
@@ -557,7 +653,7 @@ async function doDelete(id: string) {
 
               <!-- metadata row -->
               <div class="flex flex-wrap items-center gap-1.5 px-4 py-2">
-                <Pill tone="neutral" size="sm">⏱ {{ humanInterval(task.intervalSeconds) }}</Pill>
+                <Pill tone="neutral" size="sm">{{ scheduleLabel(task) }}</Pill>
                 <Pill v-if="task.routeTarget" tone="info" size="sm">→ {{ task.routeTarget }}</Pill>
                 <Pill v-if="task.due" tone="warning" size="sm">due</Pill>
               </div>

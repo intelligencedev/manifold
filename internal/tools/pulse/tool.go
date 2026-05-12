@@ -22,7 +22,10 @@ type toolArgs struct {
 	TaskID          string  `json:"task_id"`
 	Title           string  `json:"title"`
 	Prompt          string  `json:"prompt"`
+	ScheduleType    string  `json:"schedule_type"`
 	IntervalSeconds int     `json:"interval_seconds"`
+	SpecificTime    string  `json:"specific_time"`
+	SpecificAt      string  `json:"specific_at"`
 	Enabled         *bool   `json:"enabled"`
 	ProjectID       *string `json:"project_id"`
 }
@@ -41,13 +44,13 @@ func (t *Tool) Name() string { return toolName }
 func (t *Tool) JSONSchema() map[string]any {
 	return map[string]any{
 		"name":        toolName,
-		"description": "Manage recurring Matrix pulse tasks for the current room. Requires a room-scoped request context.",
+		"description": "Manage Matrix pulse tasks for the current room. Supports interval schedules, daily local times, and one-off local timestamps. Requires a room-scoped request context.",
 		"parameters": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
 				"action": map[string]any{
 					"type":        "string",
-					"description": "One of: list, configure_room, upsert_task, delete_task, enable_task, disable_task, set_interval, clear_claim.",
+					"description": "One of: list, configure_room, upsert_task, delete_task, enable_task, disable_task, set_interval, set_schedule, set_time, clear_claim.",
 				},
 				"route_target": map[string]any{
 					"type":        "string",
@@ -67,7 +70,19 @@ func (t *Tool) JSONSchema() map[string]any {
 				},
 				"interval_seconds": map[string]any{
 					"type":        "integer",
-					"description": "How often the task should execute, in seconds.",
+					"description": "How often an interval task should execute, in seconds. Used when schedule_type is interval or omitted.",
+				},
+				"schedule_type": map[string]any{
+					"type":        "string",
+					"description": "Schedule mode: interval, daily_time, or once_at. Omit for interval unless using specific_time or specific_at.",
+				},
+				"specific_time": map[string]any{
+					"type":        "string",
+					"description": "Daily local server time in HH:MM format, used with schedule_type daily_time.",
+				},
+				"specific_at": map[string]any{
+					"type":        "string",
+					"description": "One-off local server timestamp. Use RFC3339 or YYYY-MM-DDTHH:MM with schedule_type once_at.",
 				},
 				"enabled": map[string]any{
 					"type":        "boolean",
@@ -122,6 +137,11 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 		return t.handleSetTaskEnabled(ctx, roomID, targetRouteTarget, args.TaskID, false)
 	case "set_interval":
 		return t.handleSetTaskInterval(ctx, roomID, targetRouteTarget, args.TaskID, args.IntervalSeconds)
+	case "set_schedule":
+		return t.handleSetTaskSchedule(ctx, roomID, targetRouteTarget, args.TaskID, args)
+	case "set_time":
+		args.ScheduleType = pulsecore.ScheduleDailyTime
+		return t.handleSetTaskSchedule(ctx, roomID, targetRouteTarget, args.TaskID, args)
 	default:
 		return map[string]any{"ok": false, "error": "unsupported action"}, nil
 	}
@@ -199,8 +219,9 @@ func (t *Tool) handleUpsertTask(ctx context.Context, roomID, routeTarget string,
 	if strings.TrimSpace(args.Prompt) == "" {
 		return map[string]any{"ok": false, "error": "prompt is required"}, nil
 	}
-	if args.IntervalSeconds <= 0 {
-		return map[string]any{"ok": false, "error": "interval_seconds must be positive"}, nil
+	schedule, err := scheduleFromArgs(args)
+	if err != nil {
+		return map[string]any{"ok": false, "error": err.Error()}, nil
 	}
 	room, err := t.store.EnsureRoom(ctx, roomID, routeTarget)
 	if err != nil {
@@ -212,7 +233,10 @@ func (t *Tool) handleUpsertTask(ctx context.Context, roomID, routeTarget string,
 		RouteTarget:     routeTarget,
 		Title:           strings.TrimSpace(args.Title),
 		Prompt:          strings.TrimSpace(args.Prompt),
-		IntervalSeconds: args.IntervalSeconds,
+		ScheduleType:    schedule.ScheduleType,
+		IntervalSeconds: schedule.IntervalSeconds,
+		SpecificTime:    schedule.SpecificTime,
+		SpecificAt:      schedule.SpecificAt,
 		Enabled:         true,
 	}
 	if args.Enabled != nil {
@@ -264,7 +288,28 @@ func (t *Tool) handleSetTaskInterval(ctx context.Context, roomID, routeTarget, t
 		return map[string]any{"ok": false, "error": "interval_seconds must be positive"}, nil
 	}
 	updated, err := t.updateExistingTask(ctx, roomID, routeTarget, taskID, func(task persistence.PulseTask) persistence.PulseTask {
+		task.ScheduleType = pulsecore.ScheduleInterval
 		task.IntervalSeconds = intervalSeconds
+		task.SpecificTime = ""
+		task.SpecificAt = time.Time{}
+		return task
+	})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true, "task": updated}, nil
+}
+
+func (t *Tool) handleSetTaskSchedule(ctx context.Context, roomID, routeTarget, taskID string, args toolArgs) (any, error) {
+	schedule, err := scheduleFromArgs(args)
+	if err != nil {
+		return map[string]any{"ok": false, "error": err.Error()}, nil
+	}
+	updated, err := t.updateExistingTask(ctx, roomID, routeTarget, taskID, func(task persistence.PulseTask) persistence.PulseTask {
+		task.ScheduleType = schedule.ScheduleType
+		task.IntervalSeconds = schedule.IntervalSeconds
+		task.SpecificTime = schedule.SpecificTime
+		task.SpecificAt = schedule.SpecificAt
 		return task
 	})
 	if err != nil {
@@ -289,4 +334,30 @@ func (t *Tool) updateExistingTask(ctx context.Context, roomID, routeTarget, task
 		}
 	}
 	return persistence.PulseTask{}, persistence.ErrNotFound
+}
+
+func scheduleFromArgs(args toolArgs) (persistence.PulseTask, error) {
+	schedule := persistence.PulseTask{
+		ScheduleType:    strings.TrimSpace(args.ScheduleType),
+		IntervalSeconds: args.IntervalSeconds,
+		SpecificTime:    strings.TrimSpace(args.SpecificTime),
+	}
+	if strings.TrimSpace(args.SpecificAt) != "" {
+		parsed, err := parseSpecificAt(strings.TrimSpace(args.SpecificAt))
+		if err != nil {
+			return schedule, fmt.Errorf("specific_at must be RFC3339 or YYYY-MM-DDTHH:MM")
+		}
+		schedule.SpecificAt = parsed
+	}
+	return pulsecore.NormalizeTaskSchedule(schedule)
+}
+
+func parseSpecificAt(value string) (time.Time, error) {
+	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+		return parsed, nil
+	}
+	if parsed, err := time.ParseInLocation("2006-01-02T15:04", value, time.Local); err == nil {
+		return parsed, nil
+	}
+	return time.Time{}, fmt.Errorf("invalid specific_at")
 }

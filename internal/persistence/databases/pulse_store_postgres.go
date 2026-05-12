@@ -3,6 +3,7 @@ package databases
 import (
 	"context"
 	"manifold/internal/persistence"
+	pulsecore "manifold/internal/pulse"
 	"strings"
 	"time"
 
@@ -60,6 +61,9 @@ CREATE TABLE IF NOT EXISTS pulse_tasks (
 );
 ALTER TABLE pulse_tasks ADD COLUMN IF NOT EXISTS route_target TEXT NOT NULL DEFAULT '';
 ALTER TABLE pulse_tasks ADD COLUMN IF NOT EXISTS bot_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE pulse_tasks ADD COLUMN IF NOT EXISTS schedule_type TEXT NOT NULL DEFAULT 'interval';
+ALTER TABLE pulse_tasks ADD COLUMN IF NOT EXISTS specific_time TEXT NOT NULL DEFAULT '';
+ALTER TABLE pulse_tasks ADD COLUMN IF NOT EXISTS specific_at TIMESTAMPTZ;
 UPDATE pulse_tasks
 SET route_target = COALESCE(NULLIF(route_target, ''), bot_id, '')
 WHERE route_target IS NULL OR route_target = '';
@@ -305,7 +309,7 @@ ON CONFLICT (room_id, route_target) DO UPDATE SET
 
 func (s *pgPulseStore) ListTasks(ctx context.Context, roomID, routeTarget string) ([]persistence.PulseTask, error) {
 	rows, err := s.pool.Query(ctx, `
-SELECT id, room_id, route_target, title, prompt, interval_seconds, enabled, last_run_at, last_result_summary, created_at, updated_at
+SELECT id, room_id, route_target, title, prompt, schedule_type, interval_seconds, specific_time, specific_at, enabled, last_run_at, last_result_summary, created_at, updated_at
 FROM pulse_tasks
 WHERE room_id = $1 AND route_target = $2
 ORDER BY created_at ASC, id ASC
@@ -338,26 +342,31 @@ func (s *pgPulseStore) UpsertTask(ctx context.Context, task persistence.PulseTas
 	if strings.TrimSpace(task.ID) == "" {
 		task.ID = uuid.NewString()
 	}
-	if task.IntervalSeconds <= 0 {
-		task.IntervalSeconds = 300
+	var err error
+	task, err = pulsecore.NormalizeTaskSchedule(task)
+	if err != nil {
+		return persistence.PulseTask{}, err
 	}
-	_, err := s.pool.Exec(ctx, `
+	_, err = s.pool.Exec(ctx, `
 INSERT INTO pulse_tasks (
-	id, room_id, route_target, bot_id, title, prompt, interval_seconds, enabled, last_run_at, last_result_summary, created_at, updated_at
+	id, room_id, route_target, bot_id, title, prompt, schedule_type, interval_seconds, specific_time, specific_at, enabled, last_run_at, last_result_summary, created_at, updated_at
 )
-VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, NULLIF($9, ''), NOW(), NOW())
+VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULLIF($12, ''), NOW(), NOW())
 ON CONFLICT (id) DO UPDATE SET
     room_id = EXCLUDED.room_id,
 	route_target = EXCLUDED.route_target,
 	bot_id = EXCLUDED.bot_id,
     title = EXCLUDED.title,
     prompt = EXCLUDED.prompt,
+    schedule_type = EXCLUDED.schedule_type,
     interval_seconds = EXCLUDED.interval_seconds,
+    specific_time = EXCLUDED.specific_time,
+    specific_at = EXCLUDED.specific_at,
     enabled = EXCLUDED.enabled,
     last_run_at = COALESCE(EXCLUDED.last_run_at, pulse_tasks.last_run_at),
     last_result_summary = COALESCE(EXCLUDED.last_result_summary, pulse_tasks.last_result_summary),
     updated_at = NOW()
-`, task.ID, roomID, routeTarget, strings.TrimSpace(task.Title), strings.TrimSpace(task.Prompt), task.IntervalSeconds, task.Enabled, nullTime(task.LastRunAt), emptyToNil(task.LastResultSummary))
+`, task.ID, roomID, routeTarget, strings.TrimSpace(task.Title), strings.TrimSpace(task.Prompt), task.ScheduleType, task.IntervalSeconds, task.SpecificTime, nullTime(task.SpecificAt), task.Enabled, nullTime(task.LastRunAt), emptyToNil(task.LastResultSummary))
 	if err != nil {
 		return persistence.PulseTask{}, err
 	}

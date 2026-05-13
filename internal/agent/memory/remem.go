@@ -74,7 +74,13 @@ func NewReMemController(cfg ReMemConfig) *ReMemController {
 
 // Execute runs the Think-Act-Refine loop for the given task.
 // Returns the final action content and any accumulated reasoning trace.
-func (rc *ReMemController) Execute(ctx context.Context, task string, tools []llm.ToolSchema) (string, []string, error) {
+//
+// ReMem is a memory-preparation step. It reasons about retrieved memories and
+// edits them; it does not dispatch tools. The agent's tool schemas are
+// intentionally not forwarded to the underlying LLM call so the prompt stays
+// compact even when the host agent has many tools registered. Sending the full
+// schema list here was previously overflowing small-context memory models.
+func (rc *ReMemController) Execute(ctx context.Context, task string, _ []llm.ToolSchema) (string, []string, error) {
 	log := observability.LoggerWithTrace(ctx)
 
 	// Search for relevant memories
@@ -93,13 +99,14 @@ func (rc *ReMemController) Execute(ctx context.Context, task string, tools []llm
 		// Build prompt with task, memories, and reasoning trace
 		prompt := rc.buildPrompt(task, retrieved, reasoningTrace)
 
-		// Call LLM
+		// Call LLM. ReMem responses are pure JSON, never tool calls, so we
+		// intentionally pass nil for tool schemas to keep the prompt small.
 		msgs := []llm.Message{
 			{Role: "system", Content: reMemSystemPrompt()},
 			{Role: "user", Content: prompt},
 		}
 
-		resp, err := rc.llm.Chat(ctx, msgs, tools, rc.model)
+		resp, err := rc.llm.Chat(ctx, msgs, nil, rc.model)
 		if err != nil {
 			log.Error().Err(err).Msg("remem_llm_call_failed")
 			return "", reasoningTrace, fmt.Errorf("LLM call failed: %w", err)
@@ -145,7 +152,7 @@ func (rc *ReMemController) Execute(ctx context.Context, task string, tools []llm
 	}
 
 	log.Warn().Msg("remem_max_inner_steps_reached")
-	finalContent, err = rc.forceFinalAct(ctx, task, retrieved, reasoningTrace, tools)
+	finalContent, err = rc.forceFinalAct(ctx, task, retrieved, reasoningTrace)
 	if err != nil {
 		return "", reasoningTrace, err
 	}
@@ -205,14 +212,15 @@ func extractJSONObject(content string) string {
 	return strings.TrimSpace(content[start : end+1])
 }
 
-func (rc *ReMemController) forceFinalAct(ctx context.Context, task string, retrieved []*MemoryEntry, trace []string, tools []llm.ToolSchema) (string, error) {
+func (rc *ReMemController) forceFinalAct(ctx context.Context, task string, retrieved []*MemoryEntry, trace []string) (string, error) {
 	prompt := rc.buildPrompt(task, retrieved, trace)
 	prompt += "\n\nYou have used your memory-preparation budget; hand off to the main agent now. Respond with an ACT JSON object."
 	msgs := []llm.Message{
 		{Role: "system", Content: reMemSystemPrompt()},
 		{Role: "user", Content: prompt},
 	}
-	resp, err := rc.llm.Chat(ctx, msgs, tools, rc.model)
+	// ReMem responses are pure JSON, not tool calls, so no tool schemas are forwarded.
+	resp, err := rc.llm.Chat(ctx, msgs, nil, rc.model)
 	if err != nil {
 		return "", fmt.Errorf("force final ACT: %w", err)
 	}

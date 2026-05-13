@@ -3,9 +3,11 @@ package agentd
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -96,6 +98,252 @@ func TestPulseRuntimePollOnceRunsDueTaskWithoutPostingFinalReply(t *testing.T) {
 	}
 	if got := storeMessages[len(storeMessages)-1].Content; got != "specialist response" {
 		t.Fatalf("expected stored pulse assistant response, got %q", got)
+	}
+}
+
+func TestPulseRuntimeRunsSameSpecialistTasksSeparatelyAndSequentially(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var active int
+	var overlapped bool
+	var requestBodies []string
+	specialistServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		mu.Lock()
+		active++
+		if active > 1 {
+			overlapped = true
+		}
+		requestBodies = append(requestBodies, string(body))
+		mu.Unlock()
+
+		time.Sleep(25 * time.Millisecond)
+
+		mu.Lock()
+		active--
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"specialist response","tool_calls":[]}}]}`))
+	}))
+	defer specialistServer.Close()
+
+	a := newSpecialistTestApp(t, specialistServer.URL, []config.SpecialistConfig{{
+		Name:        "weather",
+		Description: "Weather specialist",
+		System:      "Respond as the weather specialist.",
+		Model:       "spec-model",
+	}})
+	a.cfg.Matrix.Enabled = true
+	service, err := matrixgw.New(config.MatrixConfig{
+		Enabled:       true,
+		HomeserverURL: "https://matrix.example.com",
+		UserID:        "@manifold:example.com",
+		AccessToken:   "token",
+		Rooms:         []config.MatrixRoomConfig{{RoomID: "!room:test"}},
+	})
+	if err != nil {
+		t.Fatalf("matrixgw.New() error = %v", err)
+	}
+	service.SetSyncClient(&fakeGatewayClient{})
+	a.matrixGateway = service
+
+	store := databases.NewPulseStore(nil)
+	ctx := context.Background()
+	room, err := store.EnsureRoom(ctx, "!room:test", "weather")
+	if err != nil {
+		t.Fatalf("EnsureRoom() error = %v", err)
+	}
+	firstTask, err := store.UpsertTask(ctx, persistence.PulseTask{
+		ID:              "task-1",
+		RoomID:          room.RoomID,
+		RouteTarget:     room.RouteTarget,
+		Title:           "First pulse task",
+		Prompt:          "Run the first pulse task only.",
+		IntervalSeconds: 60,
+		Enabled:         true,
+		LastRunAt:       time.Now().UTC().Add(-2 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("UpsertTask(first) error = %v", err)
+	}
+	secondTask, err := store.UpsertTask(ctx, persistence.PulseTask{
+		ID:              "task-2",
+		RoomID:          room.RoomID,
+		RouteTarget:     room.RouteTarget,
+		Title:           "Second pulse task",
+		Prompt:          "Run the second pulse task only.",
+		IntervalSeconds: 60,
+		Enabled:         true,
+		LastRunAt:       time.Now().UTC().Add(-2 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("UpsertTask(second) error = %v", err)
+	}
+
+	runtime := newPulseRuntime(a, store)
+	runtime.interval = time.Minute
+	runtime.lease = time.Minute
+	if err := runtime.pollOnce(ctx); err != nil {
+		t.Fatalf("pollOnce() error = %v", err)
+	}
+
+	mu.Lock()
+	bodies := append([]string(nil), requestBodies...)
+	gotOverlap := overlapped
+	mu.Unlock()
+
+	if gotOverlap {
+		t.Fatalf("expected tasks assigned to one specialist to run sequentially")
+	}
+	if len(bodies) != 2 {
+		t.Fatalf("expected two separate specialist requests, got %d", len(bodies))
+	}
+	if !strings.Contains(bodies[0], "First pulse task") || strings.Contains(bodies[0], "Second pulse task") {
+		t.Fatalf("expected first request to contain only first task, got %s", bodies[0])
+	}
+	if !strings.Contains(bodies[1], "Second pulse task") || strings.Contains(bodies[1], "First pulse task") {
+		t.Fatalf("expected second request to contain only second task, got %s", bodies[1])
+	}
+
+	tasks, err := store.ListTasks(ctx, room.RoomID, room.RouteTarget)
+	if err != nil {
+		t.Fatalf("ListTasks() error = %v", err)
+	}
+	lastRunByID := map[string]time.Time{}
+	for _, task := range tasks {
+		lastRunByID[task.ID] = task.LastRunAt
+	}
+	if !lastRunByID[firstTask.ID].After(firstTask.LastRunAt) || !lastRunByID[secondTask.ID].After(secondTask.LastRunAt) {
+		t.Fatalf("expected both tasks to be marked complete, got %#v", lastRunByID)
+	}
+}
+
+func TestPulseRuntimeRunsDifferentSpecialistsConcurrently(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var active int
+	var sawConcurrent bool
+	var requestBodies []string
+	bothStarted := make(chan struct{})
+	var closeBothStarted sync.Once
+	specialistServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		mu.Lock()
+		active++
+		requestBodies = append(requestBodies, string(body))
+		if active == 2 {
+			sawConcurrent = true
+			closeBothStarted.Do(func() { close(bothStarted) })
+		}
+		mu.Unlock()
+
+		select {
+		case <-bothStarted:
+		case <-time.After(500 * time.Millisecond):
+		}
+
+		mu.Lock()
+		active--
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"specialist response","tool_calls":[]}}]}`))
+	}))
+	defer specialistServer.Close()
+
+	a := newSpecialistTestApp(t, specialistServer.URL, []config.SpecialistConfig{
+		{
+			Name:        "weather",
+			Description: "Weather specialist",
+			System:      "Respond as the weather specialist.",
+			Model:       "weather-model",
+		},
+		{
+			Name:        "planner",
+			Description: "Planner specialist",
+			System:      "Respond as the planner specialist.",
+			Model:       "planner-model",
+		},
+	})
+	a.cfg.Matrix.Enabled = true
+	service, err := matrixgw.New(config.MatrixConfig{
+		Enabled:       true,
+		HomeserverURL: "https://matrix.example.com",
+		UserID:        "@manifold:example.com",
+		AccessToken:   "token",
+		Rooms:         []config.MatrixRoomConfig{{RoomID: "!room:test"}},
+	})
+	if err != nil {
+		t.Fatalf("matrixgw.New() error = %v", err)
+	}
+	service.SetSyncClient(&fakeGatewayClient{})
+	a.matrixGateway = service
+
+	store := databases.NewPulseStore(nil)
+	ctx := context.Background()
+	weatherRoom, err := store.EnsureRoom(ctx, "!room:test", "weather")
+	if err != nil {
+		t.Fatalf("EnsureRoom(weather) error = %v", err)
+	}
+	plannerRoom, err := store.EnsureRoom(ctx, "!room:test", "planner")
+	if err != nil {
+		t.Fatalf("EnsureRoom(planner) error = %v", err)
+	}
+	for _, task := range []persistence.PulseTask{
+		{
+			RoomID:          weatherRoom.RoomID,
+			RouteTarget:     weatherRoom.RouteTarget,
+			Title:           "Weather pulse task",
+			Prompt:          "Run the weather pulse task.",
+			IntervalSeconds: 60,
+			Enabled:         true,
+			LastRunAt:       time.Now().UTC().Add(-2 * time.Minute),
+		},
+		{
+			RoomID:          plannerRoom.RoomID,
+			RouteTarget:     plannerRoom.RouteTarget,
+			Title:           "Planner pulse task",
+			Prompt:          "Run the planner pulse task.",
+			IntervalSeconds: 60,
+			Enabled:         true,
+			LastRunAt:       time.Now().UTC().Add(-2 * time.Minute),
+		},
+	} {
+		if _, err := store.UpsertTask(ctx, task); err != nil {
+			t.Fatalf("UpsertTask(%s) error = %v", task.Title, err)
+		}
+	}
+
+	runtime := newPulseRuntime(a, store)
+	runtime.interval = time.Minute
+	runtime.lease = time.Minute
+	if err := runtime.pollOnce(ctx); err != nil {
+		t.Fatalf("pollOnce() error = %v", err)
+	}
+
+	mu.Lock()
+	bodies := append([]string(nil), requestBodies...)
+	gotConcurrent := sawConcurrent
+	mu.Unlock()
+
+	if !gotConcurrent {
+		t.Fatalf("expected tasks assigned to different specialists to run concurrently")
+	}
+	if len(bodies) != 2 {
+		t.Fatalf("expected two specialist requests, got %d", len(bodies))
 	}
 }
 

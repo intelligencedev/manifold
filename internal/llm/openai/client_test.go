@@ -148,6 +148,38 @@ func TestChatWithOptions_AppendsWebSearchOptions(t *testing.T) {
 	}
 }
 
+func TestChatWithOptionsNilToolsOmitsNativeWebSearch(t *testing.T) {
+	var payload map[string]any
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"hello","tool_calls":[]}}]}`))
+	})
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	httpClient, err := openAICloudTestClient(srv.URL)
+	if err != nil {
+		t.Fatalf("test client: %v", err)
+	}
+	c := config.OpenAIConfig{APIKey: "test", BaseURL: "https://api.openai.com/v1", Model: "gpt-5-search-api"}
+	cli := New(c, httpClient)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err = cli.ChatWithOptions(ctx, []llm.Message{{Role: "user", Content: "hi"}}, nil, "", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := payload["tools"]; ok {
+		t.Fatalf("expected no tools payload, got %#v", payload["tools"])
+	}
+	if _, ok := payload["web_search_options"]; ok {
+		t.Fatalf("expected no native web search options, got %#v", payload["web_search_options"])
+	}
+}
+
 func TestChatResponses_AppendsNativeWebSearchTool(t *testing.T) {
 	var payload map[string]any
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

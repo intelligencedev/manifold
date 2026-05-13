@@ -264,7 +264,7 @@ func configureChatCompletionBodyTools(body map[string]any, tools []llm.ToolSchem
 }
 
 func (c *Client) requestTools(tools []llm.ToolSchema) []llm.ToolSchema {
-	if c == nil || c.isSelfHosted() {
+	if c == nil || c.isSelfHosted() || len(tools) == 0 {
 		return tools
 	}
 	return appendNativeWebSearchSchema(tools)

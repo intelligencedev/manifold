@@ -451,6 +451,10 @@ func (m *Manager) reducePlainSummarySections(ctx context.Context, sections []str
 func (m *Manager) runPlainSummaryPass(ctx context.Context, sections []string) (string, error) {
 	msgs := m.buildPlainSummaryPassMessages(sections)
 	if limit := m.summaryPromptTokenLimit(); limit > 0 && estimateMessagesTokens(msgs) > limit {
+		if m.summaryPromptSectionBudget(limit) <= 0 {
+			return truncateForSummary(strings.TrimSpace(strings.Join(sections, "\n\n")), maxInt(32, limit*4)), nil
+		}
+
 		if len(sections) > 1 {
 			mid := len(sections) / 2
 			left, err := m.runPlainSummaryPass(ctx, sections[:mid])
@@ -470,7 +474,8 @@ func (m *Manager) runPlainSummaryPass(ctx context.Context, sections []string) (s
 			return m.runPlainSummaryPass(ctx, reduced)
 		}
 
-		split := splitSummarySection(sections[0], maxInt(1, m.summaryReductionChunkBudget()/2))
+		splitBudget := minInt(m.summaryReductionChunkBudget()/2, m.summaryPromptSectionBudget(limit))
+		split := splitSummarySection(sections[0], maxInt(1, splitBudget))
 		if len(split) > 1 {
 			compressed := make([]string, 0, len(split))
 			for _, part := range split {
@@ -515,12 +520,19 @@ func (m *Manager) buildPlainSummaryPassMessages(sections []string) []llm.Message
 	return prompts.BuildRunningSummaryMessages(sections)
 }
 
+func (m *Manager) summaryPromptSectionBudget(limit int) int {
+	if limit <= 0 {
+		return 0
+	}
+	overhead := estimateMessagesTokens(m.buildPlainSummaryPassMessages([]string{""}))
+	return limit - overhead
+}
+
 func (m *Manager) truncateSectionForPromptLimit(section string, limit int) string {
 	if limit <= 0 {
 		return strings.TrimSpace(section)
 	}
-	overhead := estimateMessagesTokens(m.buildPlainSummaryPassMessages([]string{""}))
-	available := limit - overhead
+	available := m.summaryPromptSectionBudget(limit)
 	if available <= 0 {
 		available = maxInt(1, limit/4)
 	}
@@ -630,6 +642,13 @@ func estimateSummaryTextTokens(content string) int {
 
 func maxInt(a, b int) int {
 	if a > b {
+		return a
+	}
+	return b
+}
+
+func minInt(a, b int) int {
+	if a < b {
 		return a
 	}
 	return b

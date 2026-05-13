@@ -555,15 +555,15 @@ func TestSummarizeChunkRecursivelyReducesOversizedExistingSummary(t *testing.T) 
 	store := newStubChatStore()
 	provider := &limitEnforcingLLM{
 		response:        "condensed summary",
-		maxPromptTokens: 160,
+		maxPromptTokens: 2600,
 	}
 	manager := NewManager(store, provider, Config{
 		Enabled:                      true,
 		SummaryModel:                 "stub",
-		ContextWindowTokens:          192,
-		PlainTextContextWindowTokens: 192,
+		ContextWindowTokens:          2632,
+		PlainTextContextWindowTokens: 2632,
 		ReserveBufferTokens:          32,
-		MaxSummaryChunkTokens:        160,
+		MaxSummaryChunkTokens:        4096,
 	})
 
 	existing := strings.Repeat("existing summary detail ", 240)
@@ -584,6 +584,38 @@ func TestSummarizeChunkRecursivelyReducesOversizedExistingSummary(t *testing.T) 
 	}
 	if provider.maxSeenTokens > provider.maxPromptTokens {
 		t.Fatalf("expected each summary prompt to stay within limit, saw %d > %d", provider.maxSeenTokens, provider.maxPromptTokens)
+	}
+}
+
+func TestSummarizeChunkFallsBackWhenPromptInstructionsExceedBudget(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newStubChatStore()
+	provider := &limitEnforcingLLM{
+		response:        "should not be called",
+		maxPromptTokens: 1,
+	}
+	manager := NewManager(store, provider, Config{
+		Enabled:                      true,
+		SummaryModel:                 "stub",
+		ContextWindowTokens:          33,
+		PlainTextContextWindowTokens: 33,
+		ReserveBufferTokens:          32,
+		MaxSummaryChunkTokens:        64,
+	})
+
+	summary, err := manager.summarizeChunk(ctx, strings.Repeat("existing summary detail ", 20), []persistence.ChatMessage{
+		{Role: "user", Content: strings.Repeat("new detail ", 20)},
+	}, nil, "")
+	if err != nil {
+		t.Fatalf("summarizeChunk: %v", err)
+	}
+	if strings.TrimSpace(summary) == "" {
+		t.Fatal("expected deterministic fallback summary")
+	}
+	if provider.calls != 0 {
+		t.Fatalf("expected no LLM calls when instructions exceed budget, got %d", provider.calls)
 	}
 }
 

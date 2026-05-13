@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 )
 
 type promptHandlerChatStore struct {
+	mu       sync.RWMutex
 	sessions map[string]persistence.ChatSession
 	messages map[string][]persistence.ChatMessage
 }
@@ -44,6 +46,8 @@ func (s *promptHandlerChatStore) EnsureSession(_ context.Context, userID *int64,
 }
 
 func (s *promptHandlerChatStore) EnsureSessionKind(_ context.Context, userID *int64, id string, name string, kind string) (persistence.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if sess, ok := s.sessions[id]; ok {
 		return sess, nil
 	}
@@ -61,6 +65,8 @@ func (s *promptHandlerChatStore) ListSessions(context.Context, *int64) ([]persis
 }
 
 func (s *promptHandlerChatStore) ListSessionsByKind(_ context.Context, _ *int64, kind string) ([]persistence.ChatSession, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	if strings.TrimSpace(kind) == "" {
 		kind = persistence.ChatSessionKindChat
 	}
@@ -79,6 +85,8 @@ func (s *promptHandlerChatStore) ListSessionsByKind(_ context.Context, _ *int64,
 }
 
 func (s *promptHandlerChatStore) GetSession(_ context.Context, _ *int64, id string) (persistence.ChatSession, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	sess, ok := s.sessions[id]
 	if !ok {
 		return persistence.ChatSession{}, persistence.ErrNotFound
@@ -95,6 +103,8 @@ func (s *promptHandlerChatStore) CreateSessionKind(ctx context.Context, userID *
 }
 
 func (s *promptHandlerChatStore) RenameSession(_ context.Context, _ *int64, id, name string) (persistence.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	sess := s.sessions[id]
 	sess.Name = name
 	s.sessions[id] = sess
@@ -102,12 +112,16 @@ func (s *promptHandlerChatStore) RenameSession(_ context.Context, _ *int64, id, 
 }
 
 func (s *promptHandlerChatStore) DeleteSession(_ context.Context, _ *int64, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	delete(s.sessions, id)
 	delete(s.messages, id)
 	return nil
 }
 
 func (s *promptHandlerChatStore) ListMessages(_ context.Context, _ *int64, sessionID string, limit int) ([]persistence.ChatMessage, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	msgs := s.messages[sessionID]
 	if limit > 0 && len(msgs) > limit {
 		msgs = msgs[len(msgs)-limit:]
@@ -124,11 +138,15 @@ func (s *promptHandlerChatStore) DeleteMessagesAfter(context.Context, *int64, st
 }
 
 func (s *promptHandlerChatStore) AppendMessages(_ context.Context, _ *int64, sessionID string, messages []persistence.ChatMessage, _ string, _ string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.messages[sessionID] = append(s.messages[sessionID], messages...)
 	return nil
 }
 
 func (s *promptHandlerChatStore) UpdateSummary(_ context.Context, _ *int64, sessionID string, summary string, summarizedCount int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	sess, ok := s.sessions[sessionID]
 	if !ok {
 		return persistence.ErrNotFound

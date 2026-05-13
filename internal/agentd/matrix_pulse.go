@@ -2,6 +2,7 @@ package agentd
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,6 +25,11 @@ type pulseRuntime struct {
 	lease    time.Duration
 	cancel   context.CancelFunc
 	done     chan struct{}
+}
+
+type pulseTaskRun struct {
+	room persistence.PulseRoom
+	task persistence.PulseTask
 }
 
 func newPulseRuntime(app *app, store persistence.PulseStore) *pulseRuntime {
@@ -94,6 +100,7 @@ func (r *pulseRuntime) pollOnce(ctx context.Context) error {
 		return err
 	}
 	now := time.Now().UTC()
+	jobsByTarget := make(map[string][]pulseTaskRun)
 	for _, room := range rooms {
 		if !room.Enabled {
 			continue
@@ -107,29 +114,57 @@ func (r *pulseRuntime) pollOnce(ctx context.Context) error {
 		if len(plan.DueTasks) == 0 {
 			continue
 		}
-		claimToken := uuid.NewString()
-		claimed, err := r.store.ClaimRoom(ctx, room.RoomID, room.RouteTarget, claimToken, now.Add(r.lease))
-		if err != nil {
-			log.Warn().Str("room_id", room.RoomID).Str("target", room.RouteTarget).Err(err).Msg("matrix_pulse_claim_failed")
-			continue
-		}
-		if !claimed {
-			continue
-		}
-
-		prompt := r.service.BuildPrompt(now, plan, r.interval)
-		result, runErr := r.app.handlePulseRoom(ctx, room.RoomID, room.RouteTarget, room.ProjectID, prompt)
-		pulseErr := ""
-		if runErr != nil {
-			pulseErr = runErr.Error()
-		}
-		dueTaskIDs := make([]string, 0, len(plan.DueTasks))
 		for _, task := range plan.DueTasks {
-			dueTaskIDs = append(dueTaskIDs, task.ID)
-		}
-		if err := r.store.CompleteRoomPulse(ctx, room.RoomID, room.RouteTarget, claimToken, time.Now().UTC(), result, pulseErr, dueTaskIDs); err != nil {
-			log.Warn().Str("room_id", room.RoomID).Str("target", room.RouteTarget).Err(err).Msg("matrix_pulse_complete_failed")
+			target := task.RouteTarget
+			if target == "" {
+				target = room.RouteTarget
+			}
+			jobsByTarget[target] = append(jobsByTarget[target], pulseTaskRun{room: room, task: task})
 		}
 	}
+	if len(jobsByTarget) == 0 {
+		return nil
+	}
+
+	var wg sync.WaitGroup
+	for target, jobs := range jobsByTarget {
+		target, jobs := target, jobs
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for _, job := range jobs {
+				if ctx.Err() != nil {
+					return
+				}
+				r.runPulseTask(ctx, now, target, job)
+			}
+		}()
+	}
+	wg.Wait()
 	return nil
+}
+
+func (r *pulseRuntime) runPulseTask(ctx context.Context, now time.Time, target string, job pulseTaskRun) {
+	room := job.room
+	task := job.task
+	claimToken := uuid.NewString()
+	claimed, err := r.store.ClaimRoom(ctx, room.RoomID, room.RouteTarget, claimToken, now.Add(r.lease))
+	if err != nil {
+		log.Warn().Str("room_id", room.RoomID).Str("target", room.RouteTarget).Str("task_id", task.ID).Err(err).Msg("matrix_pulse_claim_failed")
+		return
+	}
+	if !claimed {
+		return
+	}
+
+	plan := r.service.EvaluateRoom(now, room, []persistence.PulseTask{task}, room.RouteTarget)
+	prompt := r.service.BuildPrompt(now, plan, r.interval)
+	result, runErr := r.app.handlePulseRoom(ctx, room.RoomID, target, room.ProjectID, prompt)
+	pulseErr := ""
+	if runErr != nil {
+		pulseErr = runErr.Error()
+	}
+	if err := r.store.CompleteRoomPulse(ctx, room.RoomID, room.RouteTarget, claimToken, time.Now().UTC(), result, pulseErr, []string{task.ID}); err != nil {
+		log.Warn().Str("room_id", room.RoomID).Str("target", room.RouteTarget).Str("task_id", task.ID).Err(err).Msg("matrix_pulse_complete_failed")
+	}
 }

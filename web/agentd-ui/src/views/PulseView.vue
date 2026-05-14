@@ -35,7 +35,7 @@ const selectedRoom = computed<MatrixRoom | undefined>(() =>
 
 function selectRoom(id: string) {
   selectedRoomId.value = id;
-  activeTab.value = "transcript";
+  activeTab.value = "tasks";
 }
 
 // auto-select first room
@@ -46,7 +46,7 @@ watch(rooms, (list) => {
 });
 
 // ── tabs ───────────────────────────────────────────────────────────────────
-const activeTab = ref<"transcript" | "tasks">("transcript");
+const activeTab = ref<"transcript" | "tasks">("tasks");
 
 // ── messages ───────────────────────────────────────────────────────────────
 const transcriptEl = ref<HTMLElement | null>(null);
@@ -70,11 +70,17 @@ watch(orderedMessages, async () => {
 });
 
 function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString([], { month: "short", day: "numeric" });
+  return new Date(iso).toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+  });
 }
 
 function isImage(mime?: string) {
@@ -114,7 +120,9 @@ function startEditTask(task: MatrixTask) {
     scheduleType: task.scheduleType || "interval",
     intervalSeconds: task.intervalSeconds,
     specificTime: task.specificTime || "09:00",
-    specificAt: task.specificAt ? toLocalDatetimeInput(task.specificAt) : defaultSpecificAt(),
+    specificAt: task.specificAt
+      ? toLocalDatetimeInput(task.specificAt)
+      : defaultSpecificAt(),
     routeTarget: task.routeTarget,
     enabled: task.enabled,
   };
@@ -130,7 +138,11 @@ function invalidateTasks() {
 }
 
 const createMutation = useMutation({
-  mutationFn: () => createMatrixRoomTask(selectedRoomId.value!, taskPayload(draft.value) as MatrixTaskUpsertInput),
+  mutationFn: () =>
+    createMatrixRoomTask(
+      selectedRoomId.value!,
+      taskPayload(draft.value) as MatrixTaskUpsertInput,
+    ),
   onSuccess: () => {
     showNewTask.value = false;
     draft.value = blankDraft();
@@ -140,7 +152,11 @@ const createMutation = useMutation({
 
 const patchMutation = useMutation({
   mutationFn: ({ id, patch }: { id: string; patch: MatrixTaskPatchInput }) =>
-    updateMatrixRoomTask(selectedRoomId.value!, id, taskPayload(patch) as MatrixTaskPatchInput),
+    updateMatrixRoomTask(
+      selectedRoomId.value!,
+      id,
+      taskPayload(patch) as MatrixTaskPatchInput,
+    ),
   onSuccess: () => {
     cancelEdit();
     invalidateTasks();
@@ -153,12 +169,14 @@ const deleteMutation = useMutation({
 });
 
 const enableMutation = useMutation({
-  mutationFn: (id: string) => setMatrixRoomTaskEnabled(selectedRoomId.value!, id, true),
+  mutationFn: (id: string) =>
+    setMatrixRoomTaskEnabled(selectedRoomId.value!, id, true),
   onSuccess: invalidateTasks,
 });
 
 const disableMutation = useMutation({
-  mutationFn: (id: string) => setMatrixRoomTaskEnabled(selectedRoomId.value!, id, false),
+  mutationFn: (id: string) =>
+    setMatrixRoomTaskEnabled(selectedRoomId.value!, id, false),
   onSuccess: invalidateTasks,
 });
 
@@ -196,7 +214,12 @@ function defaultSpecificAt() {
 }
 
 function scheduleLabel(task: MatrixTask) {
-  return task.scheduleLabel || (task.scheduleType === "interval" ? humanInterval(task.intervalSeconds) : task.scheduleType);
+  return (
+    task.scheduleLabel ||
+    (task.scheduleType === "interval"
+      ? humanInterval(task.intervalSeconds)
+      : task.scheduleType)
+  );
 }
 
 function taskPayload(input: MatrixTaskUpsertInput | MatrixTaskPatchInput) {
@@ -251,15 +274,26 @@ async function doDelete(id: string) {
 
 <template>
   <section class="flex h-full min-h-0 flex-row overflow-hidden">
-
     <!-- ── left: room list ─────────────────────────────────────────────── -->
-    <aside class="flex w-64 shrink-0 flex-col border-r border-border/50 overflow-hidden">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-border/40">
-        <span class="text-xs font-semibold uppercase tracking-widest text-subtle-foreground">Rooms</span>
-        <span class="text-[11px] text-faint-foreground">{{ rooms?.length ?? 0 }}</span>
+    <aside
+      class="flex w-64 shrink-0 flex-col border-r border-border/50 overflow-hidden"
+    >
+      <div
+        class="flex items-center justify-between px-4 py-3 border-b border-border/40"
+      >
+        <span
+          class="text-xs font-semibold uppercase tracking-widest text-subtle-foreground"
+          >Rooms</span
+        >
+        <span class="text-[11px] text-faint-foreground">{{
+          rooms?.length ?? 0
+        }}</span>
       </div>
 
-      <div v-if="roomsLoading" class="flex flex-1 items-center justify-center text-xs text-faint-foreground">
+      <div
+        v-if="roomsLoading"
+        class="flex flex-1 items-center justify-center text-xs text-faint-foreground"
+      >
         Loading…
       </div>
 
@@ -284,48 +318,78 @@ async function doDelete(id: string) {
             {{ room.roomId.split(":")[1] ?? "" }}
           </p>
           <div class="mt-1.5 flex items-center gap-2">
-            <Pill tone="neutral" size="sm">{{ room.stats.messageCount }} msgs</Pill>
+            <Pill tone="neutral" size="sm"
+              >{{ room.stats.messageCount }} msgs</Pill
+            >
             <Pill v-if="room.enabledTaskCount" tone="accent" size="sm">
               {{ room.enabledTaskCount }} tasks
             </Pill>
           </div>
         </button>
 
-        <p v-if="!rooms?.length" class="px-4 py-6 text-center text-xs text-faint-foreground">
+        <p
+          v-if="!rooms?.length"
+          class="px-4 py-6 text-center text-xs text-faint-foreground"
+        >
           No rooms configured.
         </p>
       </nav>
     </aside>
 
     <!-- ── right: room detail ──────────────────────────────────────────── -->
-    <div v-if="!selectedRoom" class="flex flex-1 items-center justify-center text-sm text-faint-foreground">
+    <div
+      v-if="!selectedRoom"
+      class="flex flex-1 items-center justify-center text-sm text-faint-foreground"
+    >
       Select a room
     </div>
 
     <div v-else class="flex min-w-0 flex-1 flex-col overflow-hidden">
-
       <!-- room header -->
-      <header class="flex shrink-0 items-start justify-between gap-6 border-b border-border/40 px-6 py-3">
+      <header
+        class="flex shrink-0 items-start justify-between gap-6 border-b border-border/40 px-6 py-3"
+      >
         <div class="min-w-0">
-          <h2 class="truncate text-sm font-semibold text-foreground">{{ selectedRoom.roomId }}</h2>
+          <h2 class="truncate text-sm font-semibold text-foreground">
+            {{ selectedRoom.roomId }}
+          </h2>
           <div class="mt-1 flex flex-wrap items-center gap-2">
-            <Pill tone="neutral" size="sm">target: {{ selectedRoom.defaultTarget || "—" }}</Pill>
-            <Pill :tone="selectedRoom.allowUnmentioned ? 'success' : 'neutral'" size="sm">
-              {{ selectedRoom.allowUnmentioned ? "all messages" : "mentions only" }}
+            <Pill tone="neutral" size="sm"
+              >target: {{ selectedRoom.defaultTarget || "—" }}</Pill
+            >
+            <Pill
+              :tone="selectedRoom.allowUnmentioned ? 'success' : 'neutral'"
+              size="sm"
+            >
+              {{
+                selectedRoom.allowUnmentioned ? "all messages" : "mentions only"
+              }}
             </Pill>
-            <Pill tone="neutral" size="sm">{{ selectedRoom.stats.messageCount }} messages</Pill>
-            <Pill v-if="selectedRoom.stats.lastActivityAt" tone="neutral" size="sm">
+            <Pill tone="neutral" size="sm"
+              >{{ selectedRoom.stats.messageCount }} messages</Pill
+            >
+            <Pill
+              v-if="selectedRoom.stats.lastActivityAt"
+              tone="neutral"
+              size="sm"
+            >
               last: {{ formatDate(selectedRoom.stats.lastActivityAt) }}
             </Pill>
           </div>
         </div>
 
         <!-- tab switcher -->
-        <div class="flex shrink-0 items-center gap-1 rounded-full border border-border/50 bg-surface-muted/30 p-0.5">
+        <div
+          class="flex shrink-0 items-center gap-1 rounded-full border border-border/50 bg-surface-muted/30 p-0.5"
+        >
           <button
             type="button"
             class="rounded-full px-3 py-1 text-xs font-semibold transition"
-            :class="activeTab === 'transcript' ? 'bg-surface text-foreground shadow-sm' : 'text-subtle-foreground hover:text-foreground'"
+            :class="
+              activeTab === 'transcript'
+                ? 'bg-surface text-foreground shadow-sm'
+                : 'text-subtle-foreground hover:text-foreground'
+            "
             @click="activeTab = 'transcript'"
           >
             Transcript
@@ -333,17 +397,28 @@ async function doDelete(id: string) {
           <button
             type="button"
             class="rounded-full px-3 py-1 text-xs font-semibold transition"
-            :class="activeTab === 'tasks' ? 'bg-surface text-foreground shadow-sm' : 'text-subtle-foreground hover:text-foreground'"
+            :class="
+              activeTab === 'tasks'
+                ? 'bg-surface text-foreground shadow-sm'
+                : 'text-subtle-foreground hover:text-foreground'
+            "
             @click="activeTab = 'tasks'"
           >
             Tasks
-            <span v-if="selectedRoom.taskCount" class="ml-1 text-[10px] tabular-nums text-faint-foreground">{{ selectedRoom.taskCount }}</span>
+            <span
+              v-if="selectedRoom.taskCount"
+              class="ml-1 text-[10px] tabular-nums text-faint-foreground"
+              >{{ selectedRoom.taskCount }}</span
+            >
           </button>
         </div>
       </header>
 
       <!-- ── transcript tab ──────────────────────────────────────────── -->
-      <div v-show="activeTab === 'transcript'" class="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div
+        v-show="activeTab === 'transcript'"
+        class="flex min-h-0 flex-1 flex-col overflow-hidden"
+      >
         <div
           v-if="messagesLoading"
           class="flex flex-1 items-center justify-center text-xs text-faint-foreground"
@@ -375,16 +450,29 @@ async function doDelete(id: string) {
             <div
               :class="[
                 'mt-1 h-2 w-2 shrink-0 rounded-full',
-                msg.direction === 'outbound' ? 'bg-accent' : 'bg-subtle-foreground/40',
+                msg.direction === 'outbound'
+                  ? 'bg-accent'
+                  : 'bg-subtle-foreground/40',
               ]"
             />
 
-            <div :class="['max-w-[70%] min-w-0', msg.direction === 'outbound' ? 'items-end' : 'items-start', 'flex flex-col gap-0.5']">
+            <div
+              :class="[
+                'max-w-[70%] min-w-0',
+                msg.direction === 'outbound' ? 'items-end' : 'items-start',
+                'flex flex-col gap-0.5',
+              ]"
+            >
               <!-- meta row -->
               <div
-                :class="['flex items-center gap-2 text-[11px] text-faint-foreground', msg.direction === 'outbound' ? 'flex-row-reverse' : '']"
+                :class="[
+                  'flex items-center gap-2 text-[11px] text-faint-foreground',
+                  msg.direction === 'outbound' ? 'flex-row-reverse' : '',
+                ]"
               >
-                <span class="font-medium">{{ msg.sender || (msg.direction === 'outbound' ? 'bot' : 'user') }}</span>
+                <span class="font-medium">{{
+                  msg.sender || (msg.direction === "outbound" ? "bot" : "user")
+                }}</span>
                 <span>{{ formatTime(msg.createdAt) }}</span>
               </div>
 
@@ -412,8 +500,10 @@ async function doDelete(id: string) {
       </div>
 
       <!-- ── tasks tab ───────────────────────────────────────────────── -->
-      <div v-show="activeTab === 'tasks'" class="scrollbar-inset flex-1 overflow-y-auto px-6 py-4">
-
+      <div
+        v-show="activeTab === 'tasks'"
+        class="scrollbar-inset flex-1 overflow-y-auto px-6 py-4"
+      >
         <!-- error banner -->
         <div
           v-if="mutErr"
@@ -428,15 +518,24 @@ async function doDelete(id: string) {
             v-if="!showNewTask"
             type="button"
             class="rounded-full border border-accent/40 px-4 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/10"
-            @click="showNewTask = true; draft = blankDraft()"
+            @click="
+              showNewTask = true;
+              draft = blankDraft();
+            "
           >
             + New task
           </button>
 
           <GlassCard v-else :padded="false" class="mb-4 p-4">
-            <p class="mb-3 text-xs font-semibold uppercase tracking-widest text-subtle-foreground">New pulse task</p>
+            <p
+              class="mb-3 text-xs font-semibold uppercase tracking-widest text-subtle-foreground"
+            >
+              New pulse task
+            </p>
             <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
+              <label
+                class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground"
+              >
                 Title
                 <input
                   v-model="draft.title"
@@ -446,7 +545,9 @@ async function doDelete(id: string) {
                 />
               </label>
 
-              <label class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
+              <label
+                class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground"
+              >
                 Schedule
                 <select
                   v-model="draft.scheduleType"
@@ -458,17 +559,29 @@ async function doDelete(id: string) {
                 </select>
               </label>
 
-              <label v-if="draft.scheduleType === 'interval'" class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
+              <label
+                v-if="draft.scheduleType === 'interval'"
+                class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground"
+              >
                 Interval
                 <select
                   v-model.number="draft.intervalSeconds"
                   class="rounded-lg border border-border/60 bg-surface px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40"
                 >
-                  <option v-for="p in INTERVAL_PRESETS" :key="p.value" :value="p.value">{{ p.label }}</option>
+                  <option
+                    v-for="p in INTERVAL_PRESETS"
+                    :key="p.value"
+                    :value="p.value"
+                  >
+                    {{ p.label }}
+                  </option>
                 </select>
               </label>
 
-              <label v-else-if="draft.scheduleType === 'daily_time'" class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
+              <label
+                v-else-if="draft.scheduleType === 'daily_time'"
+                class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground"
+              >
                 Local time
                 <input
                   v-model="draft.specificTime"
@@ -477,7 +590,10 @@ async function doDelete(id: string) {
                 />
               </label>
 
-              <label v-else class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
+              <label
+                v-else
+                class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground"
+              >
                 Local date/time
                 <input
                   v-model="draft.specificAt"
@@ -486,7 +602,9 @@ async function doDelete(id: string) {
                 />
               </label>
 
-              <label class="col-span-full flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
+              <label
+                class="col-span-full flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground"
+              >
                 Prompt
                 <textarea
                   v-model="draft.prompt"
@@ -496,8 +614,14 @@ async function doDelete(id: string) {
                 />
               </label>
 
-              <label class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
-                Route target <span class="font-normal normal-case tracking-normal text-faint-foreground">(optional)</span>
+              <label
+                class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground"
+              >
+                Route target
+                <span
+                  class="font-normal normal-case tracking-normal text-faint-foreground"
+                  >(optional)</span
+                >
                 <input
                   v-model="draft.routeTarget"
                   type="text"
@@ -507,8 +631,14 @@ async function doDelete(id: string) {
               </label>
 
               <div class="flex items-center gap-2 self-end">
-                <label class="flex cursor-pointer items-center gap-2 text-xs text-subtle-foreground">
-                  <input v-model="draft.enabled" type="checkbox" class="h-4 w-4 rounded border-border/60" />
+                <label
+                  class="flex cursor-pointer items-center gap-2 text-xs text-subtle-foreground"
+                >
+                  <input
+                    v-model="draft.enabled"
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-border/60"
+                  />
                   Enabled
                 </label>
               </div>
@@ -517,7 +647,11 @@ async function doDelete(id: string) {
             <div class="mt-4 flex items-center gap-2">
               <button
                 type="button"
-                :disabled="createMutation.isPending.value || !draft.title || !draft.prompt"
+                :disabled="
+                  createMutation.isPending.value ||
+                  !draft.title ||
+                  !draft.prompt
+                "
                 class="rounded-lg bg-accent px-4 py-1.5 text-xs font-semibold text-accent-foreground transition hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
                 @click="submitCreate"
               >
@@ -535,7 +669,9 @@ async function doDelete(id: string) {
         </div>
 
         <!-- tasks list -->
-        <div v-if="tasksLoading" class="text-xs text-faint-foreground">Loading tasks…</div>
+        <div v-if="tasksLoading" class="text-xs text-faint-foreground">
+          Loading tasks…
+        </div>
 
         <p v-else-if="!tasks?.length" class="text-xs text-faint-foreground">
           No pulse tasks configured for this room.
@@ -551,9 +687,15 @@ async function doDelete(id: string) {
             <!-- edit form -->
             <template v-if="editingTaskId === task.id">
               <div class="p-4">
-                <p class="mb-3 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">Edit task</p>
+                <p
+                  class="mb-3 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground"
+                >
+                  Edit task
+                </p>
                 <div class="grid grid-cols-1 gap-3">
-                  <label class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
+                  <label
+                    class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground"
+                  >
                     Title
                     <input
                       v-model="editDraft.title"
@@ -561,7 +703,9 @@ async function doDelete(id: string) {
                       class="rounded-lg border border-border/60 bg-surface px-3 py-2 text-sm font-normal normal-case tracking-normal text-foreground focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40"
                     />
                   </label>
-                  <label class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
+                  <label
+                    class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground"
+                  >
                     Schedule
                     <select
                       v-model="editDraft.scheduleType"
@@ -572,16 +716,28 @@ async function doDelete(id: string) {
                       <option value="once_at">Once at date/time</option>
                     </select>
                   </label>
-                  <label v-if="editDraft.scheduleType === 'interval'" class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
+                  <label
+                    v-if="editDraft.scheduleType === 'interval'"
+                    class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground"
+                  >
                     Interval
                     <select
                       v-model.number="editDraft.intervalSeconds"
                       class="rounded-lg border border-border/60 bg-surface px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40"
                     >
-                      <option v-for="p in INTERVAL_PRESETS" :key="p.value" :value="p.value">{{ p.label }}</option>
+                      <option
+                        v-for="p in INTERVAL_PRESETS"
+                        :key="p.value"
+                        :value="p.value"
+                      >
+                        {{ p.label }}
+                      </option>
                     </select>
                   </label>
-                  <label v-else-if="editDraft.scheduleType === 'daily_time'" class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
+                  <label
+                    v-else-if="editDraft.scheduleType === 'daily_time'"
+                    class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground"
+                  >
                     Local time
                     <input
                       v-model="editDraft.specificTime"
@@ -589,7 +745,10 @@ async function doDelete(id: string) {
                       class="rounded-lg border border-border/60 bg-surface px-3 py-2 text-sm font-normal normal-case tracking-normal text-foreground focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40"
                     />
                   </label>
-                  <label v-else class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
+                  <label
+                    v-else
+                    class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground"
+                  >
                     Local date/time
                     <input
                       v-model="editDraft.specificAt"
@@ -597,7 +756,9 @@ async function doDelete(id: string) {
                       class="rounded-lg border border-border/60 bg-surface px-3 py-2 text-sm font-normal normal-case tracking-normal text-foreground focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40"
                     />
                   </label>
-                  <label class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
+                  <label
+                    class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground"
+                  >
                     Prompt
                     <textarea
                       v-model="editDraft.prompt"
@@ -605,7 +766,9 @@ async function doDelete(id: string) {
                       class="rounded-lg border border-border/60 bg-surface px-3 py-2 text-sm font-normal normal-case tracking-normal text-foreground focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40 resize-none"
                     />
                   </label>
-                  <label class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground">
+                  <label
+                    class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground"
+                  >
                     Route target
                     <input
                       v-model="editDraft.routeTarget"
@@ -641,42 +804,70 @@ async function doDelete(id: string) {
               <div class="flex items-start gap-3 p-4 pb-2">
                 <div class="mt-0.5 flex flex-col items-center gap-1">
                   <div
-                    :class="['h-2.5 w-2.5 rounded-full', task.enabled ? 'bg-success shadow-[0_0_6px_currentColor] text-success' : 'bg-subtle-foreground/30']"
+                    :class="[
+                      'h-2.5 w-2.5 rounded-full',
+                      task.enabled
+                        ? 'bg-success shadow-[0_0_6px_currentColor] text-success'
+                        : 'bg-subtle-foreground/30',
+                    ]"
                     :title="task.enabled ? 'enabled' : 'disabled'"
                   />
                 </div>
                 <div class="min-w-0 flex-1">
-                  <p class="truncate text-sm font-semibold text-foreground">{{ task.title }}</p>
-                  <p class="mt-0.5 line-clamp-2 text-[11px] text-subtle-foreground leading-relaxed">{{ task.prompt }}</p>
+                  <p class="truncate text-sm font-semibold text-foreground">
+                    {{ task.title }}
+                  </p>
+                  <p
+                    class="mt-0.5 line-clamp-2 text-[11px] text-subtle-foreground leading-relaxed"
+                  >
+                    {{ task.prompt }}
+                  </p>
                 </div>
               </div>
 
               <!-- metadata row -->
               <div class="flex flex-wrap items-center gap-1.5 px-4 py-2">
                 <Pill tone="neutral" size="sm">{{ scheduleLabel(task) }}</Pill>
-                <Pill v-if="task.routeTarget" tone="info" size="sm">→ {{ task.routeTarget }}</Pill>
+                <Pill v-if="task.routeTarget" tone="info" size="sm"
+                  >→ {{ task.routeTarget }}</Pill
+                >
                 <Pill v-if="task.due" tone="warning" size="sm">due</Pill>
               </div>
 
               <!-- timing row -->
-              <div class="grid grid-cols-2 gap-x-3 border-t border-border/30 px-4 py-2 text-[11px]">
+              <div
+                class="grid grid-cols-2 gap-x-3 border-t border-border/30 px-4 py-2 text-[11px]"
+              >
                 <div>
                   <p class="text-faint-foreground">Last run</p>
-                  <p class="font-medium text-subtle-foreground">{{ task.lastRunHuman || "never" }}</p>
+                  <p class="font-medium text-subtle-foreground">
+                    {{ task.lastRunHuman || "never" }}
+                  </p>
                 </div>
                 <div>
                   <p class="text-faint-foreground">Next run</p>
-                  <p class="font-medium text-subtle-foreground">{{ task.nextRunHuman || "—" }}</p>
+                  <p class="font-medium text-subtle-foreground">
+                    {{ task.nextRunHuman || "—" }}
+                  </p>
                 </div>
               </div>
 
               <!-- last result -->
-              <div v-if="task.lastResultSummary" class="border-t border-border/30 px-4 py-2">
-                <p class="line-clamp-2 text-[11px] text-faint-foreground italic">{{ task.lastResultSummary }}</p>
+              <div
+                v-if="task.lastResultSummary"
+                class="border-t border-border/30 px-4 py-2"
+              >
+                <p
+                  class="line-clamp-2 text-[11px] text-faint-foreground italic"
+                >
+                  {{ task.lastResultSummary }}
+                </p>
               </div>
 
               <!-- action row -->
-              <div class="flex items-center gap-1.5 border-t border-border/30 px-4 py-2.5">
+              <div
+                class="flex items-center gap-1.5 border-t border-border/30 px-4 py-2.5"
+              >
                 <button
                   v-if="task.enabled"
                   type="button"
@@ -728,7 +919,6 @@ async function doDelete(id: string) {
           </GlassCard>
         </div>
       </div>
-
     </div>
   </section>
 </template>

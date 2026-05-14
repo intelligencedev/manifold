@@ -16,39 +16,38 @@
 
     <div class="relative z-10 flex h-full flex-col">
       <Topbar>
-          <template #logo>
-            <div class="flex items-center gap-3 min-w-0">
-              <img
-                :src="manifoldLogo"
-                alt="Manifold logo"
-                class="h-10 w-10 rounded object-contain"
-              />
-              <div class="min-w-0">
-                <p class="text-base font-semibold leading-none">Manifold</p>
-              </div>
+        <template #logo>
+          <div class="flex items-center gap-3 min-w-0">
+            <img
+              :src="manifoldLogo"
+              alt="Manifold logo"
+              class="h-10 w-10 rounded object-contain"
+            />
+            <div class="min-w-0">
+              <p class="text-base font-semibold leading-none">Manifold</p>
             </div>
-          </template>
+          </div>
+        </template>
 
-          <template #nav>
-            <RouterLink
-              v-for="item in navigation"
-              :key="item.to"
-              :to="item.to"
-              :class="navClass(item.to)"
-              :aria-current="isActive(item.to) ? 'page' : undefined"
-            >
-              {{ item.label }}
-            </RouterLink>
-          </template>
+        <template #nav>
+          <RouterLink
+            v-for="item in navigation"
+            :key="item.to"
+            :to="item.to"
+            :class="navClass(item.to)"
+            :aria-current="isActive(item.to) ? 'page' : undefined"
+          >
+            {{ item.label }}
+          </RouterLink>
+        </template>
 
-          <template #actions>
-            <div class="hidden items-center gap-2 sm:flex">
-            </div>
-            <div class="ml-1">
-              <AccountButton :username="user?.name || user?.email" />
-            </div>
-          </template>
-        </Topbar>
+        <template #actions>
+          <div class="hidden items-center gap-2 sm:flex"></div>
+          <div class="ml-1">
+            <AccountButton :username="user?.name || user?.email" />
+          </div>
+        </template>
+      </Topbar>
 
       <div class="md:hidden px-1.5 pt-1 pb-0.5">
         <div class="flex items-center gap-2 overflow-x-auto text-sm">
@@ -120,7 +119,7 @@ const navigation: NavigationItem[] = [
   { label: "Projects", to: "/projects" },
   { label: "Specialists", to: "/specialists" },
   { label: "Chat", to: "/chat" },
-  { label: "Matrix", to: "/matrix" },
+  { label: "Pulse", to: "/pulse" },
   { label: "Playground", to: "/playground" },
   { label: "Flow", to: "/flow" },
   ...betaNavigation,
@@ -149,5 +148,4 @@ function navClass(path: string, dense = false) {
   }
   return base;
 }
-
 </script>

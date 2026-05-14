@@ -53,6 +53,8 @@ type Config struct {
 	OpenAI OpenAIConfig `yaml:"openai" json:"openai"`
 	Obs    ObsConfig    `yaml:"obs" json:"obs"`
 	Web    WebConfig    `yaml:"web" json:"web"`
+	// Matrix configures the built-in Matrix gateway.
+	Matrix MatrixConfig `yaml:"matrix" json:"matrix"`
 	// Auth configures optional user authentication (OIDC/OAuth2) and RBAC.
 	Auth AuthConfig
 	// MCP defines Model Context Protocol client configuration. If configured,
@@ -131,6 +133,31 @@ type CodeQAConfig struct {
 	ForbiddenGlobs         []string `yaml:"forbiddenGlobs" json:"forbiddenGlobs"`
 	AllowAutoApply         bool     `yaml:"allowAutoApply" json:"allowAutoApply"`
 	AllowCommitAccepted    bool     `yaml:"allowCommitAccepted" json:"allowCommitAccepted"`
+}
+
+// MatrixConfig controls the built-in Matrix gateway runtime.
+type MatrixConfig struct {
+	Enabled               bool               `yaml:"enabled" json:"enabled"`
+	HomeserverURL         string             `yaml:"homeserverURL" json:"homeserverURL"`
+	UserID                string             `yaml:"userID" json:"userID"`
+	AccessToken           string             `yaml:"accessToken" json:"accessToken"`
+	DeviceID              string             `yaml:"deviceID" json:"deviceID"`
+	MessageRetention      int                `yaml:"messageRetention" json:"messageRetention"`
+	SyncTimeoutSeconds    int                `yaml:"syncTimeoutSeconds" json:"syncTimeoutSeconds"`
+	SyncRetryDelaySeconds int                `yaml:"syncRetryDelaySeconds" json:"syncRetryDelaySeconds"`
+	ProcessBacklog        bool               `yaml:"processBacklog" json:"processBacklog"`
+	Rooms                 []MatrixRoomConfig `yaml:"rooms" json:"rooms"`
+}
+
+// MatrixRoomConfig describes how a single Matrix room should route traffic.
+type MatrixRoomConfig struct {
+	RoomID           string            `yaml:"roomID" json:"roomID"`
+	DefaultTarget    string            `yaml:"defaultTarget" json:"defaultTarget"`
+	AllowUnmentioned bool              `yaml:"allowUnmentioned" json:"allowUnmentioned"`
+	Mentions         map[string]string `yaml:"mentions" json:"mentions"`
+	SystemPromptRef  string            `yaml:"systemPromptRef" json:"systemPromptRef"`
+	MessageRetention int               `yaml:"messageRetention" json:"messageRetention"`
+	MaxConcurrent    int               `yaml:"maxConcurrent" json:"maxConcurrent"`
 }
 
 // BeliefMemoryConfig controls the shared belief-memory subsystem.
@@ -291,6 +318,8 @@ type SpecialistConfig struct {
 	// API, when set, overrides which API surface to use for this specialist: "completions" or "responses".
 	API         string `yaml:"api" json:"api"`
 	EnableTools bool   `yaml:"enableTools" json:"enableTools"`
+	// ImageGeneration routes specialist chat requests through provider image generation.
+	ImageGeneration bool `yaml:"imageGeneration" json:"imageGeneration"`
 	// AutoDiscover overrides the global auto-discovery setting for this specialist.
 	// Nil means inherit the global default.
 	AutoDiscover *bool `yaml:"autoDiscover" json:"autoDiscover"`

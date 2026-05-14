@@ -2,6 +2,7 @@ package agentd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -36,7 +37,7 @@ func TestChatRunRequestNormalize(t *testing.T) {
 		ProjectID:    "  project-1  ",
 		ObjectiveID:  " objective-1 ",
 		RoomID:       " room-1 ",
-		BotID:        " @gpt_bot:matrix.example.com ",
+		RouteTarget:  " @gpt_bot:matrix.example.com ",
 		SystemPrompt: "  custom system  ",
 		ImageSize:    " 1024x1024 ",
 	}
@@ -55,8 +56,8 @@ func TestChatRunRequestNormalize(t *testing.T) {
 	if req.RoomID != "room-1" {
 		t.Fatalf("expected trimmed room id, got %q", req.RoomID)
 	}
-	if req.BotID != "@gpt_bot:matrix.example.com" {
-		t.Fatalf("expected trimmed bot id, got %q", req.BotID)
+	if req.RouteTarget != "@gpt_bot:matrix.example.com" {
+		t.Fatalf("expected trimmed route target, got %q", req.RouteTarget)
 	}
 	if req.SystemPrompt != "custom system" {
 		t.Fatalf("expected trimmed system prompt, got %q", req.SystemPrompt)
@@ -100,7 +101,7 @@ func TestPrepareChatRunRequestAttachesContextAndWorkspace(t *testing.T) {
 		}},
 	}
 
-	req := chatRunRequest{SessionID: "session-1", ProjectID: "project-1", RoomID: "room-1", BotID: "@gpt_bot:matrix.example.com"}
+	req := chatRunRequest{SessionID: "session-1", ProjectID: "project-1", RoomID: "room-1", RouteTarget: "@gpt_bot:matrix.example.com"}
 	httpReq := httptest.NewRequest(http.MethodPost, "/agent/run", nil)
 	httpReq.AddCookie(&http.Cookie{Name: "auth_cookie", Value: "secret"})
 	userID := int64(42)
@@ -127,8 +128,8 @@ func TestPrepareChatRunRequestAttachesContextAndWorkspace(t *testing.T) {
 	if got, ok := sandbox.RoomIDFromContext(httpReq.Context()); !ok || got != "room-1" {
 		t.Fatalf("expected room id on context, got %q ok=%v", got, ok)
 	}
-	if got, ok := sandbox.BotIDFromContext(httpReq.Context()); !ok || got != "@gpt_bot:matrix.example.com" {
-		t.Fatalf("expected bot id on context, got %q ok=%v", got, ok)
+	if got, ok := sandbox.RouteTargetFromContext(httpReq.Context()); !ok || got != "@gpt_bot:matrix.example.com" {
+		t.Fatalf("expected route target on context, got %q ok=%v", got, ok)
 	}
 	if got, ok := sandbox.BaseDirFromContext(httpReq.Context()); !ok || got != "/tmp/project-1" {
 		t.Fatalf("expected base dir on context, got %q ok=%v", got, ok)
@@ -158,5 +159,17 @@ func TestPrepareChatRunRequestMapsWorkspaceErrors(t *testing.T) {
 	}
 	if statusCode != http.StatusBadRequest {
 		t.Fatalf("expected bad request status, got %d", statusCode)
+	}
+}
+
+func TestChatRunRequestUnmarshalAcceptsLegacyBotID(t *testing.T) {
+	t.Parallel()
+
+	var req chatRunRequest
+	if err := json.Unmarshal([]byte(`{"prompt":"hello","bot_id":"@legacy:matrix.example.com"}`), &req); err != nil {
+		t.Fatalf("unmarshal legacy bot_id: %v", err)
+	}
+	if req.RouteTarget != "@legacy:matrix.example.com" {
+		t.Fatalf("expected route target from legacy bot_id, got %q", req.RouteTarget)
 	}
 }

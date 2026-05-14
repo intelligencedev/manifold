@@ -37,34 +37,59 @@ func copyUserID(id *int64) *int64 {
 	return &v
 }
 
+func normalizeChatSessionKind(kind string) string {
+	kind = strings.TrimSpace(kind)
+	if kind == "" {
+		return persistence.ChatSessionKindChat
+	}
+	return kind
+}
+
 func (s *memChatStore) EnsureSession(ctx context.Context, userID *int64, id, name string) (persistence.ChatSession, error) {
+	return s.EnsureSessionKind(ctx, userID, id, name, persistence.ChatSessionKindChat)
+}
+
+func (s *memChatStore) EnsureSessionKind(ctx context.Context, userID *int64, id, name, kind string) (persistence.ChatSession, error) {
 	if strings.TrimSpace(id) == "" {
 		return persistence.ChatSession{}, errors.New("id required")
 	}
 	if strings.TrimSpace(name) == "" {
 		name = "New Chat"
 	}
+	kind = normalizeChatSessionKind(kind)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if sess, ok := s.sessions[id]; ok {
 		if !hasAccess(userID, sess.UserID) {
 			return persistence.ChatSession{}, persistence.ErrForbidden
 		}
+		if sess.Kind == "" {
+			sess.Kind = persistence.ChatSessionKindChat
+			s.sessions[id] = sess
+		}
 		return sess, nil
 	}
 	now := time.Now().UTC()
-	sess := persistence.ChatSession{ID: id, Name: name, UserID: copyUserID(userID), CreatedAt: now, UpdatedAt: now}
+	sess := persistence.ChatSession{ID: id, Name: name, Kind: kind, UserID: copyUserID(userID), CreatedAt: now, UpdatedAt: now}
 	s.sessions[id] = sess
 	s.messages[id] = nil
 	return sess, nil
 }
 
 func (s *memChatStore) ListSessions(ctx context.Context, userID *int64) ([]persistence.ChatSession, error) {
+	return s.ListSessionsByKind(ctx, userID, persistence.ChatSessionKindChat)
+}
+
+func (s *memChatStore) ListSessionsByKind(ctx context.Context, userID *int64, kind string) ([]persistence.ChatSession, error) {
+	kind = normalizeChatSessionKind(kind)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]persistence.ChatSession, 0, len(s.sessions))
 	for _, sess := range s.sessions {
 		if !hasAccess(userID, sess.UserID) {
+			continue
+		}
+		if normalizeChatSessionKind(sess.Kind) != kind {
 			continue
 		}
 		out = append(out, sess)
@@ -92,14 +117,19 @@ func (s *memChatStore) GetSession(ctx context.Context, userID *int64, id string)
 }
 
 func (s *memChatStore) CreateSession(ctx context.Context, userID *int64, name string) (persistence.ChatSession, error) {
+	return s.CreateSessionKind(ctx, userID, name, persistence.ChatSessionKindChat)
+}
+
+func (s *memChatStore) CreateSessionKind(ctx context.Context, userID *int64, name, kind string) (persistence.ChatSession, error) {
 	if strings.TrimSpace(name) == "" {
 		name = "New Chat"
 	}
+	kind = normalizeChatSessionKind(kind)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	id := uuid.NewString()
 	now := time.Now().UTC()
-	sess := persistence.ChatSession{ID: id, Name: name, UserID: copyUserID(userID), CreatedAt: now, UpdatedAt: now}
+	sess := persistence.ChatSession{ID: id, Name: name, Kind: kind, UserID: copyUserID(userID), CreatedAt: now, UpdatedAt: now}
 	s.sessions[id] = sess
 	s.messages[id] = nil
 	return sess, nil

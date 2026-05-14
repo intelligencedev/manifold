@@ -12,6 +12,7 @@ specialists:
     summaryContextWindowTokens: 64000
     api: responses
     enableTools: true
+    imageGeneration: false
     # Optional override for the global autoDiscover setting.
     # When enabled, this specialist starts with allowTools and can discover more.
     autoDiscover: true

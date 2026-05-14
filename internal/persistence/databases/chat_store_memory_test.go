@@ -147,6 +147,37 @@ func TestMemChatStoreEnsureSessionOwnership(t *testing.T) {
 	}
 }
 
+func TestMemChatStoreListSessionsHidesMatrixKindByDefault(t *testing.T) {
+	store := newMemoryChatStore()
+	ctx := context.Background()
+
+	if _, err := store.EnsureSession(ctx, nil, "chat-1", "Chat"); err != nil {
+		t.Fatalf("EnsureSession chat: %v", err)
+	}
+	if _, err := store.EnsureSessionKind(ctx, nil, "matrix-1", "Matrix Room !room:test", persistence.ChatSessionKindMatrix); err != nil {
+		t.Fatalf("EnsureSessionKind matrix: %v", err)
+	}
+
+	sessions, err := store.ListSessions(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 non-matrix session, got %d", len(sessions))
+	}
+	if sessions[0].ID != "chat-1" {
+		t.Fatalf("expected chat session only, got %#v", sessions[0])
+	}
+
+	matrixSessions, err := store.ListSessionsByKind(ctx, nil, persistence.ChatSessionKindMatrix)
+	if err != nil {
+		t.Fatalf("ListSessionsByKind matrix: %v", err)
+	}
+	if len(matrixSessions) != 1 || matrixSessions[0].ID != "matrix-1" {
+		t.Fatalf("expected matrix session via kind query, got %#v", matrixSessions)
+	}
+}
+
 func TestMemChatStoreDeleteMessageWithRelated(t *testing.T) {
 	store := newMemoryChatStore().(*memChatStore)
 	ctx := context.Background()

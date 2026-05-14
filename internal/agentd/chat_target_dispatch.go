@@ -186,21 +186,27 @@ func (a *app) dispatchBuiltChatTarget(w http.ResponseWriter, r *http.Request, op
 		writeChatTargetBuildError(w, build, opts.NotFoundMessage, opts.InternalErrorMessage)
 		return true
 	}
+	build = sanitizeImageGenerationBuild(build)
 
-	history, summary, err := a.chatMemory.BuildContextForProvider(r.Context(), opts.UserID, opts.SessionID, build.Engine.LLM, build.Engine.Model, memory.SummaryPolicy{
-		TargetContextWindowTokens:    build.Engine.ContextWindowTokens,
-		PlainTextContextWindowTokens: a.cfg.Summary.PlainTextContextWindowTokens,
-	})
-	if err != nil {
-		if err == persist.ErrForbidden {
-			http.Error(w, "forbidden", http.StatusForbidden)
+	var history []llm.Message
+	var summary *memory.SummaryResult
+	if !build.ImageGeneration {
+		var err error
+		history, summary, err = a.chatMemory.BuildContextForProvider(r.Context(), opts.UserID, opts.SessionID, build.Engine.LLM, build.Engine.Model, memory.SummaryPolicy{
+			TargetContextWindowTokens:    build.Engine.ContextWindowTokens,
+			PlainTextContextWindowTokens: a.cfg.Summary.PlainTextContextWindowTokens,
+		})
+		if err != nil {
+			if err == persist.ErrForbidden {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return true
+			}
+			log.Error().Err(err).Str("session", opts.SessionID).Msg("load_chat_history")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return true
 		}
-		log.Error().Err(err).Str("session", opts.SessionID).Msg("load_chat_history")
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return true
+		build.Engine.SkipInitialSummarization = summary != nil && summary.Triggered
 	}
-	build.Engine.SkipInitialSummarization = summary != nil && summary.Triggered
 
 	runCtx := opts.RunContext
 	if runCtx == nil {
@@ -209,6 +215,7 @@ func (a *app) dispatchBuiltChatTarget(w http.ResponseWriter, r *http.Request, op
 	if strings.TrimSpace(opts.ObjectiveID) != "" {
 		runCtx = sandbox.WithObjectiveID(runCtx, opts.ObjectiveID)
 	}
+	runCtx = applyBuildImagePrompt(runCtx, build)
 	req := chatRunRequest{Prompt: opts.Prompt, SessionID: opts.SessionID, ProjectID: opts.ProjectID, ObjectiveID: opts.ObjectiveID, EphemeralSession: opts.EphemeralSession}
 
 	if r.Header.Get("Accept") == "text/event-stream" {

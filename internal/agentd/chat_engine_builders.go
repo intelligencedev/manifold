@@ -21,10 +21,33 @@ import (
 )
 
 type chatEngineBuildResult struct {
-	Engine     *agent.Engine
-	ModelLabel string
-	StatusCode int
-	Err        error
+	Engine          *agent.Engine
+	ModelLabel      string
+	ImageGeneration bool
+	StatusCode      int
+	Err             error
+}
+
+func sanitizeImageGenerationBuild(build chatEngineBuildResult) chatEngineBuildResult {
+	if !build.ImageGeneration || build.Engine == nil {
+		return build
+	}
+	build.Engine.System = ""
+	build.Engine.UserPromptContext = ""
+	build.Engine.Tools = tools.NewRegistry()
+	build.Engine.MaxSteps = 1
+	build.Engine.Delegator = nil
+	build.Engine.BeliefStore = nil
+	build.Engine.BeliefDistiller = nil
+	build.Engine.BeliefRetriever = nil
+	build.Engine.BeliefGraph = nil
+	build.Engine.PolicyEnforcer = nil
+	build.Engine.EvolvingMemory = nil
+	build.Engine.ReMemEnabled = false
+	build.Engine.ReMemController = nil
+	build.Engine.SummaryEnabled = false
+	build.Engine.SkipInitialSummarization = true
+	return build
 }
 
 func (a *app) chatMaxSteps() int {
@@ -109,8 +132,9 @@ func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptO
 	eng.Delegator = delegator
 
 	return chatEngineBuildResult{
-		Engine:     eng,
-		ModelLabel: chatModelLabel(name, sp.Model),
+		Engine:          eng,
+		ModelLabel:      chatModelLabel(name, sp.Model),
+		ImageGeneration: sp.ImageGeneration,
 	}
 }
 

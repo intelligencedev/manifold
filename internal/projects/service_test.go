@@ -235,12 +235,44 @@ func TestCreateProject_NoDefaultSkills(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProject error: %v", err)
 	}
-
 	projectRoot := filepath.Join(tmp, "users", "11", "projects", p.ID)
 	if _, err := os.Stat(filepath.Join(projectRoot, ".skills")); !os.IsNotExist(err) {
 		t.Fatalf("expected no .skills directory, stat err=%v", err)
 	}
 	if p.SkillsGeneration != 0 {
 		t.Fatalf("expected SkillsGeneration=0, got %d", p.SkillsGeneration)
+	}
+}
+
+func TestServiceListProjectsHidesMatrixKindByDefault(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	svc := NewService(tmp, "")
+	ctx := context.TODO()
+	userID := int64(9)
+
+	chatProject, err := svc.CreateProject(ctx, userID, "Visible Project")
+	if err != nil {
+		t.Fatalf("CreateProject error: %v", err)
+	}
+	matrixProject, err := svc.CreateProjectKind(ctx, userID, "Matrix Room !room:test", ProjectKindMatrix)
+	if err != nil {
+		t.Fatalf("CreateProjectKind error: %v", err)
+	}
+
+	list, err := svc.ListProjects(ctx, userID)
+	if err != nil {
+		t.Fatalf("ListProjects error: %v", err)
+	}
+	if len(list) != 1 || list[0].ID != chatProject.ID {
+		t.Fatalf("expected only normal project in default list, got %+v", list)
+	}
+
+	matrixList, err := svc.ListProjectsByKind(ctx, userID, ProjectKindMatrix)
+	if err != nil {
+		t.Fatalf("ListProjectsByKind error: %v", err)
+	}
+	if len(matrixList) != 1 || matrixList[0].ID != matrixProject.ID {
+		t.Fatalf("expected only matrix project in matrix list, got %+v", matrixList)
 	}
 }

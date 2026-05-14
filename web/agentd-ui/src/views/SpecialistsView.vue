@@ -293,6 +293,9 @@
                 <Pill :tone="s.enableTools ? 'accent' : 'neutral'" size="sm">
                   {{ s.enableTools ? "Tools enabled" : "Tools disabled" }}
                 </Pill>
+                <Pill v-if="s.imageGeneration" tone="accent" size="sm">
+                  Image generation
+                </Pill>
                 <span
                   v-if="typeof s.autoDiscover === 'boolean'"
                   class="inline-flex items-center rounded-full border border-white/10 bg-surface-muted/50 px-2 py-1 font-medium text-subtle-foreground"
@@ -588,6 +591,7 @@ function startCreate() {
     model: "",
     baseURL: "",
     enableTools: false,
+    imageGeneration: false,
     autoDiscover: null,
     paused: false,
     system: "",
@@ -640,6 +644,7 @@ function cloneSpecialist(s: Specialist) {
     description: s.description ?? "",
     apiKey: "",
     autoDiscover: typeof s.autoDiscover === "boolean" ? s.autoDiscover : null,
+    imageGeneration: !!s.imageGeneration,
     allowTools: clonedAllowTools,
     extraHeaders: clonedHeaders,
     extraParams: clonedParams,

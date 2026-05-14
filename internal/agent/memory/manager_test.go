@@ -113,22 +113,43 @@ func newStubChatStore() *stubChatStore {
 func (s *stubChatStore) Init(ctx context.Context) error { return nil }
 
 func (s *stubChatStore) EnsureSession(ctx context.Context, userID *int64, id string, name string) (persistence.ChatSession, error) {
+	return s.EnsureSessionKind(ctx, userID, id, name, persistence.ChatSessionKindChat)
+}
+
+func (s *stubChatStore) EnsureSessionKind(ctx context.Context, userID *int64, id string, name string, kind string) (persistence.ChatSession, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if sess, ok := s.sessions[id]; ok {
 		return *sess, nil
 	}
-	sess := &persistence.ChatSession{ID: id, Name: name, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	if strings.TrimSpace(kind) == "" {
+		kind = persistence.ChatSessionKindChat
+	}
+	sess := &persistence.ChatSession{ID: id, Name: name, Kind: kind, CreatedAt: time.Now(), UpdatedAt: time.Now()}
 	s.sessions[id] = sess
 	s.messages[id] = nil
 	return *sess, nil
 }
 
 func (s *stubChatStore) ListSessions(ctx context.Context, userID *int64) ([]persistence.ChatSession, error) {
+	return s.ListSessionsByKind(ctx, userID, persistence.ChatSessionKindChat)
+}
+
+func (s *stubChatStore) ListSessionsByKind(ctx context.Context, userID *int64, kind string) ([]persistence.ChatSession, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var result []persistence.ChatSession
 	for _, sess := range s.sessions {
+		sessKind := strings.TrimSpace(sess.Kind)
+		if sessKind == "" {
+			sessKind = persistence.ChatSessionKindChat
+		}
+		if strings.TrimSpace(kind) == "" {
+			kind = persistence.ChatSessionKindChat
+		}
+		if sessKind != kind {
+			continue
+		}
 		result = append(result, *sess)
 	}
 	return result, nil
@@ -144,7 +165,11 @@ func (s *stubChatStore) GetSession(ctx context.Context, userID *int64, id string
 }
 
 func (s *stubChatStore) CreateSession(ctx context.Context, userID *int64, name string) (persistence.ChatSession, error) {
-	return s.EnsureSession(ctx, userID, name, name)
+	return s.CreateSessionKind(ctx, userID, name, persistence.ChatSessionKindChat)
+}
+
+func (s *stubChatStore) CreateSessionKind(ctx context.Context, userID *int64, name string, kind string) (persistence.ChatSession, error) {
+	return s.EnsureSessionKind(ctx, userID, name, name, kind)
 }
 
 func (s *stubChatStore) RenameSession(ctx context.Context, userID *int64, id, name string) (persistence.ChatSession, error) {
@@ -530,15 +555,15 @@ func TestSummarizeChunkRecursivelyReducesOversizedExistingSummary(t *testing.T) 
 	store := newStubChatStore()
 	provider := &limitEnforcingLLM{
 		response:        "condensed summary",
-		maxPromptTokens: 160,
+		maxPromptTokens: 2600,
 	}
 	manager := NewManager(store, provider, Config{
 		Enabled:                      true,
 		SummaryModel:                 "stub",
-		ContextWindowTokens:          192,
-		PlainTextContextWindowTokens: 192,
+		ContextWindowTokens:          2632,
+		PlainTextContextWindowTokens: 2632,
 		ReserveBufferTokens:          32,
-		MaxSummaryChunkTokens:        160,
+		MaxSummaryChunkTokens:        4096,
 	})
 
 	existing := strings.Repeat("existing summary detail ", 240)
@@ -559,6 +584,38 @@ func TestSummarizeChunkRecursivelyReducesOversizedExistingSummary(t *testing.T) 
 	}
 	if provider.maxSeenTokens > provider.maxPromptTokens {
 		t.Fatalf("expected each summary prompt to stay within limit, saw %d > %d", provider.maxSeenTokens, provider.maxPromptTokens)
+	}
+}
+
+func TestSummarizeChunkFallsBackWhenPromptInstructionsExceedBudget(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := newStubChatStore()
+	provider := &limitEnforcingLLM{
+		response:        "should not be called",
+		maxPromptTokens: 1,
+	}
+	manager := NewManager(store, provider, Config{
+		Enabled:                      true,
+		SummaryModel:                 "stub",
+		ContextWindowTokens:          33,
+		PlainTextContextWindowTokens: 33,
+		ReserveBufferTokens:          32,
+		MaxSummaryChunkTokens:        64,
+	})
+
+	summary, err := manager.summarizeChunk(ctx, strings.Repeat("existing summary detail ", 20), []persistence.ChatMessage{
+		{Role: "user", Content: strings.Repeat("new detail ", 20)},
+	}, nil, "")
+	if err != nil {
+		t.Fatalf("summarizeChunk: %v", err)
+	}
+	if strings.TrimSpace(summary) == "" {
+		t.Fatal("expected deterministic fallback summary")
+	}
+	if provider.calls != 0 {
+		t.Fatalf("expected no LLM calls when instructions exceed budget, got %d", provider.calls)
 	}
 }
 

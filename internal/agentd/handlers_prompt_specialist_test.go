@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,13 +17,17 @@ import (
 	"manifold/internal/config"
 	"manifold/internal/llm"
 	"manifold/internal/persistence"
+	"manifold/internal/persistence/databases"
+	"manifold/internal/projects"
 	"manifold/internal/sandbox"
 	"manifold/internal/specialists"
 	"manifold/internal/testhelpers"
 	"manifold/internal/tools"
+	"manifold/internal/workspaces"
 )
 
 type promptHandlerChatStore struct {
+	mu       sync.RWMutex
 	sessions map[string]persistence.ChatSession
 	messages map[string][]persistence.ChatMessage
 }
@@ -37,24 +42,51 @@ func newPromptHandlerChatStore() *promptHandlerChatStore {
 func (s *promptHandlerChatStore) Init(context.Context) error { return nil }
 
 func (s *promptHandlerChatStore) EnsureSession(_ context.Context, userID *int64, id string, name string) (persistence.ChatSession, error) {
+	return s.EnsureSessionKind(context.Background(), userID, id, name, persistence.ChatSessionKindChat)
+}
+
+func (s *promptHandlerChatStore) EnsureSessionKind(_ context.Context, userID *int64, id string, name string, kind string) (persistence.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if sess, ok := s.sessions[id]; ok {
 		return sess, nil
 	}
-	sess := persistence.ChatSession{ID: id, Name: name, UserID: userID, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	if strings.TrimSpace(kind) == "" {
+		kind = persistence.ChatSessionKindChat
+	}
+	sess := persistence.ChatSession{ID: id, Name: name, Kind: kind, UserID: userID, CreatedAt: time.Now(), UpdatedAt: time.Now()}
 	s.sessions[id] = sess
 	s.messages[id] = nil
 	return sess, nil
 }
 
 func (s *promptHandlerChatStore) ListSessions(context.Context, *int64) ([]persistence.ChatSession, error) {
+	return s.ListSessionsByKind(context.Background(), nil, persistence.ChatSessionKindChat)
+}
+
+func (s *promptHandlerChatStore) ListSessionsByKind(_ context.Context, _ *int64, kind string) ([]persistence.ChatSession, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if strings.TrimSpace(kind) == "" {
+		kind = persistence.ChatSessionKindChat
+	}
 	out := make([]persistence.ChatSession, 0, len(s.sessions))
 	for _, sess := range s.sessions {
+		sessKind := strings.TrimSpace(sess.Kind)
+		if sessKind == "" {
+			sessKind = persistence.ChatSessionKindChat
+		}
+		if sessKind != kind {
+			continue
+		}
 		out = append(out, sess)
 	}
 	return out, nil
 }
 
 func (s *promptHandlerChatStore) GetSession(_ context.Context, _ *int64, id string) (persistence.ChatSession, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	sess, ok := s.sessions[id]
 	if !ok {
 		return persistence.ChatSession{}, persistence.ErrNotFound
@@ -63,10 +95,16 @@ func (s *promptHandlerChatStore) GetSession(_ context.Context, _ *int64, id stri
 }
 
 func (s *promptHandlerChatStore) CreateSession(ctx context.Context, userID *int64, name string) (persistence.ChatSession, error) {
-	return s.EnsureSession(ctx, userID, name, name)
+	return s.CreateSessionKind(ctx, userID, name, persistence.ChatSessionKindChat)
+}
+
+func (s *promptHandlerChatStore) CreateSessionKind(ctx context.Context, userID *int64, name string, kind string) (persistence.ChatSession, error) {
+	return s.EnsureSessionKind(ctx, userID, name, name, kind)
 }
 
 func (s *promptHandlerChatStore) RenameSession(_ context.Context, _ *int64, id, name string) (persistence.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	sess := s.sessions[id]
 	sess.Name = name
 	s.sessions[id] = sess
@@ -74,12 +112,16 @@ func (s *promptHandlerChatStore) RenameSession(_ context.Context, _ *int64, id, 
 }
 
 func (s *promptHandlerChatStore) DeleteSession(_ context.Context, _ *int64, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	delete(s.sessions, id)
 	delete(s.messages, id)
 	return nil
 }
 
 func (s *promptHandlerChatStore) ListMessages(_ context.Context, _ *int64, sessionID string, limit int) ([]persistence.ChatMessage, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	msgs := s.messages[sessionID]
 	if limit > 0 && len(msgs) > limit {
 		msgs = msgs[len(msgs)-limit:]
@@ -96,11 +138,15 @@ func (s *promptHandlerChatStore) DeleteMessagesAfter(context.Context, *int64, st
 }
 
 func (s *promptHandlerChatStore) AppendMessages(_ context.Context, _ *int64, sessionID string, messages []persistence.ChatMessage, _ string, _ string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.messages[sessionID] = append(s.messages[sessionID], messages...)
 	return nil
 }
 
 func (s *promptHandlerChatStore) UpdateSummary(_ context.Context, _ *int64, sessionID string, summary string, summarizedCount int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	sess, ok := s.sessions[sessionID]
 	if !ok {
 		return persistence.ErrNotFound
@@ -341,6 +387,65 @@ func TestHandleChatTarget_JSONIncludesQueuedMatrixMessages(t *testing.T) {
 	}
 }
 
+func TestHandleChatTargetUsesImageAPIForImageGenerationSpecialist(t *testing.T) {
+	t.Parallel()
+
+	var gotPath string
+	var gotBody map[string]any
+	specialistServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		defer r.Body.Close()
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		if r.URL.Path != "/images/generations" {
+			http.Error(w, "unexpected chat request", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"b64_json":"cG5nYnl0ZXM="}]}`))
+	}))
+	defer specialistServer.Close()
+
+	a := newSpecialistTestApp(t, specialistServer.URL, []config.SpecialistConfig{{
+		Name:            "image-maker",
+		Description:     "Image generation specialist",
+		Provider:        "openai",
+		BaseURL:         specialistServer.URL,
+		APIKey:          "test",
+		Model:           "gpt-image-2",
+		System:          "Never send this system prompt to image generation.",
+		EnableTools:     true,
+		ImageGeneration: true,
+		ExtraParams:     map[string]any{"size": "2048x2048"},
+	}})
+	store := a.chatStore.(*promptHandlerChatStore)
+	store.messages["sess-image"] = []persistence.ChatMessage{
+		{Role: "user", Content: "previous prompt that must be ignored"},
+		{Role: "assistant", Content: "previous answer that must be ignored"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/prompt?specialist=image-maker", nil)
+	rr := httptest.NewRecorder()
+
+	handled := a.handleChatTarget(rr, req, chatDispatchTarget{SpecialistName: "image-maker"}, "draw a river", "sess-image", "", "", false, "", nil, 0, chatTargetDescriptor{})
+	if !handled {
+		t.Fatalf("expected specialist handler to process request")
+	}
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if gotPath != "/images/generations" {
+		t.Fatalf("expected image generation endpoint, got %q", gotPath)
+	}
+	if model, _ := gotBody["model"].(string); model != "gpt-image-2" {
+		t.Fatalf("expected gpt-image-2 model, got %#v", gotBody["model"])
+	}
+	if prompt, _ := gotBody["prompt"].(string); prompt != "draw a river" {
+		t.Fatalf("expected prompt forwarded to image API, got %#v", gotBody["prompt"])
+	}
+	if size, _ := gotBody["size"].(string); size != "2048x2048" {
+		t.Fatalf("expected configured image size, got %#v", gotBody["size"])
+	}
+}
+
 func TestHandleChatTarget_SSEIncludesQueuedMatrixMessages(t *testing.T) {
 	t.Parallel()
 
@@ -387,8 +492,9 @@ func newSpecialistTestApp(t *testing.T, baseURL string, specs []config.Specialis
 	chatStore := newPromptHandlerChatStore()
 	baseProvider := &testhelpers.FakeProvider{Resp: llm.Message{Role: "assistant", Content: "orchestrator response"}}
 	baseTools := tools.NewRegistry()
+	workdir := t.TempDir()
 	cfg := config.Config{
-		Workdir:  ".",
+		Workdir:  workdir,
 		MaxSteps: 2,
 		LLMClient: config.LLMClientConfig{
 			Provider: "openai",
@@ -399,15 +505,19 @@ func newSpecialistTestApp(t *testing.T, baseURL string, specs []config.Specialis
 			},
 		},
 	}
+	projectsService := projects.NewService(workdir, "")
 
 	return &app{
-		cfg:              &cfg,
-		llm:              baseProvider,
-		baseToolRegistry: baseTools,
-		specRegistry:     specialists.NewRegistry(cfg.LLMClient, specs, http.DefaultClient, baseTools),
-		chatStore:        chatStore,
-		chatMemory:       memory.NewManager(chatStore, baseProvider, memory.Config{}),
-		runs:             newRunStore(),
+		cfg:                &cfg,
+		llm:                baseProvider,
+		baseToolRegistry:   baseTools,
+		specRegistry:       specialists.NewRegistry(cfg.LLMClient, specs, http.DefaultClient, baseTools),
+		chatStore:          chatStore,
+		matrixMessageStore: databases.NewMatrixMessageStore(nil),
+		chatMemory:         memory.NewManager(chatStore, baseProvider, memory.Config{}),
+		runs:               newRunStore(),
+		projectsService:    projectsService,
+		workspaceManager:   workspaces.NewManager(&cfg),
 		engine: &agent.Engine{
 			LLM:   baseProvider,
 			Tools: baseTools,

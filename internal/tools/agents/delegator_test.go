@@ -2,6 +2,9 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -9,6 +12,7 @@ import (
 	"manifold/internal/agent/memory"
 	"manifold/internal/config"
 	"manifold/internal/llm"
+	"manifold/internal/specialists"
 	"manifold/internal/tools"
 )
 
@@ -106,5 +110,69 @@ func TestDelegatorRunUsesSharedEvolvingMemory(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for delegated evolving memory save")
+	}
+}
+
+func TestDelegatorRunImageGenerationSpecialistSendsOnlyPrompt(t *testing.T) {
+	t.Parallel()
+
+	var gotPath string
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		defer r.Body.Close()
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		if r.URL.Path != "/images/generations" {
+			http.Error(w, "unexpected chat request", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"b64_json":"cG5nYnl0ZXM="}]}`))
+	}))
+	defer server.Close()
+
+	llmConfig := config.LLMClientConfig{
+		Provider: "openai",
+		OpenAI: config.OpenAIConfig{
+			APIKey:  "test",
+			BaseURL: server.URL,
+			Model:   "fallback-model",
+		},
+	}
+	registry := specialists.NewRegistry(llmConfig, []config.SpecialistConfig{{
+		Name:            "image-maker",
+		Provider:        "openai",
+		BaseURL:         server.URL,
+		APIKey:          "test",
+		Model:           "gpt-image-2",
+		System:          "Never send this system prompt to image generation.",
+		EnableTools:     true,
+		ImageGeneration: true,
+		ExtraParams:     map[string]any{"size": "2048x2048"},
+	}}, server.Client(), tools.NewRegistry())
+
+	d := NewDelegator(tools.NewRegistry(), registry, nil, 8)
+	out, err := d.Run(context.Background(), agent.DelegateRequest{
+		AgentName: "image-maker",
+		Prompt:    "draw a mountain",
+		History: []llm.Message{
+			{Role: "user", Content: "previous prompt that must be ignored"},
+			{Role: "assistant", Content: "previous answer that must be ignored"},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("delegator run failed: %v", err)
+	}
+	if out != "Generated image" {
+		t.Fatalf("expected generated image result, got %q", out)
+	}
+	if gotPath != "/images/generations" {
+		t.Fatalf("expected image generation endpoint, got %q", gotPath)
+	}
+	if prompt, _ := gotBody["prompt"].(string); prompt != "draw a mountain" {
+		t.Fatalf("expected delegated prompt only, got %#v", gotBody["prompt"])
+	}
+	if size, _ := gotBody["size"].(string); size != "2048x2048" {
+		t.Fatalf("expected configured delegated image size, got %#v", gotBody["size"])
 	}
 }

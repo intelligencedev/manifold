@@ -15,23 +15,11 @@ Manifold is built for workflows that go beyond one-shot prompts. It gives you a 
 
 ### Agent chat
 
-Use a traditional chat interface to assign objectives to specialists.
+Use a traditional chat interface to assign objectives to specialists. Agent specialists can be configured to render visualizations in addition to text responses.
 
 ![chat](docs/img/chat.webp)
 
 _Specialists can collaborate across multiple turns. Manifold is designed to take advantage of the long-horizon capabilities of frontier models and can work on complex objectives for hours._
-
-### Observability (work in progress)
-
-![chat](docs/img/overview.webp)
-
-### Workflow editor
-
-Design agent workflows with a visual flow editor. __MCP tools are exposed as nodes automagically. Saved workflows become tools that can be invoked by specialists or inserted as nodes into other workflows.__ It's workflows all the way down.
-
-![workflow editor](docs/img/flow.webp)
-
-![workflow editor 2](docs/img/flow2.webp)
 
 ### Image generation
 
@@ -40,6 +28,24 @@ Manifold supports image generation with OpenAI and Google models, as well as loc
 ![image generation](docs/img/imggen.webp)
 
 _Example ComfyUI-generated image using a custom workflow._
+
+### Observability (work in progress)
+
+![chat](docs/img/overview.webp)
+
+### Pulse - Scheduled Tasks
+
+Schedule tasks for agent specialists to execute in time intervals, daily, or only once at a defined date and time. Send results to various external services. Matrix is natively supported, but Skills or MCP's can extend the channels Manifold has access to.
+
+![pulse](docs/img/pulse.webp)
+
+### Workflow editor
+
+Design agent workflows with a visual flow editor. __MCP tools are exposed as nodes automagically. Saved workflows become tools that can be invoked by specialists or inserted as nodes into other workflows.__ It's workflows all the way down.
+
+![workflow editor](docs/img/flow.webp)
+
+![workflow editor 2](docs/img/flow2.webp)
 
 ### Specialist registry
 
@@ -123,6 +129,7 @@ For the full deployment walkthrough, see:
 
 - [QUICKSTART.md](./QUICKSTART.md)
 - [docs/deployment.md](./docs/deployment.md)
+- [docs/matrix-gateway.md](./docs/matrix-gateway.md)
 
 ## Developers
 

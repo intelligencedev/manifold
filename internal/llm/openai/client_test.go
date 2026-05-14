@@ -148,6 +148,38 @@ func TestChatWithOptions_AppendsWebSearchOptions(t *testing.T) {
 	}
 }
 
+func TestChatWithOptionsNilToolsOmitsNativeWebSearch(t *testing.T) {
+	var payload map[string]any
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"hello","tool_calls":[]}}]}`))
+	})
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	httpClient, err := openAICloudTestClient(srv.URL)
+	if err != nil {
+		t.Fatalf("test client: %v", err)
+	}
+	c := config.OpenAIConfig{APIKey: "test", BaseURL: "https://api.openai.com/v1", Model: "gpt-5-search-api"}
+	cli := New(c, httpClient)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err = cli.ChatWithOptions(ctx, []llm.Message{{Role: "user", Content: "hi"}}, nil, "", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := payload["tools"]; ok {
+		t.Fatalf("expected no tools payload, got %#v", payload["tools"])
+	}
+	if _, ok := payload["web_search_options"]; ok {
+		t.Fatalf("expected no native web search options, got %#v", payload["web_search_options"])
+	}
+}
+
 func TestChatResponses_AppendsNativeWebSearchTool(t *testing.T) {
 	var payload map[string]any
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -888,6 +920,14 @@ func TestChatImageGeneration(t *testing.T) {
 		APIKey:  "k",
 		Model:   "gpt-image-1.5",
 		BaseURL: srv.URL,
+		ExtraParams: map[string]any{
+			"size":             "2048x2048",
+			"quality":          "high",
+			"n":                "2",
+			"reasoning_effort": "medium",
+			"prompt_cache_key": "manifold-",
+			"custom":           "kept",
+		},
 	}, srv.Client())
 
 	ctx := llm.WithImagePrompt(context.Background(), llm.ImagePromptOptions{Size: "1K"})
@@ -906,6 +946,24 @@ func TestChatImageGeneration(t *testing.T) {
 	}
 	if prompt, ok := gotBody["prompt"].(string); !ok || !strings.Contains(prompt, "cat") {
 		t.Fatalf("expected prompt forwarded, got %#v", gotBody["prompt"])
+	}
+	if size, _ := gotBody["size"].(string); size != "2048x2048" {
+		t.Fatalf("expected configured image size, got %#v", gotBody["size"])
+	}
+	if quality, _ := gotBody["quality"].(string); quality != "high" {
+		t.Fatalf("expected configured image quality, got %#v", gotBody["quality"])
+	}
+	if n, _ := gotBody["n"].(float64); n != 2 {
+		t.Fatalf("expected configured image count, got %#v", gotBody["n"])
+	}
+	if _, ok := gotBody["reasoning_effort"]; ok {
+		t.Fatalf("did not expect chat-only reasoning_effort on image request: %#v", gotBody)
+	}
+	if _, ok := gotBody["prompt_cache_key"]; ok {
+		t.Fatalf("did not expect prompt_cache_key on image request: %#v", gotBody)
+	}
+	if _, ok := gotBody["custom"]; ok {
+		t.Fatalf("did not expect unknown extra params on image request: %#v", gotBody)
 	}
 }
 

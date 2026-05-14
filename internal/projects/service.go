@@ -19,10 +19,18 @@ import (
 	"manifold/internal/validation"
 )
 
+const (
+	ProjectKindChat   = "chat"
+	ProjectKindMatrix = "matrix"
+
+	matrixProjectNamePrefix = "Matrix Room "
+)
+
 // Project describes a per-user project stored on the filesystem.
 type Project struct {
 	ID               string    `json:"id"`
 	Name             string    `json:"name"`
+	Kind             string    `json:"kind"`
 	Generation       int64     `json:"generation"`
 	SkillsGeneration int64     `json:"skillsGeneration"`
 	CreatedAt        time.Time `json:"createdAt"`
@@ -88,10 +96,22 @@ func resolveUnderRoot(absBase, rel string) (string, error) {
 type projectMeta struct {
 	ID               string    `json:"id"`
 	Name             string    `json:"name"`
+	Kind             string    `json:"kind"`
 	Generation       int64     `json:"generation"`
 	SkillsGeneration int64     `json:"skillsGeneration"`
 	CreatedAt        time.Time `json:"createdAt"`
 	UpdatedAt        time.Time `json:"updatedAt"`
+}
+
+func normalizeProjectKind(name, kind string) string {
+	kind = strings.TrimSpace(kind)
+	if kind != "" {
+		return kind
+	}
+	if strings.HasPrefix(strings.TrimSpace(name), matrixProjectNamePrefix) {
+		return ProjectKindMatrix
+	}
+	return ProjectKindChat
 }
 
 func (s *Service) metaPath(root string) string {
@@ -120,9 +140,14 @@ func sanitizeUnder(base, p string) (string, error) {
 
 // CreateProject provisions a new project directory for the given user.
 func (s *Service) CreateProject(_ context.Context, userID int64, name string) (Project, error) {
+	return s.CreateProjectKind(context.Background(), userID, name, ProjectKindChat)
+}
+
+func (s *Service) CreateProjectKind(_ context.Context, userID int64, name string, kind string) (Project, error) {
 	if strings.TrimSpace(name) == "" {
 		name = "Untitled"
 	}
+	kind = normalizeProjectKind(name, kind)
 	id := uuid.NewString()
 	root, err := s.projectRoot(userID, id)
 	if err != nil {
@@ -136,7 +161,7 @@ func (s *Service) CreateProject(_ context.Context, userID int64, name string) (P
 		return Project{}, err
 	}
 	now := time.Now().UTC()
-	meta := projectMeta{ID: id, Name: name, CreatedAt: now, UpdatedAt: now, Generation: 0, SkillsGeneration: 0}
+	meta := projectMeta{ID: id, Name: name, Kind: kind, CreatedAt: now, UpdatedAt: now, Generation: 0, SkillsGeneration: 0}
 	// Seed helper files (best-effort)
 	_ = os.WriteFile(filepath.Join(root, "README.md"), []byte("# Project\n\nThis directory is managed by the platform.\n"), 0o644)
 	if strings.TrimSpace(s.defaultSkillsDir) != "" {
@@ -147,7 +172,7 @@ func (s *Service) CreateProject(_ context.Context, userID int64, name string) (P
 	if b, err := json.MarshalIndent(meta, "", "  "); err == nil {
 		_ = os.WriteFile(s.metaPath(root), b, 0o644)
 	}
-	return Project{ID: id, Name: name, CreatedAt: now, UpdatedAt: now, Bytes: 0, FileCount: 0, Generation: 0, SkillsGeneration: meta.SkillsGeneration}, nil
+	return Project{ID: id, Name: name, Kind: kind, CreatedAt: now, UpdatedAt: now, Bytes: 0, FileCount: 0, Generation: 0, SkillsGeneration: meta.SkillsGeneration}, nil
 }
 
 // DeleteProject recursively deletes the project directory for a user.
@@ -167,6 +192,11 @@ func (s *Service) DeleteProject(_ context.Context, userID int64, projectID strin
 
 // ListProjects lists all projects for a user, computing size and file count.
 func (s *Service) ListProjects(_ context.Context, userID int64) ([]Project, error) {
+	return s.ListProjectsByKind(context.Background(), userID, ProjectKindChat)
+}
+
+func (s *Service) ListProjectsByKind(_ context.Context, userID int64, kind string) ([]Project, error) {
+	kind = normalizeProjectKind("", kind)
 	base := s.userRoot(userID)
 	entries, err := os.ReadDir(base)
 	if err != nil {
@@ -189,7 +219,10 @@ func (s *Service) ListProjects(_ context.Context, userID int64) ([]Project, erro
 			if info != nil {
 				t = info.ModTime().UTC()
 			}
-			p = Project{ID: e.Name(), Name: e.Name(), CreatedAt: t, UpdatedAt: t}
+			p = Project{ID: e.Name(), Name: e.Name(), Kind: ProjectKindChat, CreatedAt: t, UpdatedAt: t}
+		}
+		if normalizeProjectKind(p.Name, p.Kind) != kind {
+			continue
 		}
 		bytes, files := s.computeUsage(root)
 		p.Bytes, p.FileCount = bytes, files
@@ -214,7 +247,7 @@ func (s *Service) readProject(root string) (Project, bool) {
 	if err := json.Unmarshal(b, &m); err != nil {
 		return Project{}, false
 	}
-	return Project{ID: m.ID, Name: m.Name, CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt, Generation: m.Generation, SkillsGeneration: m.SkillsGeneration}, true
+	return Project{ID: m.ID, Name: m.Name, Kind: normalizeProjectKind(m.Name, m.Kind), CreatedAt: m.CreatedAt, UpdatedAt: m.UpdatedAt, Generation: m.Generation, SkillsGeneration: m.SkillsGeneration}, true
 }
 
 func (s *Service) writeUpdatedAt(userID int64, projectID string, t time.Time, bumpGeneration bool, bumpSkills bool) {

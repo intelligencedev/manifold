@@ -42,6 +42,8 @@ type Delegator struct {
 	policyEnforcer  policy.Enforcer
 }
 
+const defaultImagePromptSize = "1K"
+
 func NewDelegator(reg tools.Registry, specReg *specialists.Registry, wsMgr workspaces.WorkspaceManager, defaultMaxSteps int) *Delegator {
 	return &Delegator{reg: reg, specReg: specReg, wsMgr: wsMgr, defaultSys: "You are a helpful assistant.", defaultMaxStep: defaultMaxSteps}
 }
@@ -108,6 +110,7 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 	var toolsReg tools.Registry
 	system := d.defaultSys
 	model := ""
+	imageGeneration := false
 
 	toolsReg = d.reg
 
@@ -115,6 +118,7 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 		if a, ok := d.specReg.Get(req.AgentName); ok && a != nil {
 			prov = a.Provider()
 			toolsReg = a.ToolsRegistry()
+			imageGeneration = a.ImageGeneration
 			// The specialist's System field already has the default prompt prepended
 			// during registry initialization, so use it directly
 			system = a.System
@@ -145,6 +149,12 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 	} else if toolsReg == nil {
 		toolsReg = tools.NewRegistry()
 	}
+	if imageGeneration {
+		toolsReg = tools.NewRegistry()
+		system = ""
+		maxSteps = 1
+		req.History = nil
+	}
 
 	runCtx := dispatchCtx
 	if req.TimeoutSeconds > 0 {
@@ -155,6 +165,9 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 		var cancel context.CancelFunc
 		runCtx, cancel = context.WithTimeout(dispatchCtx, d.defaultTimeout)
 		defer cancel()
+	}
+	if imageGeneration {
+		runCtx = llm.WithImagePrompt(runCtx, llm.ImagePromptOptions{Size: defaultImagePromptSize})
 	}
 
 	if tracer != nil {
@@ -185,7 +198,20 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 		AgentTracer:               tracer,
 		AgentDepth:                req.Depth,
 	}
-	if d.evolvingMemory != nil && d.reMemLLM != nil {
+	if imageGeneration {
+		eng.System = ""
+		eng.UserPromptContext = ""
+		eng.EvolvingMemory = nil
+		eng.Delegator = nil
+		eng.BeliefStore = nil
+		eng.BeliefDistiller = nil
+		eng.BeliefRetriever = nil
+		eng.BeliefGraph = nil
+		eng.PolicyEnforcer = nil
+		eng.SummaryEnabled = false
+		eng.SkipInitialSummarization = true
+	}
+	if !imageGeneration && d.evolvingMemory != nil && d.reMemLLM != nil {
 		eng.ReMemEnabled = true
 		eng.ReMemController = memory.NewReMemController(memory.ReMemConfig{
 			LLM:           d.reMemLLM,

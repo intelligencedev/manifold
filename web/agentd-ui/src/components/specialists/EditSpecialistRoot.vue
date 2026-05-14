@@ -316,6 +316,24 @@
                 <span class="font-mono">{{ defaultBaseURL || "—" }}</span>
               </div>
             </div>
+
+            <label
+              class="flex items-start justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2"
+            >
+              <span class="min-w-0">
+                <span class="block text-sm font-medium text-foreground">
+                  Image generation
+                </span>
+                <span class="block text-xs text-subtle-foreground">
+                  Use the image generation endpoint for every request.
+                </span>
+              </span>
+              <input
+                v-model="draft.imageGeneration"
+                type="checkbox"
+                class="mt-1 h-4 w-4 shrink-0"
+              />
+            </label>
           </div>
         </FormSection>
 
@@ -908,6 +926,7 @@ const draft = reactive({
   provider: "",
   model: "",
   summaryContextWindowTokens: "",
+  imageGeneration: false,
   paused: false,
   useDefaultEndpoint: true,
   customBaseURL: "",
@@ -1139,6 +1158,7 @@ function normalizeComparable(sp: Specialist): SpecialistComparable {
     model: (sp.model || "").trim(),
     summaryContextWindowTokens: sp.summaryContextWindowTokens || 0,
     enableTools: !!sp.enableTools,
+    imageGeneration: !!sp.imageGeneration,
     autoDiscover: typeof sp.autoDiscover === "boolean" ? sp.autoDiscover : null,
     paused: !!sp.paused,
     allowTools,
@@ -1159,6 +1179,7 @@ function normalizePayload(sp: Specialist): Specialist {
     model: (sp.model || "").trim(),
     summaryContextWindowTokens: sp.summaryContextWindowTokens || 0,
     enableTools: !!sp.enableTools,
+    imageGeneration: !!sp.imageGeneration,
     autoDiscover: typeof sp.autoDiscover === "boolean" ? sp.autoDiscover : null,
     paused: !!sp.paused,
     apiKey: sp.apiKey || undefined,
@@ -1257,6 +1278,7 @@ function buildPayloadFromDraft(): Specialist {
     baseURL: (baseURL || "").trim(),
     summaryContextWindowTokens: 0,
     enableTools,
+    imageGeneration: !!draft.imageGeneration,
     autoDiscover,
     paused: !!draft.paused,
     allowTools: allow,
@@ -1613,6 +1635,7 @@ function initFromInitial(sp: Specialist) {
   draft.description = normalized.description || "";
   draft.provider = normalized.provider || props.providerOptions[0] || "";
   draft.model = normalized.model || "";
+  draft.imageGeneration = !!normalized.imageGeneration;
   draft.paused = !!normalized.paused;
   draft.system = normalized.system || "";
   draft.summaryContextWindowTokens = normalized.summaryContextWindowTokens

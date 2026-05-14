@@ -309,6 +309,7 @@ llm_client:
     apiKey: "${SPECIALIST_API_KEY}"
     model: gpt-5-mini
     enableTools: true
+    imageGeneration: true
     autoDiscover: true
 routes:
   - name: coder
@@ -326,6 +327,9 @@ routes:
 	}
 	if cfg.Specialists[0].AutoDiscover == nil || !*cfg.Specialists[0].AutoDiscover {
 		t.Fatalf("expected specialist autoDiscover to be true: %+v", cfg.Specialists[0])
+	}
+	if !cfg.Specialists[0].ImageGeneration {
+		t.Fatalf("expected specialist imageGeneration to be true: %+v", cfg.Specialists[0])
 	}
 	if len(cfg.SpecialistRoutes) != 1 || cfg.SpecialistRoutes[0].Name != "coder" {
 		t.Fatalf("unexpected routes: %+v", cfg.SpecialistRoutes)

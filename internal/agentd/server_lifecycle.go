@@ -21,6 +21,16 @@ func (a *app) close() {
 	if a.mcpManager != nil {
 		a.mcpManager.Close()
 	}
+	if a.matrixGateway != nil {
+		if err := a.matrixGateway.Close(); err != nil {
+			log.Warn().Err(err).Msg("close matrix gateway")
+		}
+	}
+	if a.pulseRuntime != nil {
+		if err := a.pulseRuntime.Close(); err != nil {
+			log.Warn().Err(err).Msg("close matrix pulse runtime")
+		}
+	}
 	if a.mgr != nil {
 		a.mgr.Close()
 	}

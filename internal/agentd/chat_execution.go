@@ -41,6 +41,8 @@ type chatJSONOptions struct {
 	StoreModel            string
 }
 
+const defaultImagePromptSize = "1K"
+
 type chatSSEWriter struct {
 	w  io.Writer
 	fl http.Flusher
@@ -129,8 +131,11 @@ func (c *chatTurnCollector) resultText(result string) string {
 	return appendImageSummary(result, c.savedImages)
 }
 
-func buildChatJSONPayload(result string, ctx context.Context, includeMatrixMessages bool) map[string]any {
+func buildChatJSONPayload(result string, images []savedImage, ctx context.Context, includeMatrixMessages bool) map[string]any {
 	payload := map[string]any{"result": result}
+	if len(images) > 0 {
+		payload["images"] = append([]savedImage(nil), images...)
+	}
 	if includeMatrixMessages {
 		if outbox, ok := sandbox.MatrixOutboxFromContext(ctx); ok {
 			if messages := outbox.Messages(); len(messages) > 0 {
@@ -237,6 +242,16 @@ func applyChatImagePrompt(ctx, runCtx context.Context, req chatRunRequest, inher
 		return llm.WithImagePrompt(ctx, llm.ImagePromptOptions{Size: req.ImageSize})
 	}
 	return ctx
+}
+
+func applyBuildImagePrompt(ctx context.Context, build chatEngineBuildResult) context.Context {
+	if !build.ImageGeneration {
+		return ctx
+	}
+	if _, ok := llm.ImagePromptFromContext(ctx); ok {
+		return ctx
+	}
+	return llm.WithImagePrompt(ctx, llm.ImagePromptOptions{Size: defaultImagePromptSize})
 }
 
 func chatStoreModel(eng *agent.Engine, override string) string {
@@ -357,6 +372,16 @@ func (a *app) executeStreamChat(w http.ResponseWriter, r *http.Request, runCtx c
 }
 
 func (a *app) executeJSONChat(w http.ResponseWriter, r *http.Request, runCtx context.Context, eng *agent.Engine, req chatRunRequest, history []llm.Message, runID string, userID *int64, checkedOutWorkspace *workspaces.Workspace, opts chatJSONOptions) {
+	payload, err := a.executeInternalJSONChat(r.Context(), runCtx, eng, req, history, runID, userID, checkedOutWorkspace, opts)
+	if err != nil {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(payload)
+}
+
+func (a *app) executeInternalJSONChat(storeCtx, runCtx context.Context, eng *agent.Engine, req chatRunRequest, history []llm.Message, runID string, userID *int64, checkedOutWorkspace *workspaces.Workspace, opts chatJSONOptions) (map[string]any, error) {
 	if req.EphemeralSession {
 		defer cleanupEphemeralChatSession(a.chatStore, userID, req.SessionID)
 	}
@@ -379,17 +404,16 @@ func (a *app) executeJSONChat(w http.ResponseWriter, r *http.Request, runCtx con
 		} else {
 			log.Error().Err(err).Msg("agent run error")
 		}
-		http.Error(w, "internal server error", http.StatusInternalServerError)
 		a.runs.updateStatus(runID, "failed", 0)
 		a.commitWorkspace(ctx, checkedOutWorkspace)
-		return
+		return nil, err
 	}
 	result = collector.resultText(result)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(buildChatJSONPayload(result, ctx, opts.IncludeMatrixMessages))
+	payload := buildChatJSONPayload(result, collector.savedImages, ctx, opts.IncludeMatrixMessages)
 	a.runs.updateStatus(runID, "completed", 0)
-	if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, collector.turnMessages, result, chatStoreModel(eng, opts.StoreModel)); err != nil {
+	if err := storeChatTurnWithHistory(storeCtx, a.chatStore, userID, req.SessionID, req.Prompt, collector.turnMessages, result, chatStoreModel(eng, opts.StoreModel)); err != nil {
 		log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")
 	}
 	a.commitWorkspace(ctx, checkedOutWorkspace)
+	return payload, nil
 }

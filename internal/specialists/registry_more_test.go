@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 
 	"manifold/internal/config"
+	"manifold/internal/llm"
 )
 
 func TestNewRegistry_PopulatesAgentFields(t *testing.T) {
@@ -52,6 +53,118 @@ func TestAgent_Inference_NoProvider(t *testing.T) {
 	a := &Agent{}
 	if _, err := a.Inference(context.TODO(), "u", nil); err == nil {
 		t.Fatalf("expected error when provider nil")
+	}
+}
+
+func TestAgentInferenceImageGenerationSendsOnlyPrompt(t *testing.T) {
+	t.Parallel()
+
+	var gotPath string
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		defer r.Body.Close()
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		if r.URL.Path != "/images/generations" {
+			http.Error(w, "unexpected chat request", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"b64_json":"cG5nYnl0ZXM="}]}`))
+	}))
+	defer server.Close()
+
+	base := config.LLMClientConfig{Provider: "openai", OpenAI: config.OpenAIConfig{APIKey: "test", Model: "fallback", BaseURL: server.URL}}
+	registry := NewRegistry(base, []config.SpecialistConfig{{
+		Name:            "image-maker",
+		Provider:        "openai",
+		BaseURL:         server.URL,
+		APIKey:          "test",
+		Model:           "gpt-image-2",
+		System:          "Never send this system prompt to image generation.",
+		EnableTools:     true,
+		ImageGeneration: true,
+		ExtraParams:     map[string]any{"size": "2048x2048"},
+	}}, server.Client(), nil)
+	agent, ok := registry.Get("image-maker")
+	if !ok {
+		t.Fatal("expected image-maker specialist")
+	}
+	out, err := agent.Inference(context.Background(), "draw a skyline", []llm.Message{
+		{Role: "user", Content: "previous prompt that must be ignored"},
+		{Role: "assistant", Content: "previous answer that must be ignored"},
+	})
+	if err != nil {
+		t.Fatalf("Inference() error = %v", err)
+	}
+	if out != "Generated image" {
+		t.Fatalf("expected generated image result, got %q", out)
+	}
+	if gotPath != "/images/generations" {
+		t.Fatalf("expected image generation endpoint, got %q", gotPath)
+	}
+	if prompt, _ := gotBody["prompt"].(string); prompt != "draw a skyline" {
+		t.Fatalf("expected current prompt only, got %#v", gotBody["prompt"])
+	}
+	if size, _ := gotBody["size"].(string); size != "2048x2048" {
+		t.Fatalf("expected configured image size, got %#v", gotBody["size"])
+	}
+}
+
+func TestImageGenerationSpecialistDoesNotInheritBaseOpenAIExtraParams(t *testing.T) {
+	t.Parallel()
+
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		if r.URL.Path != "/images/generations" {
+			http.Error(w, "unexpected chat request", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"b64_json":"cG5nYnl0ZXM="}]}`))
+	}))
+	defer server.Close()
+
+	base := config.LLMClientConfig{
+		Provider: "openai",
+		OpenAI: config.OpenAIConfig{
+			APIKey:  "test",
+			Model:   "fallback",
+			BaseURL: server.URL,
+			ExtraParams: map[string]any{
+				"reasoning_effort": "medium",
+				"temperature":      0.2,
+			},
+		},
+	}
+	registry := NewRegistry(base, []config.SpecialistConfig{{
+		Name:            "image-maker",
+		Provider:        "openai",
+		BaseURL:         server.URL,
+		APIKey:          "test",
+		Model:           "gpt-image-2",
+		ImageGeneration: true,
+	}}, server.Client(), nil)
+	agent, ok := registry.Get("image-maker")
+	if !ok {
+		t.Fatal("expected image-maker specialist")
+	}
+	if _, err := agent.Inference(context.Background(), "draw a lake", nil); err != nil {
+		t.Fatalf("Inference() error = %v", err)
+	}
+	if _, ok := gotBody["reasoning_effort"]; ok {
+		t.Fatalf("did not expect inherited reasoning_effort on image request: %#v", gotBody)
+	}
+	if _, ok := gotBody["temperature"]; ok {
+		t.Fatalf("did not expect inherited temperature on image request: %#v", gotBody)
+	}
+	if prompt, _ := gotBody["prompt"].(string); prompt != "draw a lake" {
+		t.Fatalf("expected prompt only, got %#v", gotBody["prompt"])
+	}
+	if size, _ := gotBody["size"].(string); size != "1024x1024" {
+		t.Fatalf("expected default image size, got %#v", gotBody["size"])
 	}
 }
 

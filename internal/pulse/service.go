@@ -1,6 +1,7 @@
 package pulse
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -10,6 +11,14 @@ import (
 
 	"github.com/google/uuid"
 )
+
+const (
+	ScheduleInterval  = "interval"
+	ScheduleDailyTime = "daily_time"
+	ScheduleOnceAt    = "once_at"
+)
+
+var ErrInvalidSchedule = errors.New("invalid pulse task schedule")
 
 // TaskStatus reports whether a task is due on the current poll.
 type TaskStatus struct {
@@ -21,6 +30,9 @@ type TaskStatus struct {
 	LastRunHuman   string                `json:"lastRunHuman"`
 	RemainingHuman string                `json:"remainingHuman"`
 	IntervalHuman  string                `json:"intervalHuman"`
+	ScheduleType   string                `json:"scheduleType"`
+	ScheduleLabel  string                `json:"scheduleLabel"`
+	NextRunAt      time.Time             `json:"nextRunAt,omitempty"`
 }
 
 // Plan describes the state of one pulse poll for a room.
@@ -38,14 +50,61 @@ func NewService() *Service {
 	return &Service{}
 }
 
+func NormalizeTaskSchedule(task persistence.PulseTask) (persistence.PulseTask, error) {
+	task.ScheduleType = strings.TrimSpace(task.ScheduleType)
+	task.SpecificTime = strings.TrimSpace(task.SpecificTime)
+	if task.ScheduleType == "" {
+		switch {
+		case task.SpecificTime != "":
+			task.ScheduleType = ScheduleDailyTime
+		case !task.SpecificAt.IsZero():
+			task.ScheduleType = ScheduleOnceAt
+		default:
+			task.ScheduleType = ScheduleInterval
+		}
+	}
+	switch task.ScheduleType {
+	case ScheduleInterval:
+		if task.SpecificTime != "" || !task.SpecificAt.IsZero() {
+			return task, fmt.Errorf("%w: interval tasks cannot set specific_time or specific_at", ErrInvalidSchedule)
+		}
+		if task.IntervalSeconds <= 0 {
+			task.IntervalSeconds = 300
+		}
+	case ScheduleDailyTime:
+		if task.SpecificTime == "" {
+			return task, fmt.Errorf("%w: daily_time tasks require specific_time in HH:MM format", ErrInvalidSchedule)
+		}
+		if _, _, err := parseSpecificTime(task.SpecificTime); err != nil {
+			return task, fmt.Errorf("%w: specific_time must use HH:MM format", ErrInvalidSchedule)
+		}
+		if !task.SpecificAt.IsZero() {
+			return task, fmt.Errorf("%w: daily_time tasks cannot set specific_at", ErrInvalidSchedule)
+		}
+		// Non-interval schedules keep interval_seconds at 0 in persisted JSON/API responses.
+		task.IntervalSeconds = 0
+	case ScheduleOnceAt:
+		if task.SpecificAt.IsZero() {
+			return task, fmt.Errorf("%w: once_at tasks require specific_at", ErrInvalidSchedule)
+		}
+		if task.SpecificTime != "" {
+			return task, fmt.Errorf("%w: once_at tasks cannot set specific_time", ErrInvalidSchedule)
+		}
+		task.IntervalSeconds = 0
+	default:
+		return task, fmt.Errorf("%w: schedule_type must be interval, daily_time, or once_at", ErrInvalidSchedule)
+	}
+	return task, nil
+}
+
 // EvaluateRoom determines which tasks are due at the provided time.
-func (s *Service) EvaluateRoom(now time.Time, room persistence.PulseRoom, tasks []persistence.PulseTask, botID string) Plan {
+func (s *Service) EvaluateRoom(now time.Time, room persistence.PulseRoom, tasks []persistence.PulseTask, routeTarget string) Plan {
 	now = now.UTC()
-	botID = strings.TrimSpace(botID)
+	routeTarget = strings.TrimSpace(routeTarget)
 	statuses := make([]TaskStatus, 0, len(tasks))
 	dueTasks := make([]persistence.PulseTask, 0, len(tasks))
 	for _, task := range tasks {
-		if botID != "" && strings.TrimSpace(task.BotID) != "" && strings.TrimSpace(task.BotID) != botID {
+		if routeTarget != "" && strings.TrimSpace(task.RouteTarget) != "" && strings.TrimSpace(task.RouteTarget) != routeTarget {
 			continue
 		}
 		status := buildTaskStatus(now, room.Enabled, task)
@@ -72,15 +131,16 @@ func (s *Service) BuildPrompt(now time.Time, plan Plan, pollInterval time.Durati
 	b.WriteString("[pulse mode]\n")
 	b.WriteString("You are running an automated pulse for a Matrix room. Work only on the tasks listed below.\n")
 	b.WriteString("Use the pulse_tasks tool when you need to add, modify, disable, enable, or delete tasks.\n")
-	b.WriteString("Your final response will be posted directly to the Matrix room, so write it for the room audience.\n")
-	b.WriteString("Keep the response concise and relevant to the completed tasks.\n\n")
+	b.WriteString("Use the matrix_room_message tool only when a due task explicitly requires notifying the room.\n")
+	b.WriteString("Your final response is an internal pulse run log and is not automatically posted to Matrix.\n")
+	b.WriteString("Keep that internal log concise and focused on what the run did.\n\n")
 	b.WriteString(fmt.Sprintf("Current time (UTC): %s\n", now.UTC().Format(time.RFC3339)))
 	if pollInterval > 0 {
 		b.WriteString(fmt.Sprintf("Pulse poll interval: %s\n", pollInterval.Round(time.Second)))
 	}
 	b.WriteString(fmt.Sprintf("Room ID: %s\n", plan.Room.RoomID))
-	if strings.TrimSpace(plan.Room.BotID) != "" {
-		b.WriteString(fmt.Sprintf("Bot ID: %s\n", plan.Room.BotID))
+	if strings.TrimSpace(plan.Room.RouteTarget) != "" {
+		b.WriteString(fmt.Sprintf("Route target: %s\n", plan.Room.RouteTarget))
 	}
 	if strings.TrimSpace(plan.Room.ProjectID) != "" {
 		b.WriteString(fmt.Sprintf("Project ID: %s\n", plan.Room.ProjectID))
@@ -103,10 +163,10 @@ func (s *Service) BuildPrompt(now time.Time, plan Plan, pollInterval time.Durati
 		}
 		b.WriteString(fmt.Sprintf("- id: %s\n", status.Task.ID))
 		b.WriteString(fmt.Sprintf("  title: %s\n", strings.TrimSpace(status.Task.Title)))
-		if strings.TrimSpace(status.Task.BotID) != "" {
-			b.WriteString(fmt.Sprintf("  bot_id: %s\n", status.Task.BotID))
+		if strings.TrimSpace(status.Task.RouteTarget) != "" {
+			b.WriteString(fmt.Sprintf("  route_target: %s\n", status.Task.RouteTarget))
 		}
-		b.WriteString(fmt.Sprintf("  interval: %s\n", status.IntervalHuman))
+		b.WriteString(fmt.Sprintf("  schedule: %s\n", status.ScheduleLabel))
 		b.WriteString(fmt.Sprintf("  state: %s\n", state))
 		if status.LastRunKnown {
 			b.WriteString(fmt.Sprintf("  last_run: %s\n", status.LastRunHuman))
@@ -127,7 +187,7 @@ func (s *Service) BuildPrompt(now time.Time, plan Plan, pollInterval time.Durati
 	if len(plan.DueTasks) == 0 {
 		b.WriteString("No tasks are due in this poll. Review the schedule, optionally tidy the task list, and return a very short log note.\n")
 	} else {
-		b.WriteString("Execute the tasks marked due now. Your response will be sent to the room. You may update the task list if priorities, wording, or intervals should change based on the run.\n")
+		b.WriteString("Execute the tasks marked due now. Use matrix_room_message only when a task requires a room-facing message. You may update the task list if priorities, wording, or intervals should change based on the run.\n")
 	}
 	return b.String()
 }
@@ -143,17 +203,35 @@ func PulseSessionID(prefix, roomID string) string {
 }
 
 func buildTaskStatus(now time.Time, roomEnabled bool, task persistence.PulseTask) TaskStatus {
-	status := TaskStatus{Task: task}
-	if task.IntervalSeconds <= 0 {
-		task.IntervalSeconds = 300
-		status.Task.IntervalSeconds = task.IntervalSeconds
+	task, err := NormalizeTaskSchedule(task)
+	if err != nil {
+		task.ScheduleType = ScheduleInterval
+		if task.IntervalSeconds <= 0 {
+			task.IntervalSeconds = 300
+		}
 	}
+	status := TaskStatus{Task: task, ScheduleType: task.ScheduleType}
+	switch task.ScheduleType {
+	case ScheduleDailyTime:
+		return buildDailyTimeStatus(now, roomEnabled, task, status)
+	case ScheduleOnceAt:
+		return buildOnceAtStatus(now, roomEnabled, task, status)
+	default:
+		return buildIntervalStatus(now, roomEnabled, task, status)
+	}
+}
+
+func buildIntervalStatus(now time.Time, roomEnabled bool, task persistence.PulseTask, status TaskStatus) TaskStatus {
 	interval := time.Duration(task.IntervalSeconds) * time.Second
 	status.IntervalHuman = interval.Round(time.Second).String()
+	status.ScheduleLabel = "every " + status.IntervalHuman
 	if task.LastRunAt.IsZero() {
 		status.Due = roomEnabled && task.Enabled
 		status.LastRunHuman = "never"
 		status.RemainingHuman = "now"
+		if roomEnabled && task.Enabled {
+			status.NextRunAt = now.UTC()
+		}
 		return status
 	}
 	status.LastRunKnown = true
@@ -170,11 +248,83 @@ func buildTaskStatus(now time.Time, roomEnabled bool, task persistence.PulseTask
 	if status.Elapsed >= interval {
 		status.Due = true
 		status.RemainingHuman = "now"
+		status.NextRunAt = now.UTC()
 		return status
 	}
 	status.Remaining = interval - status.Elapsed
 	status.RemainingHuman = humanDuration(status.Remaining)
+	status.NextRunAt = task.LastRunAt.UTC().Add(interval)
 	return status
+}
+
+func buildDailyTimeStatus(now time.Time, roomEnabled bool, task persistence.PulseTask, status TaskStatus) TaskStatus {
+	hour, minute, _ := parseSpecificTime(task.SpecificTime)
+	localNow := now.Local()
+	scheduledToday := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), hour, minute, 0, 0, time.Local)
+	next := scheduledToday
+	if localNow.After(scheduledToday) || localNow.Equal(scheduledToday) {
+		next = scheduledToday.AddDate(0, 0, 1)
+	}
+	status.ScheduleLabel = fmt.Sprintf("daily at %s local time", task.SpecificTime)
+	if task.LastRunAt.IsZero() {
+		status.Due = roomEnabled && task.Enabled
+		status.LastRunHuman = "never"
+		status.RemainingHuman = "now"
+		if roomEnabled && task.Enabled {
+			status.NextRunAt = now.UTC()
+		}
+		return status
+	}
+	status.LastRunKnown = true
+	status.Elapsed = now.Sub(task.LastRunAt.UTC())
+	if status.Elapsed < 0 {
+		status.Elapsed = 0
+	}
+	status.LastRunHuman = humanDuration(status.Elapsed) + " ago"
+	if !roomEnabled || !task.Enabled {
+		status.Remaining = next.Sub(localNow)
+		status.RemainingHuman = humanDuration(status.Remaining)
+		return status
+	}
+	if (localNow.After(scheduledToday) || localNow.Equal(scheduledToday)) && task.LastRunAt.Before(scheduledToday) {
+		status.Due = true
+		status.RemainingHuman = "now"
+		status.NextRunAt = now.UTC()
+		return status
+	}
+	status.Remaining = next.Sub(localNow)
+	status.RemainingHuman = humanDuration(status.Remaining)
+	status.NextRunAt = next.UTC()
+	return status
+}
+
+func buildOnceAtStatus(now time.Time, roomEnabled bool, task persistence.PulseTask, status TaskStatus) TaskStatus {
+	status.ScheduleLabel = "once at " + task.SpecificAt.Local().Format(time.RFC3339)
+	if task.LastRunAt.IsZero() {
+		status.Due = roomEnabled && task.Enabled
+		status.LastRunHuman = "never"
+		status.RemainingHuman = "now"
+		if roomEnabled && task.Enabled {
+			status.NextRunAt = now.UTC()
+		}
+		return status
+	}
+	status.LastRunKnown = true
+	status.Elapsed = now.Sub(task.LastRunAt.UTC())
+	if status.Elapsed < 0 {
+		status.Elapsed = 0
+	}
+	status.LastRunHuman = humanDuration(status.Elapsed) + " ago"
+	status.RemainingHuman = "done"
+	return status
+}
+
+func parseSpecificTime(value string) (int, int, error) {
+	parsed, err := time.Parse("15:04", strings.TrimSpace(value))
+	if err != nil {
+		return 0, 0, err
+	}
+	return parsed.Hour(), parsed.Minute(), nil
 }
 
 func humanDuration(d time.Duration) string {

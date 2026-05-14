@@ -17,7 +17,7 @@ func TestToolUpsertListAndDeleteTask(t *testing.T) {
 
 	store := databases.NewPulseStore(nil)
 	tool := &Tool{store: store, service: pulsecore.NewService()}
-	ctx := sandbox.WithBotID(sandbox.WithRoomID(context.Background(), "!room:test"), "@manibot:matrix.test")
+	ctx := sandbox.WithRouteTarget(sandbox.WithRoomID(context.Background(), "!room:test"), "@manibot:matrix.test")
 
 	upsertRaw, err := json.Marshal(map[string]any{
 		"action":           "upsert_task",
@@ -43,8 +43,8 @@ func TestToolUpsertListAndDeleteTask(t *testing.T) {
 	if createdTask.ID == "" {
 		t.Fatalf("expected task id in response")
 	}
-	if createdTask.BotID != "@manibot:matrix.test" {
-		t.Fatalf("expected task bot id to default from context, got %q", createdTask.BotID)
+	if createdTask.RouteTarget != "@manibot:matrix.test" {
+		t.Fatalf("expected task route target to default from context, got %q", createdTask.RouteTarget)
 	}
 
 	listRaw, err := json.Marshal(map[string]any{"action": "list"})
@@ -79,7 +79,7 @@ func TestToolEnableDisableAndSetInterval(t *testing.T) {
 
 	store := databases.NewPulseStore(nil)
 	tool := &Tool{store: store, service: pulsecore.NewService()}
-	ctx := sandbox.WithBotID(sandbox.WithRoomID(context.Background(), "!room:test"), "@manibot:matrix.test")
+	ctx := sandbox.WithRouteTarget(sandbox.WithRoomID(context.Background(), "!room:test"), "@manibot:matrix.test")
 
 	created := createTestTask(t, tool, ctx)
 
@@ -126,18 +126,100 @@ func TestToolEnableDisableAndSetInterval(t *testing.T) {
 	}
 }
 
+func TestToolUpsertTaskWithDailyTimeSchedule(t *testing.T) {
+	t.Parallel()
+
+	store := databases.NewPulseStore(nil)
+	tool := &Tool{store: store, service: pulsecore.NewService()}
+	ctx := sandbox.WithRouteTarget(sandbox.WithRoomID(context.Background(), "!room:test"), "bot")
+
+	raw, err := json.Marshal(map[string]any{
+		"action":        "upsert_task",
+		"title":         "Morning check",
+		"prompt":        "Check status",
+		"schedule_type": "daily_time",
+		"specific_time": "09:30",
+	})
+	if err != nil {
+		t.Fatalf("marshal args: %v", err)
+	}
+	resp, err := tool.Call(ctx, raw)
+	if err != nil {
+		t.Fatalf("upsert daily task: %v", err)
+	}
+	task := resp.(map[string]any)["task"].(persistence.PulseTask)
+	if task.ScheduleType != pulsecore.ScheduleDailyTime || task.SpecificTime != "09:30" || task.IntervalSeconds != 0 {
+		t.Fatalf("unexpected daily task schedule: %#v", task)
+	}
+}
+
+func TestToolSetScheduleToOnceAt(t *testing.T) {
+	t.Parallel()
+
+	store := databases.NewPulseStore(nil)
+	tool := &Tool{store: store, service: pulsecore.NewService()}
+	ctx := sandbox.WithRouteTarget(sandbox.WithRoomID(context.Background(), "!room:test"), "bot")
+	created := createTestTask(t, tool, ctx)
+
+	raw, err := json.Marshal(map[string]any{
+		"action":        "set_schedule",
+		"task_id":       created.ID,
+		"schedule_type": "once_at",
+		"specific_at":   "2026-05-12T09:00",
+	})
+	if err != nil {
+		t.Fatalf("marshal args: %v", err)
+	}
+	resp, err := tool.Call(ctx, raw)
+	if err != nil {
+		t.Fatalf("set schedule: %v", err)
+	}
+	task := resp.(map[string]any)["task"].(persistence.PulseTask)
+	if task.ScheduleType != pulsecore.ScheduleOnceAt || task.SpecificAt.IsZero() || task.IntervalSeconds != 0 {
+		t.Fatalf("unexpected once_at schedule: %#v", task)
+	}
+}
+
+func TestToolRejectsConflictingScheduleFields(t *testing.T) {
+	t.Parallel()
+
+	store := databases.NewPulseStore(nil)
+	tool := &Tool{store: store, service: pulsecore.NewService()}
+	ctx := sandbox.WithRouteTarget(sandbox.WithRoomID(context.Background(), "!room:test"), "bot")
+
+	raw, err := json.Marshal(map[string]any{
+		"action":        "upsert_task",
+		"title":         "Bad schedule",
+		"prompt":        "Nope",
+		"schedule_type": "daily_time",
+		"specific_time": "09:30",
+		"specific_at":   "2026-05-12T09:00",
+	})
+	if err != nil {
+		t.Fatalf("marshal args: %v", err)
+	}
+	resp, err := tool.Call(ctx, raw)
+	if err != nil {
+		t.Fatalf("upsert conflicting schedule: %v", err)
+	}
+	respMap := resp.(map[string]any)
+	if ok, _ := respMap["ok"].(bool); ok {
+		t.Fatalf("expected conflicting schedule to fail, got %#v", respMap)
+	}
+}
+
 func TestToolClearClaim(t *testing.T) {
 	t.Parallel()
 
 	store := databases.NewPulseStore(nil)
 	tool := &Tool{store: store, service: pulsecore.NewService()}
-	ctx := sandbox.WithBotID(sandbox.WithRoomID(context.Background(), "!room:test"), "@manibot:matrix.test")
+	ctx := sandbox.WithRouteTarget(sandbox.WithRoomID(context.Background(), "!room:test"), "@manibot:matrix.test")
 
 	room, err := store.EnsureRoom(ctx, "!room:test", "@manibot:matrix.test")
 	if err != nil {
 		t.Fatalf("ensure room: %v", err)
 	}
-	claimed, err := store.ClaimRoom(ctx, room.RoomID, room.BotID, "claim-token", room.CreatedAt.Add(5*time.Minute))
+	claimed, err := store.ClaimRoom(ctx, room.RoomID, room.RouteTarget, "claim-token", room.CreatedAt.Add(5*time.Minute))
 	if err != nil {
 		t.Fatalf("claim room: %v", err)
 	}
@@ -171,7 +253,7 @@ func TestToolConfigureRoomPreservesProjectWhenOmitted(t *testing.T) {
 
 	store := databases.NewPulseStore(nil)
 	tool := &Tool{store: store, service: pulsecore.NewService()}
-	ctx := sandbox.WithProjectID(sandbox.WithBotID(sandbox.WithRoomID(context.Background(), "!room:test"), "@manibot:matrix.test"), "project-123")
+	ctx := sandbox.WithProjectID(sandbox.WithRouteTarget(sandbox.WithRoomID(context.Background(), "!room:test"), "@manibot:matrix.test"), "project-123")
 
 	setProjectRaw, err := json.Marshal(map[string]any{
 		"action":     "configure_room",
@@ -207,7 +289,7 @@ func TestToolConfigureRoomRejectsMismatchedProject(t *testing.T) {
 
 	store := databases.NewPulseStore(nil)
 	tool := &Tool{store: store, service: pulsecore.NewService()}
-	ctx := sandbox.WithProjectID(sandbox.WithBotID(sandbox.WithRoomID(context.Background(), "!room:test"), "@manibot:matrix.test"), "project-123")
+	ctx := sandbox.WithProjectID(sandbox.WithRouteTarget(sandbox.WithRoomID(context.Background(), "!room:test"), "@manibot:matrix.test"), "project-123")
 
 	raw, err := json.Marshal(map[string]any{
 		"action":     "configure_room",
@@ -257,11 +339,11 @@ func TestToolCanAssignTaskToAnotherBot(t *testing.T) {
 
 	store := databases.NewPulseStore(nil)
 	tool := &Tool{store: store, service: pulsecore.NewService()}
-	ctx := sandbox.WithBotID(sandbox.WithRoomID(context.Background(), "!room:test"), "@gpt_bot:matrix.test")
+	ctx := sandbox.WithRouteTarget(sandbox.WithRoomID(context.Background(), "!room:test"), "@gpt_bot:matrix.test")
 
 	raw, err := json.Marshal(map[string]any{
 		"action":           "upsert_task",
-		"bot_id":           "@manibot:matrix.test",
+		"route_target":     "@manibot:matrix.test",
 		"title":            "Review code",
 		"prompt":           "Check the latest patch",
 		"interval_seconds": 300,
@@ -275,11 +357,11 @@ func TestToolCanAssignTaskToAnotherBot(t *testing.T) {
 	}
 	respMap := resp.(map[string]any)
 	task := respMap["task"].(persistence.PulseTask)
-	if task.BotID != "@manibot:matrix.test" {
-		t.Fatalf("expected delegated bot id, got %q", task.BotID)
+	if task.RouteTarget != "@manibot:matrix.test" {
+		t.Fatalf("expected delegated route target, got %q", task.RouteTarget)
 	}
 
-	listRaw, err := json.Marshal(map[string]any{"action": "list", "bot_id": "@manibot:matrix.test"})
+	listRaw, err := json.Marshal(map[string]any{"action": "list", "route_target": "@manibot:matrix.test"})
 	if err != nil {
 		t.Fatalf("marshal list args: %v", err)
 	}

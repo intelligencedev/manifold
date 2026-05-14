@@ -3,6 +3,7 @@ package databases
 import (
 	"context"
 	"manifold/internal/persistence"
+	pulsecore "manifold/internal/pulse"
 	"strings"
 	"time"
 
@@ -19,6 +20,7 @@ func (s *pgPulseStore) Init(ctx context.Context) error {
 	_, err := s.pool.Exec(ctx, `
 CREATE TABLE IF NOT EXISTS pulse_rooms (
 	room_id TEXT NOT NULL,
+	route_target TEXT NOT NULL DEFAULT '',
 	bot_id TEXT NOT NULL DEFAULT '',
     project_id TEXT,
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
@@ -31,12 +33,20 @@ CREATE TABLE IF NOT EXISTS pulse_rooms (
     last_pulse_error TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	PRIMARY KEY (room_id, bot_id)
+	PRIMARY KEY (room_id, route_target)
 );
+ALTER TABLE pulse_rooms ADD COLUMN IF NOT EXISTS route_target TEXT NOT NULL DEFAULT '';
 ALTER TABLE pulse_rooms ADD COLUMN IF NOT EXISTS bot_id TEXT NOT NULL DEFAULT '';
+UPDATE pulse_rooms
+SET route_target = COALESCE(NULLIF(route_target, ''), bot_id, '')
+WHERE route_target IS NULL OR route_target = '';
+UPDATE pulse_rooms
+SET bot_id = COALESCE(NULLIF(bot_id, ''), route_target, '')
+WHERE bot_id IS NULL OR bot_id = '';
 CREATE TABLE IF NOT EXISTS pulse_tasks (
     id TEXT PRIMARY KEY,
 	room_id TEXT NOT NULL,
+	route_target TEXT NOT NULL DEFAULT '',
 	bot_id TEXT NOT NULL DEFAULT '',
     title TEXT NOT NULL,
     prompt TEXT NOT NULL,
@@ -46,10 +56,20 @@ CREATE TABLE IF NOT EXISTS pulse_tasks (
     last_result_summary TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	CONSTRAINT pulse_tasks_room_id_bot_id_fkey
-		FOREIGN KEY (room_id, bot_id) REFERENCES pulse_rooms(room_id, bot_id) ON DELETE CASCADE
+	CONSTRAINT pulse_tasks_room_id_route_target_fkey
+		FOREIGN KEY (room_id, route_target) REFERENCES pulse_rooms(room_id, route_target) ON DELETE CASCADE
 );
+ALTER TABLE pulse_tasks ADD COLUMN IF NOT EXISTS route_target TEXT NOT NULL DEFAULT '';
 ALTER TABLE pulse_tasks ADD COLUMN IF NOT EXISTS bot_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE pulse_tasks ADD COLUMN IF NOT EXISTS schedule_type TEXT NOT NULL DEFAULT 'interval';
+ALTER TABLE pulse_tasks ADD COLUMN IF NOT EXISTS specific_time TEXT NOT NULL DEFAULT '';
+ALTER TABLE pulse_tasks ADD COLUMN IF NOT EXISTS specific_at TIMESTAMPTZ;
+UPDATE pulse_tasks
+SET route_target = COALESCE(NULLIF(route_target, ''), bot_id, '')
+WHERE route_target IS NULL OR route_target = '';
+UPDATE pulse_tasks
+SET bot_id = COALESCE(NULLIF(bot_id, ''), route_target, '')
+WHERE bot_id IS NULL OR bot_id = '';
 
 DO $$
 BEGIN
@@ -69,6 +89,24 @@ DO $$
 BEGIN
 	IF EXISTS (
 		SELECT 1
+		FROM information_schema.table_constraints
+		WHERE table_schema = current_schema()
+		  AND table_name = 'pulse_tasks'
+		  AND constraint_name = 'pulse_tasks_room_id_bot_id_fkey'
+	) THEN
+		ALTER TABLE pulse_tasks DROP CONSTRAINT pulse_tasks_room_id_bot_id_fkey;
+	END IF;
+	IF EXISTS (
+		SELECT 1
+		FROM information_schema.table_constraints
+		WHERE table_schema = current_schema()
+		  AND table_name = 'pulse_tasks'
+		  AND constraint_name = 'pulse_tasks_room_id_route_target_fkey'
+	) THEN
+		ALTER TABLE pulse_tasks DROP CONSTRAINT pulse_tasks_room_id_route_target_fkey;
+	END IF;
+	IF EXISTS (
+		SELECT 1
 		FROM pg_constraint c
 		JOIN pg_class t ON t.oid = c.conrelid
 		JOIN pg_namespace n ON n.oid = t.relnamespace
@@ -76,9 +114,20 @@ BEGIN
 		  AND t.relname = 'pulse_rooms'
 		  AND c.conname = 'pulse_rooms_pkey'
 		  AND c.contype = 'p'
-		  AND pg_get_constraintdef(c.oid) <> 'PRIMARY KEY (room_id, bot_id)'
+		  AND pg_get_constraintdef(c.oid) <> 'PRIMARY KEY (room_id, route_target)'
 	) THEN
 		ALTER TABLE pulse_rooms DROP CONSTRAINT pulse_rooms_pkey;
+	END IF;
+	IF EXISTS (
+		SELECT 1
+		FROM pg_constraint c
+		JOIN pg_class t ON t.oid = c.conrelid
+		JOIN pg_namespace n ON n.oid = t.relnamespace
+		WHERE n.nspname = current_schema()
+		  AND t.relname = 'pulse_rooms'
+		  AND c.conname = 'pulse_rooms_room_id_route_target_key'
+	) THEN
+		ALTER TABLE pulse_rooms DROP CONSTRAINT pulse_rooms_room_id_route_target_key;
 	END IF;
 END
 $$;
@@ -92,23 +141,27 @@ BEGIN
 		  AND table_name = 'pulse_rooms'
 		  AND constraint_name = 'pulse_rooms_pkey'
 	) THEN
-		ALTER TABLE pulse_rooms ADD CONSTRAINT pulse_rooms_pkey PRIMARY KEY (room_id, bot_id);
+		ALTER TABLE pulse_rooms ADD CONSTRAINT pulse_rooms_pkey PRIMARY KEY (room_id, route_target);
 	END IF;
-END
-$$;
-
-DO $$
-BEGIN
+	IF NOT EXISTS (
+		SELECT 1
+		FROM information_schema.table_constraints
+		WHERE table_schema = current_schema()
+		  AND table_name = 'pulse_rooms'
+		  AND constraint_name = 'pulse_rooms_room_id_route_target_key'
+	) THEN
+		ALTER TABLE pulse_rooms ADD CONSTRAINT pulse_rooms_room_id_route_target_key UNIQUE (room_id, route_target);
+	END IF;
 	IF NOT EXISTS (
 		SELECT 1
 		FROM information_schema.table_constraints
 		WHERE table_schema = current_schema()
 		  AND table_name = 'pulse_tasks'
-		  AND constraint_name = 'pulse_tasks_room_id_bot_id_fkey'
+		  AND constraint_name = 'pulse_tasks_room_id_route_target_fkey'
 	) THEN
 		ALTER TABLE pulse_tasks
-			ADD CONSTRAINT pulse_tasks_room_id_bot_id_fkey
-			FOREIGN KEY (room_id, bot_id) REFERENCES pulse_rooms(room_id, bot_id) ON DELETE CASCADE;
+			ADD CONSTRAINT pulse_tasks_room_id_route_target_fkey
+			FOREIGN KEY (room_id, route_target) REFERENCES pulse_rooms(room_id, route_target) ON DELETE CASCADE;
 	END IF;
 END
 $$;
@@ -116,42 +169,43 @@ $$;
 CREATE INDEX IF NOT EXISTS idx_pulse_rooms_enabled ON pulse_rooms(enabled);
 CREATE INDEX IF NOT EXISTS idx_pulse_rooms_claim_until ON pulse_rooms(active_claim_until);
 CREATE INDEX IF NOT EXISTS idx_pulse_rooms_bot_room ON pulse_rooms(bot_id, room_id);
-CREATE INDEX IF NOT EXISTS idx_pulse_tasks_room_id ON pulse_tasks(room_id, bot_id);
-CREATE INDEX IF NOT EXISTS idx_pulse_tasks_enabled ON pulse_tasks(room_id, bot_id, enabled);
+CREATE INDEX IF NOT EXISTS idx_pulse_rooms_route_target_room ON pulse_rooms(route_target, room_id);
+CREATE INDEX IF NOT EXISTS idx_pulse_tasks_room_id ON pulse_tasks(room_id, route_target);
+CREATE INDEX IF NOT EXISTS idx_pulse_tasks_enabled ON pulse_tasks(room_id, route_target, enabled);
 `)
 	return err
 }
 
-func (s *pgPulseStore) EnsureRoom(ctx context.Context, roomID, botID string) (persistence.PulseRoom, error) {
+func (s *pgPulseStore) EnsureRoom(ctx context.Context, roomID, routeTarget string) (persistence.PulseRoom, error) {
 	roomID = strings.TrimSpace(roomID)
-	botID = strings.TrimSpace(botID)
+	routeTarget = strings.TrimSpace(routeTarget)
 	if roomID == "" {
 		return persistence.PulseRoom{}, persistence.ErrNotFound
 	}
 	_, err := s.pool.Exec(ctx, `
-INSERT INTO pulse_rooms (room_id, bot_id, enabled)
-VALUES ($1, $2, TRUE)
-ON CONFLICT (room_id, bot_id) DO NOTHING
-`, roomID, botID)
+INSERT INTO pulse_rooms (room_id, route_target, bot_id, enabled)
+VALUES ($1, $2, $2, TRUE)
+ON CONFLICT (room_id, route_target) DO UPDATE SET bot_id = EXCLUDED.bot_id
+`, roomID, routeTarget)
 	if err != nil {
 		return persistence.PulseRoom{}, err
 	}
-	return s.GetRoom(ctx, roomID, botID)
+	return s.GetRoom(ctx, roomID, routeTarget)
 }
 
-func (s *pgPulseStore) GetRoom(ctx context.Context, roomID, botID string) (persistence.PulseRoom, error) {
+func (s *pgPulseStore) GetRoom(ctx context.Context, roomID, routeTarget string) (persistence.PulseRoom, error) {
 	var room persistence.PulseRoom
 	var projectID, claimToken, summary, pulseErr *string
 	var claimUntil, attemptAt, completedAt *time.Time
 	err := s.pool.QueryRow(ctx, `
-SELECT room_id, bot_id, project_id, enabled, revision, active_claim_token, active_claim_until,
+SELECT room_id, route_target, project_id, enabled, revision, active_claim_token, active_claim_until,
        last_pulse_attempt_at, last_pulse_completed_at, last_pulse_summary, last_pulse_error,
        created_at, updated_at
 FROM pulse_rooms
-WHERE room_id = $1 AND bot_id = $2
-`, strings.TrimSpace(roomID), strings.TrimSpace(botID)).Scan(
+WHERE room_id = $1 AND route_target = $2
+`, strings.TrimSpace(roomID), strings.TrimSpace(routeTarget)).Scan(
 		&room.RoomID,
-		&room.BotID,
+		&room.RouteTarget,
 		&projectID,
 		&room.Enabled,
 		&room.Revision,
@@ -194,15 +248,17 @@ WHERE room_id = $1 AND bot_id = $2
 	return room, nil
 }
 
-func (s *pgPulseStore) ListRooms(ctx context.Context, botID string) ([]persistence.PulseRoom, error) {
-	rows, err := s.pool.Query(ctx, `
-SELECT room_id, bot_id, project_id, enabled, revision, active_claim_token, active_claim_until,
+func (s *pgPulseStore) ListRooms(ctx context.Context, routeTarget string) ([]persistence.PulseRoom, error) {
+	routeTarget = strings.TrimSpace(routeTarget)
+	query := `
+SELECT room_id, route_target, project_id, enabled, revision, active_claim_token, active_claim_until,
        last_pulse_attempt_at, last_pulse_completed_at, last_pulse_summary, last_pulse_error,
        created_at, updated_at
 FROM pulse_rooms
-WHERE bot_id = $1
-ORDER BY room_id ASC, bot_id ASC
-`, strings.TrimSpace(botID))
+WHERE ($1 = '' OR route_target = $1)
+ORDER BY room_id ASC, route_target ASC
+	`
+	rows, err := s.pool.Query(ctx, query, routeTarget)
 	if err != nil {
 		return nil, err
 	}
@@ -221,18 +277,19 @@ ORDER BY room_id ASC, bot_id ASC
 
 func (s *pgPulseStore) UpsertRoom(ctx context.Context, room persistence.PulseRoom) (persistence.PulseRoom, error) {
 	roomID := strings.TrimSpace(room.RoomID)
-	botID := strings.TrimSpace(room.BotID)
+	routeTarget := strings.TrimSpace(room.RouteTarget)
 	if roomID == "" {
 		return persistence.PulseRoom{}, persistence.ErrNotFound
 	}
 	_, err := s.pool.Exec(ctx, `
 INSERT INTO pulse_rooms (
-	room_id, bot_id, project_id, enabled, active_claim_token, active_claim_until,
+	room_id, route_target, bot_id, project_id, enabled, active_claim_token, active_claim_until,
     last_pulse_attempt_at, last_pulse_completed_at, last_pulse_summary, last_pulse_error,
     created_at, updated_at
 )
-VALUES ($1, $2, NULLIF($3, ''), $4, NULLIF($5, ''), $6, $7, $8, NULLIF($9, ''), NULLIF($10, ''), NOW(), NOW())
-ON CONFLICT (room_id, bot_id) DO UPDATE SET
+VALUES ($1, $2, $2, NULLIF($3, ''), $4, NULLIF($5, ''), $6, $7, $8, NULLIF($9, ''), NULLIF($10, ''), NOW(), NOW())
+ON CONFLICT (room_id, route_target) DO UPDATE SET
+    bot_id = EXCLUDED.bot_id,
     project_id = EXCLUDED.project_id,
     enabled = EXCLUDED.enabled,
     active_claim_token = EXCLUDED.active_claim_token,
@@ -243,20 +300,20 @@ ON CONFLICT (room_id, bot_id) DO UPDATE SET
     last_pulse_error = COALESCE(EXCLUDED.last_pulse_error, pulse_rooms.last_pulse_error),
     updated_at = NOW(),
     revision = pulse_rooms.revision + 1
-`, roomID, botID, strings.TrimSpace(room.ProjectID), room.Enabled, strings.TrimSpace(room.ActiveClaimToken), nullTime(room.ActiveClaimUntil), nullTime(room.LastPulseAttemptAt), nullTime(room.LastPulseCompletedAt), emptyToNil(room.LastPulseSummary), emptyToNil(room.LastPulseError))
+`, roomID, routeTarget, strings.TrimSpace(room.ProjectID), room.Enabled, strings.TrimSpace(room.ActiveClaimToken), nullTime(room.ActiveClaimUntil), nullTime(room.LastPulseAttemptAt), nullTime(room.LastPulseCompletedAt), emptyToNil(room.LastPulseSummary), emptyToNil(room.LastPulseError))
 	if err != nil {
 		return persistence.PulseRoom{}, err
 	}
-	return s.GetRoom(ctx, roomID, botID)
+	return s.GetRoom(ctx, roomID, routeTarget)
 }
 
-func (s *pgPulseStore) ListTasks(ctx context.Context, roomID, botID string) ([]persistence.PulseTask, error) {
+func (s *pgPulseStore) ListTasks(ctx context.Context, roomID, routeTarget string) ([]persistence.PulseTask, error) {
 	rows, err := s.pool.Query(ctx, `
-SELECT id, room_id, bot_id, title, prompt, interval_seconds, enabled, last_run_at, last_result_summary, created_at, updated_at
+SELECT id, room_id, route_target, title, prompt, schedule_type, interval_seconds, specific_time, specific_at, enabled, last_run_at, last_result_summary, created_at, updated_at
 FROM pulse_tasks
-WHERE room_id = $1 AND bot_id = $2
+WHERE room_id = $1 AND route_target = $2
 ORDER BY created_at ASC, id ASC
-`, strings.TrimSpace(roomID), strings.TrimSpace(botID))
+`, strings.TrimSpace(roomID), strings.TrimSpace(routeTarget))
 	if err != nil {
 		return nil, err
 	}
@@ -275,46 +332,52 @@ ORDER BY created_at ASC, id ASC
 
 func (s *pgPulseStore) UpsertTask(ctx context.Context, task persistence.PulseTask) (persistence.PulseTask, error) {
 	roomID := strings.TrimSpace(task.RoomID)
-	botID := strings.TrimSpace(task.BotID)
+	routeTarget := strings.TrimSpace(task.RouteTarget)
 	if roomID == "" {
 		return persistence.PulseTask{}, persistence.ErrNotFound
 	}
-	if _, err := s.EnsureRoom(ctx, roomID, botID); err != nil {
+	if _, err := s.EnsureRoom(ctx, roomID, routeTarget); err != nil {
 		return persistence.PulseTask{}, err
 	}
 	if strings.TrimSpace(task.ID) == "" {
 		task.ID = uuid.NewString()
 	}
-	if task.IntervalSeconds <= 0 {
-		task.IntervalSeconds = 300
+	var err error
+	task, err = pulsecore.NormalizeTaskSchedule(task)
+	if err != nil {
+		return persistence.PulseTask{}, err
 	}
-	_, err := s.pool.Exec(ctx, `
+	_, err = s.pool.Exec(ctx, `
 INSERT INTO pulse_tasks (
-	id, room_id, bot_id, title, prompt, interval_seconds, enabled, last_run_at, last_result_summary, created_at, updated_at
+	id, room_id, route_target, bot_id, title, prompt, schedule_type, interval_seconds, specific_time, specific_at, enabled, last_run_at, last_result_summary, created_at, updated_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, ''), NOW(), NOW())
+VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULLIF($12, ''), NOW(), NOW())
 ON CONFLICT (id) DO UPDATE SET
     room_id = EXCLUDED.room_id,
+	route_target = EXCLUDED.route_target,
 	bot_id = EXCLUDED.bot_id,
     title = EXCLUDED.title,
     prompt = EXCLUDED.prompt,
+    schedule_type = EXCLUDED.schedule_type,
     interval_seconds = EXCLUDED.interval_seconds,
+    specific_time = EXCLUDED.specific_time,
+    specific_at = EXCLUDED.specific_at,
     enabled = EXCLUDED.enabled,
     last_run_at = COALESCE(EXCLUDED.last_run_at, pulse_tasks.last_run_at),
     last_result_summary = COALESCE(EXCLUDED.last_result_summary, pulse_tasks.last_result_summary),
     updated_at = NOW()
-`, task.ID, roomID, botID, strings.TrimSpace(task.Title), strings.TrimSpace(task.Prompt), task.IntervalSeconds, task.Enabled, nullTime(task.LastRunAt), emptyToNil(task.LastResultSummary))
+`, task.ID, roomID, routeTarget, strings.TrimSpace(task.Title), strings.TrimSpace(task.Prompt), task.ScheduleType, task.IntervalSeconds, task.SpecificTime, nullTime(task.SpecificAt), task.Enabled, nullTime(task.LastRunAt), emptyToNil(task.LastResultSummary))
 	if err != nil {
 		return persistence.PulseTask{}, err
 	}
-	return s.getTask(ctx, roomID, botID, task.ID)
+	return s.getTask(ctx, roomID, routeTarget, task.ID)
 }
 
-func (s *pgPulseStore) DeleteTask(ctx context.Context, roomID, botID, taskID string) error {
+func (s *pgPulseStore) DeleteTask(ctx context.Context, roomID, routeTarget, taskID string) error {
 	cmd, err := s.pool.Exec(ctx, `
 DELETE FROM pulse_tasks
-WHERE room_id = $1 AND bot_id = $2 AND id = $3
-`, strings.TrimSpace(roomID), strings.TrimSpace(botID), strings.TrimSpace(taskID))
+WHERE room_id = $1 AND route_target = $2 AND id = $3
+`, strings.TrimSpace(roomID), strings.TrimSpace(routeTarget), strings.TrimSpace(taskID))
 	if err != nil {
 		return err
 	}
@@ -324,7 +387,7 @@ WHERE room_id = $1 AND bot_id = $2 AND id = $3
 	return nil
 }
 
-func (s *pgPulseStore) ClaimRoom(ctx context.Context, roomID, botID, token string, leaseUntil time.Time) (bool, error) {
+func (s *pgPulseStore) ClaimRoom(ctx context.Context, roomID, routeTarget, token string, leaseUntil time.Time) (bool, error) {
 	cmd, err := s.pool.Exec(ctx, `
 UPDATE pulse_rooms
 SET active_claim_token = $2,
@@ -333,24 +396,24 @@ SET active_claim_token = $2,
     updated_at = NOW(),
     revision = revision + 1
 WHERE room_id = $1
-  AND bot_id = $4
+	AND route_target = $4
   AND (active_claim_until IS NULL OR active_claim_until <= NOW() OR active_claim_token = $2)
-`, strings.TrimSpace(roomID), strings.TrimSpace(token), leaseUntil.UTC(), strings.TrimSpace(botID))
+`, strings.TrimSpace(roomID), strings.TrimSpace(token), leaseUntil.UTC(), strings.TrimSpace(routeTarget))
 	if err != nil {
 		return false, err
 	}
 	return cmd.RowsAffected() > 0, nil
 }
 
-func (s *pgPulseStore) ClearRoomClaim(ctx context.Context, roomID, botID string) error {
+func (s *pgPulseStore) ClearRoomClaim(ctx context.Context, roomID, routeTarget string) error {
 	cmd, err := s.pool.Exec(ctx, `
 UPDATE pulse_rooms
 SET active_claim_token = NULL,
     active_claim_until = NULL,
     updated_at = NOW(),
     revision = revision + 1
-WHERE room_id = $1 AND bot_id = $2
-`, strings.TrimSpace(roomID), strings.TrimSpace(botID))
+WHERE room_id = $1 AND route_target = $2
+`, strings.TrimSpace(roomID), strings.TrimSpace(routeTarget))
 	if err != nil {
 		return err
 	}
@@ -360,7 +423,7 @@ WHERE room_id = $1 AND bot_id = $2
 	return nil
 }
 
-func (s *pgPulseStore) CompleteRoomPulse(ctx context.Context, roomID, botID, token string, completedAt time.Time, summary, pulseErr string, dueTaskIDs []string) error {
+func (s *pgPulseStore) CompleteRoomPulse(ctx context.Context, roomID, routeTarget, token string, completedAt time.Time, summary, pulseErr string, dueTaskIDs []string) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
@@ -376,8 +439,8 @@ SET active_claim_token = NULL,
     last_pulse_error = NULLIF($5, ''),
     updated_at = NOW(),
     revision = revision + 1
-WHERE room_id = $1 AND bot_id = $6 AND active_claim_token = $2
-`, strings.TrimSpace(roomID), strings.TrimSpace(token), completedAt.UTC(), summary, pulseErr, strings.TrimSpace(botID))
+WHERE room_id = $1 AND route_target = $6 AND active_claim_token = $2
+`, strings.TrimSpace(roomID), strings.TrimSpace(token), completedAt.UTC(), summary, pulseErr, strings.TrimSpace(routeTarget))
 	if err != nil {
 		return err
 	}
@@ -390,8 +453,8 @@ UPDATE pulse_tasks
 SET last_run_at = $3,
     last_result_summary = NULLIF($4, ''),
     updated_at = NOW()
-WHERE room_id = $1 AND bot_id = $5 AND id = ANY($2)
-`, strings.TrimSpace(roomID), dueTaskIDs, completedAt.UTC(), summary, strings.TrimSpace(botID)); err != nil {
+WHERE room_id = $1 AND route_target = $5 AND id = ANY($2)
+`, strings.TrimSpace(roomID), dueTaskIDs, completedAt.UTC(), summary, strings.TrimSpace(routeTarget)); err != nil {
 			return err
 		}
 	}

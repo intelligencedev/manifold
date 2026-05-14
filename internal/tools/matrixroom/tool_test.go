@@ -8,11 +8,19 @@ import (
 	"manifold/internal/sandbox"
 )
 
+type dispatchRecorder struct{ count int }
+
+func (d *dispatchRecorder) dispatch(_ context.Context, _ sandbox.MatrixMessage) error {
+	d.count++
+	return nil
+}
+
 func TestToolQueuesMessageToCurrentRoom(t *testing.T) {
 	t.Parallel()
 
 	tool := &Tool{}
-	outbox := sandbox.NewMatrixOutbox()
+	recorder := &dispatchRecorder{}
+	outbox := sandbox.NewMatrixOutbox(sandbox.WithMatrixDispatchHandler(recorder.dispatch))
 	ctx := sandbox.WithMatrixOutbox(sandbox.WithRoomID(context.Background(), "!room:test"), outbox)
 	raw, err := json.Marshal(map[string]any{"text": "Task completed"})
 	if err != nil {
@@ -36,6 +44,9 @@ func TestToolQueuesMessageToCurrentRoom(t *testing.T) {
 	}
 	if messages[0].RoomID != "!room:test" || messages[0].Text != "Task completed" {
 		t.Fatalf("unexpected queued message: %#v", messages[0])
+	}
+	if recorder.count != 1 {
+		t.Fatalf("expected immediate dispatch, got %d calls", recorder.count)
 	}
 }
 

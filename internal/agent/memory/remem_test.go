@@ -14,13 +14,15 @@ type recordingLLMProvider struct {
 	mu        sync.Mutex
 	responses []string
 	messages  [][]llm.Message
+	tools     [][]llm.ToolSchema
 }
 
-func (p *recordingLLMProvider) Chat(_ context.Context, messages []llm.Message, _ []llm.ToolSchema, _ string) (llm.Message, error) {
+func (p *recordingLLMProvider) Chat(_ context.Context, messages []llm.Message, tools []llm.ToolSchema, _ string) (llm.Message, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	p.messages = append(p.messages, append([]llm.Message(nil), messages...))
+	p.tools = append(p.tools, append([]llm.ToolSchema(nil), tools...))
 	response := ""
 	if len(p.responses) > 0 {
 		response = p.responses[0]
@@ -37,6 +39,16 @@ func (p *recordingLLMProvider) callCount() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return len(p.messages)
+}
+
+func (p *recordingLLMProvider) toolCounts() []int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make([]int, 0, len(p.tools))
+	for _, tools := range p.tools {
+		out = append(out, len(tools))
+	}
+	return out
 }
 
 func (p *recordingLLMProvider) lastUserMessage() string {
@@ -132,6 +144,35 @@ func TestReMemExecuteForcesFinalActAfterMaxSteps(t *testing.T) {
 	}
 	if !strings.Contains(provider.lastUserMessage(), "hand off to the main agent now") {
 		t.Fatalf("expected forced ACT prompt, got %q", provider.lastUserMessage())
+	}
+}
+
+func TestReMemExecuteDoesNotForwardTools(t *testing.T) {
+	t.Parallel()
+
+	provider := &recordingLLMProvider{responses: []string{
+		`{"action":"THINK","content":"inspect memory only"}`,
+		`{"action":"ACT","content":"handoff"}`,
+	}}
+	rc := NewReMemController(ReMemConfig{
+		Memory:        newTestReMemMemory(t),
+		LLM:           provider,
+		Model:         "test-model",
+		MaxInnerSteps: 1,
+	})
+
+	_, _, err := rc.Execute(context.Background(), "answer", []llm.ToolSchema{{
+		Name:        "run_cli",
+		Description: "Execute shell commands",
+		Parameters:  map[string]any{"type": "object"},
+	}})
+	if err != nil {
+		t.Fatalf("Execute failed: %v", err)
+	}
+	for i, count := range provider.toolCounts() {
+		if count != 0 {
+			t.Fatalf("call %d forwarded %d tools", i, count)
+		}
 	}
 }
 

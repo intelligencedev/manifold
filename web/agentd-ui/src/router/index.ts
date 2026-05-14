@@ -24,6 +24,15 @@ const router = createRouter({
       component: () => import("@/views/ChatView.vue"),
     },
     {
+      path: "/pulse",
+      name: "pulse",
+      component: () => import("@/views/PulseView.vue"),
+    },
+    {
+      path: "/matrix",
+      redirect: "/pulse",
+    },
+    {
       path: "/flow",
       name: "flow",
       component: () => import("@/views/FlowView.vue"),

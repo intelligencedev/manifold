@@ -13,6 +13,7 @@ import (
 	"manifold/internal/config"
 	"manifold/internal/embeddedpg"
 	llmpkg "manifold/internal/llm"
+	"manifold/internal/matrixgw"
 	"manifold/internal/mcpclient"
 	persist "manifold/internal/persistence"
 	"manifold/internal/persistence/databases"
@@ -56,6 +57,7 @@ type app struct {
 	rememMaxInnerSteps int
 	engine             *agent.Engine
 	chatStore          persist.ChatStore
+	matrixMessageStore persist.MatrixMessageStore
 	activityStore      persist.SpecialistActivityStore
 	chatMemory         *memory.Manager
 	runs               *runStore
@@ -81,6 +83,8 @@ type app struct {
 	transitService     *transitdomain.Service
 	embeddedRuntime    *embeddedpg.Runtime
 	ragService         *ragservice.Service
+	matrixGateway      *matrixgw.Service
+	pulseRuntime       *pulseRuntime
 }
 
 type tokenMetricsProvider interface {

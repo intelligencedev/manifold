@@ -40,7 +40,7 @@ type UserPreferencesStore interface {
 // PulseRoom stores per-Matrix-room automation settings.
 type PulseRoom struct {
 	RoomID               string    `json:"roomId"`
-	BotID                string    `json:"botId,omitempty"`
+	RouteTarget          string    `json:"routeTarget,omitempty"`
 	ProjectID            string    `json:"projectId,omitempty"`
 	Enabled              bool      `json:"enabled"`
 	Revision             int64     `json:"revision"`
@@ -58,10 +58,13 @@ type PulseRoom struct {
 type PulseTask struct {
 	ID                string    `json:"id"`
 	RoomID            string    `json:"roomId"`
-	BotID             string    `json:"botId,omitempty"`
+	RouteTarget       string    `json:"routeTarget,omitempty"`
 	Title             string    `json:"title"`
 	Prompt            string    `json:"prompt"`
+	ScheduleType      string    `json:"scheduleType,omitempty"`
 	IntervalSeconds   int       `json:"intervalSeconds"`
+	SpecificTime      string    `json:"specificTime,omitempty"`
+	SpecificAt        time.Time `json:"specificAt,omitempty"`
 	Enabled           bool      `json:"enabled"`
 	LastRunAt         time.Time `json:"lastRunAt,omitempty"`
 	LastResultSummary string    `json:"lastResultSummary,omitempty"`
@@ -82,16 +85,47 @@ type ReactiveClaim struct {
 // PulseStore persists room-scoped automation tasks used by the Matrix pulse loop.
 type PulseStore interface {
 	Init(ctx context.Context) error
-	EnsureRoom(ctx context.Context, roomID, botID string) (PulseRoom, error)
-	GetRoom(ctx context.Context, roomID, botID string) (PulseRoom, error)
-	ListRooms(ctx context.Context, botID string) ([]PulseRoom, error)
+	EnsureRoom(ctx context.Context, roomID, routeTarget string) (PulseRoom, error)
+	GetRoom(ctx context.Context, roomID, routeTarget string) (PulseRoom, error)
+	ListRooms(ctx context.Context, routeTarget string) ([]PulseRoom, error)
 	UpsertRoom(ctx context.Context, room PulseRoom) (PulseRoom, error)
-	ListTasks(ctx context.Context, roomID, botID string) ([]PulseTask, error)
+	ListTasks(ctx context.Context, roomID, routeTarget string) ([]PulseTask, error)
 	UpsertTask(ctx context.Context, task PulseTask) (PulseTask, error)
-	DeleteTask(ctx context.Context, roomID, botID, taskID string) error
-	ClaimRoom(ctx context.Context, roomID, botID, token string, leaseUntil time.Time) (bool, error)
-	ClearRoomClaim(ctx context.Context, roomID, botID string) error
-	CompleteRoomPulse(ctx context.Context, roomID, botID, token string, completedAt time.Time, summary, pulseErr string, dueTaskIDs []string) error
+	DeleteTask(ctx context.Context, roomID, routeTarget, taskID string) error
+	ClaimRoom(ctx context.Context, roomID, routeTarget, token string, leaseUntil time.Time) (bool, error)
+	ClearRoomClaim(ctx context.Context, roomID, routeTarget string) error
+	CompleteRoomPulse(ctx context.Context, roomID, routeTarget, token string, completedAt time.Time, summary, pulseErr string, dueTaskIDs []string) error
+}
+
+type MatrixMessage struct {
+	ID            int64     `json:"id"`
+	RoomID        string    `json:"roomId"`
+	EventID       string    `json:"eventId,omitempty"`
+	Direction     string    `json:"direction"`
+	Sender        string    `json:"sender,omitempty"`
+	Target        string    `json:"target,omitempty"`
+	Body          string    `json:"body"`
+	FormattedBody string    `json:"formattedBody,omitempty"`
+	MsgType       string    `json:"msgType"`
+	MediaURL      string    `json:"mediaUrl,omitempty"`
+	MediaMIME     string    `json:"mediaMime,omitempty"`
+	MediaSize     int64     `json:"mediaSize,omitempty"`
+	CreatedAt     time.Time `json:"createdAt"`
+}
+
+type MatrixRoomStats struct {
+	RoomID         string    `json:"roomId"`
+	MessageCount   int       `json:"messageCount"`
+	LastActivityAt time.Time `json:"lastActivityAt,omitempty"`
+	LastSender     string    `json:"lastSender,omitempty"`
+}
+
+type MatrixMessageStore interface {
+	Init(ctx context.Context) error
+	Append(ctx context.Context, message MatrixMessage, maxMessages int) (MatrixMessage, error)
+	ListByRoom(ctx context.Context, roomID string, limit int, beforeID int64) ([]MatrixMessage, error)
+	Prune(ctx context.Context, roomID string, maxMessages int) error
+	RoomStats(ctx context.Context, roomID string) (MatrixRoomStats, error)
 }
 
 // ReactiveClaimStore persists short-lived room leases for reactive Matrix replies.
@@ -116,6 +150,7 @@ type Specialist struct {
 	// for this specialist. Zero means use the global fallback.
 	SummaryContextWindowTokens int               `json:"summaryContextWindowTokens"`
 	EnableTools                bool              `json:"enableTools"`
+	ImageGeneration            bool              `json:"imageGeneration"`
 	AutoDiscover               *bool             `json:"autoDiscover,omitempty"`
 	Paused                     bool              `json:"paused"`
 	AllowTools                 []string          `json:"allowTools"`
@@ -159,10 +194,16 @@ type SpecialistTeamsStore interface {
 	ListMemberships(ctx context.Context, userID int64) (map[string][]string, error)
 }
 
+const (
+	ChatSessionKindChat   = "chat"
+	ChatSessionKindMatrix = "matrix"
+)
+
 // ChatSession represents a persisted conversation with metadata for display.
 type ChatSession struct {
 	ID                 string    `json:"id"`
 	Name               string    `json:"name"`
+	Kind               string    `json:"kind"`
 	UserID             *int64    `json:"userId,omitempty"`
 	CreatedAt          time.Time `json:"createdAt"`
 	UpdatedAt          time.Time `json:"updatedAt"`
@@ -189,9 +230,12 @@ type ChatMessage struct {
 type ChatStore interface {
 	Init(ctx context.Context) error
 	EnsureSession(ctx context.Context, userID *int64, id string, name string) (ChatSession, error)
+	EnsureSessionKind(ctx context.Context, userID *int64, id string, name string, kind string) (ChatSession, error)
 	ListSessions(ctx context.Context, userID *int64) ([]ChatSession, error)
+	ListSessionsByKind(ctx context.Context, userID *int64, kind string) ([]ChatSession, error)
 	GetSession(ctx context.Context, userID *int64, id string) (ChatSession, error)
 	CreateSession(ctx context.Context, userID *int64, name string) (ChatSession, error)
+	CreateSessionKind(ctx context.Context, userID *int64, name string, kind string) (ChatSession, error)
 	RenameSession(ctx context.Context, userID *int64, id, name string) (ChatSession, error)
 	DeleteSession(ctx context.Context, userID *int64, id string) error
 	ListMessages(ctx context.Context, userID *int64, sessionID string, limit int) ([]ChatMessage, error)

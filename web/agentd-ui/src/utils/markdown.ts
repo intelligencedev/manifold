@@ -6,6 +6,10 @@ const SANITIZE_OPTIONS = {
   ALLOW_DATA_ATTR: true,
 };
 
+export interface RenderMarkdownOptions {
+  mermaid?: boolean;
+}
+
 function wrapHighlighted(value: string, language?: string) {
   const languageClass = language ? ` language-${language}` : "";
   const langLabel = language
@@ -18,6 +22,14 @@ function wrapHighlighted(value: string, language?: string) {
         <button type="button" class="md-copy-btn" data-copy>Copy</button>
       </div>
       <pre class="hljs${languageClass}"><code class="hljs${languageClass}">${value}</code></pre>
+    </div>
+  `;
+}
+
+function renderMermaidPlaceholder(value: string) {
+  return `
+    <div class="md-mermaid" data-mermaid-diagram="true" role="img" aria-label="Mermaid diagram">
+      <pre class="md-mermaid-source"><code>${md.utils.escapeHtml(value)}</code></pre>
     </div>
   `;
 }
@@ -79,6 +91,9 @@ md.renderer.rules.fence = (
 ) => {
   const token = tokens[idx];
   const info = token.info ? token.info.trim().split(/\s+/)[0] : "";
+  if (env?.mermaid === true && (info === "mermaid" || info === "mmd")) {
+    return `${renderMermaidPlaceholder(token.content)}\n`;
+  }
   const highlighted = options.highlight
     ? options.highlight(token.content, info)
     : "";
@@ -88,7 +103,10 @@ md.renderer.rules.fence = (
   return defaultFence(tokens, idx, options, env, self);
 };
 
-export function renderMarkdown(value: string): string {
+export function renderMarkdown(
+  value: string,
+  options: RenderMarkdownOptions = {},
+): string {
   if (!value) {
     return "";
   }
@@ -106,5 +124,8 @@ export function renderMarkdown(value: string): string {
   } catch {
     // no-op: fallback to raw value
   }
-  return DOMPurify.sanitize(md.render(text), SANITIZE_OPTIONS);
+  return DOMPurify.sanitize(
+    md.render(text, { mermaid: options.mermaid === true }),
+    SANITIZE_OPTIONS,
+  );
 }

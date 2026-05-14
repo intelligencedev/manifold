@@ -21,7 +21,7 @@ describe("renderMarkdown", () => {
     expect(html).not.toContain("<script");
     expect(html).not.toContain("onerror=");
     expect(html).not.toContain("onclick=");
-    expect(html).toContain("<img src=\"x\">");
+    expect(html).toContain('<img src="x">');
     expect(html).toContain("<div>ok</div>");
   });
 
@@ -35,7 +35,9 @@ describe("renderMarkdown", () => {
   });
 
   it("preserves code block wrappers and escapes embedded HTML inside fences", () => {
-    const html = renderMarkdown("```html\n<section onclick=\"evil()\">Hi</section>\n```");
+    const html = renderMarkdown(
+      '```html\n<section onclick="evil()">Hi</section>\n```',
+    );
 
     expect(html).toContain("md-codeblock");
     expect(html).toContain("data-copy");
@@ -45,6 +47,29 @@ describe("renderMarkdown", () => {
     expect(html).toContain("onclick");
     expect(html).toContain("evil()");
     expect(html).not.toContain("<section onclick=");
+  });
+
+  it("keeps mermaid fences as code blocks unless mermaid rendering is enabled", () => {
+    const html = renderMarkdown("```mermaid\ngraph TD\n  A-->B\n```");
+
+    expect(html).toContain("md-codeblock");
+    expect(html).not.toContain("data-mermaid-diagram");
+    expect(html).toContain("graph TD");
+  });
+
+  it("renders enabled mermaid fences as sanitized diagram placeholders", () => {
+    const html = renderMarkdown(
+      "```mermaid\ngraph TD\n  A[<script>bad</script>]-->B\n```",
+      { mermaid: true },
+    );
+
+    expect(html).toContain("md-mermaid");
+    expect(html).toContain('data-mermaid-diagram="true"');
+    expect(html).toContain("md-mermaid-source");
+    expect(html).toContain("graph TD");
+    expect(html).toContain("&lt;script&gt;bad&lt;/script&gt;");
+    expect(html).not.toContain("<script>");
+    expect(html).not.toContain("md-codeblock");
   });
 
   it("temporarily closes an unbalanced code fence during streaming", () => {
@@ -57,7 +82,9 @@ describe("renderMarkdown", () => {
   });
 
   it("normalizes indented HTML lines so nested markup still renders", () => {
-    const html = renderMarkdown(`Step 3\n\n<div style="display:flex"><div>a</div></div>\n\n    <!-- Token row -->\n    <div style="display:flex">\n      <div>nested</div>\n    </div>`);
+    const html = renderMarkdown(
+      `Step 3\n\n<div style="display:flex"><div>a</div></div>\n\n    <!-- Token row -->\n    <div style="display:flex">\n      <div>nested</div>\n    </div>`,
+    );
 
     expect(html).not.toContain("&lt;!-- Token row --&gt;");
     expect(html).not.toContain("<pre><code>");

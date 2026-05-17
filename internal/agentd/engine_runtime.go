@@ -109,10 +109,12 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID, p
 	delegator.SetBeliefRetriever(eng.BeliefRetriever, eng.BeliefMaxBeliefsPerPrompt, eng.BeliefPromptTokenBudget)
 	delegator.SetBeliefLifecycle(eng.BeliefGraph, eng.BeliefPromotionThreshold)
 	delegator.SetPolicyEnforcer(eng.PolicyEnforcer)
+	delegator.SetTeamDelegator(a)
 	if a.engine != nil && a.engine.ReMemEnabled {
 		delegator.ConfigureReMem(a.evolvingCfg.LLM, a.evolvingCfg.Model, a.rememMaxInnerSteps)
 	}
 	eng.Delegator = delegator
+	eng.TeamDelegator = a
 
 	return eng
 }

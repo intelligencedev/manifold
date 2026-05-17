@@ -83,14 +83,14 @@ func (e *Engine) dispatchTools(ctx context.Context, msgs []llm.Message, toolCall
 			dispatchCtx = tools.WithProvider(ctx, e.LLM)
 		}
 		dispatchCtx = tools.WithNestedToolDispatcher(dispatchCtx, func(childCtx context.Context, name string, raw json.RawMessage, toolCallID string) ([]byte, bool) {
-			if e.Delegator == nil || !isAgentCall(name) {
+			if !e.canHandleNestedDelegation(name) {
 				return nil, false
 			}
 			id := strings.TrimSpace(toolCallID)
 			if id == "" {
 				id = e.nextToolCallID()
 			}
-			payload := e.runDelegatedAgent(childCtx, llm.ToolCall{
+			payload := e.runDelegatedTool(childCtx, llm.ToolCall{
 				ID:   id,
 				Name: name,
 				Args: raw,
@@ -149,9 +149,9 @@ func (e *Engine) executeToolCall(ctx context.Context, tc llm.ToolCall) llm.Messa
 		observability.LoggerWithTrace(ctx).Info().Str("tool", tc.Name).Strs("policy_annotations", decision.Annotations).Strs("policy_ids", decision.MatchedIDs).Msg("policy_tool_call_annotated")
 	}
 
-	// Handle agent delegation as a first-class engine feature (not a tool).
-	if e.Delegator != nil && isAgentCall(tc.Name) {
-		payload := e.runDelegatedAgent(ctx, tc)
+	// Handle delegation as a first-class engine feature (not a tool).
+	if e.canHandleNestedDelegation(tc.Name) {
+		payload := e.runDelegatedTool(ctx, tc)
 		if e.OnTool != nil {
 			e.OnTool(tc.Name, tc.Args, payload, tc.ID)
 		}
@@ -194,6 +194,30 @@ func (e *Engine) evaluateToolPolicy(ctx context.Context, tc llm.ToolCall) policy
 
 func isAgentCall(name string) bool {
 	return name == "agent_call" || name == "ask_agent"
+}
+
+func isTeamCall(name string) bool {
+	return name == "delegate_to_team"
+}
+
+func (e *Engine) canHandleNestedDelegation(name string) bool {
+	if e == nil {
+		return false
+	}
+	if isAgentCall(name) {
+		return e.Delegator != nil
+	}
+	if isTeamCall(name) {
+		return e.TeamDelegator != nil
+	}
+	return false
+}
+
+func (e *Engine) runDelegatedTool(ctx context.Context, tc llm.ToolCall) []byte {
+	if isTeamCall(tc.Name) {
+		return e.runDelegatedTeam(ctx, tc)
+	}
+	return e.runDelegatedAgent(ctx, tc)
 }
 
 // runDelegatedAgent executes an agent-to-agent handoff using the configured
@@ -253,6 +277,82 @@ func (e *Engine) runDelegatedAgent(ctx context.Context, tc llm.ToolCall) []byte 
 		return []byte(fmt.Sprintf(`{"ok":false,"agent":%q,"error":%q}`, req.AgentName, err.Error()))
 	}
 	out := map[string]any{"ok": true, "agent": req.AgentName, "output": result}
+	if b, err := json.Marshal(out); err == nil {
+		return b
+	}
+	return []byte(result)
+}
+
+// runDelegatedTeam executes a team handoff using the configured TeamDelegator
+// and wraps the output in the legacy delegate_to_team payload shape so the
+// parent loop can continue unchanged.
+func (e *Engine) runDelegatedTeam(ctx context.Context, tc llm.ToolCall) []byte {
+	var args struct {
+		Team           string        `json:"team"`
+		Prompt         string        `json:"prompt"`
+		History        []llm.Message `json:"history"`
+		TimeoutMS      int           `json:"timeout_ms"`
+		TimeoutSeconds int           `json:"timeout_seconds"`
+		ProjectID      string        `json:"project_id"`
+		ObjectiveID    string        `json:"objective_id"`
+		SessionID      string        `json:"session_id"`
+		UserID         int64         `json:"user_id"`
+	}
+	if err := json.Unmarshal(tc.Args, &args); err != nil {
+		return []byte(fmt.Sprintf(`{"ok":false,"error":%q}`, err.Error()))
+	}
+	teamName := strings.TrimSpace(args.Team)
+	if teamName == "" {
+		return []byte(`{"ok":false,"error":"team is required"}`)
+	}
+	if strings.TrimSpace(args.Prompt) == "" {
+		return []byte(`{"ok":false,"error":"prompt is required"}`)
+	}
+	projectID := strings.TrimSpace(args.ProjectID)
+	if projectID == "" {
+		projectID = strings.TrimSpace(e.ProjectID)
+	}
+	objectiveID := strings.TrimSpace(args.ObjectiveID)
+	if objectiveID == "" {
+		objectiveID = strings.TrimSpace(e.ObjectiveID)
+	}
+	sessionID := strings.TrimSpace(args.SessionID)
+	if sessionID == "" {
+		sessionID = strings.TrimSpace(e.SessionID)
+	}
+	userID := args.UserID
+	if userID == 0 {
+		userID = e.UserID
+	}
+	callID := strings.TrimSpace(tc.ID)
+	if callID == "" {
+		callID = fmt.Sprintf("team-%d", time.Now().UnixNano())
+	}
+	req := TeamDelegateRequest{
+		TeamName:       teamName,
+		Prompt:         args.Prompt,
+		History:        args.History,
+		TimeoutSeconds: args.TimeoutSeconds,
+		TimeoutMS:      args.TimeoutMS,
+		ProjectID:      projectID,
+		ObjectiveID:    objectiveID,
+		SessionID:      sessionID,
+		UserID:         userID,
+		CallID:         callID,
+		ParentCallID:   tc.ID,
+		Depth:          e.AgentDepth + 1,
+	}
+	result, err := e.TeamDelegator.RunTeam(ctx, req, e.AgentTracer)
+	if err != nil {
+		return []byte(fmt.Sprintf(`{"ok":false,"team":%q,"error":%q}`, req.TeamName, err.Error()))
+	}
+	out := map[string]any{
+		"ok":   true,
+		"team": req.TeamName,
+		"response": map[string]any{
+			"result": result,
+		},
+	}
 	if b, err := json.Marshal(out); err == nil {
 		return b
 	}

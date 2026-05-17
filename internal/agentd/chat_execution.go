@@ -268,7 +268,7 @@ func (t fleetAgentTracer) Trace(ev agent.AgentTrace) {
 	} else if ev.Type == "agent_final" {
 		kind = fleet.EventRunFinished
 	}
-	t.bus.Publish(fleet.Event{Kind: kind, RunID: t.runID, SessionID: t.sessionID, ProjectID: t.projectID, ObjectiveID: t.objectiveID, Specialist: ev.Agent, Agent: ev.Agent, CallID: ev.CallID, ParentCallID: ev.ParentCallID, ToolID: ev.ToolID, Depth: ev.Depth, UserID: t.userID, Title: ev.Title, Message: ev.Content, Data: map[string]any{"type": ev.Type, "args": ev.Args, "data": ev.Data, "error": ev.Error, "thought_summary": ev.ThoughtSummary}})
+	t.bus.Publish(fleet.Event{Kind: kind, RunID: t.runID, SessionID: t.sessionID, ProjectID: t.projectID, ObjectiveID: t.objectiveID, Specialist: ev.Agent, Agent: ev.Agent, CallID: ev.CallID, ParentCallID: ev.ParentCallID, ToolID: ev.ToolID, Depth: ev.Depth, UserID: t.userID, Title: ev.Title, Message: ev.Content, Data: map[string]any{"type": ev.Type, "team": ev.Team, "args": ev.Args, "data": ev.Data, "error": ev.Error, "thought_summary": ev.ThoughtSummary}})
 }
 
 func trimPrefixOnce(value, prefix string) string {
@@ -426,14 +426,18 @@ func (a *app) executeStreamChat(w http.ResponseWriter, r *http.Request, runCtx c
 			stream.writeText(fmt.Sprintf("data: %q\n\n", "(error)"))
 		}
 		a.runs.updateStatus(runID, "failed", 0)
-		if a.fleetBus != nil { a.fleetBus.Publish(fleet.Event{Kind: fleet.EventRunFailed, RunID: runID, SessionID: req.SessionID, ProjectID: req.ProjectID, ObjectiveID: req.ObjectiveID, UserID: derefInputUserID(userID), Message: err.Error()}) }
+		if a.fleetBus != nil {
+			a.fleetBus.Publish(fleet.Event{Kind: fleet.EventRunFailed, RunID: runID, SessionID: req.SessionID, ProjectID: req.ProjectID, ObjectiveID: req.ObjectiveID, UserID: derefInputUserID(userID), Message: err.Error()})
+		}
 		a.commitWorkspace(ctx, checkedOutWorkspace)
 		return
 	}
 	result = collector.resultText(result)
 	stream.write(buildChatStreamFinalPayload(result, ctx, opts.IncludeMatrixMessages))
 	a.runs.updateStatus(runID, "completed", 0)
-	if a.fleetBus != nil { a.fleetBus.Publish(fleet.Event{Kind: fleet.EventRunFinished, RunID: runID, SessionID: req.SessionID, ProjectID: req.ProjectID, ObjectiveID: req.ObjectiveID, UserID: derefInputUserID(userID), Message: result}) }
+	if a.fleetBus != nil {
+		a.fleetBus.Publish(fleet.Event{Kind: fleet.EventRunFinished, RunID: runID, SessionID: req.SessionID, ProjectID: req.ProjectID, ObjectiveID: req.ObjectiveID, UserID: derefInputUserID(userID), Message: result})
+	}
 	if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, collector.turnMessages, result, chatStoreModel(eng, opts.StoreModel)); err != nil {
 		log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_stream")
 	}

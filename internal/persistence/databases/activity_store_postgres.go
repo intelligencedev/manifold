@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS chat_agent_activities (
     call_id TEXT NOT NULL,
     parent_call_id TEXT NOT NULL DEFAULT '',
     agent TEXT NOT NULL DEFAULT '',
+    team TEXT NOT NULL DEFAULT '',
     model TEXT NOT NULL DEFAULT '',
     prompt TEXT NOT NULL DEFAULT '',
     depth INTEGER NOT NULL DEFAULT 0,
@@ -58,13 +59,15 @@ CREATE TABLE IF NOT EXISTS chat_agent_activities (
 
 CREATE INDEX IF NOT EXISTS chat_agent_activities_session_updated_idx ON chat_agent_activities(session_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS chat_agent_activities_run_idx ON chat_agent_activities(session_id, run_id);
+
+ALTER TABLE chat_agent_activities ADD COLUMN IF NOT EXISTS team TEXT NOT NULL DEFAULT '';
 `)
 	return err
 }
 
 func (s *pgSpecialistActivityStore) ListSessionActivities(ctx context.Context, userID *int64, sessionID string) ([]persistence.SpecialistActivityRecord, error) {
 	query := `
-SELECT id, session_id, user_id, run_id, call_id, parent_call_id, agent, model, prompt, depth, status, content, entries, thought_summaries, error, started_at, updated_at, finished_at
+SELECT id, session_id, user_id, run_id, call_id, parent_call_id, agent, team, model, prompt, depth, status, content, entries, thought_summaries, error, started_at, updated_at, finished_at
 FROM chat_agent_activities
 WHERE session_id = $1`
 	args := []any{sessionID}
@@ -118,15 +121,16 @@ func (s *pgSpecialistActivityStore) UpsertSessionActivities(ctx context.Context,
 		}
 		if _, err := tx.Exec(ctx, `
 INSERT INTO chat_agent_activities (
-    id, session_id, user_id, run_id, call_id, parent_call_id, agent, model, prompt, depth, status, content, entries, thought_summaries, error, started_at, updated_at, finished_at
+    id, session_id, user_id, run_id, call_id, parent_call_id, agent, team, model, prompt, depth, status, content, entries, thought_summaries, error, started_at, updated_at, finished_at
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 ON CONFLICT (id) DO UPDATE SET
     user_id = EXCLUDED.user_id,
     run_id = EXCLUDED.run_id,
     call_id = EXCLUDED.call_id,
     parent_call_id = EXCLUDED.parent_call_id,
     agent = EXCLUDED.agent,
+    team = EXCLUDED.team,
     model = EXCLUDED.model,
     prompt = EXCLUDED.prompt,
     depth = EXCLUDED.depth,
@@ -138,7 +142,7 @@ ON CONFLICT (id) DO UPDATE SET
     started_at = EXCLUDED.started_at,
     updated_at = EXCLUDED.updated_at,
     finished_at = EXCLUDED.finished_at
-`, activity.ID, sessionID, owner, activity.RunID, activity.CallID, strings.TrimSpace(activity.ParentCallID), activity.Agent, activity.Model, activity.Prompt, activity.Depth, activity.Status, activity.Content, entriesJSON, thoughtJSON, activity.Error, activity.StartedAt, activity.UpdatedAt, activity.FinishedAt); err != nil {
+`, activity.ID, sessionID, owner, activity.RunID, activity.CallID, strings.TrimSpace(activity.ParentCallID), activity.Agent, strings.TrimSpace(activity.Team), activity.Model, activity.Prompt, activity.Depth, activity.Status, activity.Content, entriesJSON, thoughtJSON, activity.Error, activity.StartedAt, activity.UpdatedAt, activity.FinishedAt); err != nil {
 			return err
 		}
 	}
@@ -181,6 +185,7 @@ func scanSpecialistActivity(row pgx.Row) (persistence.SpecialistActivityRecord, 
 		&record.CallID,
 		&record.ParentCallID,
 		&record.Agent,
+		&record.Team,
 		&record.Model,
 		&record.Prompt,
 		&record.Depth,

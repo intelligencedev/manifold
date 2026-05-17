@@ -42,6 +42,7 @@ type Delegator struct {
 	beliefMaxTokens int
 	beliefThreshold float64
 	policyEnforcer  policy.Enforcer
+	teamDelegator   agent.TeamDelegator
 }
 
 const defaultImagePromptSize = "1K"
@@ -94,6 +95,10 @@ func (d *Delegator) SetBeliefLifecycle(graph belief.Graph, promotionThreshold fl
 
 func (d *Delegator) SetPolicyEnforcer(enforcer policy.Enforcer) {
 	d.policyEnforcer = enforcer
+}
+
+func (d *Delegator) SetTeamDelegator(delegator agent.TeamDelegator) {
+	d.teamDelegator = delegator
 }
 
 func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer agent.AgentTracer) (string, error) {
@@ -210,6 +215,7 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 		PolicyEnforcer:            d.policyEnforcer,
 		EvolvingMemory:            d.evolvingMemory,
 		Delegator:                 d,
+		TeamDelegator:             d.teamDelegator,
 		AgentTracer:               tracer,
 		AgentDepth:                req.Depth,
 	}
@@ -218,6 +224,7 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 		eng.UserPromptContext = ""
 		eng.EvolvingMemory = nil
 		eng.Delegator = nil
+		eng.TeamDelegator = nil
 		eng.BeliefStore = nil
 		eng.BeliefDistiller = nil
 		eng.BeliefRetriever = nil

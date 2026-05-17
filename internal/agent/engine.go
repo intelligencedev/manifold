@@ -39,6 +39,9 @@ type Engine struct {
 	// without routing through tool implementations. This makes agent-to-agent
 	// collaboration a core engine capability and enables rich tracing.
 	Delegator Delegator
+	// TeamDelegator, when set, is used to execute nested team calls without
+	// routing through the HTTP delegate_to_team tool.
+	TeamDelegator TeamDelegator
 	// AgentTracer receives trace events emitted during delegated agent runs.
 	AgentTracer AgentTracer
 	// AgentDepth tracks nesting depth for trace events (0 for top-level orchestrator).

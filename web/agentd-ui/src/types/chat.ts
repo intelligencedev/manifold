@@ -30,6 +30,7 @@ export interface ChatInputRequest {
   allowFreeText: boolean;
   multiple: boolean;
   agent?: string;
+  team?: string;
   model?: string;
   callId?: string;
   parentCallId?: string;
@@ -92,6 +93,7 @@ export interface AgentThread {
   callId: string;
   parentCallId?: string;
   agent?: string;
+  team?: string;
   model?: string;
   prompt?: string;
   depth: number;
@@ -122,6 +124,7 @@ export interface SpecialistActivityRecord {
   callId: string;
   parentCallId?: string;
   agent: string;
+  team?: string;
   model?: string;
   prompt?: string;
   depth: number;

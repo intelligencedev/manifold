@@ -39,6 +39,7 @@ func (t *agentStreamTracer) Trace(ev agent.AgentTrace) {
 	payload := map[string]any{
 		"type":            ev.Type,
 		"agent":           ev.Agent,
+		"team":            ev.Team,
 		"model":           ev.Model,
 		"call_id":         ev.CallID,
 		"parent_call_id":  ev.ParentCallID,

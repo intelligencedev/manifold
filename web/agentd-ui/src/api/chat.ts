@@ -44,6 +44,7 @@ export interface ChatStreamEvent {
   mime?: string;
   name?: string;
   agent?: string;
+  team?: string;
   model?: string;
   call_id?: string;
   parent_call_id?: string;
@@ -318,6 +319,7 @@ function mapActivityRecordToThread(record: SpecialistActivityRecord): AgentThrea
     callId: record.callId,
     parentCallId: record.parentCallId,
     agent: record.agent,
+    team: record.team,
     model: record.model,
     prompt: record.prompt,
     depth: record.depth,

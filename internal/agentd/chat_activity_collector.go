@@ -50,6 +50,7 @@ func (c *chatActivityCollector) Handle(ev agent.AgentTrace) {
 			CallID:           callID,
 			ParentCallID:     strings.TrimSpace(ev.ParentCallID),
 			Agent:            agentName,
+			Team:             strings.TrimSpace(ev.Team),
 			Model:            strings.TrimSpace(ev.Model),
 			Prompt:           ev.Content,
 			Depth:            ev.Depth,
@@ -65,6 +66,9 @@ func (c *chatActivityCollector) Handle(ev agent.AgentTrace) {
 	}
 	if agentName != "" {
 		record.Agent = agentName
+	}
+	if team := strings.TrimSpace(ev.Team); team != "" {
+		record.Team = team
 	}
 	if model := strings.TrimSpace(ev.Model); model != "" {
 		record.Model = model

@@ -265,6 +265,7 @@ type SpecialistActivityRecord struct {
 	CallID           string                    `json:"callId"`
 	ParentCallID     string                    `json:"parentCallId,omitempty"`
 	Agent            string                    `json:"agent"`
+	Team             string                    `json:"team,omitempty"`
 	Model            string                    `json:"model,omitempty"`
 	Prompt           string                    `json:"prompt,omitempty"`
 	Depth            int                       `json:"depth"`

@@ -1934,6 +1934,7 @@ type ActivityStatus = "running" | "done" | "error" | "idle";
 type SpecialistActivityItem = {
   id: string;
   name: string;
+  team?: string;
   model: string;
   status: ActivityStatus;
   statusLabel: string;
@@ -2012,10 +2013,15 @@ function activityItemFromThread(thread: AgentThread): SpecialistActivityItem {
   const name = (thread.agent || "Delegated agent").trim() || "Delegated agent";
   const status = thread.status as ActivityStatus;
   const toolEntries = thread.entries.filter((entry) => entry.type === "tool");
+  const team = (thread.team || "").trim() || undefined;
   return {
     id: thread.callId,
     name,
-    model: (thread.model || "").trim(),
+    team,
+    model:
+      team && name.toLowerCase() === "orchestrator"
+        ? [team, (thread.model || "").trim()].filter(Boolean).join(" / ")
+        : (thread.model || "").trim(),
     status,
     statusLabel: activityStateLabel(status),
     description: activityDescriptionForThread(thread),

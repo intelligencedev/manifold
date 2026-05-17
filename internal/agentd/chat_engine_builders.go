@@ -38,6 +38,7 @@ func sanitizeImageGenerationBuild(build chatEngineBuildResult) chatEngineBuildRe
 	build.Engine.Tools = tools.NewRegistry()
 	build.Engine.MaxSteps = 1
 	build.Engine.Delegator = nil
+	build.Engine.TeamDelegator = nil
 	build.Engine.BeliefStore = nil
 	build.Engine.BeliefDistiller = nil
 	build.Engine.BeliefRetriever = nil
@@ -129,10 +130,12 @@ func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptO
 	delegator.SetBeliefRetriever(eng.BeliefRetriever, eng.BeliefMaxBeliefsPerPrompt, eng.BeliefPromptTokenBudget)
 	delegator.SetBeliefLifecycle(eng.BeliefGraph, eng.BeliefPromotionThreshold)
 	delegator.SetPolicyEnforcer(eng.PolicyEnforcer)
+	delegator.SetTeamDelegator(a)
 	if eng.ReMemEnabled {
 		delegator.ConfigureReMem(a.evolvingCfg.LLM, a.evolvingCfg.Model, a.rememMaxInnerSteps)
 	}
 	eng.Delegator = delegator
+	eng.TeamDelegator = a
 
 	return chatEngineBuildResult{
 		Engine:          eng,
@@ -210,10 +213,12 @@ func (a *app) buildTeamChatEngine(ctx context.Context, name, sessionID, projectI
 	delegator.SetBeliefRetriever(eng.BeliefRetriever, eng.BeliefMaxBeliefsPerPrompt, eng.BeliefPromptTokenBudget)
 	delegator.SetBeliefLifecycle(eng.BeliefGraph, eng.BeliefPromotionThreshold)
 	delegator.SetPolicyEnforcer(eng.PolicyEnforcer)
+	delegator.SetTeamDelegator(a)
 	if eng.ReMemEnabled {
 		delegator.ConfigureReMem(a.evolvingCfg.LLM, a.evolvingCfg.Model, a.rememMaxInnerSteps)
 	}
 	eng.Delegator = delegator
+	eng.TeamDelegator = a
 
 	return chatEngineBuildResult{
 		Engine:     eng,

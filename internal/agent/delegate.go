@@ -12,6 +12,7 @@ import (
 type AgentTrace struct {
 	Type           string
 	Agent          string
+	Team           string
 	Model          string
 	CallID         string
 	ParentCallID   string
@@ -53,4 +54,26 @@ type DelegateRequest struct {
 // appended to the parent agent loop as the tool result.
 type Delegator interface {
 	Run(ctx context.Context, req DelegateRequest, tracer AgentTracer) (string, error)
+}
+
+// TeamDelegateRequest describes a delegated team invocation.
+type TeamDelegateRequest struct {
+	TeamName       string
+	Prompt         string
+	History        []llm.Message
+	TimeoutSeconds int
+	TimeoutMS      int
+	ProjectID      string
+	ObjectiveID    string
+	SessionID      string
+	UserID         int64
+	CallID         string
+	ParentCallID   string
+	Depth          int
+}
+
+// TeamDelegator executes delegated team runs, optionally streaming trace events
+// via AgentTracer. The return value is the final team orchestrator output.
+type TeamDelegator interface {
+	RunTeam(ctx context.Context, req TeamDelegateRequest, tracer AgentTracer) (string, error)
 }

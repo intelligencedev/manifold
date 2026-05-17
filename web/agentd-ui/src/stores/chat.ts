@@ -1066,6 +1066,7 @@ export const useChatStore = defineStore("chat", () => {
         ? event.parent_call_id
         : undefined;
     const agentName = typeof event.agent === "string" ? event.agent : undefined;
+    const team = typeof event.team === "string" ? event.team : undefined;
     const model = typeof event.model === "string" ? event.model : undefined;
     const contentText =
       typeof event.content === "string" ? event.content : undefined;
@@ -1088,6 +1089,7 @@ export const useChatStore = defineStore("chat", () => {
           callId,
           parentCallId,
           agent: agentName,
+          team,
           model,
           prompt: contentText,
           depth,
@@ -1107,6 +1109,7 @@ export const useChatStore = defineStore("chat", () => {
             callId,
             parentCallId,
             agent: agentName,
+            team,
             model,
             prompt: contentText,
             depth,
@@ -1118,6 +1121,7 @@ export const useChatStore = defineStore("chat", () => {
           }),
           (thread) => ({
             ...thread,
+            team: thread.team || team,
             content: (thread.content || "") + (contentText || ""),
           }),
         );
@@ -1131,6 +1135,7 @@ export const useChatStore = defineStore("chat", () => {
             callId,
             parentCallId,
             agent: agentName,
+            team,
             model,
             prompt: contentText,
             depth,
@@ -1143,6 +1148,7 @@ export const useChatStore = defineStore("chat", () => {
           }),
           (thread) => ({
             ...thread,
+            team: thread.team || team,
             status: "done",
             finishedAt: thread.finishedAt || now,
             content: contentText || thread.content,
@@ -1158,6 +1164,7 @@ export const useChatStore = defineStore("chat", () => {
             callId,
             parentCallId,
             agent: agentName,
+            team,
             model,
             prompt: "",
             depth,
@@ -1177,6 +1184,7 @@ export const useChatStore = defineStore("chat", () => {
           }),
           (thread) => ({
             ...thread,
+            team: thread.team || team,
             entries: [
               ...thread.entries,
               {
@@ -1199,6 +1207,7 @@ export const useChatStore = defineStore("chat", () => {
             callId,
             parentCallId,
             agent: agentName,
+            team,
             model,
             prompt: "",
             depth,
@@ -1218,6 +1227,7 @@ export const useChatStore = defineStore("chat", () => {
           }),
           (thread) => ({
             ...thread,
+            team: thread.team || team,
             entries: [
               ...thread.entries,
               {
@@ -1242,6 +1252,7 @@ export const useChatStore = defineStore("chat", () => {
             callId,
             parentCallId,
             agent: agentName,
+            team,
             model,
             prompt: contentText,
             depth,
@@ -1262,6 +1273,7 @@ export const useChatStore = defineStore("chat", () => {
           }),
           (thread) => ({
             ...thread,
+            team: thread.team || team,
             status: "error",
             finishedAt: thread.finishedAt || now,
             error: errText,
@@ -1291,6 +1303,7 @@ export const useChatStore = defineStore("chat", () => {
             callId,
             parentCallId,
             agent: agentName,
+            team,
             model,
             prompt: "",
             depth,
@@ -1302,17 +1315,22 @@ export const useChatStore = defineStore("chat", () => {
           }),
           (thread) => {
             // Append or extend the last summary if it's a prefix
-            const existing = thread.thoughtSummaries || [];
+            const baseThread =
+              thread.team || !team ? thread : { ...thread, team };
+            const existing = baseThread.thoughtSummaries || [];
             const last = existing[existing.length - 1];
             if (last) {
-              if (summary === last) return thread;
+              if (summary === last) return baseThread;
               if (summary.length > last.length && summary.startsWith(last)) {
                 const next = [...existing];
                 next[next.length - 1] = summary;
-                return { ...thread, thoughtSummaries: next };
+                return { ...baseThread, thoughtSummaries: next };
               }
             }
-            return { ...thread, thoughtSummaries: [...existing, summary] };
+            return {
+              ...baseThread,
+              thoughtSummaries: [...existing, summary],
+            };
           },
         );
         break;

@@ -190,11 +190,11 @@ func (t *DelegateToTeamTool) Call(ctx context.Context, raw json.RawMessage) (any
 	q.Set("group", strings.TrimSpace(args.Team))
 	u.RawQuery = q.Encode()
 
-	// Team delegation is a long-running operation. Unlike other tools, we detach
-	// from the parent context's deadline to allow the team to work without timeout.
-	// The team's internal agent runs have their own timeout management. Only apply
-	// a timeout when explicitly requested or when a tool default timeout is set.
-	runCtx := context.WithoutCancel(ctx)
+	// Team delegation is a long-running operation, but it must still remain tied
+	// to the parent run. Stopping the chat should cancel this request and the
+	// downstream team run. Only add a timeout when explicitly requested or when a
+	// tool default timeout is set.
+	runCtx := ctx
 	if args.TimeoutMS > 0 {
 		var cancel context.CancelFunc
 		runCtx, cancel = context.WithTimeout(runCtx, time.Duration(args.TimeoutMS)*time.Millisecond)

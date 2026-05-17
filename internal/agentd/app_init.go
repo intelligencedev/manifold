@@ -14,11 +14,11 @@ import (
 
 	"manifold/internal/agent"
 	"manifold/internal/agent/memory"
-	"manifold/internal/constitution"
 	appcodeqa "manifold/internal/codeqa"
 	codeqaservice "manifold/internal/codeqa/service"
 	codeqastore "manifold/internal/codeqa/store"
 	"manifold/internal/config"
+	"manifold/internal/constitution"
 	"manifold/internal/embeddedpg"
 	"manifold/internal/fleet"
 	"manifold/internal/httpapi"
@@ -43,7 +43,6 @@ import (
 	ragservice "manifold/internal/rag/service"
 	"manifold/internal/skills"
 	"manifold/internal/specialists"
-	"manifold/internal/trust"
 	"manifold/internal/tools"
 	agenttools "manifold/internal/tools/agents"
 	"manifold/internal/tools/cli"
@@ -65,6 +64,7 @@ import (
 	"manifold/internal/tools/utility"
 	"manifold/internal/tools/web"
 	transitdomain "manifold/internal/transit"
+	"manifold/internal/trust"
 	"manifold/internal/workspaces"
 )
 
@@ -404,7 +404,9 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 
 	delegator := agenttools.NewDelegator(toolRegistry, specReg, wsMgr, cfg.MaxSteps)
 	delegator.SetDefaultTimeout(cfg.AgentRunTimeoutSeconds)
+	delegator.SetTeamDelegator(app)
 	app.engine.Delegator = delegator
+	app.engine.TeamDelegator = app
 
 	// Initialize evolving memory if enabled
 	if cfg.EvolvingMemory.Enabled {

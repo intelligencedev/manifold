@@ -73,6 +73,7 @@ export interface ChatStreamEvent {
 export interface StreamAgentRunOptions {
   prompt: string;
   sessionId?: string;
+  assistantMessageId?: string;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
   onEvent: (event: ChatStreamEvent) => void;
@@ -205,6 +206,7 @@ export async function streamAgentRun(
   const {
     prompt,
     sessionId,
+    assistantMessageId,
     fetchImpl,
     signal,
     onEvent,
@@ -214,6 +216,8 @@ export async function streamAgentRun(
   } = options;
   const fetchFn = fetchImpl ?? fetch;
   const payload: Record<string, any> = { prompt, session_id: sessionId };
+  if (assistantMessageId && assistantMessageId.trim())
+    payload.assistant_message_id = assistantMessageId.trim();
   if (projectId && projectId.trim()) payload.project_id = projectId.trim();
   if (options.image) payload.image = true;
   if (options.imageSize && options.imageSize.trim())
@@ -317,6 +321,7 @@ export async function streamAgentRun(
 function mapActivityRecordToThread(record: SpecialistActivityRecord): AgentThread {
   return {
     callId: record.callId,
+    assistantMessageId: record.assistantMessageId,
     parentCallId: record.parentCallId,
     agent: record.agent,
     team: record.team,
@@ -414,6 +419,7 @@ export async function streamAgentVisionRun(
   const {
     prompt,
     sessionId,
+    assistantMessageId,
     files,
     fetchImpl,
     signal,
@@ -426,6 +432,8 @@ export async function streamAgentVisionRun(
   const form = new FormData();
   form.set("prompt", prompt);
   if (sessionId) form.set("session_id", sessionId);
+  if (assistantMessageId && assistantMessageId.trim())
+    form.set("assistant_message_id", assistantMessageId.trim());
   if (projectId && projectId.trim()) form.set("project_id", projectId.trim());
   for (const f of files) {
     form.append("images", f, f.name);

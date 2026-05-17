@@ -324,12 +324,12 @@
               >
                 <!-- Parallel specialist activity (sub-agents invoked concurrently) -->
                 <div
-                  v-if="message.id === lastAssistantId && visibleParticipantActivityItems.length > 0"
+                  v-if="visibleParticipantActivityItemsForMessage(message.id).length > 0"
                   class="parallel-activity-grid"
-                  :class="visibleParticipantActivityItems.length <= 2 ? 'parallel-activity-grid--row' : 'parallel-activity-grid--col'"
+                  :class="visibleParticipantActivityItemsForMessage(message.id).length <= 2 ? 'parallel-activity-grid--row' : 'parallel-activity-grid--col'"
                 >
                   <div
-                    v-for="thread in visibleParticipantActivityItems"
+                    v-for="thread in visibleParticipantActivityItemsForMessage(message.id)"
                     :key="thread.id"
                     class="parallel-activity-card"
                   >
@@ -1135,12 +1135,6 @@
                         <span class="participant-status">
                           {{ participantStatusLabel(participant.name) }}
                         </span>
-                        <span
-                          v-if="participantActivityItems(participant.name).length"
-                          class="participant-activity-action"
-                        >
-                          View activity
-                        </span>
                       </button>
                   </li>
                 </ul>
@@ -1933,6 +1927,7 @@ function shouldShowResponseTimer(message: ChatMessage) {
 type ActivityStatus = "running" | "done" | "error" | "idle";
 type SpecialistActivityItem = {
   id: string;
+  assistantMessageId?: string;
   name: string;
   team?: string;
   model: string;
@@ -2015,7 +2010,8 @@ function activityItemFromThread(thread: AgentThread): SpecialistActivityItem {
   const toolEntries = thread.entries.filter((entry) => entry.type === "tool");
   const team = (thread.team || "").trim() || undefined;
   return {
-    id: thread.callId,
+    assistantMessageId: thread.assistantMessageId,
+    id: [thread.assistantMessageId, thread.callId].filter(Boolean).join(":"),
     name,
     team,
     model:
@@ -2075,23 +2071,42 @@ function orchestratorActivityItem(): SpecialistActivityItem {
   };
 }
 
-const runActivityItems = computed<SpecialistActivityItem[]>(() => {
-  const items = agentThreads.value.map(activityItemFromThread);
-  const shouldShowOrchestrator =
-    activeThoughtSummaries.value.length > 0 ||
-    (isStreaming.value && items.length === 0);
-  if (shouldShowOrchestrator) items.unshift(orchestratorActivityItem());
-
+function sortActivityItems(items: SpecialistActivityItem[]) {
   return items.sort((a, b) => {
     if (a.status === "running" && b.status !== "running") return -1;
     if (a.status !== "running" && b.status === "running") return 1;
     return b.updatedAt - a.updatedAt;
   });
-});
+}
+
+function runActivityItemsForMessage(messageId: string) {
+  if (!messageId) return [];
+  const items = agentThreads.value
+    .filter((thread) => thread.assistantMessageId === messageId)
+    .map(activityItemFromThread);
+  const isLastAssistantMessage = messageId === lastAssistantId.value;
+  const shouldShowOrchestrator =
+    isLastAssistantMessage &&
+    (activeThoughtSummaries.value.length > 0 ||
+      (isStreaming.value && items.length === 0));
+  if (shouldShowOrchestrator) items.unshift(orchestratorActivityItem());
+
+  return sortActivityItems(items);
+}
+
+const runActivityItems = computed<SpecialistActivityItem[]>(() =>
+  runActivityItemsForMessage(lastAssistantId.value),
+);
 
 const visibleParticipantActivityItems = computed(() =>
   runActivityItems.value.filter((item) => !item.isOrchestrator),
 );
+
+function visibleParticipantActivityItemsForMessage(messageId: string) {
+  return runActivityItemsForMessage(messageId).filter(
+    (item) => !item.isOrchestrator,
+  );
+}
 
 const runActivityCounts = computed(() => {
   const counts = { running: 0, done: 0, error: 0, idle: 0 };
@@ -4189,15 +4204,6 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.participant-activity-action {
-  flex: 0 0 auto;
-  color: rgb(var(--color-accent));
-  font-size: 0.66rem;
-  font-weight: 700;
-  line-height: 1.25;
-  white-space: nowrap;
 }
 
 .activity-modal-backdrop {

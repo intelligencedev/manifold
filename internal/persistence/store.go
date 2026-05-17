@@ -258,25 +258,26 @@ type SpecialistActivityEntry struct {
 
 // SpecialistActivityRecord persists the visible activity for a delegated specialist.
 type SpecialistActivityRecord struct {
-	ID               string                    `json:"id"`
-	SessionID        string                    `json:"sessionId"`
-	UserID           *int64                    `json:"userId,omitempty"`
-	RunID            string                    `json:"runId,omitempty"`
-	CallID           string                    `json:"callId"`
-	ParentCallID     string                    `json:"parentCallId,omitempty"`
-	Agent            string                    `json:"agent"`
-	Team             string                    `json:"team,omitempty"`
-	Model            string                    `json:"model,omitempty"`
-	Prompt           string                    `json:"prompt,omitempty"`
-	Depth            int                       `json:"depth"`
-	Status           string                    `json:"status"`
-	Content          string                    `json:"content,omitempty"`
-	Entries          []SpecialistActivityEntry `json:"entries,omitempty"`
-	ThoughtSummaries []string                  `json:"thoughtSummaries,omitempty"`
-	Error            string                    `json:"error,omitempty"`
-	StartedAt        time.Time                 `json:"startedAt"`
-	UpdatedAt        time.Time                 `json:"updatedAt"`
-	FinishedAt       *time.Time                `json:"finishedAt,omitempty"`
+	ID                 string                    `json:"id"`
+	SessionID          string                    `json:"sessionId"`
+	UserID             *int64                    `json:"userId,omitempty"`
+	RunID              string                    `json:"runId,omitempty"`
+	AssistantMessageID string                    `json:"assistantMessageId,omitempty"`
+	CallID             string                    `json:"callId"`
+	ParentCallID       string                    `json:"parentCallId,omitempty"`
+	Agent              string                    `json:"agent"`
+	Team               string                    `json:"team,omitempty"`
+	Model              string                    `json:"model,omitempty"`
+	Prompt             string                    `json:"prompt,omitempty"`
+	Depth              int                       `json:"depth"`
+	Status             string                    `json:"status"`
+	Content            string                    `json:"content,omitempty"`
+	Entries            []SpecialistActivityEntry `json:"entries,omitempty"`
+	ThoughtSummaries   []string                  `json:"thoughtSummaries,omitempty"`
+	Error              string                    `json:"error,omitempty"`
+	StartedAt          time.Time                 `json:"startedAt"`
+	UpdatedAt          time.Time                 `json:"updatedAt"`
+	FinishedAt         *time.Time                `json:"finishedAt,omitempty"`
 }
 
 // SpecialistActivityStore persists delegated specialist activity history per session.

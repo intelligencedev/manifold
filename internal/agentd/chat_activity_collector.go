@@ -12,19 +12,21 @@ import (
 )
 
 type chatActivityCollector struct {
-	mu        sync.Mutex
-	sessionID string
-	runID     string
-	userID    *int64
-	records   map[string]persist.SpecialistActivityRecord
+	mu                 sync.Mutex
+	sessionID          string
+	runID              string
+	userID             *int64
+	assistantMessageID string
+	records            map[string]persist.SpecialistActivityRecord
 }
 
-func newChatActivityCollector(sessionID, runID string, userID *int64) *chatActivityCollector {
+func newChatActivityCollector(sessionID, runID string, userID *int64, assistantMessageID string) *chatActivityCollector {
 	return &chatActivityCollector{
-		sessionID: sessionID,
-		runID:     runID,
-		userID:    cloneCollectorUserID(userID),
-		records:   map[string]persist.SpecialistActivityRecord{},
+		sessionID:          sessionID,
+		runID:              runID,
+		userID:             cloneCollectorUserID(userID),
+		assistantMessageID: strings.TrimSpace(assistantMessageID),
+		records:            map[string]persist.SpecialistActivityRecord{},
 	}
 }
 
@@ -43,22 +45,23 @@ func (c *chatActivityCollector) Handle(ev agent.AgentTrace) {
 	record, ok := c.records[id]
 	if !ok {
 		record = persist.SpecialistActivityRecord{
-			ID:               id,
-			SessionID:        c.sessionID,
-			UserID:           cloneCollectorUserID(c.userID),
-			RunID:            c.runID,
-			CallID:           callID,
-			ParentCallID:     strings.TrimSpace(ev.ParentCallID),
-			Agent:            agentName,
-			Team:             strings.TrimSpace(ev.Team),
-			Model:            strings.TrimSpace(ev.Model),
-			Prompt:           ev.Content,
-			Depth:            ev.Depth,
-			Status:           "running",
-			Entries:          []persist.SpecialistActivityEntry{},
-			ThoughtSummaries: []string{},
-			StartedAt:        now,
-			UpdatedAt:        now,
+			ID:                 id,
+			SessionID:          c.sessionID,
+			UserID:             cloneCollectorUserID(c.userID),
+			RunID:              c.runID,
+			AssistantMessageID: c.assistantMessageID,
+			CallID:             callID,
+			ParentCallID:       strings.TrimSpace(ev.ParentCallID),
+			Agent:              agentName,
+			Team:               strings.TrimSpace(ev.Team),
+			Model:              strings.TrimSpace(ev.Model),
+			Prompt:             ev.Content,
+			Depth:              ev.Depth,
+			Status:             "running",
+			Entries:            []persist.SpecialistActivityEntry{},
+			ThoughtSummaries:   []string{},
+			StartedAt:          now,
+			UpdatedAt:          now,
 		}
 	}
 	if parent := strings.TrimSpace(ev.ParentCallID); parent != "" {

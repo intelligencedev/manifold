@@ -10,7 +10,7 @@ func TestChatActivityCollectorBuildsDelegatedActivity(t *testing.T) {
 	t.Parallel()
 
 	userID := int64(5)
-	collector := newChatActivityCollector("sess-1", "run-1", &userID)
+	collector := newChatActivityCollector("sess-1", "run-1", &userID, "assistant-1")
 	collector.Handle(agent.AgentTrace{Type: "agent_start", Agent: "developer", Team: "alpha", Model: "gpt-5", CallID: "call-1", ParentCallID: "tool-1", Depth: 1, Content: "Write code"})
 	collector.Handle(agent.AgentTrace{Type: "agent_thought_summary", Agent: "developer", Team: "alpha", CallID: "call-1", ThoughtSummary: "Planning"})
 	collector.Handle(agent.AgentTrace{Type: "agent_delta", Agent: "developer", CallID: "call-1", Content: "hello"})
@@ -24,6 +24,9 @@ func TestChatActivityCollectorBuildsDelegatedActivity(t *testing.T) {
 	activity := activities[0]
 	if activity.RunID != "run-1" {
 		t.Fatalf("expected run-1, got %q", activity.RunID)
+	}
+	if activity.AssistantMessageID != "assistant-1" {
+		t.Fatalf("expected assistant-1, got %q", activity.AssistantMessageID)
 	}
 	if activity.ParentCallID != "tool-1" {
 		t.Fatalf("expected parent call tool-1, got %q", activity.ParentCallID)

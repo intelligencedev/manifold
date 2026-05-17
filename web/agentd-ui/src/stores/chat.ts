@@ -181,6 +181,10 @@ export const useChatStore = defineStore("chat", () => {
     return idx;
   }
 
+  function agentThreadKey(callId: string, assistantMessageId?: string) {
+    return assistantMessageId ? `${assistantMessageId}:${callId}` : callId;
+  }
+
   function resetAgentThreads(sessionId: string) {
     const next = { ...agentThreadsBySession.value, [sessionId]: [] };
     agentThreadsBySession.value = next;
@@ -198,7 +202,9 @@ export const useChatStore = defineStore("chat", () => {
       [sessionId]: nextThreads,
     };
     const idx = new Map<string, AgentThread>();
-    nextThreads.forEach((thread) => idx.set(thread.callId, thread));
+    nextThreads.forEach((thread) =>
+      idx.set(agentThreadKey(thread.callId, thread.assistantMessageId), thread),
+    );
     agentThreadIndex.set(sessionId, idx);
   }
 
@@ -214,17 +220,24 @@ export const useChatStore = defineStore("chat", () => {
     callId: string,
     factory: () => AgentThread,
     updater?: (t: AgentThread) => AgentThread,
+    assistantMessageId?: string,
   ): AgentThread {
     const idx = threadIndexFor(sessionId);
-    const existing = idx.get(callId);
-    const thread = existing
+    const key = agentThreadKey(callId, assistantMessageId);
+    const existing = idx.get(key);
+    const rawThread = existing
       ? updater
         ? updater(existing)
         : existing
       : factory();
-    idx.set(callId, thread);
+    const thread = assistantMessageId
+      ? { ...rawThread, assistantMessageId }
+      : rawThread;
+    idx.set(key, thread);
     const list = agentThreadsBySession.value[sessionId] || [];
-    const found = list.findIndex((t) => t.callId === callId);
+    const found = list.findIndex(
+      (t) => agentThreadKey(t.callId, t.assistantMessageId) === key,
+    );
     const nextList = [...list];
     if (found === -1) nextList.push(thread);
     else nextList.splice(found, 1, thread);
@@ -616,6 +629,7 @@ export const useChatStore = defineStore("chat", () => {
         await streamAgentVisionRun({
           prompt: promptToSend,
           sessionId,
+          assistantMessageId: assistantId,
           files: imageFiles,
           signal: controller.signal,
           onEvent: (e) => handleStreamEvent(e, sessionId, assistantId, streamId),
@@ -627,6 +641,7 @@ export const useChatStore = defineStore("chat", () => {
         await streamAgentRun({
           prompt: promptToSend,
           sessionId,
+          assistantMessageId: assistantId,
           signal: controller.signal,
           onEvent: (e) => handleStreamEvent(e, sessionId, assistantId, streamId),
           specialist: options.specialist,
@@ -1085,20 +1100,26 @@ export const useChatStore = defineStore("chat", () => {
 
     switch (event.type) {
       case "agent_start": {
-        upsertAgentThread(sessionId, callId, () => ({
+        upsertAgentThread(
+          sessionId,
           callId,
-          parentCallId,
-          agent: agentName,
-          team,
-          model,
-          prompt: contentText,
-          depth,
-          status: "running",
-          content: "",
-          entries: [],
-          thoughtSummaries: [],
-          startedAt: now,
-        }));
+          () => ({
+            callId,
+            parentCallId,
+            agent: agentName,
+            team,
+            model,
+            prompt: contentText,
+            depth,
+            status: "running",
+            content: "",
+            entries: [],
+            thoughtSummaries: [],
+            startedAt: now,
+          }),
+          undefined,
+          assistantId,
+        );
         break;
       }
       case "agent_delta": {
@@ -1124,6 +1145,7 @@ export const useChatStore = defineStore("chat", () => {
             team: thread.team || team,
             content: (thread.content || "") + (contentText || ""),
           }),
+          assistantId,
         );
         break;
       }
@@ -1153,6 +1175,7 @@ export const useChatStore = defineStore("chat", () => {
             finishedAt: thread.finishedAt || now,
             content: contentText || thread.content,
           }),
+          assistantId,
         );
         break;
       }
@@ -1196,6 +1219,7 @@ export const useChatStore = defineStore("chat", () => {
               },
             ],
           }),
+          assistantId,
         );
         break;
       }
@@ -1239,6 +1263,7 @@ export const useChatStore = defineStore("chat", () => {
               },
             ],
           }),
+          assistantId,
         );
         break;
       }
@@ -1287,6 +1312,7 @@ export const useChatStore = defineStore("chat", () => {
               },
             ],
           }),
+          assistantId,
         );
         break;
       }
@@ -1332,6 +1358,7 @@ export const useChatStore = defineStore("chat", () => {
               thoughtSummaries: [...existing, summary],
             };
           },
+          assistantId,
         );
         break;
       }

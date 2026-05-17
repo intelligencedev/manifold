@@ -91,6 +91,7 @@ export interface AgentTraceEntry {
 
 export interface AgentThread {
   callId: string;
+  assistantMessageId?: string;
   parentCallId?: string;
   agent?: string;
   team?: string;
@@ -121,6 +122,7 @@ export interface SpecialistActivityRecord {
   sessionId: string;
   userId?: number;
   runId?: string;
+  assistantMessageId?: string;
   callId: string;
   parentCallId?: string;
   agent: string;

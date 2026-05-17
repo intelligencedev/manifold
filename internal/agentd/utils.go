@@ -162,10 +162,14 @@ func storeChatTurn(ctx context.Context, store persist.ChatStore, userID *int64, 
 
 // storeChatTurnWithHistory stores a complete conversation turn including all intermediate
 // assistant messages (with tool calls) and tool response messages.
-func storeChatTurnWithHistory(ctx context.Context, store persist.ChatStore, userID *int64, sessionID, userContent string, turnMessages []llm.Message, finalContent, model string) error {
+func storeChatTurnWithHistory(ctx context.Context, store persist.ChatStore, userID *int64, sessionID, userContent string, turnMessages []llm.Message, finalContent, assistantMessageID, model string) error {
 	roles := make([]string, len(turnMessages))
+	lastAssistantIndex := -1
 	for i, m := range turnMessages {
 		roles[i] = m.Role
+		if m.Role == "assistant" {
+			lastAssistantIndex = i
+		}
 	}
 	log.Info().Str("session_id", sessionID).Str("user_content_len", fmt.Sprint(len(userContent))).Int("turn_messages", len(turnMessages)).Strs("roles", roles).Msg("store_chat_turn_start")
 	messages := make([]persist.ChatMessage, 0, 2+len(turnMessages))
@@ -211,7 +215,12 @@ func storeChatTurnWithHistory(ctx context.Context, store persist.ChatStore, user
 			content = msg.Content
 		}
 
+		messageID := ""
+		if msg.Role == "assistant" && i == lastAssistantIndex {
+			messageID = strings.TrimSpace(assistantMessageID)
+		}
 		messages = append(messages, persist.ChatMessage{
+			ID:        messageID,
 			SessionID: sessionID,
 			Role:      msg.Role,
 			Content:   content,

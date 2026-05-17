@@ -329,7 +329,7 @@ func (a *app) executeStreamChat(w http.ResponseWriter, r *http.Request, runCtx c
 	}
 	var activityCollector *chatActivityCollector
 	if a.activityStore != nil && !req.EphemeralSession {
-		activityCollector = newChatActivityCollector(req.SessionID, runID, userID)
+		activityCollector = newChatActivityCollector(req.SessionID, runID, userID, req.AssistantMessageID)
 		defer func() {
 			if activityCollector == nil {
 				return
@@ -438,7 +438,7 @@ func (a *app) executeStreamChat(w http.ResponseWriter, r *http.Request, runCtx c
 	if a.fleetBus != nil {
 		a.fleetBus.Publish(fleet.Event{Kind: fleet.EventRunFinished, RunID: runID, SessionID: req.SessionID, ProjectID: req.ProjectID, ObjectiveID: req.ObjectiveID, UserID: derefInputUserID(userID), Message: result})
 	}
-	if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, collector.turnMessages, result, chatStoreModel(eng, opts.StoreModel)); err != nil {
+	if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, collector.turnMessages, result, req.AssistantMessageID, chatStoreModel(eng, opts.StoreModel)); err != nil {
 		log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_stream")
 	}
 	a.commitWorkspace(ctx, checkedOutWorkspace)
@@ -494,7 +494,7 @@ func (a *app) executeInternalJSONChat(storeCtx, runCtx context.Context, eng *age
 	if a.fleetBus != nil {
 		a.fleetBus.Publish(fleet.Event{Kind: fleet.EventRunFinished, RunID: runID, SessionID: req.SessionID, ProjectID: req.ProjectID, ObjectiveID: req.ObjectiveID, UserID: derefInputUserID(userID), Message: result})
 	}
-	if err := storeChatTurnWithHistory(storeCtx, a.chatStore, userID, req.SessionID, req.Prompt, collector.turnMessages, result, chatStoreModel(eng, opts.StoreModel)); err != nil {
+	if err := storeChatTurnWithHistory(storeCtx, a.chatStore, userID, req.SessionID, req.Prompt, collector.turnMessages, result, req.AssistantMessageID, chatStoreModel(eng, opts.StoreModel)); err != nil {
 		log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")
 	}
 	a.commitWorkspace(ctx, checkedOutWorkspace)

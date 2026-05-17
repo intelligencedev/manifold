@@ -78,6 +78,17 @@ func (s *runStore) list() []AgentRun {
 	return out
 }
 
+func (s *runStore) get(id string) (AgentRun, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, run := range s.runs {
+		if run.ID == id {
+			return run, true
+		}
+	}
+	return AgentRun{}, false
+}
+
 // withMaybeTimeout returns a context derived from parent with an optional timeout.
 func withMaybeTimeout(parent context.Context, seconds int) (context.Context, context.CancelFunc, time.Duration) {
 	if seconds > 0 {

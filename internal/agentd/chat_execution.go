@@ -13,7 +13,9 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"manifold/internal/agent"
+	"manifold/internal/agent/inputrequest"
 	agentmemory "manifold/internal/agent/memory"
+	"manifold/internal/fleet"
 	"manifold/internal/llm"
 	"manifold/internal/sandbox"
 	"manifold/internal/workspaces"
@@ -217,6 +219,58 @@ func configureCommonStreamCallbacks(eng *agent.Engine, stream *chatSSEWriter, em
 	}
 }
 
+func configureFleetCallbacks(app *app, eng *agent.Engine, runID, sessionID, projectID, objectiveID string, userID *int64) {
+	if app == nil || app.fleetBus == nil || eng == nil {
+		return
+	}
+	uid := systemUserID
+	if userID != nil {
+		uid = *userID
+	}
+	prevToolStart := eng.OnToolStart
+	prevTool := eng.OnTool
+	prevTracer := eng.AgentTracer
+	eng.OnToolStart = func(name string, args []byte, toolID string) {
+		if prevToolStart != nil {
+			prevToolStart(name, args, toolID)
+		}
+		app.fleetBus.Publish(fleet.Event{Kind: fleet.EventToolStart, RunID: runID, SessionID: sessionID, ProjectID: projectID, ObjectiveID: objectiveID, ToolID: toolID, UserID: uid, Title: name, Data: map[string]any{"args": string(args)}})
+	}
+	eng.OnTool = func(name string, args []byte, result []byte, toolID string) {
+		if prevTool != nil {
+			prevTool(name, args, result, toolID)
+		}
+		app.fleetBus.Publish(fleet.Event{Kind: fleet.EventToolResult, RunID: runID, SessionID: sessionID, ProjectID: projectID, ObjectiveID: objectiveID, ToolID: toolID, UserID: uid, Title: name, Data: map[string]any{"args": string(args), "result": string(result)}})
+	}
+	eng.AgentTracer = fleetAgentTracer{bus: app.fleetBus, next: prevTracer, runID: runID, sessionID: sessionID, projectID: projectID, objectiveID: objectiveID, userID: uid}
+}
+
+type fleetAgentTracer struct {
+	bus         *fleet.Bus
+	next        agent.AgentTracer
+	runID       string
+	sessionID   string
+	projectID   string
+	objectiveID string
+	userID      int64
+}
+
+func (t fleetAgentTracer) Trace(ev agent.AgentTrace) {
+	if t.next != nil {
+		t.next.Trace(ev)
+	}
+	if t.bus == nil {
+		return
+	}
+	kind := fleet.EventDelegation
+	if ev.Type == "agent_error" {
+		kind = fleet.EventError
+	} else if ev.Type == "agent_final" {
+		kind = fleet.EventRunFinished
+	}
+	t.bus.Publish(fleet.Event{Kind: kind, RunID: t.runID, SessionID: t.sessionID, ProjectID: t.projectID, ObjectiveID: t.objectiveID, Specialist: ev.Agent, Agent: ev.Agent, CallID: ev.CallID, ParentCallID: ev.ParentCallID, ToolID: ev.ToolID, Depth: ev.Depth, UserID: t.userID, Title: ev.Title, Message: ev.Content, Data: map[string]any{"type": ev.Type, "args": ev.Args, "data": ev.Data, "error": ev.Error, "thought_summary": ev.ThoughtSummary}})
+}
+
 func trimPrefixOnce(value, prefix string) string {
 	if len(value) >= len(prefix) && value[:len(prefix)] == prefix {
 		return value[len(prefix):]
@@ -299,6 +353,10 @@ func (a *app) executeStreamChat(w http.ResponseWriter, r *http.Request, runCtx c
 		eng.AgentTracer = opts.Tracer
 	}
 	configureCommonStreamCallbacks(eng, stream, opts.EmitThoughtSummary, opts.EmitSummaryEvents)
+	configureFleetCallbacks(a, eng, runID, req.SessionID, req.ProjectID, req.ObjectiveID, userID)
+	if a.fleetBus != nil {
+		a.fleetBus.Publish(fleet.Event{Kind: fleet.EventRunStarted, RunID: runID, SessionID: req.SessionID, ProjectID: req.ProjectID, ObjectiveID: req.ObjectiveID, UserID: derefInputUserID(userID), Message: req.Prompt})
+	}
 	if opts.InitialSummary != nil && opts.InitialSummary.Triggered {
 		stream.write(map[string]any{
 			"type":             "summary",
@@ -319,6 +377,15 @@ func (a *app) executeStreamChat(w http.ResponseWriter, r *http.Request, runCtx c
 	ctx, cancel, dur := withMaybeTimeout(runCtx, seconds)
 	defer cancel()
 	ctx = applyChatImagePrompt(ctx, runCtx, req, opts.InheritImagePrompt)
+	agentName := eng.AgentRole
+	if agentName == "" {
+		agentName = "orchestrator"
+	}
+	ctx = inputRequestContext(ctx, newStreamInputRequester(a.activeInputRequestBroker(), stream, req.SessionID, runID, userID, a.fleetBus), inputrequest.RunMetadata{
+		Agent: agentName,
+		Model: eng.Model,
+		Depth: eng.AgentDepth,
+	})
 	logChatRunTimeout(opts.Endpoint, true, dur)
 
 	if opts.KeepAlive {
@@ -359,12 +426,14 @@ func (a *app) executeStreamChat(w http.ResponseWriter, r *http.Request, runCtx c
 			stream.writeText(fmt.Sprintf("data: %q\n\n", "(error)"))
 		}
 		a.runs.updateStatus(runID, "failed", 0)
+		if a.fleetBus != nil { a.fleetBus.Publish(fleet.Event{Kind: fleet.EventRunFailed, RunID: runID, SessionID: req.SessionID, ProjectID: req.ProjectID, ObjectiveID: req.ObjectiveID, UserID: derefInputUserID(userID), Message: err.Error()}) }
 		a.commitWorkspace(ctx, checkedOutWorkspace)
 		return
 	}
 	result = collector.resultText(result)
 	stream.write(buildChatStreamFinalPayload(result, ctx, opts.IncludeMatrixMessages))
 	a.runs.updateStatus(runID, "completed", 0)
+	if a.fleetBus != nil { a.fleetBus.Publish(fleet.Event{Kind: fleet.EventRunFinished, RunID: runID, SessionID: req.SessionID, ProjectID: req.ProjectID, ObjectiveID: req.ObjectiveID, UserID: derefInputUserID(userID), Message: result}) }
 	if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, collector.turnMessages, result, chatStoreModel(eng, opts.StoreModel)); err != nil {
 		log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_stream")
 	}
@@ -384,6 +453,10 @@ func (a *app) executeJSONChat(w http.ResponseWriter, r *http.Request, runCtx con
 func (a *app) executeInternalJSONChat(storeCtx, runCtx context.Context, eng *agent.Engine, req chatRunRequest, history []llm.Message, runID string, userID *int64, checkedOutWorkspace *workspaces.Workspace, opts chatJSONOptions) (map[string]any, error) {
 	if req.EphemeralSession {
 		defer cleanupEphemeralChatSession(a.chatStore, userID, req.SessionID)
+	}
+	configureFleetCallbacks(a, eng, runID, req.SessionID, req.ProjectID, req.ObjectiveID, userID)
+	if a.fleetBus != nil {
+		a.fleetBus.Publish(fleet.Event{Kind: fleet.EventRunStarted, RunID: runID, SessionID: req.SessionID, ProjectID: req.ProjectID, ObjectiveID: req.ObjectiveID, UserID: derefInputUserID(userID), Message: req.Prompt})
 	}
 	seconds := opts.TimeoutSeconds
 	if seconds <= 0 {
@@ -405,12 +478,18 @@ func (a *app) executeInternalJSONChat(storeCtx, runCtx context.Context, eng *age
 			log.Error().Err(err).Msg("agent run error")
 		}
 		a.runs.updateStatus(runID, "failed", 0)
+		if a.fleetBus != nil {
+			a.fleetBus.Publish(fleet.Event{Kind: fleet.EventRunFailed, RunID: runID, SessionID: req.SessionID, ProjectID: req.ProjectID, ObjectiveID: req.ObjectiveID, UserID: derefInputUserID(userID), Message: err.Error()})
+		}
 		a.commitWorkspace(ctx, checkedOutWorkspace)
 		return nil, err
 	}
 	result = collector.resultText(result)
 	payload := buildChatJSONPayload(result, collector.savedImages, ctx, opts.IncludeMatrixMessages)
 	a.runs.updateStatus(runID, "completed", 0)
+	if a.fleetBus != nil {
+		a.fleetBus.Publish(fleet.Event{Kind: fleet.EventRunFinished, RunID: runID, SessionID: req.SessionID, ProjectID: req.ProjectID, ObjectiveID: req.ObjectiveID, UserID: derefInputUserID(userID), Message: result})
+	}
 	if err := storeChatTurnWithHistory(storeCtx, a.chatStore, userID, req.SessionID, req.Prompt, collector.turnMessages, result, chatStoreModel(eng, opts.StoreModel)); err != nil {
 		log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")
 	}

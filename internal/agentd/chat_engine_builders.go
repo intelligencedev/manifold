@@ -17,6 +17,7 @@ import (
 	"manifold/internal/tools"
 	agenttools "manifold/internal/tools/agents"
 	tooldiscovery "manifold/internal/tools/discovery"
+	inputrequesttool "manifold/internal/tools/inputrequest"
 	"manifold/internal/workspaces"
 )
 
@@ -72,6 +73,7 @@ func (a *app) buildOrchestratorChatEngine(ctx context.Context, owner int64, sess
 	eng.System = a.ensureChatDiscoveryInstructions(eng.System, enableTools, autoDiscover)
 	var skillsContext string
 	eng.Tools, eng.System, skillsContext = a.applyChatSkillsMode(eng.Tools, eng.System, a.chatProjectDir(ctx, checkedOutWorkspace), enableTools, autoDiscover)
+	eng.Tools = withChatInputRequestTool(eng.Tools, enableTools)
 	eng.UserPromptContext = combineUserPromptContext(eng.UserPromptContext, skillsContext)
 	return chatEngineBuildResult{Engine: eng, ModelLabel: eng.Model}
 }
@@ -102,6 +104,7 @@ func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptO
 	systemPrompt = a.ensureChatDiscoveryInstructions(systemPrompt, sp.EnableTools, sp.AutoDiscover)
 	var skillsContext string
 	toolReg, systemPrompt, skillsContext = a.applyChatSkillsMode(toolReg, systemPrompt, a.chatProjectDir(ctx, nil), sp.EnableTools, sp.AutoDiscover)
+	toolReg = withChatInputRequestTool(toolReg, sp.EnableTools)
 
 	eng := &agent.Engine{
 		LLM:                          prov,
@@ -182,6 +185,7 @@ func (a *app) buildTeamChatEngine(ctx context.Context, name, sessionID, projectI
 	systemPrompt = a.ensureChatDiscoveryInstructions(systemPrompt, sp.EnableTools, resolvedAutoDiscover)
 	var skillsContext string
 	toolReg, systemPrompt, skillsContext = a.applyChatSkillsMode(toolReg, systemPrompt, a.chatProjectDir(ctx, nil), sp.EnableTools, resolvedAutoDiscover)
+	toolReg = withChatInputRequestTool(toolReg, sp.EnableTools)
 	eng := &agent.Engine{
 		LLM:                          userLLM,
 		Tools:                        toolReg,
@@ -336,10 +340,23 @@ func (a *app) chatSummaryContextSize(configured int, model string) int {
 
 func (a *app) chatToolRegistry(enableTools bool, allowTools []string, autoDiscover *bool) tools.Registry {
 	resolvedAutoDiscover := a.resolveAutoDiscover(autoDiscover)
+	var reg tools.Registry
 	if resolvedAutoDiscover && enableTools && a.toolIndex != nil {
-		return tooldiscovery.NewDiscoverableRegistry(a.baseToolRegistry, a.toolIndex, allowTools, a.cfg.MaxDiscoveredTools)
+		reg = tooldiscovery.NewDiscoverableRegistry(a.baseToolRegistry, a.toolIndex, allowTools, a.cfg.MaxDiscoveredTools)
+	} else {
+		reg = tools.ApplyTopLevelPolicy(a.baseToolRegistry, enableTools, allowTools)
 	}
-	return tools.ApplyTopLevelPolicy(a.baseToolRegistry, enableTools, allowTools)
+	return withChatInputRequestTool(reg, enableTools)
+}
+
+func withChatInputRequestTool(reg tools.Registry, enableTools bool) tools.Registry {
+	if !enableTools {
+		return reg
+	}
+	if reg == nil {
+		reg = tools.NewRegistry()
+	}
+	return tools.NewOverlayRegistry(reg, inputrequesttool.New())
 }
 
 func chatModelLabel(name, model string) string {

@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
 	"manifold/internal/sandbox"
@@ -66,16 +67,24 @@ type chatDispatchTarget struct {
 }
 
 func (req *chatRunRequest) normalize() {
-	req.SessionID = strings.TrimSpace(req.SessionID)
-	if req.SessionID == "" {
-		req.SessionID = "default"
-	}
+	req.SessionID = normalizeClientChatSessionID(req.SessionID)
 	req.ProjectID = strings.TrimSpace(req.ProjectID)
 	req.ObjectiveID = strings.TrimSpace(req.ObjectiveID)
 	req.RoomID = strings.TrimSpace(req.RoomID)
 	req.RouteTarget = strings.TrimSpace(req.RouteTarget)
 	req.SystemPrompt = strings.TrimSpace(req.SystemPrompt)
 	req.ImageSize = strings.TrimSpace(req.ImageSize)
+}
+
+func normalizeClientChatSessionID(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		id = "default"
+	}
+	if _, err := uuid.Parse(id); err == nil {
+		return id
+	}
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(id)).String()
 }
 
 func resolveChatDispatchTarget(query url.Values) chatDispatchTarget {

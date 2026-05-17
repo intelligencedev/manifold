@@ -34,6 +34,7 @@ autoDiscover: false
 # Caps how many non-bootstrap tools a single run may add when autoDiscover is on.
 maxDiscoveredTools: 12
 allowTools:
+  - request_info
   - run_cli
   - apply_patch
   - llm_transform

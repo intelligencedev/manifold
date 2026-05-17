@@ -158,10 +158,11 @@ func TestAgentRunHandlerDeletesEphemeralSessionAfterSuccess(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
 	}
-	if _, exists := chatStore.sessions["ephemeral-sess"]; exists {
+	sessionID := normalizeClientChatSessionID("ephemeral-sess")
+	if _, exists := chatStore.sessions[sessionID]; exists {
 		t.Fatalf("expected ephemeral session to be removed after success")
 	}
-	if msgs := chatStore.messages["ephemeral-sess"]; len(msgs) != 0 {
+	if msgs := chatStore.messages[sessionID]; len(msgs) != 0 {
 		t.Fatalf("expected ephemeral session messages to be removed, got %d", len(msgs))
 	}
 }

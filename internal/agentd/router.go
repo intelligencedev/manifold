@@ -46,8 +46,16 @@ func newRouter(a *app) *http.ServeMux {
 	mux.HandleFunc("/api/codeqa/runs/", a.codeQARunDetailHandler())
 
 	mux.HandleFunc("/api/runs", a.runsHandler())
+	mux.HandleFunc("/api/runs/", a.runTimelineHandler())
 	mux.HandleFunc("/api/chat/sessions", a.chatSessionsHandler())
 	mux.HandleFunc("/api/chat/sessions/", a.chatSessionDetailHandler())
+	mux.HandleFunc("/api/chat/input-requests/", a.chatInputRequestHandler())
+	mux.HandleFunc("/api/fleet/state", a.fleetStateHandler())
+	mux.HandleFunc("/api/fleet/events", a.fleetEventsHandler())
+	mux.HandleFunc("/api/trust/budgets", a.trustBudgetsHandler())
+	mux.HandleFunc("/api/trust/budgets/", a.trustBudgetActionHandler())
+	mux.HandleFunc("/api/constitution/versions", a.constitutionVersionsHandler())
+	mux.HandleFunc("/api/constitution/versions/", a.constitutionVersionActionHandler())
 	if a.cfg.Transit.Enabled {
 		mux.HandleFunc("/api/transit/memories", a.transitMemoriesHandler())
 		mux.HandleFunc("/api/transit/memories/", a.transitMemoryDetailHandler())

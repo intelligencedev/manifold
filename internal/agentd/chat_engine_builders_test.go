@@ -19,6 +19,7 @@ import (
 	"manifold/internal/testhelpers"
 	"manifold/internal/tools"
 	tooldiscovery "manifold/internal/tools/discovery"
+	inputrequesttool "manifold/internal/tools/inputrequest"
 	"manifold/internal/workspaces"
 )
 
@@ -58,6 +59,28 @@ func TestBuildSpecialistChatEngineUsesOverrideAndSkills(t *testing.T) {
 	}
 	if result.Engine.Model != "gpt-4.1-mini" {
 		t.Fatalf("unexpected model: %q", result.Engine.Model)
+	}
+}
+
+func TestChatToolRegistryExposesInputRequestWhenAllowListIsNarrow(t *testing.T) {
+	t.Parallel()
+
+	base := tools.NewRegistry()
+	base.Register(inputrequesttool.New())
+	app := &app{
+		cfg:              &config.Config{EnableTools: true},
+		baseToolRegistry: base,
+	}
+
+	reg := app.chatToolRegistry(true, []string{"run_cli"}, nil)
+	names := tools.SchemaNames(reg)
+	if !containsString(names, "request_info") {
+		t.Fatalf("expected request_info to be exposed, got %v", names)
+	}
+
+	disabled := app.chatToolRegistry(false, []string{"request_info"}, nil)
+	if containsString(tools.SchemaNames(disabled), "request_info") {
+		t.Fatal("did not expect request_info when tools are disabled")
 	}
 }
 

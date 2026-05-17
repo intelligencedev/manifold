@@ -83,9 +83,7 @@ func (a *app) agentVisionHandler() http.HandlerFunc {
 			return
 		}
 		sessionID := strings.TrimSpace(r.FormValue("session_id"))
-		if sessionID == "" {
-			sessionID = "default"
-		}
+		sessionID = normalizeClientChatSessionID(sessionID)
 		if _, err := ensureChatSession(r.Context(), a.chatStore, userID, sessionID); err != nil {
 			if errors.Is(err, persist.ErrForbidden) {
 				http.Error(w, "forbidden", http.StatusForbidden)

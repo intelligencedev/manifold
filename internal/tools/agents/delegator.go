@@ -7,6 +7,7 @@ import (
 
 	"manifold/internal/agent"
 	"manifold/internal/agent/belief"
+	"manifold/internal/agent/inputrequest"
 	"manifold/internal/agent/memory"
 	"manifold/internal/agent/prompts"
 	"manifold/internal/llm"
@@ -15,6 +16,7 @@ import (
 	"manifold/internal/sandbox"
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
+	inputrequesttool "manifold/internal/tools/inputrequest"
 	"manifold/internal/workspaces"
 )
 
@@ -113,11 +115,13 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 	imageGeneration := false
 
 	toolsReg = d.reg
+	inputRequestsEnabled := true
 
 	if req.AgentName != "" && d.specReg != nil {
 		if a, ok := d.specReg.Get(req.AgentName); ok && a != nil {
 			prov = a.Provider()
 			toolsReg = a.ToolsRegistry()
+			inputRequestsEnabled = a.EnableTools
 			imageGeneration = a.ImageGeneration
 			// The specialist's System field already has the default prompt prepended
 			// during registry initialization, so use it directly
@@ -146,8 +150,12 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 	}
 	if req.EnableTools != nil && !*req.EnableTools {
 		toolsReg = tools.NewRegistry()
+		inputRequestsEnabled = false
 	} else if toolsReg == nil {
 		toolsReg = tools.NewRegistry()
+	}
+	if inputRequestsEnabled {
+		toolsReg = tools.NewOverlayRegistry(toolsReg, inputrequesttool.New())
 	}
 	if imageGeneration {
 		toolsReg = tools.NewRegistry()
@@ -169,6 +177,13 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 	if imageGeneration {
 		runCtx = llm.WithImagePrompt(runCtx, llm.ImagePromptOptions{Size: defaultImagePromptSize})
 	}
+	runCtx = inputrequest.WithRunMetadata(runCtx, inputrequest.RunMetadata{
+		Agent:        req.AgentName,
+		Model:        model,
+		CallID:       req.CallID,
+		ParentCallID: req.ParentCallID,
+		Depth:        req.Depth,
+	})
 
 	if tracer != nil {
 		tracer.Trace(agent.AgentTrace{Type: "agent_start", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Content: req.Prompt})

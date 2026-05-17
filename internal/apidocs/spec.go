@@ -336,15 +336,26 @@ func buildResponses(op operationSpec) map[string]any {
 }
 
 func operationID(method, path string) string {
-	name := strings.Trim(path, "/")
-	if name == "" {
-		name = "root"
+	trimmed := strings.Trim(path, "/")
+	if trimmed == "" {
+		return strings.ToLower(method) + "_root"
 	}
-	name = strings.ReplaceAll(name, "{", "")
-	name = strings.ReplaceAll(name, "}", "")
-	name = operationIDSan.ReplaceAllString(name, "_")
-	name = strings.Trim(name, "_")
-	return strings.ToLower(method) + "_" + strings.ToLower(name)
+	parts := strings.Split(trimmed, "/")
+	cleaned := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.ReplaceAll(part, "{", "")
+		part = strings.ReplaceAll(part, "}", "")
+		part = operationIDSan.ReplaceAllString(part, "_")
+		part = strings.Trim(part, "_")
+		if part == "" {
+			continue
+		}
+		cleaned = append(cleaned, strings.ToLower(part))
+	}
+	if len(cleaned) == 0 {
+		return strings.ToLower(method) + "_root"
+	}
+	return strings.ToLower(method) + "_" + strings.Join(cleaned, "__")
 }
 
 func defaultSuccessCode(method string) int {
@@ -448,6 +459,31 @@ func routeCatalog() []routeSpec {
 		}},
 		{path: "/api/runs", operations: []operationSpec{
 			jsonOp(http.MethodGet, "Metrics", "List recent runs", true),
+		}},
+		{path: "/api/runs/{run_id}/timeline", operations: []operationSpec{
+			jsonOp(http.MethodGet, "Metrics", "Replayable timeline for a run", true),
+		}},
+		{path: "/api/fleet/state", operations: []operationSpec{
+			jsonOp(http.MethodGet, "Fleet", "Get current fleet snapshot", true),
+		}},
+		{path: "/api/fleet/events", operations: []operationSpec{
+			jsonOp(http.MethodGet, "Fleet", "Subscribe to fleet events", true, withResponseMode("sse")),
+		}},
+		{path: "/api/trust/budgets", operations: []operationSpec{
+			jsonOp(http.MethodGet, "Trust", "List trust budgets", true),
+		}},
+		{path: "/api/trust/budgets/{name}/spend", operations: []operationSpec{
+			jsonOp(http.MethodPost, "Trust", "Spend trust budget", true, withRequestBody("json"), withSuccess(http.StatusOK)),
+		}},
+		{path: "/api/trust/budgets/{name}/refill", operations: []operationSpec{
+			jsonOp(http.MethodPost, "Trust", "Refill trust budget", true, withRequestBody("json"), withSuccess(http.StatusOK)),
+		}},
+		{path: "/api/constitution/versions", operations: []operationSpec{
+			jsonOp(http.MethodGet, "Constitution", "List constitution versions", true),
+			jsonOp(http.MethodPost, "Constitution", "Create constitution version", true, withRequestBody("json"), withSuccess(http.StatusCreated)),
+		}},
+		{path: "/api/constitution/versions/{id}/activate", operations: []operationSpec{
+			jsonOp(http.MethodPost, "Constitution", "Activate constitution version", true, withSuccess(http.StatusOK)),
 		}},
 		{path: "/api/metrics/tokens", operations: []operationSpec{
 			jsonOp(http.MethodGet, "Metrics", "Token usage metrics", true, withQuery(

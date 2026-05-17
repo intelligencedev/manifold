@@ -2,6 +2,7 @@ import { apiClient } from "./client";
 import type {
   AgentThread,
   AgentTraceEntry,
+  ChatInputRequestChoice,
   ChatMessage,
   ChatSessionMeta,
   SpecialistActivityRecord,
@@ -18,6 +19,8 @@ export type ChatStreamEventType =
   | "image"
   | "error"
   | "summary"
+  | "input_request"
+  | "input_request_cancelled"
   | "agent_start"
   | "agent_delta"
   | "agent_final"
@@ -49,6 +52,15 @@ export interface ChatStreamEvent {
   content?: string;
   error?: string;
   thought_summary?: string;
+  request_id?: string;
+  question?: string;
+  reason?: string;
+  choices?: ChatInputRequestChoice[];
+  allow_free_text?: boolean;
+  multiple?: boolean;
+  session_id?: string;
+  run_id?: string;
+  created_at?: string;
   // Summary event fields
   input_tokens?: number;
   token_budget?: number;
@@ -166,6 +178,20 @@ export async function generateChatSessionTitle(
     { prompt },
   );
   return data;
+}
+
+export async function answerChatInputRequest(
+  requestId: string,
+  answer: string,
+  choiceIds: string[] = [],
+): Promise<void> {
+  await apiClient.post(
+    `/chat/input-requests/${encodeURIComponent(requestId)}/answer`,
+    {
+      answer,
+      choice_ids: choiceIds,
+    },
+  );
 }
 
 const baseURL = (import.meta.env.VITE_AGENTD_BASE_URL || "").replace(/\/$/, "");
@@ -306,7 +332,14 @@ function mapActivityRecordToThread(record: SpecialistActivityRecord): AgentThrea
 }
 
 function mapActivityEntry(entry: SpecialistActivityRecord["entries"][number]): AgentTraceEntry {
-  const kind = entry.type === "error" ? "error" : entry.type === "tool" ? "tool" : "message";
+  const kind =
+    entry.type === "error"
+      ? "error"
+      : entry.type === "tool"
+        ? "tool"
+        : entry.type === "input_request"
+          ? "input_request"
+          : "message";
   return {
     id: entry.id,
     type: kind,

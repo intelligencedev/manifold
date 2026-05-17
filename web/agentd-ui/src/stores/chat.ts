@@ -4,11 +4,14 @@ import { useQueryClient } from "@tanstack/vue-query";
 import type {
   AgentThread,
   ChatAttachment,
+  ChatInputRequest,
+  ChatInputRequestChoice,
   ChatMessage,
   ChatRole,
   ChatSessionMeta,
 } from "@/types/chat";
 import {
+  answerChatInputRequest as apiAnswerChatInputRequest,
   createChatSession as apiCreateChatSession,
   deleteChatSession as apiDeleteChatSession,
   deleteChatMessage as apiDeleteChatMessage,
@@ -853,6 +856,14 @@ export const useChatStore = defineStore("chat", () => {
         };
         break;
       }
+      case "input_request": {
+        handleInputRequestEvent(event, sessionId, assistantId);
+        break;
+      }
+      case "input_request_cancelled": {
+        handleInputRequestCancelledEvent(event, sessionId, assistantId);
+        break;
+      }
       case "error": {
         const message =
           typeof event.data === "string" ? event.data : "Agent error";
@@ -875,6 +886,166 @@ export const useChatStore = defineStore("chat", () => {
       }
       default:
         break;
+    }
+  }
+
+  function normalizeInputRequestChoices(
+    choices: unknown,
+  ): ChatInputRequestChoice[] {
+    if (!Array.isArray(choices)) return [];
+    return choices
+      .map((choice, index) => {
+        if (typeof choice === "string") {
+          const label = choice.trim();
+          if (!label) return null;
+          return { id: `choice_${index + 1}`, label };
+        }
+        if (!choice || typeof choice !== "object") return null;
+        const node = choice as Record<string, unknown>;
+        const rawId = typeof node.id === "string" ? node.id.trim() : "";
+        const rawLabel =
+          typeof node.label === "string" ? node.label.trim() : "";
+        const label = rawLabel || rawId;
+        if (!label) return null;
+        const description =
+          typeof node.description === "string" && node.description.trim()
+            ? node.description.trim()
+            : undefined;
+        return {
+          id: rawId || `choice_${index + 1}`,
+          label,
+          description,
+        };
+      })
+      .filter((choice): choice is ChatInputRequestChoice => Boolean(choice));
+  }
+
+  function handleInputRequestEvent(
+    event: ChatStreamEvent,
+    sessionId: string,
+    assistantId: string,
+  ) {
+    const requestId =
+      typeof event.request_id === "string" && event.request_id.trim()
+        ? event.request_id.trim()
+        : "";
+    const question =
+      typeof event.question === "string" && event.question.trim()
+        ? event.question.trim()
+        : "";
+    if (!requestId || !question) return;
+    const request: ChatInputRequest = {
+      id: requestId,
+      question,
+      reason:
+        typeof event.reason === "string" && event.reason.trim()
+          ? event.reason.trim()
+          : undefined,
+      choices: normalizeInputRequestChoices(event.choices),
+      allowFreeText: Boolean(event.allow_free_text),
+      multiple: Boolean(event.multiple),
+      agent:
+        typeof event.agent === "string" && event.agent.trim()
+          ? event.agent.trim()
+          : undefined,
+      model:
+        typeof event.model === "string" && event.model.trim()
+          ? event.model.trim()
+          : undefined,
+      callId:
+        typeof event.call_id === "string" && event.call_id.trim()
+          ? event.call_id.trim()
+          : undefined,
+      parentCallId:
+        typeof event.parent_call_id === "string" &&
+        event.parent_call_id.trim()
+          ? event.parent_call_id.trim()
+          : undefined,
+      depth:
+        typeof event.depth === "number" && Number.isFinite(event.depth)
+          ? event.depth
+          : undefined,
+      status: "pending",
+      createdAt:
+        typeof event.created_at === "string" && event.created_at.trim()
+          ? event.created_at
+          : new Date().toISOString(),
+    };
+    updateMessage(sessionId, assistantId, (m) => {
+      const requests = [...(m.inputRequests || [])];
+      const existing = requests.findIndex((item) => item.id === request.id);
+      if (existing === -1) requests.push(request);
+      else requests.splice(existing, 1, { ...requests[existing], ...request });
+      return { ...m, inputRequests: requests };
+    });
+  }
+
+  function handleInputRequestCancelledEvent(
+    event: ChatStreamEvent,
+    sessionId: string,
+    assistantId: string,
+  ) {
+    const requestId =
+      typeof event.request_id === "string" && event.request_id.trim()
+        ? event.request_id.trim()
+        : "";
+    if (!requestId) return;
+    updateInputRequest(sessionId, assistantId, requestId, (request) => ({
+      ...request,
+      status: "cancelled",
+      error:
+        typeof event.error === "string" && event.error.trim()
+          ? event.error.trim()
+          : "Request cancelled",
+    }));
+  }
+
+  function updateInputRequest(
+    sessionId: string,
+    messageId: string,
+    requestId: string,
+    updater: (request: ChatInputRequest) => ChatInputRequest,
+  ) {
+    updateMessage(sessionId, messageId, (m) => {
+      const requests = m.inputRequests || [];
+      const next = requests.map((request) =>
+        request.id === requestId ? updater(request) : request,
+      );
+      return { ...m, inputRequests: next };
+    });
+  }
+
+  async function submitInputRequest(
+    sessionId: string,
+    messageId: string,
+    requestId: string,
+    answer: string,
+    choiceIds: string[] = [],
+  ) {
+    const cleanChoiceIds = choiceIds
+      .map((id) => id.trim())
+      .filter((id) => id.length > 0);
+    const cleanAnswer = answer.trim();
+    try {
+      await apiAnswerChatInputRequest(requestId, cleanAnswer, cleanChoiceIds);
+      updateInputRequest(sessionId, messageId, requestId, (request) => ({
+        ...request,
+        status: "answered",
+        answer: cleanAnswer,
+        choiceIds: cleanChoiceIds,
+        answeredAt: new Date().toISOString(),
+        error: undefined,
+      }));
+    } catch (error) {
+      updateInputRequest(sessionId, messageId, requestId, (request) => ({
+        ...request,
+        status: "error",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to submit response",
+      }));
+      throw error;
     }
   }
 
@@ -1265,6 +1436,11 @@ export const useChatStore = defineStore("chat", () => {
       ...m,
       streaming: false,
       error: reason,
+      inputRequests: (m.inputRequests || []).map((request) =>
+        request.status === "pending" || request.status === "error"
+          ? { ...request, status: "cancelled", error: reason }
+          : request,
+      ),
     }));
 
     const existing = messagesBySession.value[sessionId] || [];
@@ -1358,6 +1534,7 @@ export const useChatStore = defineStore("chat", () => {
     deleteSession,
     deleteMessage,
     renameSession,
+    submitInputRequest,
     sendPrompt,
     stopStreaming,
     regenerateAssistant,

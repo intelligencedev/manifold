@@ -441,6 +441,7 @@ func (a *app) handleDebugMemoryEvolving(w http.ResponseWriter, r *http.Request) 
 	if sessionID == "" {
 		sessionID = "default"
 	}
+	sessionID = normalizeClientChatSessionID(sessionID)
 
 	em := a.getOrCreateEvolvingMemoryForSession(userID, sessionID)
 	if em == nil {
@@ -502,6 +503,7 @@ func (a *app) handleDebugMemoryExplain(w http.ResponseWriter, r *http.Request) {
 	if sessionID == "" {
 		sessionID = "default"
 	}
+	sessionID = normalizeClientChatSessionID(sessionID)
 
 	em := a.getOrCreateEvolvingMemoryForSession(userID, sessionID)
 	if em == nil {

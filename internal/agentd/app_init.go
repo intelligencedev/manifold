@@ -9,15 +9,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog/log"
 
 	"manifold/internal/agent"
 	"manifold/internal/agent/memory"
+	"manifold/internal/constitution"
 	appcodeqa "manifold/internal/codeqa"
 	codeqaservice "manifold/internal/codeqa/service"
 	codeqastore "manifold/internal/codeqa/store"
 	"manifold/internal/config"
 	"manifold/internal/embeddedpg"
+	"manifold/internal/fleet"
 	"manifold/internal/httpapi"
 	llmpkg "manifold/internal/llm"
 	openaillm "manifold/internal/llm/openai"
@@ -40,6 +43,7 @@ import (
 	ragservice "manifold/internal/rag/service"
 	"manifold/internal/skills"
 	"manifold/internal/specialists"
+	"manifold/internal/trust"
 	"manifold/internal/tools"
 	agenttools "manifold/internal/tools/agents"
 	"manifold/internal/tools/cli"
@@ -48,6 +52,7 @@ import (
 	tooldiscovery "manifold/internal/tools/discovery"
 	"manifold/internal/tools/filetool"
 	"manifold/internal/tools/imagetool"
+	inputrequesttool "manifold/internal/tools/inputrequest"
 	"manifold/internal/tools/llmparallel"
 	matrixroomtool "manifold/internal/tools/matrixroom"
 	"manifold/internal/tools/multitool"
@@ -127,6 +132,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	toolRegistry.Register(textsplitter.New())
 	toolRegistry.Register(utility.NewTextboxTool())
 	toolRegistry.Register(utility.NewAgentResponseTool())
+	toolRegistry.Register(inputrequesttool.New())
 	toolRegistry.Register(matrixroomtool.New())
 	toolRegistry.Register(pulsetool.New(mgr.Pulse))
 	toolRegistry.Register(llmparallel.New(httpClient, cfg.OpenAI.BaseURL, cfg.OpenAI.Model, cfg.OpenAI.APIKey))
@@ -319,6 +325,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		specRegistry:       specReg,
 		userSpecRegs:       map[int64]*specialists.Registry{systemUserID: specReg},
 		runs:               newRunStore(),
+		inputRequests:      newInputRequestBroker(),
 		flowV2:             newFlowV2Runtime(mgr.FlowV2),
 		codeQARuntime:      newCodeQARuntime(),
 		codeQAService:      codeQAService,
@@ -330,6 +337,17 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		workspaceManager:   wsMgr,
 		transitService:     transitSvc,
 		ragService:         runtimeRAGService,
+		fleetBus:           fleet.NewBus(512),
+	}
+	trustStore := trust.NewStore(optionalPool(ctx, cfg.Databases.DefaultDSN))
+	app.trustService = trust.NewService(trustStore)
+	if err := app.trustService.Init(ctx); err != nil {
+		return nil, fmt.Errorf("init trust service: %w", err)
+	}
+	constitutionStore := constitution.NewStore(optionalPool(ctx, cfg.Databases.DefaultDSN))
+	app.constitutionSvc = constitution.NewService(constitutionStore)
+	if err := app.constitutionSvc.Init(ctx); err != nil {
+		return nil, fmt.Errorf("init constitution service: %w", err)
 	}
 	app.matrixGateway, err = matrixgw.New(cfg.Matrix)
 	if err != nil {
@@ -638,4 +656,15 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	}
 
 	return app, nil
+}
+
+func optionalPool(ctx context.Context, dsn string) *pgxpool.Pool {
+	if strings.TrimSpace(dsn) == "" {
+		return nil
+	}
+	pool, err := databases.OpenPool(ctx, dsn)
+	if err != nil {
+		return nil
+	}
+	return pool
 }

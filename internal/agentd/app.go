@@ -6,12 +6,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"manifold/internal/agent"
 	"manifold/internal/agent/memory"
 	"manifold/internal/auth"
+	"manifold/internal/constitution"
 	codeqaservice "manifold/internal/codeqa/service"
 	"manifold/internal/config"
 	"manifold/internal/embeddedpg"
+	"manifold/internal/fleet"
 	llmpkg "manifold/internal/llm"
 	"manifold/internal/matrixgw"
 	"manifold/internal/mcpclient"
@@ -20,6 +24,7 @@ import (
 	"manifold/internal/projects"
 	ragservice "manifold/internal/rag/service"
 	"manifold/internal/specialists"
+	"manifold/internal/trust"
 	"manifold/internal/tools"
 	tooldiscovery "manifold/internal/tools/discovery"
 	transitdomain "manifold/internal/transit"
@@ -61,6 +66,7 @@ type app struct {
 	activityStore      persist.SpecialistActivityStore
 	chatMemory         *memory.Manager
 	runs               *runStore
+	inputRequests      *inputRequestBroker
 	playgroundHandler  http.Handler
 	projectsService    projects.ProjectService
 	workspaceManager   workspaces.WorkspaceManager
@@ -85,6 +91,10 @@ type app struct {
 	ragService         *ragservice.Service
 	matrixGateway      *matrixgw.Service
 	pulseRuntime       *pulseRuntime
+	fleetBus           *fleet.Bus
+	trustService       *trust.Service
+	constitutionSvc    *constitution.Service
+	extraPools         []*pgxpool.Pool
 }
 
 type tokenMetricsProvider interface {

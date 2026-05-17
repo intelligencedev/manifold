@@ -66,6 +66,7 @@ develop/**/.env.*
 dist/
 config.yaml
 models/
+frontend/node_modules/
 web/agentd-ui/node_modules/
 web/agentd-ui/dist/
 web/agentd-ui/.vite/

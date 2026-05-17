@@ -479,6 +479,112 @@
                 <p v-if="message.title" class="font-semibold text-foreground">
                   {{ message.title }}
                 </p>
+                <div
+                  v-if="message.inputRequests?.length"
+                  class="input-request-list"
+                >
+                  <form
+                    v-for="request in message.inputRequests"
+                    :key="request.id"
+                    class="input-request-card"
+                    :class="inputRequestCardClasses(request)"
+                    @submit.prevent="submitInputRequest(message, request)"
+                  >
+                    <div class="input-request-header">
+                      <div class="min-w-0">
+                        <p class="input-request-kicker">
+                          {{ inputRequestStatusLabel(request) }}
+                        </p>
+                        <p class="input-request-agent">
+                          {{ request.agent || agentNameFor(message) }}
+                        </p>
+                      </div>
+                      <span
+                        v-if="request.status === 'pending'"
+                        class="input-request-live-dot"
+                      ></span>
+                    </div>
+                    <p class="input-request-question">
+                      {{ request.question }}
+                    </p>
+                    <p v-if="request.reason" class="input-request-reason">
+                      {{ request.reason }}
+                    </p>
+
+                    <div
+                      v-if="request.choices.length && isInputRequestRespondable(request)"
+                      class="input-request-choices"
+                    >
+                      <label
+                        v-for="choice in request.choices"
+                        :key="choice.id"
+                        class="input-request-choice"
+                      >
+                        <input
+                          :type="request.multiple ? 'checkbox' : 'radio'"
+                          :name="inputRequestFieldName(message, request)"
+                          :checked="inputRequestChoiceSelected(message, request, choice.id)"
+                          :disabled="isInputRequestSubmitting(message, request)"
+                          @change="toggleInputRequestChoice(message, request, choice.id)"
+                        />
+                        <span class="min-w-0">
+                          <span class="input-request-choice-label">
+                            {{ choice.label }}
+                          </span>
+                          <span
+                            v-if="choice.description"
+                            class="input-request-choice-description"
+                          >
+                            {{ choice.description }}
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+
+                    <textarea
+                      v-if="request.allowFreeText && isInputRequestRespondable(request)"
+                      v-model="inputRequestDrafts[inputRequestKey(message, request)]"
+                      class="input-request-textarea"
+                      rows="3"
+                      placeholder="Type your response..."
+                      :disabled="isInputRequestSubmitting(message, request)"
+                    ></textarea>
+
+                    <p
+                      v-if="inputRequestLocalError(message, request) || request.error"
+                      class="input-request-error"
+                    >
+                      {{ inputRequestLocalError(message, request) || request.error }}
+                    </p>
+
+                    <div
+                      v-if="request.status === 'answered'"
+                      class="input-request-answer"
+                    >
+                      <span class="input-request-answer-label">Answered</span>
+                      <span class="input-request-answer-text">
+                        {{ inputRequestAnswerSummary(request) }}
+                      </span>
+                    </div>
+
+                    <div
+                      v-if="isInputRequestRespondable(request)"
+                      class="input-request-actions"
+                    >
+                      <button
+                        type="submit"
+                        class="input-request-submit"
+                        :disabled="!canSubmitInputRequest(message, request)"
+                      >
+                        {{
+                          isInputRequestSubmitting(message, request)
+                            ? "Submitting..."
+                            : "Continue"
+                        }}
+                      </button>
+                    </div>
+                  </form>
+                </div>
                 <pre
                   v-if="message.toolArgs"
                   class="whitespace-pre-wrap rounded-4 border border-border bg-surface-muted/60 p-3 text-xs text-subtle-foreground"
@@ -663,11 +769,13 @@
                   rows="1"
                   class="flex-1 min-w-0 resize-none bg-transparent py-1.5 text-sm leading-6 text-foreground outline-none placeholder:text-faint-foreground"
                   :placeholder="
-                    projectSelected
+                    hasPendingInputRequest
+                      ? 'Answer the request above to continue.'
+                      : projectSelected
                       ? 'Message the agent...'
                       : 'Select a project to enable the chat.'
                   "
-                  :disabled="!projectSelected"
+                  :disabled="!projectSelected || hasPendingInputRequest"
                   @keydown="handleComposerKeydown"
                   @input="handleComposerInput"
                   @keyup="handleComposerKeyup"
@@ -692,13 +800,13 @@
                     class="inline-flex h-8 w-8 items-center justify-center rounded-3 focus-visible:shadow-outline"
                     title="Attach files"
                     aria-label="Attach files"
-                    :disabled="!projectSelected"
+                    :disabled="!projectSelected || hasPendingInputRequest"
                     :class="
-                      !projectSelected
+                      !projectSelected || hasPendingInputRequest
                         ? 'opacity-50 cursor-not-allowed text-foreground/40'
                         : 'text-foreground/80 hover:text-accent'
                     "
-                    @click="projectSelected ? fileInput?.click() : undefined"
+                    @click="projectSelected && !hasPendingInputRequest ? fileInput?.click() : undefined"
                   >
                     <SolarPaperclip2Bold class="h-5 w-5" />
                   </button>
@@ -711,11 +819,14 @@
                       isRecording
                         ? 'text-danger hover:text-danger/90'
                         : 'text-foreground/80 hover:text-accent',
-                      isStreaming || !canUseMic || !projectSelected
+                      isStreaming ||
+                      !canUseMic ||
+                      !projectSelected ||
+                      hasPendingInputRequest
                         ? 'opacity-50 cursor-not-allowed'
                         : '',
                     ]"
-                    :disabled="isStreaming || !canUseMic || !projectSelected"
+                    :disabled="isStreaming || !canUseMic || !projectSelected || hasPendingInputRequest"
                     :title="
                       isRecording ? 'Stop recording' : 'Record voice prompt'
                     "
@@ -735,11 +846,11 @@
                       imagePrompt
                         ? 'bg-accent/20 text-accent hover:bg-accent/30'
                         : 'text-foreground/80 hover:text-accent',
-                      isStreaming || !projectSelected
+                      isStreaming || !projectSelected || hasPendingInputRequest
                         ? 'opacity-50 cursor-not-allowed'
                         : '',
                     ]"
-                    :disabled="isStreaming || !projectSelected"
+                    :disabled="isStreaming || !projectSelected || hasPendingInputRequest"
                     title="Generate image response"
                     aria-label="Generate image response"
                     @click="imagePrompt = !imagePrompt"
@@ -757,21 +868,21 @@
                         : 'bg-accent text-accent-foreground hover:bg-accent/90',
                     ]"
                     :title="
-                      isStreaming && (draft.trim() || pendingAttachments.length)
+                      isStreaming && !hasPendingInputRequest && (draft.trim() || pendingAttachments.length)
                         ? 'Send message'
                         : isStreaming
                           ? 'Stop generating'
                           : 'Send message'
                     "
                     :aria-label="
-                      isStreaming && (draft.trim() || pendingAttachments.length)
+                      isStreaming && !hasPendingInputRequest && (draft.trim() || pendingAttachments.length)
                         ? 'Send message'
                         : isStreaming
                           ? 'Stop generating'
                           : 'Send message'
                     "
                     @click="
-                      isStreaming && (draft.trim() || pendingAttachments.length)
+                      isStreaming && !hasPendingInputRequest && (draft.trim() || pendingAttachments.length)
                         ? sendCurrentPrompt()
                         : isStreaming
                           ? stopStreaming()
@@ -1175,6 +1286,7 @@ import axios from "axios";
 import type {
   AgentThread,
   ChatAttachment,
+  ChatInputRequest,
   ChatMessage,
   ChatSessionMeta,
   ChatRole,
@@ -1308,6 +1420,10 @@ const textAttachments = computed(() =>
   pendingAttachments.value.filter((a) => a.kind === "text"),
 );
 const filesByAttachment: Map<string, File> = new Map();
+const inputRequestDrafts = ref<Record<string, string>>({});
+const inputRequestSelections = ref<Record<string, string[]>>({});
+const inputRequestSubmitting = ref<Record<string, boolean>>({});
+const inputRequestErrors = ref<Record<string, string>>({});
 // Render mode for streamed responses: 'markdown' (default) or 'html'
 const renderMode = ref<"markdown" | "html">("markdown");
 // Toggle to request image generation from providers that support it (e.g., Google Gemini)
@@ -1700,6 +1816,13 @@ const activeMessages = computed(() => chat.activeMessages);
 const chatMessages = computed(() => chat.chatMessages);
 const toolMessages = computed(() => chat.toolMessages);
 const activeThoughtSummaries = computed(() => chat.activeThoughtSummaries);
+const hasPendingInputRequest = computed(() =>
+  activeMessages.value.some((message) =>
+    (message.inputRequests || []).some((request) =>
+      isInputRequestRespondable(request),
+    ),
+  ),
+);
 const toolActivityMsById = ref<Record<string, number>>({});
 const activeSummaryEvent = computed(() => chat.activeSummaryEvent);
 const sessionAgentDefaults = computed(() =>
@@ -2039,6 +2162,159 @@ function shouldShowDirectActivity(message: ChatMessage) {
 
 function shouldShowDirectThought(message: ChatMessage) {
   return Boolean(message.activityThoughtSummary);
+}
+
+function inputRequestKey(message: ChatMessage, request: ChatInputRequest) {
+  return `${message.id}:${request.id}`;
+}
+
+function inputRequestFieldName(message: ChatMessage, request: ChatInputRequest) {
+  return `input-request-${inputRequestKey(message, request)}`;
+}
+
+function isInputRequestRespondable(request: ChatInputRequest) {
+  return request.status === "pending" || request.status === "error";
+}
+
+function inputRequestStatusLabel(request: ChatInputRequest) {
+  switch (request.status) {
+    case "answered":
+      return "Response submitted";
+    case "cancelled":
+      return "Request cancelled";
+    case "error":
+      return "Response required";
+    default:
+      return "Response required";
+  }
+}
+
+function inputRequestCardClasses(request: ChatInputRequest) {
+  return {
+    "input-request-card--answered": request.status === "answered",
+    "input-request-card--cancelled": request.status === "cancelled",
+    "input-request-card--error": request.status === "error",
+  };
+}
+
+function inputRequestSelection(
+  message: ChatMessage,
+  request: ChatInputRequest,
+) {
+  const key = inputRequestKey(message, request);
+  return inputRequestSelections.value[key] || request.choiceIds || [];
+}
+
+function inputRequestChoiceSelected(
+  message: ChatMessage,
+  request: ChatInputRequest,
+  choiceId: string,
+) {
+  return inputRequestSelection(message, request).includes(choiceId);
+}
+
+function toggleInputRequestChoice(
+  message: ChatMessage,
+  request: ChatInputRequest,
+  choiceId: string,
+) {
+  if (!isInputRequestRespondable(request)) return;
+  const key = inputRequestKey(message, request);
+  const current = inputRequestSelection(message, request);
+  let next: string[];
+  if (request.multiple) {
+    next = current.includes(choiceId)
+      ? current.filter((id) => id !== choiceId)
+      : [...current, choiceId];
+  } else {
+    next = [choiceId];
+  }
+  inputRequestSelections.value = {
+    ...inputRequestSelections.value,
+    [key]: next,
+  };
+  inputRequestErrors.value = { ...inputRequestErrors.value, [key]: "" };
+}
+
+function inputRequestDraft(message: ChatMessage, request: ChatInputRequest) {
+  return inputRequestDrafts.value[inputRequestKey(message, request)] || "";
+}
+
+function isInputRequestSubmitting(
+  message: ChatMessage,
+  request: ChatInputRequest,
+) {
+  return Boolean(inputRequestSubmitting.value[inputRequestKey(message, request)]);
+}
+
+function inputRequestLocalError(
+  message: ChatMessage,
+  request: ChatInputRequest,
+) {
+  return inputRequestErrors.value[inputRequestKey(message, request)] || "";
+}
+
+function canSubmitInputRequest(
+  message: ChatMessage,
+  request: ChatInputRequest,
+) {
+  if (!isInputRequestRespondable(request)) return false;
+  if (isInputRequestSubmitting(message, request)) return false;
+  const selected = inputRequestSelection(message, request);
+  const text = inputRequestDraft(message, request).trim();
+  if (request.choices.length && selected.length > 0) return true;
+  if (request.allowFreeText && text) return true;
+  return false;
+}
+
+function inputRequestAnswerSummary(request: ChatInputRequest) {
+  const labels = (request.choiceIds || [])
+    .map((id) => request.choices.find((choice) => choice.id === id)?.label || id)
+    .filter(Boolean);
+  const parts = [...labels];
+  if (request.answer) parts.push(request.answer);
+  return parts.join(", ") || "Response submitted";
+}
+
+async function submitInputRequest(
+  message: ChatMessage,
+  request: ChatInputRequest,
+) {
+  const key = inputRequestKey(message, request);
+  if (!activeSessionId.value || !canSubmitInputRequest(message, request)) {
+    return;
+  }
+  inputRequestSubmitting.value = {
+    ...inputRequestSubmitting.value,
+    [key]: true,
+  };
+  inputRequestErrors.value = { ...inputRequestErrors.value, [key]: "" };
+  try {
+    await chat.submitInputRequest(
+      activeSessionId.value,
+      message.id,
+      request.id,
+      inputRequestDraft(message, request),
+      inputRequestSelection(message, request),
+    );
+    const drafts = { ...inputRequestDrafts.value };
+    const selections = { ...inputRequestSelections.value };
+    delete drafts[key];
+    delete selections[key];
+    inputRequestDrafts.value = drafts;
+    inputRequestSelections.value = selections;
+  } catch (error) {
+    inputRequestErrors.value = {
+      ...inputRequestErrors.value,
+      [key]:
+        error instanceof Error ? error.message : "Failed to submit response",
+    };
+  } finally {
+    inputRequestSubmitting.value = {
+      ...inputRequestSubmitting.value,
+      [key]: false,
+    };
+  }
 }
 
 // --- Collapsible activity panel per message ---
@@ -2711,6 +2987,7 @@ function cancelRename() {
 }
 
 async function sendCurrentPrompt() {
+  if (hasPendingInputRequest.value) return;
   await sendPrompt(draft.value);
 }
 
@@ -3559,6 +3836,180 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   color: rgb(var(--color-foreground));
   font-size: 0.78rem;
   line-height: 1.5;
+}
+
+.input-request-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.input-request-card {
+  border-radius: 0.5rem;
+  border: 1px solid rgb(var(--color-warning) / 0.55);
+  background: rgb(var(--color-warning) / 0.1);
+  padding: 0.85rem;
+  box-shadow: 0 16px 32px -28px rgb(0 0 0 / 0.75);
+}
+
+.input-request-card--answered {
+  border-color: rgb(var(--color-success) / 0.45);
+  background: rgb(var(--color-success) / 0.09);
+}
+
+.input-request-card--cancelled,
+.input-request-card--error {
+  border-color: rgb(var(--color-danger) / 0.45);
+}
+
+.input-request-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.input-request-kicker {
+  color: rgb(var(--color-warning));
+  font-size: 0.64rem;
+  font-weight: 850;
+  letter-spacing: 0;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.input-request-agent {
+  margin-top: 0.16rem;
+  color: rgb(var(--color-subtle-foreground));
+  font-size: 0.72rem;
+  line-height: 1.25;
+}
+
+.input-request-live-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-top: 0.2rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgb(var(--color-warning));
+  box-shadow: 0 0 0 4px rgb(var(--color-warning) / 0.16);
+  animation: activityPulse 1.2s ease-in-out infinite;
+}
+
+.input-request-question {
+  margin-top: 0.7rem;
+  color: rgb(var(--color-foreground));
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.input-request-reason {
+  margin-top: 0.35rem;
+  color: rgb(var(--color-subtle-foreground));
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.input-request-choices {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.input-request-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgb(var(--color-border) / 0.58);
+  background: rgb(var(--color-surface) / 0.68);
+  padding: 0.55rem 0.65rem;
+  color: rgb(var(--color-foreground));
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.input-request-choice input {
+  margin-top: 0.18rem;
+  accent-color: rgb(var(--color-accent));
+}
+
+.input-request-choice-label {
+  display: block;
+  font-weight: 700;
+}
+
+.input-request-choice-description {
+  display: block;
+  margin-top: 0.12rem;
+  color: rgb(var(--color-subtle-foreground));
+  font-size: 0.72rem;
+}
+
+.input-request-textarea {
+  margin-top: 0.75rem;
+  width: 100%;
+  resize: vertical;
+  border-radius: 0.5rem;
+  border: 1px solid rgb(var(--color-border) / 0.7);
+  background: rgb(var(--color-surface) / 0.78);
+  color: rgb(var(--color-foreground));
+  font-size: 0.82rem;
+  line-height: 1.45;
+  outline: none;
+  padding: 0.65rem;
+}
+
+.input-request-textarea:focus {
+  border-color: rgb(var(--color-accent) / 0.75);
+}
+
+.input-request-error {
+  margin-top: 0.5rem;
+  color: rgb(var(--color-danger));
+  font-size: 0.74rem;
+  font-weight: 650;
+}
+
+.input-request-answer {
+  display: flex;
+  gap: 0.45rem;
+  margin-top: 0.65rem;
+  color: rgb(var(--color-subtle-foreground));
+  font-size: 0.78rem;
+}
+
+.input-request-answer-label {
+  color: rgb(var(--color-success));
+  font-weight: 800;
+}
+
+.input-request-answer-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.input-request-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
+}
+
+.input-request-submit {
+  border-radius: 999px;
+  border: 1px solid rgb(var(--color-accent) / 0.55);
+  background: rgb(var(--color-accent));
+  color: rgb(var(--color-accent-foreground));
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1;
+  padding: 0.58rem 0.9rem;
+}
+
+.input-request-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .activity-detail-empty {

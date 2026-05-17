@@ -39,10 +39,10 @@ func TestHandleDebugMemoryExplainReturnsScoreComponents(t *testing.T) {
 	a := &app{
 		cfg: &config.Config{},
 		userEvolving: map[int64]map[string]*memory.EvolvingMemory{
-			systemUserID: {"default": em},
+			systemUserID: {normalizeClientChatSessionID("default"): em},
 		},
 		evolvingLastUsed: map[int64]map[string]time.Time{
-			systemUserID: {"default": time.Now()},
+			systemUserID: {normalizeClientChatSessionID("default"): time.Now()},
 		},
 	}
 

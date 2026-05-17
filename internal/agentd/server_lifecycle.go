@@ -3,7 +3,6 @@ package agentd
 import (
 	"fmt"
 	"manifold/internal/auth"
-	"manifold/internal/webui"
 	"net/http"
 	"os"
 	"os/exec"
@@ -33,6 +32,11 @@ func (a *app) close() {
 	}
 	if a.mgr != nil {
 		a.mgr.Close()
+	}
+	for _, pool := range a.extraPools {
+		if pool != nil {
+			pool.Close()
+		}
 	}
 	if a.embeddedRuntime != nil {
 		if err := a.embeddedRuntime.Stop(); err != nil {
@@ -101,7 +105,7 @@ func (a *app) wrapWithMiddleware(handler http.Handler) http.Handler {
 
 func (a *app) registerFrontend(mux *http.ServeMux) error {
 	frontendProxy := os.Getenv("FRONTEND_DEV_PROXY")
-	opts := webui.Options{DevProxy: frontendProxy}
+	opts := frontendOptions{DevProxy: frontendProxy}
 	if a.cfg.Auth.Enabled {
 		opts.AuthGate = func(r *http.Request) bool {
 			_, ok := auth.CurrentUser(r.Context())
@@ -109,7 +113,7 @@ func (a *app) registerFrontend(mux *http.ServeMux) error {
 		}
 		opts.UnauthedRedirect = "/auth/login"
 	}
-	if err := webui.RegisterFrontend(mux, opts); err != nil {
+	if err := registerFrontendUI(mux, opts); err != nil {
 		return err
 	}
 	if frontendProxy != "" {

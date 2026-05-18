@@ -11,9 +11,10 @@ import (
 	"manifold/internal/agent"
 	"manifold/internal/agent/memory"
 	"manifold/internal/auth"
-	"manifold/internal/constitution"
 	codeqaservice "manifold/internal/codeqa/service"
 	"manifold/internal/config"
+	"manifold/internal/constitution"
+	"manifold/internal/durable"
 	"manifold/internal/embeddedpg"
 	"manifold/internal/fleet"
 	llmpkg "manifold/internal/llm"
@@ -24,10 +25,10 @@ import (
 	"manifold/internal/projects"
 	ragservice "manifold/internal/rag/service"
 	"manifold/internal/specialists"
-	"manifold/internal/trust"
 	"manifold/internal/tools"
 	tooldiscovery "manifold/internal/tools/discovery"
 	transitdomain "manifold/internal/transit"
+	"manifold/internal/trust"
 	"manifold/internal/workspaces"
 )
 
@@ -51,6 +52,10 @@ type app struct {
 	specRegMu          sync.RWMutex
 	userSpecRegs       map[int64]*specialists.Registry
 	summaryLLM         llmpkg.Provider
+	durableStore       durable.Store
+	durableClient      *durable.Client
+	durableRegistry    *durable.Registry
+	durableWorker      *durable.Worker
 	flowV2             *flowV2Runtime
 	codeQARuntime      *codeQARuntime
 	codeQAService      *codeqaservice.Service

@@ -1,0 +1,700 @@
+package durable
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+func NewStore(pool *pgxpool.Pool) Store {
+	if pool == nil {
+		return NewMemoryStore()
+	}
+	return &PostgresStore{pool: pool}
+}
+
+type PostgresStore struct {
+	pool *pgxpool.Pool
+}
+
+func (s *PostgresStore) Close() {
+	if s.pool != nil {
+		s.pool.Close()
+	}
+}
+
+func (s *PostgresStore) Init(ctx context.Context) error {
+	if s.pool == nil {
+		return fmt.Errorf("durable postgres store requires pool")
+	}
+	_, err := s.pool.Exec(ctx, durableSchema)
+	return err
+}
+
+const durableSchema = `
+CREATE TABLE IF NOT EXISTS durable_tasks (
+	id TEXT PRIMARY KEY,
+	queue TEXT NOT NULL,
+	name TEXT NOT NULL,
+	user_id BIGINT NOT NULL DEFAULT 0,
+	params JSONB NOT NULL DEFAULT '{}'::jsonb,
+	headers JSONB NOT NULL DEFAULT '{}'::jsonb,
+	status TEXT NOT NULL,
+	idempotency_key TEXT NOT NULL DEFAULT '',
+	parent_task_id TEXT,
+	parent_run_id TEXT,
+	retry_policy JSONB NOT NULL DEFAULT '{}'::jsonb,
+	attempt INTEGER NOT NULL DEFAULT 0,
+	available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	result JSONB,
+	failure JSONB,
+	error TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	completed_at TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS durable_tasks_idempotency_idx
+	ON durable_tasks(user_id, queue, idempotency_key)
+	WHERE idempotency_key <> '';
+CREATE INDEX IF NOT EXISTS durable_tasks_runnable_idx
+	ON durable_tasks(queue, status, available_at);
+CREATE INDEX IF NOT EXISTS durable_tasks_parent_idx
+	ON durable_tasks(parent_task_id);
+
+CREATE TABLE IF NOT EXISTS durable_runs (
+	id TEXT PRIMARY KEY,
+	task_id TEXT NOT NULL REFERENCES durable_tasks(id) ON DELETE CASCADE,
+	attempt INTEGER NOT NULL,
+	status TEXT NOT NULL,
+	worker_id TEXT NOT NULL DEFAULT '',
+	lease_until TIMESTAMPTZ,
+	started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	completed_at TIMESTAMPTZ,
+	error TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS durable_runs_task_idx ON durable_runs(task_id, attempt DESC);
+CREATE INDEX IF NOT EXISTS durable_runs_lease_idx ON durable_runs(status, lease_until);
+
+CREATE TABLE IF NOT EXISTS durable_checkpoints (
+	task_id TEXT NOT NULL REFERENCES durable_tasks(id) ON DELETE CASCADE,
+	step_key TEXT NOT NULL,
+	status TEXT NOT NULL DEFAULT 'completed',
+	result JSONB,
+	error TEXT NOT NULL DEFAULT '',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	PRIMARY KEY (task_id, step_key)
+);
+
+CREATE TABLE IF NOT EXISTS durable_events (
+	id BIGSERIAL PRIMARY KEY,
+	task_id TEXT REFERENCES durable_tasks(id) ON DELETE CASCADE,
+	queue TEXT NOT NULL DEFAULT '',
+	name TEXT NOT NULL,
+	sequence BIGINT NOT NULL DEFAULT 0,
+	payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+	occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS durable_events_task_sequence_idx
+	ON durable_events(task_id, sequence)
+	WHERE task_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS durable_events_task_idx ON durable_events(task_id, sequence);
+CREATE INDEX IF NOT EXISTS durable_events_queue_name_idx ON durable_events(queue, name, occurred_at DESC);
+
+CREATE TABLE IF NOT EXISTS durable_waits (
+	id TEXT PRIMARY KEY,
+	task_id TEXT NOT NULL REFERENCES durable_tasks(id) ON DELETE CASCADE,
+	run_id TEXT,
+	kind TEXT NOT NULL,
+	event_name TEXT NOT NULL DEFAULT '',
+	child_task_id TEXT NOT NULL DEFAULT '',
+	wake_at TIMESTAMPTZ,
+	status TEXT NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	fired_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS durable_waits_timer_idx ON durable_waits(kind, status, wake_at);
+CREATE INDEX IF NOT EXISTS durable_waits_event_idx ON durable_waits(kind, status, event_name);
+CREATE INDEX IF NOT EXISTS durable_waits_child_idx ON durable_waits(kind, status, child_task_id);
+
+CREATE TABLE IF NOT EXISTS durable_outbox (
+	id BIGSERIAL PRIMARY KEY,
+	task_id TEXT,
+	event_id BIGINT,
+	topic TEXT NOT NULL,
+	payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+	delivered_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS durable_outbox_pending_idx ON durable_outbox(delivered_at, id);
+`
+
+func (s *PostgresStore) SpawnTask(ctx context.Context, req SpawnRequest) (Task, bool, error) {
+	req.Queue = normalizeQueue(req.Queue)
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		return Task{}, false, fmt.Errorf("durable task name required")
+	}
+	if req.AvailableAt.IsZero() {
+		req.AvailableAt = time.Now().UTC()
+	}
+	req.RetryPolicy = normalizeRetryPolicy(req.RetryPolicy)
+	params, err := json.Marshal(nonNilMap(req.Params))
+	if err != nil {
+		return Task{}, false, err
+	}
+	headers, err := json.Marshal(nonNilMap(req.Headers))
+	if err != nil {
+		return Task{}, false, err
+	}
+	retryPolicy, err := json.Marshal(req.RetryPolicy)
+	if err != nil {
+		return Task{}, false, err
+	}
+	id := newID("dtask")
+	if req.IdempotencyKey != "" {
+		var existing Task
+		row := s.pool.QueryRow(ctx, `
+SELECT id, queue, name, user_id, params, headers, status, idempotency_key, COALESCE(parent_task_id,''), COALESCE(parent_run_id,''), retry_policy, attempt, available_at, result, failure, error, created_at, updated_at, completed_at
+FROM durable_tasks WHERE user_id=$1 AND queue=$2 AND idempotency_key=$3
+`, req.UserID, req.Queue, req.IdempotencyKey)
+		if err := scanTask(row, &existing); err == nil {
+			return existing, false, nil
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return Task{}, false, err
+		}
+	}
+	row := s.pool.QueryRow(ctx, `
+INSERT INTO durable_tasks (id, queue, name, user_id, params, headers, status, idempotency_key, parent_task_id, parent_run_id, retry_policy, available_at)
+VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,NULLIF($9,''),NULLIF($10,''),$11::jsonb,$12)
+ON CONFLICT DO NOTHING
+RETURNING id, queue, name, user_id, params, headers, status, idempotency_key, COALESCE(parent_task_id,''), COALESCE(parent_run_id,''), retry_policy, attempt, available_at, result, failure, error, created_at, updated_at, completed_at
+`, id, req.Queue, req.Name, req.UserID, params, headers, string(TaskStatusQueued), req.IdempotencyKey, req.ParentTaskID, req.ParentRunID, retryPolicy, req.AvailableAt.UTC())
+	var task Task
+	if err := scanTask(row, &task); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) && req.IdempotencyKey != "" {
+			row := s.pool.QueryRow(ctx, `
+SELECT id, queue, name, user_id, params, headers, status, idempotency_key, COALESCE(parent_task_id,''), COALESCE(parent_run_id,''), retry_policy, attempt, available_at, result, failure, error, created_at, updated_at, completed_at
+FROM durable_tasks WHERE user_id=$1 AND queue=$2 AND idempotency_key=$3
+`, req.UserID, req.Queue, req.IdempotencyKey)
+			var existing Task
+			if err := scanTask(row, &existing); err == nil {
+				return existing, false, nil
+			} else if !errors.Is(err, pgx.ErrNoRows) {
+				return Task{}, false, err
+			}
+		}
+		return Task{}, false, err
+	}
+	return task, true, nil
+}
+
+func (s *PostgresStore) GetTask(ctx context.Context, userID int64, taskID string) (Task, bool, error) {
+	row := s.pool.QueryRow(ctx, `
+SELECT id, queue, name, user_id, params, headers, status, idempotency_key, COALESCE(parent_task_id,''), COALESCE(parent_run_id,''), retry_policy, attempt, available_at, result, failure, error, created_at, updated_at, completed_at
+FROM durable_tasks WHERE id=$1 AND user_id=$2
+`, strings.TrimSpace(taskID), userID)
+	var task Task
+	if err := scanTask(row, &task); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Task{}, false, nil
+		}
+		return Task{}, false, err
+	}
+	return task, true, nil
+}
+
+func (s *PostgresStore) ListTaskEvents(ctx context.Context, userID int64, taskID string, afterSequence int64) ([]Event, TaskStatus, bool, error) {
+	task, ok, err := s.GetTask(ctx, userID, taskID)
+	if err != nil || !ok {
+		return nil, "", ok, err
+	}
+	rows, err := s.pool.Query(ctx, `
+SELECT id, COALESCE(task_id,''), queue, name, sequence, payload, occurred_at
+FROM durable_events WHERE task_id=$1 AND sequence > $2 ORDER BY sequence ASC
+`, taskID, afterSequence)
+	if err != nil {
+		return nil, "", false, err
+	}
+	defer rows.Close()
+	events := []Event{}
+	for rows.Next() {
+		ev, err := scanEvent(rows)
+		if err != nil {
+			return nil, "", false, err
+		}
+		events = append(events, ev)
+	}
+	return events, task.Status, true, rows.Err()
+}
+
+func (s *PostgresStore) AppendTaskEvent(ctx context.Context, taskID string, name string, payload map[string]any) (Event, error) {
+	payloadBytes, err := json.Marshal(nonNilMap(payload))
+	if err != nil {
+		return Event{}, err
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return Event{}, err
+	}
+	defer tx.Rollback(ctx)
+	var queue string
+	if err := tx.QueryRow(ctx, `SELECT queue FROM durable_tasks WHERE id=$1`, taskID).Scan(&queue); err != nil {
+		return Event{}, err
+	}
+	var seq int64
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(sequence),0)+1 FROM durable_events WHERE task_id=$1`, taskID).Scan(&seq); err != nil {
+		return Event{}, err
+	}
+	row := tx.QueryRow(ctx, `
+INSERT INTO durable_events (task_id, queue, name, sequence, payload)
+VALUES ($1,$2,$3,$4,$5::jsonb)
+RETURNING id, COALESCE(task_id,''), queue, name, sequence, payload, occurred_at
+`, taskID, queue, strings.TrimSpace(name), seq, payloadBytes)
+	ev, err := scanEvent(row)
+	if err != nil {
+		return Event{}, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO durable_outbox (task_id, event_id, topic, payload) VALUES ($1,$2,$3,$4::jsonb)`, taskID, ev.ID, name, payloadBytes); err != nil {
+		return Event{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Event{}, err
+	}
+	return ev, nil
+}
+
+func (s *PostgresStore) EmitEvent(ctx context.Context, userID int64, queue string, name string, payload map[string]any) (Event, error) {
+	queue = normalizeQueue(queue)
+	name = strings.TrimSpace(name)
+	payloadBytes, err := json.Marshal(nonNilMap(payload))
+	if err != nil {
+		return Event{}, err
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return Event{}, err
+	}
+	defer tx.Rollback(ctx)
+	row := tx.QueryRow(ctx, `
+INSERT INTO durable_events (queue, name, payload)
+VALUES ($1,$2,$3::jsonb)
+RETURNING id, COALESCE(task_id,''), queue, name, sequence, payload, occurred_at
+`, queue, name, payloadBytes)
+	ev, err := scanEvent(row)
+	if err != nil {
+		return Event{}, err
+	}
+	rows, err := tx.Query(ctx, `
+SELECT w.id, w.task_id
+FROM durable_waits w
+JOIN durable_tasks t ON t.id = w.task_id
+WHERE w.kind='event' AND w.status='waiting' AND w.event_name=$1 AND t.user_id=$2 AND t.queue=$3
+`, name, userID, queue)
+	if err != nil {
+		return Event{}, err
+	}
+	type wake struct{ waitID, taskID string }
+	var wakes []wake
+	for rows.Next() {
+		var w wake
+		if err := rows.Scan(&w.waitID, &w.taskID); err != nil {
+			rows.Close()
+			return Event{}, err
+		}
+		wakes = append(wakes, w)
+	}
+	rows.Close()
+	for _, w := range wakes {
+		if _, err := tx.Exec(ctx, `UPDATE durable_waits SET status='fired', fired_at=NOW() WHERE id=$1`, w.waitID); err != nil {
+			return Event{}, err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE durable_tasks SET status='queued', available_at=NOW(), updated_at=NOW() WHERE id=$1 AND status='waiting'`, w.taskID); err != nil {
+			return Event{}, err
+		}
+		if _, err := tx.Exec(ctx, `
+INSERT INTO durable_checkpoints (task_id, step_key, result, updated_at)
+VALUES ($1,$2,$3::jsonb,NOW())
+ON CONFLICT (task_id, step_key) DO NOTHING
+`, w.taskID, "event:"+name, payloadBytes); err != nil {
+			return Event{}, err
+		}
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO durable_outbox (event_id, topic, payload) VALUES ($1,$2,$3::jsonb)`, ev.ID, name, payloadBytes); err != nil {
+		return Event{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Event{}, err
+	}
+	return ev, nil
+}
+
+func (s *PostgresStore) ClaimNext(ctx context.Context, queues []string, workerID string, lease time.Duration) (Task, Run, bool, error) {
+	if len(queues) == 0 {
+		return Task{}, Run{}, false, nil
+	}
+	for i := range queues {
+		queues[i] = normalizeQueue(queues[i])
+	}
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return Task{}, Run{}, false, err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `
+UPDATE durable_tasks t SET status='queued', updated_at=NOW()
+WHERE t.status='running'
+  AND EXISTS (
+	SELECT 1 FROM durable_runs r
+	WHERE r.task_id=t.id AND r.status='running' AND r.lease_until <= NOW()
+  )
+`); err != nil {
+		return Task{}, Run{}, false, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE durable_runs SET status='failed', error='lease expired', completed_at=NOW() WHERE status='running' AND lease_until <= NOW()`); err != nil {
+		return Task{}, Run{}, false, err
+	}
+	row := tx.QueryRow(ctx, `
+WITH candidate AS (
+	SELECT id
+	FROM durable_tasks
+	WHERE queue = ANY($1)
+	  AND status = 'queued'
+	  AND available_at <= NOW()
+	ORDER BY available_at ASC, created_at ASC
+	LIMIT 1
+	FOR UPDATE SKIP LOCKED
+)
+UPDATE durable_tasks t
+SET status='running', attempt=attempt+1, updated_at=NOW()
+FROM candidate
+WHERE t.id = candidate.id
+RETURNING t.id, t.queue, t.name, t.user_id, t.params, t.headers, t.status, t.idempotency_key, COALESCE(t.parent_task_id,''), COALESCE(t.parent_run_id,''), t.retry_policy, t.attempt, t.available_at, t.result, t.failure, t.error, t.created_at, t.updated_at, t.completed_at
+`, queues)
+	var task Task
+	if err := scanTask(row, &task); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Task{}, Run{}, false, tx.Commit(ctx)
+		}
+		return Task{}, Run{}, false, err
+	}
+	run := Run{ID: newID("drun"), TaskID: task.ID, Attempt: task.Attempt, Status: RunStatusRunning, WorkerID: workerID, LeaseUntil: time.Now().UTC().Add(lease), StartedAt: time.Now().UTC()}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO durable_runs (id, task_id, attempt, status, worker_id, lease_until, started_at)
+VALUES ($1,$2,$3,$4,$5,$6,$7)
+`, run.ID, run.TaskID, run.Attempt, string(run.Status), run.WorkerID, run.LeaseUntil, run.StartedAt); err != nil {
+		return Task{}, Run{}, false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Task{}, Run{}, false, err
+	}
+	return task, run, true, nil
+}
+
+func (s *PostgresStore) Heartbeat(ctx context.Context, taskID, runID, workerID string, leaseUntil time.Time) error {
+	_, err := s.pool.Exec(ctx, `
+UPDATE durable_runs SET lease_until=$4 WHERE id=$1 AND task_id=$2 AND worker_id=$3 AND status='running'
+`, runID, taskID, workerID, leaseUntil.UTC())
+	return err
+}
+
+func (s *PostgresStore) CompleteTask(ctx context.Context, taskID, runID string, result json.RawMessage) error {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	cmd, err := tx.Exec(ctx, `
+UPDATE durable_tasks SET status='completed', result=$2::jsonb, updated_at=NOW(), completed_at=NOW() WHERE id=$1 AND status <> 'cancelled'
+`, taskID, nullJSON(result))
+	if err != nil {
+		return err
+	}
+	if cmd.RowsAffected() == 0 {
+		return ErrCancelled
+	}
+	if _, err := tx.Exec(ctx, `UPDATE durable_runs SET status='completed', completed_at=NOW() WHERE id=$1 AND task_id=$2`, runID, taskID); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	return s.AppendCompletionEvent(ctx, taskID, "task_completed", result)
+}
+
+func (s *PostgresStore) AppendCompletionEvent(ctx context.Context, taskID, name string, result json.RawMessage) error {
+	payload := map[string]any{"result": json.RawMessage(nullJSON(result))}
+	_, err := s.AppendTaskEvent(ctx, taskID, name, payload)
+	return err
+}
+
+func (s *PostgresStore) FailTask(ctx context.Context, taskID, runID string, failure json.RawMessage, errText string, nextAttemptAt time.Time) error {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var attempt int
+	var policy RetryPolicy
+	var rawPolicy []byte
+	if err := tx.QueryRow(ctx, `SELECT attempt, retry_policy FROM durable_tasks WHERE id=$1`, taskID).Scan(&attempt, &rawPolicy); err != nil {
+		return err
+	}
+	_ = json.Unmarshal(rawPolicy, &policy)
+	policy = normalizeRetryPolicy(policy)
+	status := string(TaskStatusFailed)
+	availableAt := time.Now().UTC()
+	completedSQL := `NOW()`
+	if !nextAttemptAt.IsZero() && attempt < policy.MaxAttempts {
+		status = string(TaskStatusQueued)
+		availableAt = nextAttemptAt.UTC()
+		completedSQL = `NULL`
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf(`
+UPDATE durable_tasks SET status=$2, failure=$3::jsonb, error=$4, available_at=$5, updated_at=NOW(), completed_at=%s WHERE id=$1
+`, completedSQL), taskID, status, nullJSON(failure), errText, availableAt); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE durable_runs SET status='failed', error=$3, completed_at=NOW() WHERE id=$1 AND task_id=$2`, runID, taskID, errText); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *PostgresStore) MarkTaskWaiting(ctx context.Context, taskID, runID string) error {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `UPDATE durable_tasks SET status='waiting', updated_at=NOW() WHERE id=$1`, taskID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE durable_runs SET status='waiting', completed_at=NOW() WHERE id=$1 AND task_id=$2`, runID, taskID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *PostgresStore) CancelTask(ctx context.Context, userID int64, taskID string) error {
+	cmd, err := s.pool.Exec(ctx, `UPDATE durable_tasks SET status='cancelled', updated_at=NOW(), completed_at=NOW() WHERE id=$1 AND user_id=$2`, taskID, userID)
+	if err != nil {
+		return err
+	}
+	if cmd.RowsAffected() == 0 {
+		return ErrTaskNotFound
+	}
+	_, _ = s.AppendTaskEvent(ctx, taskID, "task_cancelled", map[string]any{"status": string(TaskStatusCancelled)})
+	return nil
+}
+
+func (s *PostgresStore) GetCheckpoint(ctx context.Context, taskID, stepKey string) (json.RawMessage, bool, error) {
+	var raw []byte
+	err := s.pool.QueryRow(ctx, `SELECT result FROM durable_checkpoints WHERE task_id=$1 AND step_key=$2 AND status='completed'`, taskID, stepKey).Scan(&raw)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	return append(json.RawMessage(nil), raw...), true, nil
+}
+
+func (s *PostgresStore) SaveCheckpoint(ctx context.Context, taskID, stepKey string, value json.RawMessage) (json.RawMessage, error) {
+	row := s.pool.QueryRow(ctx, `
+INSERT INTO durable_checkpoints (task_id, step_key, result, updated_at)
+VALUES ($1,$2,$3::jsonb,NOW())
+ON CONFLICT (task_id, step_key) DO UPDATE SET step_key = durable_checkpoints.step_key
+RETURNING result
+`, taskID, stepKey, nullJSON(value))
+	var raw []byte
+	if err := row.Scan(&raw); err != nil {
+		return nil, err
+	}
+	return append(json.RawMessage(nil), raw...), nil
+}
+
+func (s *PostgresStore) CreateWait(ctx context.Context, wait Wait) (Wait, error) {
+	row := s.pool.QueryRow(ctx, `
+INSERT INTO durable_waits (id, task_id, run_id, kind, event_name, child_task_id, wake_at, status)
+VALUES ($1,$2,NULLIF($3,''),$4,$5,$6,$7,$8)
+ON CONFLICT (id) DO UPDATE SET id = durable_waits.id
+RETURNING id, task_id, COALESCE(run_id,''), kind, event_name, child_task_id, wake_at, status, created_at, fired_at
+`, wait.ID, wait.TaskID, wait.RunID, string(wait.Kind), wait.EventName, wait.ChildTaskID, wait.WakeAt, nonEmpty(wait.Status, "waiting"))
+	return scanWait(row)
+}
+
+func (s *PostgresStore) GetWait(ctx context.Context, waitID string) (Wait, bool, error) {
+	row := s.pool.QueryRow(ctx, `SELECT id, task_id, COALESCE(run_id,''), kind, event_name, child_task_id, wake_at, status, created_at, fired_at FROM durable_waits WHERE id=$1`, waitID)
+	wait, err := scanWait(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Wait{}, false, nil
+		}
+		return Wait{}, false, err
+	}
+	return wait, true, nil
+}
+
+func (s *PostgresStore) FireDueTimers(ctx context.Context, now time.Time, limit int) (int, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	cmd, err := s.pool.Exec(ctx, `
+WITH due AS (
+	SELECT id, task_id
+	FROM durable_waits
+	WHERE kind IN ('timer', 'event') AND status='waiting' AND wake_at <= $1
+	ORDER BY wake_at ASC
+	LIMIT $2
+	FOR UPDATE SKIP LOCKED
+), fired AS (
+	UPDATE durable_waits w SET status='fired', fired_at=NOW()
+	FROM due WHERE w.id=due.id
+	RETURNING due.task_id
+)
+UPDATE durable_tasks t SET status='queued', available_at=NOW(), updated_at=NOW()
+FROM fired WHERE t.id=fired.task_id AND t.status='waiting'
+`, now.UTC(), limit)
+	if err != nil {
+		return 0, err
+	}
+	return int(cmd.RowsAffected()), nil
+}
+
+func (s *PostgresStore) WakeChildWaits(ctx context.Context, childTaskID string) error {
+	_, err := s.pool.Exec(ctx, `
+WITH fired AS (
+	UPDATE durable_waits SET status='fired', fired_at=NOW()
+	WHERE kind='child' AND status='waiting' AND child_task_id=$1
+	RETURNING task_id
+)
+UPDATE durable_tasks t SET status='queued', available_at=NOW(), updated_at=NOW()
+FROM fired WHERE t.id=fired.task_id AND t.status='waiting'
+`, childTaskID)
+	return err
+}
+
+func (s *PostgresStore) QueueStats(ctx context.Context) ([]QueueStats, error) {
+	rows, err := s.pool.Query(ctx, `
+SELECT queue,
+	COUNT(*) FILTER (WHERE status='queued') AS queued,
+	COUNT(*) FILTER (WHERE status='running') AS running,
+	COUNT(*) FILTER (WHERE status='waiting') AS waiting,
+	COUNT(*) FILTER (WHERE status='completed') AS completed,
+	COUNT(*) FILTER (WHERE status='failed') AS failed,
+	COUNT(*) FILTER (WHERE status='cancelled') AS cancelled
+FROM durable_tasks
+GROUP BY queue
+ORDER BY queue
+`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []QueueStats{}
+	for rows.Next() {
+		var stats QueueStats
+		if err := rows.Scan(&stats.Queue, &stats.Queued, &stats.Running, &stats.Waiting, &stats.Completed, &stats.Failed, &stats.Cancelled); err != nil {
+			return nil, err
+		}
+		out = append(out, stats)
+	}
+	return out, rows.Err()
+}
+
+func scanTask(row pgx.Row, task *Task) error {
+	var params, headers, retryPolicy, result, failure []byte
+	var completedAt *time.Time
+	var status string
+	if err := row.Scan(&task.ID, &task.Queue, &task.Name, &task.UserID, &params, &headers, &status, &task.IdempotencyKey, &task.ParentTaskID, &task.ParentRunID, &retryPolicy, &task.Attempt, &task.AvailableAt, &result, &failure, &task.Error, &task.CreatedAt, &task.UpdatedAt, &completedAt); err != nil {
+		return err
+	}
+	task.Status = TaskStatus(status)
+	_ = json.Unmarshal(params, &task.Params)
+	_ = json.Unmarshal(headers, &task.Headers)
+	_ = json.Unmarshal(retryPolicy, &task.RetryPolicy)
+	task.RetryPolicy = normalizeRetryPolicy(task.RetryPolicy)
+	if len(result) > 0 {
+		task.Result = append(json.RawMessage(nil), result...)
+	}
+	if len(failure) > 0 {
+		task.Failure = append(json.RawMessage(nil), failure...)
+	}
+	if completedAt != nil {
+		t := completedAt.UTC()
+		task.CompletedAt = &t
+	}
+	task.AvailableAt = task.AvailableAt.UTC()
+	task.CreatedAt = task.CreatedAt.UTC()
+	task.UpdatedAt = task.UpdatedAt.UTC()
+	return nil
+}
+
+func scanEvent(row pgx.Row) (Event, error) {
+	var ev Event
+	var payload []byte
+	if err := row.Scan(&ev.ID, &ev.TaskID, &ev.Queue, &ev.Name, &ev.Sequence, &payload, &ev.OccurredAt); err != nil {
+		return Event{}, err
+	}
+	_ = json.Unmarshal(payload, &ev.Payload)
+	ev.OccurredAt = ev.OccurredAt.UTC()
+	return ev, nil
+}
+
+func scanWait(row pgx.Row) (Wait, error) {
+	var wait Wait
+	var kind string
+	var wakeAt, firedAt *time.Time
+	if err := row.Scan(&wait.ID, &wait.TaskID, &wait.RunID, &kind, &wait.EventName, &wait.ChildTaskID, &wakeAt, &wait.Status, &wait.CreatedAt, &firedAt); err != nil {
+		return Wait{}, err
+	}
+	wait.Kind = WaitKind(kind)
+	if wakeAt != nil {
+		t := wakeAt.UTC()
+		wait.WakeAt = &t
+	}
+	if firedAt != nil {
+		t := firedAt.UTC()
+		wait.FiredAt = &t
+	}
+	wait.CreatedAt = wait.CreatedAt.UTC()
+	return wait, nil
+}
+
+func newID(prefix string) string {
+	var b [12]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("%s_%d", prefix, time.Now().UnixNano())
+	}
+	return prefix + "_" + hex.EncodeToString(b[:])
+}
+
+func nullJSON(raw json.RawMessage) []byte {
+	if len(raw) == 0 {
+		return []byte(`{}`)
+	}
+	return raw
+}
+
+func nonNilMap(m map[string]any) map[string]any {
+	if m == nil {
+		return map[string]any{}
+	}
+	return m
+}
+
+func nonEmpty(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}

@@ -8,6 +8,7 @@ import (
 
 	"manifold/internal/agent/belief"
 	"manifold/internal/config"
+	"manifold/internal/durable"
 	"manifold/internal/persistence"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -216,6 +217,11 @@ func initializeDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfi
 
 	m.FlowV2 = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPostgresFlowV2Store)
 	if err := initStore(ctx, "flow v2 store", m.FlowV2); err != nil {
+		return err
+	}
+
+	m.Durable = durable.NewStore(openOptionalPostgresPool(ctx, cfg.DefaultDSN))
+	if err := initStore(ctx, "durable store", m.Durable); err != nil {
 		return err
 	}
 

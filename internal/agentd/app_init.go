@@ -19,6 +19,7 @@ import (
 	codeqastore "manifold/internal/codeqa/store"
 	"manifold/internal/config"
 	"manifold/internal/constitution"
+	"manifold/internal/durable"
 	"manifold/internal/embeddedpg"
 	"manifold/internal/fleet"
 	"manifold/internal/httpapi"
@@ -101,6 +102,8 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init databases: %w", err)
 	}
+	durableClient := durable.NewClient(mgr.Durable)
+	durableRegistry := durable.NewRegistry()
 
 	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir, cfg.OutputTruncateByte)
 	codeQAOpts := appcodeqa.OptionsFromConfig(cfg.CodeQA, cfg.Workdir)
@@ -319,6 +322,9 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		embeddedRuntime:    embeddedRuntime,
 		llm:                llm,
 		summaryLLM:         summaryLLM,
+		durableStore:       mgr.Durable,
+		durableClient:      durableClient,
+		durableRegistry:    durableRegistry,
 		baseToolRegistry:   baseToolRegistry,
 		toolRegistry:       toolRegistry,
 		toolIndex:          toolIndex,
@@ -326,7 +332,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		userSpecRegs:       map[int64]*specialists.Registry{systemUserID: specReg},
 		runs:               newRunStore(),
 		inputRequests:      newInputRequestBroker(),
-		flowV2:             newFlowV2Runtime(mgr.FlowV2),
+		flowV2:             newFlowV2Runtime(mgr.FlowV2, durableClient),
 		codeQARuntime:      newCodeQARuntime(),
 		codeQAService:      codeQAService,
 		evolvingSessionTTL: defaultEvolvingSessionTTL,
@@ -339,6 +345,12 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		ragService:         runtimeRAGService,
 		fleetBus:           fleet.NewBus(512),
 	}
+	app.registerDurableHandlers()
+	app.durableWorker = durable.NewWorker(mgr.Durable, durableClient, durableRegistry, durable.WorkerOptions{
+		WorkerID:     fmt.Sprintf("agentd-%d", os.Getpid()),
+		Lease:        5 * time.Minute,
+		PollInterval: 500 * time.Millisecond,
+	})
 	trustStore := trust.NewStore(optionalPool(ctx, cfg.Databases.DefaultDSN))
 	app.trustService = trust.NewService(trustStore)
 	if err := app.trustService.Init(ctx); err != nil {
@@ -656,6 +668,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	if err := app.pulseRuntime.Start(ctx); err != nil {
 		return nil, fmt.Errorf("start matrix pulse runtime: %w", err)
 	}
+	app.durableWorker.Start(ctx)
 
 	return app, nil
 }

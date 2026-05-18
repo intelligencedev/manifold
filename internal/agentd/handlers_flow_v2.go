@@ -3,15 +3,13 @@ package agentd
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"strings"
 
+	"manifold/internal/durable"
 	"manifold/internal/flow"
 	persist "manifold/internal/persistence"
-	"manifold/internal/sandbox"
 )
 
 func (a *app) flowV2WorkflowsHandler() http.HandlerFunc {
@@ -199,19 +197,36 @@ func (a *app) flowV2RunHandler() http.HandlerFunc {
 
 		ctx := context.WithoutCancel(r.Context())
 		if p := strings.TrimSpace(req.ProjectID); p != "" {
-			cleanP := filepath.Clean(p)
-			if cleanP != p || strings.HasPrefix(cleanP, "..") || strings.Contains(cleanP, string(filepath.Separator)+"..") || filepath.IsAbs(cleanP) {
+			var projectErr error
+			ctx, projectErr = workflowToolContext(ctx, a.cfg, userID, p)
+			if projectErr != nil {
 				http.Error(w, "invalid project_id", http.StatusBadRequest)
 				return
 			}
-			baseRoot := filepath.Join(a.cfg.Workdir, "users", fmt.Sprint(userID), "projects")
-			base := filepath.Join(baseRoot, cleanP)
-			if !strings.HasPrefix(base, baseRoot+string(filepath.Separator)) && base != baseRoot {
-				http.Error(w, "invalid project_id", http.StatusBadRequest)
+		}
+
+		if a.durableClient != nil {
+			spawn, err := a.durableClient.Spawn(ctx, durable.SpawnRequest{
+				Queue:  durableFlowQueue,
+				Name:   durableFlowRunTaskName,
+				UserID: userID,
+				Params: map[string]any{
+					"workflow_id": wf.ID,
+					"input":       cloneMap(req.Input),
+					"project_id":  strings.TrimSpace(req.ProjectID),
+				},
+				RetryPolicy: durable.RetryPolicy{MaxAttempts: 3, Backoff: "exponential", BaseDelaySeconds: 1, MaxDelaySeconds: 30},
+			})
+			if err != nil {
+				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
 			}
-			ctx = sandbox.WithBaseDir(ctx, base)
-			ctx = sandbox.WithProjectID(ctx, cleanP)
+			a.flowV2State().createRunWithID(userID, wf.ID, spawn.TaskID, req.Input)
+			writeFlowV2JSON(w, http.StatusAccepted, flow.RunResponse{
+				RunID:  spawn.TaskID,
+				Status: "running",
+			})
+			return
 		}
 
 		runID := a.flowV2State().createRun(userID, wf.ID, req.Input)

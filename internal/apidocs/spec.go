@@ -158,6 +158,7 @@ func buildTags(tagSet map[string]struct{}) []map[string]any {
 		"Media":       "Audio and image media endpoints.",
 		"MCP":         "Model Context Protocol server management APIs.",
 		"Flow":        "Flow v2 APIs.",
+		"Durable":     "Postgres-backed durable task APIs.",
 		"Debug":       "Memory and observability debugging endpoints.",
 		"Playground":  "Prompt, dataset, and experiment playground APIs.",
 	}
@@ -174,6 +175,7 @@ func buildTags(tagSet map[string]struct{}) []map[string]any {
 		"Media",
 		"MCP",
 		"Flow",
+		"Durable",
 		"Debug",
 		"Playground",
 	}
@@ -225,6 +227,7 @@ func pathParamDescription(name string) string {
 		"intent":       "Workflow intent name.",
 		"workflow_id":  "Flow workflow identifier.",
 		"run_id":       "Run identifier.",
+		"task_id":      "Durable task identifier.",
 		"specialist":   "Specialist name.",
 		"promptID":     "Prompt identifier.",
 		"datasetID":    "Dataset identifier.",
@@ -649,6 +652,24 @@ func routeCatalog() []routeSpec {
 		}},
 		{path: "/api/flows/v2/runs/{run_id}/events", operations: []operationSpec{
 			jsonOp(http.MethodGet, "Flow", "Get or stream Flow v2 run events", true, withSuccess(http.StatusOK), withResponseMode("sse")),
+		}},
+		{path: "/api/durable/tasks", operations: []operationSpec{
+			jsonOp(http.MethodPost, "Durable", "Spawn durable task", true, withRequestBody("json"), withSuccess(http.StatusCreated)),
+		}},
+		{path: "/api/durable/tasks/{task_id}", operations: []operationSpec{
+			jsonOp(http.MethodGet, "Durable", "Get durable task state", true),
+		}},
+		{path: "/api/durable/tasks/{task_id}/events", operations: []operationSpec{
+			jsonOp(http.MethodGet, "Durable", "Get or stream durable task events", true, withSuccess(http.StatusOK), withResponseMode("sse")),
+		}},
+		{path: "/api/durable/tasks/{task_id}/cancel", operations: []operationSpec{
+			jsonOp(http.MethodPost, "Durable", "Cancel durable task", true, withSuccess(http.StatusOK)),
+		}},
+		{path: "/api/durable/events", operations: []operationSpec{
+			jsonOp(http.MethodPost, "Durable", "Emit durable event", true, withRequestBody("json"), withSuccess(http.StatusAccepted)),
+		}},
+		{path: "/api/durable/queues", operations: []operationSpec{
+			jsonOp(http.MethodGet, "Durable", "Get durable queue health", true),
 		}},
 		{path: "/api/mcp/servers", operations: []operationSpec{
 			jsonOp(http.MethodGet, "MCP", "List MCP servers", true),

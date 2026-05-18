@@ -30,6 +30,11 @@ func (a *app) close() {
 			log.Warn().Err(err).Msg("close matrix pulse runtime")
 		}
 	}
+	if a.durableWorker != nil {
+		if err := a.durableWorker.Close(); err != nil {
+			log.Warn().Err(err).Msg("close durable worker")
+		}
+	}
 	if a.mgr != nil {
 		a.mgr.Close()
 	}

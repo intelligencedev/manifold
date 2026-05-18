@@ -45,6 +45,11 @@ func newRouter(a *app) *http.ServeMux {
 	mux.HandleFunc("/api/codeqa/runs", a.codeQARunsHandler())
 	mux.HandleFunc("/api/codeqa/runs/", a.codeQARunDetailHandler())
 
+	mux.HandleFunc("/api/durable/tasks", a.durableTasksHandler())
+	mux.HandleFunc("/api/durable/tasks/", a.durableTaskDetailHandler())
+	mux.HandleFunc("/api/durable/events", a.durableEventsHandler())
+	mux.HandleFunc("/api/durable/queues", a.durableQueuesHandler())
+
 	mux.HandleFunc("/api/runs", a.runsHandler())
 	mux.HandleFunc("/api/runs/", a.runTimelineHandler())
 	mux.HandleFunc("/api/chat/sessions", a.chatSessionsHandler())

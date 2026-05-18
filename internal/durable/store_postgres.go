@@ -212,6 +212,35 @@ FROM durable_tasks WHERE id=$1 AND user_id=$2
 	return task, true, nil
 }
 
+func (s *PostgresStore) ListTasks(ctx context.Context, userID int64, filter TaskListFilter) ([]Task, error) {
+	filter.Queue = strings.TrimSpace(filter.Queue)
+	filter.Name = strings.TrimSpace(filter.Name)
+	status := strings.TrimSpace(string(filter.Status))
+	rows, err := s.pool.Query(ctx, `
+SELECT id, queue, name, user_id, params, headers, status, idempotency_key, COALESCE(parent_task_id,''), COALESCE(parent_run_id,''), retry_policy, attempt, available_at, result, failure, error, created_at, updated_at, completed_at
+FROM durable_tasks
+WHERE user_id=$1
+  AND ($2 = '' OR queue=$2)
+  AND ($3 = '' OR status=$3)
+  AND ($4 = '' OR name=$4)
+ORDER BY updated_at DESC, created_at DESC
+LIMIT $5
+`, userID, filter.Queue, status, filter.Name, normalizeTaskListLimit(filter.Limit))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	tasks := []Task{}
+	for rows.Next() {
+		var task Task
+		if err := scanTask(rows, &task); err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, task)
+	}
+	return tasks, rows.Err()
+}
+
 func (s *PostgresStore) ListTaskEvents(ctx context.Context, userID int64, taskID string, afterSequence int64) ([]Event, TaskStatus, bool, error) {
 	task, ok, err := s.GetTask(ctx, userID, taskID)
 	if err != nil || !ok {
@@ -494,6 +523,77 @@ func (s *PostgresStore) CancelTask(ctx context.Context, userID int64, taskID str
 	}
 	_, _ = s.AppendTaskEvent(ctx, taskID, "task_cancelled", map[string]any{"status": string(TaskStatusCancelled)})
 	return nil
+}
+
+func (s *PostgresStore) RetryTask(ctx context.Context, userID int64, taskID string, resetCheckpoints bool) (Task, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return Task{}, err
+	}
+	defer tx.Rollback(ctx)
+	row := tx.QueryRow(ctx, `
+SELECT id, queue, name, user_id, params, headers, status, idempotency_key, COALESCE(parent_task_id,''), COALESCE(parent_run_id,''), retry_policy, attempt, available_at, result, failure, error, created_at, updated_at, completed_at
+FROM durable_tasks WHERE id=$1 AND user_id=$2
+FOR UPDATE
+`, strings.TrimSpace(taskID), userID)
+	var existing Task
+	if err := scanTask(row, &existing); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Task{}, ErrTaskNotFound
+		}
+		return Task{}, err
+	}
+	if existing.Status != TaskStatusFailed && existing.Status != TaskStatusCancelled {
+		return Task{}, ErrInvalidState
+	}
+	row = tx.QueryRow(ctx, `
+UPDATE durable_tasks
+SET status='queued',
+	attempt=0,
+	available_at=NOW(),
+	result=NULL,
+	failure=NULL,
+	error='',
+	completed_at=NULL,
+	updated_at=NOW()
+WHERE id=$1 AND user_id=$2
+RETURNING id, queue, name, user_id, params, headers, status, idempotency_key, COALESCE(parent_task_id,''), COALESCE(parent_run_id,''), retry_policy, attempt, available_at, result, failure, error, created_at, updated_at, completed_at
+`, strings.TrimSpace(taskID), userID)
+	var task Task
+	if err := scanTask(row, &task); err != nil {
+		return Task{}, err
+	}
+	if resetCheckpoints {
+		if _, err := tx.Exec(ctx, `DELETE FROM durable_checkpoints WHERE task_id=$1`, task.ID); err != nil {
+			return Task{}, err
+		}
+	}
+	if _, err := tx.Exec(ctx, `UPDATE durable_waits SET status='cancelled', fired_at=NOW() WHERE task_id=$1 AND status='waiting'`, task.ID); err != nil {
+		return Task{}, err
+	}
+	payloadBytes, err := json.Marshal(map[string]any{"reset_checkpoints": resetCheckpoints})
+	if err != nil {
+		return Task{}, err
+	}
+	var seq int64
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(sequence),0)+1 FROM durable_events WHERE task_id=$1`, task.ID).Scan(&seq); err != nil {
+		return Task{}, err
+	}
+	var eventID int64
+	if err := tx.QueryRow(ctx, `
+INSERT INTO durable_events (task_id, queue, name, sequence, payload)
+VALUES ($1,$2,$3,$4,$5::jsonb)
+RETURNING id
+`, task.ID, task.Queue, "task_retried", seq, payloadBytes).Scan(&eventID); err != nil {
+		return Task{}, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO durable_outbox (task_id, event_id, topic, payload) VALUES ($1,$2,$3,$4::jsonb)`, task.ID, eventID, "task_retried", payloadBytes); err != nil {
+		return Task{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Task{}, err
+	}
+	return task, nil
 }
 
 func (s *PostgresStore) GetCheckpoint(ctx context.Context, taskID, stepKey string) (json.RawMessage, bool, error) {

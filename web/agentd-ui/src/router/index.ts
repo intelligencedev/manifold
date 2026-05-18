@@ -38,6 +38,16 @@ const router = createRouter({
       component: () => import("@/views/FlowView.vue"),
     },
     {
+      path: "/durable",
+      name: "durable",
+      component: () => import("@/views/DurableView.vue"),
+    },
+    {
+      path: "/durable/tasks/:taskId",
+      name: "durable-task",
+      component: () => import("@/views/DurableTaskView.vue"),
+    },
+    {
       path: "/codeqa/:runId?",
       name: "codeqa",
       component: () => import("@/views/CodeQaView.vue"),

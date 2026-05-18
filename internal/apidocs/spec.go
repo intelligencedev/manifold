@@ -654,6 +654,7 @@ func routeCatalog() []routeSpec {
 			jsonOp(http.MethodGet, "Flow", "Get or stream Flow v2 run events", true, withSuccess(http.StatusOK), withResponseMode("sse")),
 		}},
 		{path: "/api/durable/tasks", operations: []operationSpec{
+			jsonOp(http.MethodGet, "Durable", "List durable tasks", true),
 			jsonOp(http.MethodPost, "Durable", "Spawn durable task", true, withRequestBody("json"), withSuccess(http.StatusCreated)),
 		}},
 		{path: "/api/durable/tasks/{task_id}", operations: []operationSpec{
@@ -664,6 +665,9 @@ func routeCatalog() []routeSpec {
 		}},
 		{path: "/api/durable/tasks/{task_id}/cancel", operations: []operationSpec{
 			jsonOp(http.MethodPost, "Durable", "Cancel durable task", true, withSuccess(http.StatusOK)),
+		}},
+		{path: "/api/durable/tasks/{task_id}/retry", operations: []operationSpec{
+			jsonOp(http.MethodPost, "Durable", "Retry durable task", true, withRequestBody("json"), withSuccess(http.StatusOK)),
 		}},
 		{path: "/api/durable/events", operations: []operationSpec{
 			jsonOp(http.MethodPost, "Durable", "Emit durable event", true, withRequestBody("json"), withSuccess(http.StatusAccepted)),

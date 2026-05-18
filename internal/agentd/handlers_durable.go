@@ -3,8 +3,10 @@ package agentd
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +17,10 @@ type durableEmitRequest struct {
 	Queue   string         `json:"queue,omitempty"`
 	Name    string         `json:"name"`
 	Payload map[string]any `json:"payload,omitempty"`
+}
+
+type durableRetryRequest struct {
+	ResetCheckpoints bool `json:"reset_checkpoints,omitempty"`
 }
 
 func (a *app) durableTasksHandler() http.HandlerFunc {
@@ -31,7 +37,22 @@ func (a *app) durableTasksHandler() http.HandlerFunc {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		if r.Method != http.MethodPost {
+		switch r.Method {
+		case http.MethodGet:
+			filter, err := durableTaskListFilterFromQuery(r.URL.Query())
+			if err != nil {
+				http.Error(w, "bad request", http.StatusBadRequest)
+				return
+			}
+			tasks, err := a.durableClient.ListTasks(r.Context(), userID, filter)
+			if err != nil {
+				writeDurableError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"tasks": tasks})
+			return
+		case http.MethodPost:
+		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
@@ -63,6 +84,34 @@ func (a *app) durableTasksHandler() http.HandlerFunc {
 		}
 		writeJSON(w, status, result)
 	}
+}
+
+func durableTaskListFilterFromQuery(values url.Values) (durable.TaskListFilter, error) {
+	filter := durable.TaskListFilter{
+		Queue: strings.TrimSpace(values.Get("queue")),
+		Name:  strings.TrimSpace(values.Get("name")),
+	}
+	if status := strings.TrimSpace(values.Get("status")); status != "" {
+		switch durable.TaskStatus(status) {
+		case durable.TaskStatusQueued,
+			durable.TaskStatusRunning,
+			durable.TaskStatusWaiting,
+			durable.TaskStatusCompleted,
+			durable.TaskStatusFailed,
+			durable.TaskStatusCancelled:
+			filter.Status = durable.TaskStatus(status)
+		default:
+			return durable.TaskListFilter{}, errors.New("invalid status")
+		}
+	}
+	if rawLimit := strings.TrimSpace(values.Get("limit")); rawLimit != "" {
+		limit, err := strconv.Atoi(rawLimit)
+		if err != nil || limit < 0 {
+			return durable.TaskListFilter{}, errors.New("invalid limit")
+		}
+		filter.Limit = limit
+	}
+	return filter, nil
 }
 
 func (a *app) durableTaskDetailHandler() http.HandlerFunc {
@@ -116,10 +165,39 @@ func (a *app) durableTaskDetailHandler() http.HandlerFunc {
 				return
 			}
 			writeJSON(w, http.StatusOK, map[string]any{"task_id": taskID, "status": durable.TaskStatusCancelled})
+		case "retry":
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			req, ok := decodeDurableRetryRequest(w, r)
+			if !ok {
+				return
+			}
+			task, err := a.durableClient.Retry(r.Context(), userID, taskID, req.ResetCheckpoints)
+			if err != nil {
+				writeDurableError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"task": task})
 		default:
 			http.NotFound(w, r)
 		}
 	}
+}
+
+func decodeDurableRetryRequest(w http.ResponseWriter, r *http.Request) (durableRetryRequest, bool) {
+	var req durableRetryRequest
+	if r.Body == nil || r.ContentLength == 0 {
+		return req, true
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	defer r.Body.Close()
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return durableRetryRequest{}, false
+	}
+	return req, true
 }
 
 func (a *app) durableEventsHandler() http.HandlerFunc {
@@ -269,6 +347,8 @@ func writeDurableError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, durable.ErrTaskNotFound), errors.Is(err, durable.ErrNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": err.Error()})
+	case errors.Is(err, durable.ErrInvalidState):
+		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error()})
 	default:
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}

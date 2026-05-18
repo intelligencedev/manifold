@@ -58,6 +58,103 @@ func TestMemoryStoreClaimPreventsDuplicateActiveClaims(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreListTasksFiltersByUserQueueStatusAndName(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := NewMemoryStore()
+	client := NewClient(store)
+	if _, err := client.Spawn(ctx, SpawnRequest{Queue: "ops", Name: "deploy", UserID: 7}); err != nil {
+		t.Fatalf("spawn deploy: %v", err)
+	}
+	if _, err := client.Spawn(ctx, SpawnRequest{Queue: "mail", Name: "digest", UserID: 7}); err != nil {
+		t.Fatalf("spawn digest: %v", err)
+	}
+	if _, err := client.Spawn(ctx, SpawnRequest{Queue: "other", Name: "deploy", UserID: 8}); err != nil {
+		t.Fatalf("spawn other user: %v", err)
+	}
+	claimed, _, ok, err := store.ClaimNext(ctx, []string{"ops"}, "worker", time.Minute)
+	if err != nil || !ok {
+		t.Fatalf("claim ops task ok=%v err=%v", ok, err)
+	}
+	if claimed.UserID != 7 {
+		t.Fatalf("claimed user = %d, want 7", claimed.UserID)
+	}
+	all, err := client.ListTasks(ctx, 7, TaskListFilter{})
+	if err != nil {
+		t.Fatalf("list all: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("list all count = %d, want 2: %+v", len(all), all)
+	}
+	running, err := client.ListTasks(ctx, 7, TaskListFilter{Queue: "ops", Status: TaskStatusRunning})
+	if err != nil {
+		t.Fatalf("list running: %v", err)
+	}
+	if len(running) != 1 || running[0].ID != claimed.ID {
+		t.Fatalf("running filter = %+v, want claimed task %s", running, claimed.ID)
+	}
+	named, err := client.ListTasks(ctx, 7, TaskListFilter{Name: "digest", Limit: 1})
+	if err != nil {
+		t.Fatalf("list named: %v", err)
+	}
+	if len(named) != 1 || named[0].Name != "digest" || named[0].Queue != "mail" {
+		t.Fatalf("name filter = %+v, want mail digest", named)
+	}
+}
+
+func TestMemoryStoreRetryTaskRequeuesAndControlsCheckpoints(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := NewMemoryStore()
+	client := NewClient(store)
+	spawn, err := client.Spawn(ctx, SpawnRequest{Name: "retryable", UserID: 15, RetryPolicy: RetryPolicy{MaxAttempts: 1}})
+	if err != nil {
+		t.Fatalf("spawn task: %v", err)
+	}
+	task, run, ok, err := store.ClaimNext(ctx, []string{DefaultQueue}, "worker", time.Minute)
+	if err != nil || !ok {
+		t.Fatalf("claim task ok=%v err=%v", ok, err)
+	}
+	if _, err := store.SaveCheckpoint(ctx, task.ID, "step", []byte(`{"ok":true}`)); err != nil {
+		t.Fatalf("save checkpoint: %v", err)
+	}
+	if err := store.FailTask(ctx, task.ID, run.ID, []byte(`{"error":"boom"}`), "boom", time.Time{}); err != nil {
+		t.Fatalf("fail task: %v", err)
+	}
+	retried, err := client.Retry(ctx, 15, spawn.TaskID, false)
+	if err != nil {
+		t.Fatalf("retry task: %v", err)
+	}
+	if retried.Status != TaskStatusQueued || retried.Attempt != 0 || retried.Error != "" || len(retried.Failure) != 0 || retried.CompletedAt != nil {
+		t.Fatalf("retried task = %+v, want queued with cleared terminal state", retried)
+	}
+	if _, found, err := store.GetCheckpoint(ctx, task.ID, "step"); err != nil || !found {
+		t.Fatalf("checkpoint after preserving retry found=%v err=%v", found, err)
+	}
+	events, _, found, err := client.ListEvents(ctx, 15, spawn.TaskID, 0)
+	if err != nil || !found {
+		t.Fatalf("list events found=%v err=%v", found, err)
+	}
+	if len(events) != 1 || events[0].Name != "task_retried" {
+		t.Fatalf("events = %+v, want task_retried", events)
+	}
+	task, run, ok, err = store.ClaimNext(ctx, []string{DefaultQueue}, "worker", time.Minute)
+	if err != nil || !ok {
+		t.Fatalf("claim retried task ok=%v err=%v", ok, err)
+	}
+	if err := store.FailTask(ctx, task.ID, run.ID, []byte(`{"error":"boom again"}`), "boom again", time.Time{}); err != nil {
+		t.Fatalf("fail retried task: %v", err)
+	}
+	if _, err := client.Retry(ctx, 15, spawn.TaskID, true); err != nil {
+		t.Fatalf("retry task with checkpoint reset: %v", err)
+	}
+	if _, found, err := store.GetCheckpoint(ctx, task.ID, "step"); err != nil {
+		t.Fatalf("checkpoint after reset: %v", err)
+	} else if found {
+		t.Fatal("checkpoint was preserved after reset_checkpoints=true")
+	}
+}
+
 func TestWorkerReusesCheckpointAcrossRetry(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

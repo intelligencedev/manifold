@@ -17,6 +17,8 @@ type MemoryStore struct {
 	checkpoints map[string]json.RawMessage
 	events      []Event
 	waits       map[string]Wait
+	nextTaskID  int64
+	nextRunID   int64
 	nextEventID int64
 }
 
@@ -52,7 +54,8 @@ func (s *MemoryStore) SpawnTask(_ context.Context, req SpawnRequest) (Task, bool
 	if req.AvailableAt.IsZero() {
 		req.AvailableAt = now
 	}
-	id := fmt.Sprintf("dtask_%d", now.UnixNano())
+	s.nextTaskID++
+	id := fmt.Sprintf("dtask_%d", s.nextTaskID)
 	task := Task{
 		ID:             id,
 		Queue:          req.Queue,
@@ -81,6 +84,40 @@ func (s *MemoryStore) GetTask(_ context.Context, userID int64, taskID string) (T
 		return Task{}, false, nil
 	}
 	return cloneTask(task), true, nil
+}
+
+func (s *MemoryStore) ListTasks(_ context.Context, userID int64, filter TaskListFilter) ([]Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	filter.Queue = strings.TrimSpace(filter.Queue)
+	filter.Name = strings.TrimSpace(filter.Name)
+	limit := normalizeTaskListLimit(filter.Limit)
+	out := make([]Task, 0, len(s.tasks))
+	for _, task := range s.tasks {
+		if task.UserID != userID {
+			continue
+		}
+		if filter.Queue != "" && task.Queue != filter.Queue {
+			continue
+		}
+		if filter.Status != "" && task.Status != filter.Status {
+			continue
+		}
+		if filter.Name != "" && task.Name != filter.Name {
+			continue
+		}
+		out = append(out, cloneTask(task))
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
+			return out[i].CreatedAt.After(out[j].CreatedAt)
+		}
+		return out[i].UpdatedAt.After(out[j].UpdatedAt)
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }
 
 func (s *MemoryStore) ListTaskEvents(_ context.Context, userID int64, taskID string, afterSequence int64) ([]Event, TaskStatus, bool, error) {
@@ -188,7 +225,8 @@ func (s *MemoryStore) ClaimNext(_ context.Context, queues []string, workerID str
 	task.Attempt++
 	task.UpdatedAt = now
 	s.tasks[task.ID] = task
-	run := Run{ID: fmt.Sprintf("drun_%d", now.UnixNano()), TaskID: task.ID, Attempt: task.Attempt, Status: RunStatusRunning, WorkerID: workerID, LeaseUntil: now.Add(lease), StartedAt: now}
+	s.nextRunID++
+	run := Run{ID: fmt.Sprintf("drun_%d", s.nextRunID), TaskID: task.ID, Attempt: task.Attempt, Status: RunStatusRunning, WorkerID: workerID, LeaseUntil: now.Add(lease), StartedAt: now}
 	s.runs[run.ID] = run
 	return cloneTask(task), run, true, nil
 }
@@ -288,6 +326,60 @@ func (s *MemoryStore) CancelTask(_ context.Context, userID int64, taskID string)
 	task.UpdatedAt = now
 	s.tasks[taskID] = task
 	return nil
+}
+
+func (s *MemoryStore) RetryTask(_ context.Context, userID int64, taskID string, resetCheckpoints bool) (Task, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	task, ok := s.tasks[taskID]
+	if !ok || task.UserID != userID {
+		return Task{}, ErrTaskNotFound
+	}
+	if task.Status != TaskStatusFailed && task.Status != TaskStatusCancelled {
+		return Task{}, ErrInvalidState
+	}
+	now := time.Now().UTC()
+	task.Status = TaskStatusQueued
+	task.Attempt = 0
+	task.AvailableAt = now
+	task.Result = nil
+	task.Failure = nil
+	task.Error = ""
+	task.CompletedAt = nil
+	task.UpdatedAt = now
+	s.tasks[taskID] = task
+	if resetCheckpoints {
+		prefix := taskID + "\x00"
+		for key := range s.checkpoints {
+			if strings.HasPrefix(key, prefix) {
+				delete(s.checkpoints, key)
+			}
+		}
+	}
+	for id, wait := range s.waits {
+		if wait.TaskID == taskID && wait.Status == "waiting" {
+			wait.Status = "cancelled"
+			wait.FiredAt = &now
+			s.waits[id] = wait
+		}
+	}
+	seq := int64(1)
+	for _, ev := range s.events {
+		if ev.TaskID == taskID && ev.Sequence >= seq {
+			seq = ev.Sequence + 1
+		}
+	}
+	s.nextEventID++
+	s.events = append(s.events, Event{
+		ID:         s.nextEventID,
+		TaskID:     taskID,
+		Queue:      task.Queue,
+		Name:       "task_retried",
+		Sequence:   seq,
+		Payload:    map[string]any{"reset_checkpoints": resetCheckpoints},
+		OccurredAt: now,
+	})
+	return cloneTask(task), nil
 }
 
 func (s *MemoryStore) GetCheckpoint(_ context.Context, taskID, stepKey string) (json.RawMessage, bool, error) {
@@ -423,6 +515,17 @@ func normalizeRetryPolicy(policy RetryPolicy) RetryPolicy {
 		policy.MaxAttempts = 3
 	}
 	return policy
+}
+
+func normalizeTaskListLimit(limit int) int {
+	switch {
+	case limit <= 0:
+		return 50
+	case limit > 200:
+		return 200
+	default:
+		return limit
+	}
 }
 
 func cloneTask(task Task) Task {

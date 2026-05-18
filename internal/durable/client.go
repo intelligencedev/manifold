@@ -46,6 +46,13 @@ func (c *Client) FetchResult(ctx context.Context, userID int64, taskID string) (
 	return &ResultSnapshot{TaskID: task.ID, State: task.Status, Result: task.Result, Failure: task.Failure, Error: task.Error}, nil
 }
 
+func (c *Client) ListTasks(ctx context.Context, userID int64, filter TaskListFilter) ([]Task, error) {
+	if c == nil || c.store == nil {
+		return nil, ErrNotFound
+	}
+	return c.store.ListTasks(ctx, userID, filter)
+}
+
 func (c *Client) AwaitResult(ctx context.Context, userID int64, taskID string, poll time.Duration) (*ResultSnapshot, error) {
 	if poll <= 0 {
 		poll = 250 * time.Millisecond
@@ -80,6 +87,13 @@ func (c *Client) Cancel(ctx context.Context, userID int64, taskID string) error 
 		return ErrNotFound
 	}
 	return c.store.CancelTask(ctx, userID, taskID)
+}
+
+func (c *Client) Retry(ctx context.Context, userID int64, taskID string, resetCheckpoints bool) (Task, error) {
+	if c == nil || c.store == nil {
+		return Task{}, ErrNotFound
+	}
+	return c.store.RetryTask(ctx, userID, taskID, resetCheckpoints)
 }
 
 func (c *Client) ListEvents(ctx context.Context, userID int64, taskID string, afterSequence int64) ([]Event, TaskStatus, bool, error) {

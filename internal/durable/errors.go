@@ -10,5 +10,6 @@ var (
 	ErrHandlerNotFound = errors.New("durable handler not found")
 	ErrSuspended       = errors.New("durable task suspended")
 	ErrCancelled       = errors.New("durable task cancelled")
+	ErrInvalidState    = errors.New("durable task state does not allow this operation")
 	ErrDeadlock        = errors.New("durable child wait would deadlock")
 )

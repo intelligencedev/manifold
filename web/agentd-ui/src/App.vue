@@ -122,6 +122,7 @@ const navigation: NavigationItem[] = [
   { label: "Pulse", to: "/pulse" },
   { label: "Playground", to: "/playground" },
   { label: "Flow", to: "/flow" },
+  { label: "Durable", to: "/durable" },
   ...betaNavigation,
   { label: "Settings", to: "/settings" },
 ];

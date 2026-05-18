@@ -64,6 +64,13 @@ type SpawnResult struct {
 	Created bool   `json:"created"`
 }
 
+type TaskListFilter struct {
+	Queue  string
+	Status TaskStatus
+	Name   string
+	Limit  int
+}
+
 type Task struct {
 	ID             string          `json:"id"`
 	Queue          string          `json:"queue"`

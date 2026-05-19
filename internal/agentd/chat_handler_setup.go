@@ -13,6 +13,7 @@ import (
 
 type preparedChatHandlerState struct {
 	Request             *http.Request
+	RunRequest          chatRunRequest
 	UserID              *int64
 	CurrentUser         *auth.User
 	Owner               int64
@@ -52,6 +53,32 @@ func (a *app) prepareChatHandlerState(w http.ResponseWriter, r *http.Request, re
 		userID = id
 	}
 
+	if req.ProjectID != "" {
+		if _, err := workspaces.ValidateProjectID(req.ProjectID); err != nil {
+			http.Error(w, "invalid project_id", http.StatusBadRequest)
+			return nil, false
+		}
+	}
+
+	sess, err := ensureChatSession(r.Context(), a.chatStore, userID, req.SessionID)
+	if err != nil {
+		if err == persist.ErrForbidden {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return nil, false
+		}
+		log.Error().Err(err).Str("session", req.SessionID).Msg("ensure_chat_session")
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return nil, false
+	}
+
+	if sess.ProjectID != "" {
+		if req.ProjectID != "" && req.ProjectID != sess.ProjectID {
+			http.Error(w, "session is locked to a different project", http.StatusConflict)
+			return nil, false
+		}
+		req.ProjectID = sess.ProjectID
+	}
+
 	r, checkedOutWorkspace, statusCode, err := a.prepareChatRunRequest(r, userID, req)
 	if err != nil {
 		switch statusCode {
@@ -72,14 +99,18 @@ func (a *app) prepareChatHandlerState(w http.ResponseWriter, r *http.Request, re
 		return nil, false
 	}
 
-	if _, err := ensureChatSession(r.Context(), a.chatStore, userID, req.SessionID); err != nil {
-		if err == persist.ErrForbidden {
-			http.Error(w, "forbidden", http.StatusForbidden)
+	if sess.ProjectID == "" && req.ProjectID != "" {
+		updated, err := a.chatStore.SetSessionProject(r.Context(), userID, req.SessionID, req.ProjectID)
+		if err != nil {
+			if err == persist.ErrForbidden {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return nil, false
+			}
+			log.Error().Err(err).Str("session", req.SessionID).Str("project_id", req.ProjectID).Msg("lock_chat_session_project")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return nil, false
 		}
-		log.Error().Err(err).Str("session", req.SessionID).Msg("ensure_chat_session")
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return nil, false
+		req.ProjectID = updated.ProjectID
 	}
 
 	if req.Image {
@@ -88,6 +119,7 @@ func (a *app) prepareChatHandlerState(w http.ResponseWriter, r *http.Request, re
 
 	return &preparedChatHandlerState{
 		Request:             r,
+		RunRequest:          req,
 		UserID:              userID,
 		CurrentUser:         currentUser,
 		Owner:               chatRequestOwner(currentUser, userID),

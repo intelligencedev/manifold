@@ -1370,10 +1370,20 @@ const selectedProjectId = computed({
   set: (v: string) => {
     const sessionId = activeSessionId.value;
     if (!sessionId) return;
+    const projectId = (v || "").trim();
+    const previousProjectId = selectedProjectBySession.value[sessionId] || "";
+    if (previousProjectId === projectId) return;
     selectedProjectBySession.value = {
       ...selectedProjectBySession.value,
-      [sessionId]: v,
+      [sessionId]: projectId,
     };
+    void chat.updateSessionProject(sessionId, projectId).catch((error) => {
+      selectedProjectBySession.value = {
+        ...selectedProjectBySession.value,
+        [sessionId]: previousProjectId,
+      };
+      console.warn("Failed to persist chat session project:", error);
+    });
   },
 });
 const sessions = computed(() => chat.sessions);
@@ -1477,11 +1487,23 @@ const teamsByName = computed(() => {
 
 // Transform projects data for dropdown
 const projectOptions = computed<DropdownOption[]>(() => {
-  const projectEntries = projects.value.map((project) => ({
+  const projectEntries: DropdownOption[] = projects.value.map((project) => ({
     id: project.id,
     label: project.name,
     value: project.id,
   }));
+  const lockedProjectID = selectedProjectId.value;
+  if (
+    lockedProjectID &&
+    !projectEntries.some((project) => project.value === lockedProjectID)
+  ) {
+    projectEntries.unshift({
+      id: lockedProjectID,
+      label: `${lockedProjectID} (missing)`,
+      value: lockedProjectID,
+      disabled: true,
+    });
+  }
   if (!projectEntries.length) {
     return [{ id: "", label: "no project available", value: "" }];
   }
@@ -1495,21 +1517,6 @@ const projectOptions = computed<DropdownOption[]>(() => {
     ...projectEntries,
   ];
 });
-
-watch(
-  [activeSessionId, projects],
-  ([sessionId, projectList]) => {
-    if (!sessionId) return;
-    if (selectedProjectBySession.value[sessionId]) return;
-    const fallback = projectList[0]?.id;
-    if (!fallback) return;
-    selectedProjectBySession.value = {
-      ...selectedProjectBySession.value,
-      [sessionId]: fallback,
-    };
-  },
-  { immediate: true },
-);
 
 // Transform render mode options for dropdown
 const renderModeOptions = computed<DropdownOption[]>(() => [
@@ -1691,7 +1698,10 @@ watch([selectedTeam, selectedSpecialist, selectedTeamMembers], () => {
     selectedSpecialist.value = "orchestrator";
   }
 });
-const projectSelected = computed(() => Boolean(selectedProjectId.value));
+const projectSelected = computed(() => {
+  const projectID = selectedProjectId.value;
+  return Boolean(projectID && projects.value.some((p) => p.id === projectID));
+});
 const requiresProjectSelection = computed(() => !projectSelected.value);
 
 function httpStatus(error: unknown): number | null {
@@ -2647,44 +2657,58 @@ watch(
   { flush: "post" },
 );
 
-watch(sessions, (next) => {
-  const keep = new Set(next.map((s) => s.id));
-  const current = selectedSpecialistBySession.value;
-  let changed = false;
-  const pruned: Record<string, string> = {};
-  for (const [id, value] of Object.entries(current)) {
-    if (keep.has(id)) {
-      pruned[id] = value;
-    } else {
-      changed = true;
+watch(
+  sessions,
+  (next) => {
+    const keep = new Set(next.map((s) => s.id));
+    const current = selectedSpecialistBySession.value;
+    let changed = false;
+    const pruned: Record<string, string> = {};
+    for (const [id, value] of Object.entries(current)) {
+      if (keep.has(id)) {
+        pruned[id] = value;
+      } else {
+        changed = true;
+      }
     }
-  }
-  if (changed) selectedSpecialistBySession.value = pruned;
+    if (changed) selectedSpecialistBySession.value = pruned;
 
-  const teamCurrent = selectedTeamBySession.value;
-  let teamChanged = false;
-  const teamPruned: Record<string, string> = {};
-  for (const [id, value] of Object.entries(teamCurrent)) {
-    if (keep.has(id)) {
-      teamPruned[id] = value;
-    } else {
-      teamChanged = true;
+    const teamCurrent = selectedTeamBySession.value;
+    let teamChanged = false;
+    const teamPruned: Record<string, string> = {};
+    for (const [id, value] of Object.entries(teamCurrent)) {
+      if (keep.has(id)) {
+        teamPruned[id] = value;
+      } else {
+        teamChanged = true;
+      }
     }
-  }
-  if (teamChanged) selectedTeamBySession.value = teamPruned;
+    if (teamChanged) selectedTeamBySession.value = teamPruned;
 
-  const projectCurrent = selectedProjectBySession.value;
-  let projectChanged = false;
-  const projectPruned: Record<string, string> = {};
-  for (const [id, value] of Object.entries(projectCurrent)) {
-    if (keep.has(id)) {
-      projectPruned[id] = value;
-    } else {
-      projectChanged = true;
+    const projectCurrent = selectedProjectBySession.value;
+    let projectChanged = false;
+    const projectPruned: Record<string, string> = {};
+    for (const session of next) {
+      const storedProjectID = (session.projectId || "").trim();
+      const currentProjectID = projectCurrent[session.id] || "";
+      const nextProjectID = storedProjectID || currentProjectID;
+      if (nextProjectID) {
+        projectPruned[session.id] = nextProjectID;
+      }
+      if (storedProjectID && storedProjectID !== currentProjectID) {
+        projectChanged = true;
+      }
     }
-  }
-  if (projectChanged) selectedProjectBySession.value = projectPruned;
-});
+    for (const id of Object.keys(projectCurrent)) {
+      if (!keep.has(id)) {
+        projectChanged = true;
+        break;
+      }
+    }
+    if (projectChanged) selectedProjectBySession.value = projectPruned;
+  },
+  { immediate: true },
+);
 
 watch(
   () =>
@@ -3020,9 +3044,15 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
   // New prompt: ensure any prior timer intervals are stopped before we start a new stream.
   stopAllResponseTimers();
 
-  autoScrollEnabled.value = true;
-  draft.value = options.echoUser === false ? draft.value : "";
   try {
+    const sessionId = activeSessionId.value;
+    const projectId = selectedProjectId.value.trim();
+    if (sessionId && projectId) {
+      await chat.updateSessionProject(sessionId, projectId);
+    }
+
+    autoScrollEnabled.value = true;
+    draft.value = options.echoUser === false ? draft.value : "";
     const attachmentsToSend = [...pendingAttachments.value];
     const filesByAttachmentSnapshot = new Map(filesByAttachment);
     if (attachmentsToSend.some((att) => att.kind === "image")) {
@@ -3057,7 +3087,7 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
         specialist,
         routingSpecialist,
         teamName,
-        projectId: selectedProjectId.value || undefined,
+        projectId: projectId || undefined,
         image: imagePrompt.value,
         imageSize: "1K",
         agentName,
@@ -3087,11 +3117,16 @@ async function regenerateAssistant(message: ChatMessage) {
       : undefined;
   const teamName = selectedTeam.value || undefined;
   const { agentName, agentModel } = resolveAgentContext();
+  const sessionId = activeSessionId.value;
+  const projectId = selectedProjectId.value.trim();
+  if (sessionId && projectId) {
+    await chat.updateSessionProject(sessionId, projectId);
+  }
   await chat.regenerateAssistant({
     specialist,
     routingSpecialist,
     teamName,
-    projectId: selectedProjectId.value,
+    projectId,
     agentName,
     agentModel,
     messageId: message.id,

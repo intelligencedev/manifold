@@ -47,7 +47,9 @@
           <!-- Meta cards -->
           <section class="border-b border-border/60 px-4 py-3">
             <div class="grid grid-cols-2 gap-2">
-              <div class="rounded-3 border border-border/60 bg-surface-muted/35 p-3">
+              <div
+                class="rounded-3 border border-border/60 bg-surface-muted/35 p-3"
+              >
                 <p
                   class="text-[10px] font-semibold uppercase tracking-[0.18em] text-faint-foreground"
                 >
@@ -57,17 +59,23 @@
                   {{ task.status }}
                 </Chip>
               </div>
-              <div class="rounded-3 border border-border/60 bg-surface-muted/35 p-3">
+              <div
+                class="rounded-3 border border-border/60 bg-surface-muted/35 p-3"
+              >
                 <p
                   class="text-[10px] font-semibold uppercase tracking-[0.18em] text-faint-foreground"
                 >
                   Attempts
                 </p>
-                <p class="mt-2 text-xl font-semibold text-foreground tabular-nums">
+                <p
+                  class="mt-2 text-xl font-semibold text-foreground tabular-nums"
+                >
                   {{ task.attempt }}
                 </p>
               </div>
-              <div class="rounded-3 border border-border/60 bg-surface-muted/35 p-3">
+              <div
+                class="rounded-3 border border-border/60 bg-surface-muted/35 p-3"
+              >
                 <p
                   class="text-[10px] font-semibold uppercase tracking-[0.18em] text-faint-foreground"
                 >
@@ -77,7 +85,9 @@
                   {{ task.queue }}
                 </p>
               </div>
-              <div class="rounded-3 border border-border/60 bg-surface-muted/35 p-3">
+              <div
+                class="rounded-3 border border-border/60 bg-surface-muted/35 p-3"
+              >
                 <p
                   class="text-[10px] font-semibold uppercase tracking-[0.18em] text-faint-foreground"
                 >
@@ -148,7 +158,9 @@
                 <dt class="text-faint-foreground">Completed</dt>
                 <dd class="mt-1 truncate font-medium text-foreground">
                   {{
-                    task.completed_at ? formatDate(task.completed_at) : "Pending"
+                    task.completed_at
+                      ? formatDate(task.completed_at)
+                      : "Pending"
                   }}
                 </dd>
               </div>
@@ -168,7 +180,9 @@
                 :key="block.label"
                 class="rounded-3 border border-border/60 bg-surface-muted/25 p-3"
               >
-                <summary class="cursor-pointer text-sm font-medium text-foreground">
+                <summary
+                  class="cursor-pointer text-sm font-medium text-foreground"
+                >
                   {{ block.label }}
                 </summary>
                 <pre
@@ -217,27 +231,80 @@
               No events recorded yet.
             </div>
             <ol v-else class="space-y-2">
-              <li
-                v-for="event in events"
-                :key="event.id"
-                class="rounded-3 border border-border/60 bg-surface-muted/25 p-3"
-              >
-                <div class="flex items-start justify-between gap-3">
-                  <div class="min-w-0">
-                    <p class="truncate text-sm font-medium text-foreground">
-                      {{ event.name }}
-                    </p>
-                    <p class="mt-1 text-xs text-faint-foreground">
-                      #{{ event.sequence }} - {{ formatDate(event.occurred_at) }}
-                    </p>
-                  </div>
-                  <Chip muted>event</Chip>
-                </div>
-                <pre
-                  v-if="hasPayload(event.payload)"
-                  class="mt-2 max-h-28 overflow-auto rounded-3 border border-border/50 bg-background/45 p-2 text-[11px] leading-relaxed text-subtle-foreground"
-                  >{{ pretty(event.payload) }}</pre
+              <li v-for="event in events" :key="event.id" class="min-w-0">
+                <details
+                  class="group rounded-3 border p-3 transition-colors"
+                  :class="eventCardTone(event)"
+                  :open="isFailedEvent(event)"
                 >
+                  <summary
+                    class="flex cursor-pointer list-none items-start justify-between gap-3 [&::-webkit-details-marker]:hidden"
+                  >
+                    <div class="flex min-w-0 items-start gap-2">
+                      <span
+                        class="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border/60 bg-surface-muted/40 text-subtle-foreground transition group-open:rotate-90"
+                        :class="
+                          isFailedEvent(event)
+                            ? 'border-danger/40 bg-danger/10 text-danger'
+                            : ''
+                        "
+                        aria-hidden="true"
+                      >
+                        <svg
+                          viewBox="0 0 24 24"
+                          class="h-3 w-3"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="2.5"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        >
+                          <polyline points="9 18 15 12 9 6" />
+                        </svg>
+                      </span>
+                      <div class="min-w-0">
+                        <p
+                          class="truncate text-sm font-medium"
+                          :class="
+                            isFailedEvent(event)
+                              ? 'text-danger'
+                              : 'text-foreground'
+                          "
+                        >
+                          {{ event.name }}
+                        </p>
+                        <p class="mt-1 text-xs text-faint-foreground">
+                          #{{ event.sequence }} -
+                          {{ formatDate(event.occurred_at) }}
+                        </p>
+                      </div>
+                    </div>
+                    <Chip
+                      muted
+                      :class="
+                        isFailedEvent(event)
+                          ? 'border-danger/50 bg-danger/10 text-danger'
+                          : ''
+                      "
+                    >
+                      {{ isFailedEvent(event) ? "failed" : "event" }}
+                    </Chip>
+                  </summary>
+                  <pre
+                    v-if="hasPayload(event.payload)"
+                    class="mt-3 w-full max-w-full whitespace-pre-wrap break-words rounded-3 border border-border/50 bg-background/45 p-2 text-[11px] leading-relaxed text-subtle-foreground"
+                    :class="
+                      isFailedEvent(event)
+                        ? 'border-danger/30 bg-danger/5 text-foreground'
+                        : ''
+                    "
+                    style="overflow-wrap: anywhere"
+                    >{{ pretty(event.payload) }}</pre
+                  >
+                  <p v-else class="mt-3 text-xs text-faint-foreground">
+                    No event payload.
+                  </p>
+                </details>
               </li>
             </ol>
           </div>
@@ -326,6 +393,56 @@ function statusTone(status: DurableTaskStatus) {
     default:
       return "border-info/50 bg-info/10 text-info";
   }
+}
+
+function eventCardTone(event: DurableEvent) {
+  return isFailedEvent(event)
+    ? "border-danger/60 bg-danger/10"
+    : "border-border/60 bg-surface-muted/25";
+}
+
+function isFailedEvent(event: DurableEvent) {
+  const name = event.name.toLowerCase();
+  if (
+    name.includes("failed") ||
+    name.includes("failure") ||
+    name.includes("error")
+  ) {
+    return true;
+  }
+  return payloadIndicatesFailure(event.payload);
+}
+
+function payloadIndicatesFailure(payload: DurableEvent["payload"]) {
+  if (!payload) return false;
+  for (const [key, value] of Object.entries(payload)) {
+    const normalizedKey = key.toLowerCase();
+    if (
+      (normalizedKey === "status" ||
+        normalizedKey === "state" ||
+        normalizedKey === "outcome" ||
+        normalizedKey === "type") &&
+      typeof value === "string"
+    ) {
+      const normalizedValue = value.toLowerCase();
+      if (
+        normalizedValue.includes("failed") ||
+        normalizedValue.includes("failure") ||
+        normalizedValue.includes("error")
+      ) {
+        return true;
+      }
+    }
+    if (
+      (normalizedKey === "error" || normalizedKey === "failure") &&
+      value !== undefined &&
+      value !== null &&
+      value !== ""
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function formatDate(value?: string) {

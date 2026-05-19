@@ -211,6 +211,7 @@ type ChatSession struct {
 	Model              string    `json:"model"`
 	Summary            string    `json:"summary"`
 	SummarizedCount    int       `json:"summarizedCount"`
+	ProjectID          string    `json:"projectId,omitempty"`
 }
 
 // ChatMessage is a single turn within a chat session.
@@ -237,6 +238,7 @@ type ChatStore interface {
 	CreateSession(ctx context.Context, userID *int64, name string) (ChatSession, error)
 	CreateSessionKind(ctx context.Context, userID *int64, name string, kind string) (ChatSession, error)
 	RenameSession(ctx context.Context, userID *int64, id, name string) (ChatSession, error)
+	SetSessionProject(ctx context.Context, userID *int64, id, projectID string) (ChatSession, error)
 	DeleteSession(ctx context.Context, userID *int64, id string) error
 	ListMessages(ctx context.Context, userID *int64, sessionID string, limit int) ([]ChatMessage, error)
 	DeleteMessage(ctx context.Context, userID *int64, sessionID string, messageID string) error

@@ -23,6 +23,7 @@ import {
   renameChatSession as apiRenameChatSession,
   streamAgentRun,
   streamAgentVisionRun,
+  updateChatSessionProject as apiUpdateChatSessionProject,
   type ChatStreamEvent,
 } from "@/api/chat";
 import { stripLeadingSpecialistMention } from "@/utils/chatMentions";
@@ -354,7 +355,9 @@ export const useChatStore = defineStore("chat", () => {
       typeof rawCount === "number" && Number.isFinite(rawCount) && rawCount >= 0
         ? rawCount
         : 0;
-    return { ...meta, messageCount };
+    const rawProjectID = (meta as any).projectId ?? (meta as any).project_id;
+    const projectId = typeof rawProjectID === "string" ? rawProjectID : "";
+    return { ...meta, messageCount, projectId };
   }
 
   const defaultSessionNames = new Set(["", "new chat", "conversation"]);
@@ -521,6 +524,22 @@ export const useChatStore = defineStore("chat", () => {
     const updated = await apiRenameChatSession(sessionId, name);
     sessionsError.value = null;
     upsertSessionMeta(updated);
+  }
+
+  async function updateSessionProject(sessionId: string, projectId: string) {
+    const cleanProjectID = (projectId || "").trim();
+    const existing = sessions.value.find((s) => s.id === sessionId);
+    if (existing && (existing.projectId || "") === cleanProjectID) {
+      return existing;
+    }
+    const updated = await apiUpdateChatSessionProject(
+      sessionId,
+      cleanProjectID,
+    );
+    sessionsError.value = null;
+    const normalized = normalizeSessionMeta(updated);
+    upsertSessionMeta(normalized);
+    return normalized;
   }
 
   async function sendPrompt(
@@ -1579,6 +1598,7 @@ export const useChatStore = defineStore("chat", () => {
     deleteSession,
     deleteMessage,
     renameSession,
+    updateSessionProject,
     submitInputRequest,
     sendPrompt,
     stopStreaming,

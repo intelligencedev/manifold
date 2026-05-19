@@ -65,6 +65,11 @@ import type { OnResizeEnd } from "@vue-flow/node-resizer";
 
 defineOptions({ name: "FlowBaseNode" });
 
+type RootClass =
+  | string
+  | Record<string, boolean>
+  | Array<string | Record<string, boolean>>;
+
 const props = defineProps<{
   collapsed?: boolean;
   minWidth?: number;
@@ -72,7 +77,7 @@ const props = defineProps<{
   minWidthPx?: string;
   minHeightPx?: string;
   showResizer?: boolean;
-  rootClass?: string | string[] | Record<string, boolean>;
+  rootClass?: RootClass;
   selected?: boolean;
 }>();
 
@@ -122,7 +127,8 @@ function onResizeEnd(data: OnResizeEnd) {
 }
 
 @keyframes node-executing-pulse {
-  0%, 100% {
+  0%,
+  100% {
     box-shadow:
       0 0 0 1px rgb(var(--color-accent) / 0.45),
       0 0 14px rgb(var(--color-accent) / 0.2),

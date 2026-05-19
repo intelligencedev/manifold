@@ -76,6 +76,7 @@ export interface ChatSessionMeta {
   lastMessagePreview?: string;
   messageCount?: number;
   model?: string;
+  projectId?: string;
 }
 
 export interface AgentTraceEntry {

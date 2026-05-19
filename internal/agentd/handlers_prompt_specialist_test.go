@@ -111,6 +111,18 @@ func (s *promptHandlerChatStore) RenameSession(_ context.Context, _ *int64, id, 
 	return sess, nil
 }
 
+func (s *promptHandlerChatStore) SetSessionProject(_ context.Context, _ *int64, id, projectID string) (persistence.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[id]
+	if !ok {
+		return persistence.ChatSession{}, persistence.ErrNotFound
+	}
+	sess.ProjectID = strings.TrimSpace(projectID)
+	s.sessions[id] = sess
+	return sess, nil
+}
+
 func (s *promptHandlerChatStore) DeleteSession(_ context.Context, _ *int64, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

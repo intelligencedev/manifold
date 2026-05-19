@@ -182,6 +182,16 @@ func (s *stubChatStore) RenameSession(ctx context.Context, userID *int64, id, na
 	return persistence.ChatSession{}, nil
 }
 
+func (s *stubChatStore) SetSessionProject(ctx context.Context, userID *int64, id, projectID string) (persistence.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sess, ok := s.sessions[id]; ok {
+		sess.ProjectID = strings.TrimSpace(projectID)
+		return *sess, nil
+	}
+	return persistence.ChatSession{}, nil
+}
+
 func (s *stubChatStore) DeleteSession(ctx context.Context, userID *int64, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

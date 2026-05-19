@@ -76,6 +76,16 @@ func TestMemChatStoreLifecycle(t *testing.T) {
 	if _, err := store.RenameSession(ctx, nil, "session-1", "Updated"); err != nil {
 		t.Fatalf("RenameSession: %v", err)
 	}
+	if _, err := store.SetSessionProject(ctx, nil, "session-1", "project-1"); err != nil {
+		t.Fatalf("SetSessionProject: %v", err)
+	}
+	locked, err := store.GetSession(ctx, nil, "session-1")
+	if err != nil {
+		t.Fatalf("GetSession after project lock: %v", err)
+	}
+	if locked.ProjectID != "project-1" {
+		t.Fatalf("expected project lock, got %q", locked.ProjectID)
+	}
 
 	if err := store.DeleteSession(ctx, nil, "session-1"); err != nil {
 		t.Fatalf("DeleteSession: %v", err)

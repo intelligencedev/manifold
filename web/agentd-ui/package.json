@@ -60,6 +60,13 @@
   "pnpm": {
     "overrides": {
       "rollup": "npm:@rollup/wasm-node@^4.50.2"
+    },
+    "packageExtensions": {
+      "@testing-library/vue": {
+        "dependencies": {
+          "type-fest": "~2.19"
+        }
+      }
     }
   }
 }

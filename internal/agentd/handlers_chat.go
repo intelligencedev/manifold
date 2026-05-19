@@ -170,8 +170,9 @@ func (a *app) chatSessionsHandler() http.HandlerFunc {
 func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var (
-			userID  *int64
-			isAdmin bool
+			userID      *int64
+			currentUser *auth.User
+			isAdmin     bool
 		)
 		if a.cfg.Auth.Enabled {
 			u, ok := auth.CurrentUser(r.Context())
@@ -180,6 +181,7 @@ func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
+			currentUser = u
 			id, admin, err := resolveChatAccess(r.Context(), a.authStore, u)
 			if err != nil {
 				log.Error().Err(err).Msg("resolve_chat_access")
@@ -601,25 +603,68 @@ func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 		case http.MethodPatch:
 			defer r.Body.Close()
 			var body struct {
-				Name string `json:"name"`
+				Name            *string `json:"name"`
+				ProjectID       *string `json:"projectId"`
+				LegacyProjectID *string `json:"project_id"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				http.Error(w, "bad request", http.StatusBadRequest)
 				return
 			}
-			sess, err := a.chatStore.RenameSession(r.Context(), userID, id, body.Name)
-			if err != nil {
-				if errors.Is(err, persist.ErrForbidden) {
-					http.Error(w, "forbidden", http.StatusForbidden)
-					return
-				}
-				if errors.Is(err, persist.ErrNotFound) {
-					http.NotFound(w, r)
-					return
-				}
-				log.Error().Err(err).Str("session", id).Msg("rename_chat_session")
-				http.Error(w, "internal server error", http.StatusInternalServerError)
+			projectID := body.ProjectID
+			if projectID == nil {
+				projectID = body.LegacyProjectID
+			}
+			if body.Name == nil && projectID == nil {
+				http.Error(w, "bad request", http.StatusBadRequest)
 				return
+			}
+			var sess persist.ChatSession
+			var err error
+			if body.Name != nil {
+				sess, err = a.chatStore.RenameSession(r.Context(), userID, id, *body.Name)
+				if err != nil {
+					if errors.Is(err, persist.ErrForbidden) {
+						http.Error(w, "forbidden", http.StatusForbidden)
+						return
+					}
+					if errors.Is(err, persist.ErrNotFound) {
+						http.NotFound(w, r)
+						return
+					}
+					log.Error().Err(err).Str("session", id).Msg("rename_chat_session")
+					http.Error(w, "internal server error", http.StatusInternalServerError)
+					return
+				}
+			}
+			if projectID != nil {
+				cleanProjectID, err := a.validateChatSessionProject(r.Context(), chatRequestOwner(currentUser, userID), *projectID)
+				if err != nil {
+					switch {
+					case errors.Is(err, workspaces.ErrInvalidProjectID):
+						http.Error(w, "invalid project_id", http.StatusBadRequest)
+					case errors.Is(err, workspaces.ErrProjectNotFound):
+						http.Error(w, "project not found (project_id must match the project directory/ID)", http.StatusBadRequest)
+					default:
+						log.Error().Err(err).Str("session", id).Str("project_id", *projectID).Msg("validate_chat_session_project")
+						http.Error(w, "internal server error", http.StatusInternalServerError)
+					}
+					return
+				}
+				sess, err = a.chatStore.SetSessionProject(r.Context(), userID, id, cleanProjectID)
+				if err != nil {
+					if errors.Is(err, persist.ErrForbidden) {
+						http.Error(w, "forbidden", http.StatusForbidden)
+						return
+					}
+					if errors.Is(err, persist.ErrNotFound) {
+						http.NotFound(w, r)
+						return
+					}
+					log.Error().Err(err).Str("session", id).Str("project_id", cleanProjectID).Msg("set_chat_session_project")
+					http.Error(w, "internal server error", http.StatusInternalServerError)
+					return
+				}
 			}
 			w.Header().Set("Content-Type", "application/json")
 			if err := json.NewEncoder(w).Encode(sess); err != nil {
@@ -644,6 +689,26 @@ func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	}
+}
+
+func (a *app) validateChatSessionProject(ctx context.Context, owner int64, projectID string) (string, error) {
+	cleanProjectID, err := workspaces.ValidateProjectID(strings.TrimSpace(projectID))
+	if err != nil || cleanProjectID == "" {
+		return cleanProjectID, err
+	}
+	if a.projectsService == nil {
+		return cleanProjectID, nil
+	}
+	projects, err := a.projectsService.ListProjects(ctx, owner)
+	if err != nil {
+		return "", err
+	}
+	for _, project := range projects {
+		if project.ID == cleanProjectID {
+			return cleanProjectID, nil
+		}
+	}
+	return "", workspaces.ErrProjectNotFound
 }
 
 // hydrateChatMessages post-processes persisted messages for client display.
@@ -794,6 +859,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			return
 		}
 		r = state.Request
+		req = state.RunRequest
 		specOwner := state.Owner
 		req.ObjectiveID = a.resolveChatObjectiveID(r.Context(), specOwner, req)
 		r = r.WithContext(sandbox.WithObjectiveID(r.Context(), req.ObjectiveID))
@@ -841,6 +907,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 			return
 		}
 		r = state.Request
+		req = state.RunRequest
 		specOwner := state.Owner
 		req.ObjectiveID = a.resolveChatObjectiveID(r.Context(), specOwner, req)
 		r = r.WithContext(sandbox.WithObjectiveID(r.Context(), req.ObjectiveID))

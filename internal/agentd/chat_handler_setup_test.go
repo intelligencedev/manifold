@@ -1,6 +1,7 @@
 package agentd
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"manifold/internal/llm"
 	"manifold/internal/testhelpers"
 	"manifold/internal/tools"
+	"manifold/internal/workspaces"
 )
 
 func TestChatRequestOwnerPrefersCurrentUser(t *testing.T) {
@@ -81,5 +83,108 @@ func TestPrepareChatHandlerStateAppliesImagePrompt(t *testing.T) {
 	}
 	if opts.Size != "1024x1024" {
 		t.Fatalf("expected image size 1024x1024, got %q", opts.Size)
+	}
+}
+
+func TestPrepareChatHandlerStateUsesLockedSessionProject(t *testing.T) {
+	t.Parallel()
+
+	chatStore := newPromptHandlerChatStore()
+	if _, err := chatStore.EnsureSession(context.Background(), nil, "sess-locked", "Chat"); err != nil {
+		t.Fatalf("EnsureSession: %v", err)
+	}
+	if _, err := chatStore.SetSessionProject(context.Background(), nil, "sess-locked", "project-locked"); err != nil {
+		t.Fatalf("SetSessionProject: %v", err)
+	}
+	var gotProjectID string
+	a := &app{
+		cfg:       &config.Config{},
+		chatStore: chatStore,
+		workspaceManager: stubWorkspaceManager{checkout: func(ctx context.Context, userID int64, projectID, sessionID string) (workspaces.Workspace, error) {
+			gotProjectID = projectID
+			return workspaces.Workspace{UserID: userID, ProjectID: projectID, SessionID: sessionID, BaseDir: "/tmp/project-locked"}, nil
+		}},
+	}
+
+	req := chatRunRequest{Prompt: "continue", SessionID: "sess-locked"}
+	httpReq := httptest.NewRequest(http.MethodPost, "/api/prompt", nil)
+	rr := httptest.NewRecorder()
+
+	state, ok := a.prepareChatHandlerState(rr, httpReq, req)
+	if !ok {
+		t.Fatalf("expected prepareChatHandlerState to succeed: %d %s", rr.Code, rr.Body.String())
+	}
+	if gotProjectID != "project-locked" {
+		t.Fatalf("expected checkout to use locked project, got %q", gotProjectID)
+	}
+	if state.RunRequest.ProjectID != "project-locked" {
+		t.Fatalf("expected run request project to be locked project, got %q", state.RunRequest.ProjectID)
+	}
+}
+
+func TestPrepareChatHandlerStateRejectsProjectMismatch(t *testing.T) {
+	t.Parallel()
+
+	chatStore := newPromptHandlerChatStore()
+	if _, err := chatStore.EnsureSession(context.Background(), nil, "sess-locked", "Chat"); err != nil {
+		t.Fatalf("EnsureSession: %v", err)
+	}
+	if _, err := chatStore.SetSessionProject(context.Background(), nil, "sess-locked", "project-locked"); err != nil {
+		t.Fatalf("SetSessionProject: %v", err)
+	}
+	called := false
+	a := &app{
+		cfg:       &config.Config{},
+		chatStore: chatStore,
+		workspaceManager: stubWorkspaceManager{checkout: func(ctx context.Context, userID int64, projectID, sessionID string) (workspaces.Workspace, error) {
+			called = true
+			return workspaces.Workspace{}, nil
+		}},
+	}
+
+	req := chatRunRequest{Prompt: "continue", SessionID: "sess-locked", ProjectID: "project-other"}
+	httpReq := httptest.NewRequest(http.MethodPost, "/api/prompt", nil)
+	rr := httptest.NewRecorder()
+
+	if _, ok := a.prepareChatHandlerState(rr, httpReq, req); ok {
+		t.Fatal("expected prepareChatHandlerState to reject mismatched project")
+	}
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if called {
+		t.Fatal("workspace checkout should not run on project mismatch")
+	}
+}
+
+func TestPrepareChatHandlerStateLocksFirstRunProject(t *testing.T) {
+	t.Parallel()
+
+	chatStore := newPromptHandlerChatStore()
+	a := &app{
+		cfg:       &config.Config{},
+		chatStore: chatStore,
+		workspaceManager: stubWorkspaceManager{checkout: func(ctx context.Context, userID int64, projectID, sessionID string) (workspaces.Workspace, error) {
+			return workspaces.Workspace{UserID: userID, ProjectID: projectID, SessionID: sessionID, BaseDir: "/tmp/project-1"}, nil
+		}},
+	}
+
+	req := chatRunRequest{Prompt: "start", SessionID: "sess-new", ProjectID: "project-1"}
+	httpReq := httptest.NewRequest(http.MethodPost, "/api/prompt", nil)
+	rr := httptest.NewRecorder()
+
+	state, ok := a.prepareChatHandlerState(rr, httpReq, req)
+	if !ok {
+		t.Fatalf("expected prepareChatHandlerState to succeed: %d %s", rr.Code, rr.Body.String())
+	}
+	if state.RunRequest.ProjectID != "project-1" {
+		t.Fatalf("expected run request project, got %q", state.RunRequest.ProjectID)
+	}
+	session, err := chatStore.GetSession(context.Background(), nil, "sess-new")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if session.ProjectID != "project-1" {
+		t.Fatalf("expected session project lock, got %q", session.ProjectID)
 	}
 }

@@ -154,6 +154,22 @@ func (s *memChatStore) RenameSession(ctx context.Context, userID *int64, id, nam
 	return sess, nil
 }
 
+func (s *memChatStore) SetSessionProject(ctx context.Context, userID *int64, id, projectID string) (persistence.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[id]
+	if !ok {
+		return persistence.ChatSession{}, persistence.ErrNotFound
+	}
+	if !hasAccess(userID, sess.UserID) {
+		return persistence.ChatSession{}, persistence.ErrForbidden
+	}
+	sess.ProjectID = strings.TrimSpace(projectID)
+	sess.UpdatedAt = time.Now().UTC()
+	s.sessions[id] = sess
+	return sess, nil
+}
+
 func (s *memChatStore) DeleteSession(ctx context.Context, userID *int64, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

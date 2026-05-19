@@ -1,5 +1,5 @@
 import { computed, type Ref } from "vue";
-import { useQuery } from "@tanstack/vue-query";
+import { keepPreviousData, useQuery } from "@tanstack/vue-query";
 import { fetchTraceMetrics, type TraceMetricRow } from "@/api/client";
 import { type MetricsTimeRangeValue } from "@/composables/observability/useTokenMetrics";
 
@@ -29,7 +29,7 @@ export function useTraceMetrics(selectedRange: Ref<MetricsTimeRangeValue>) {
     queryKey: computed(() => ["trace-metrics", selectedRange.value]),
     queryFn: () =>
       fetchTraceMetrics({ window: selectedRange.value, limit: 200 }),
-    keepPreviousData: true,
+    placeholderData: keepPreviousData,
     staleTime: 60_000,
     refetchInterval: 60_000,
   });

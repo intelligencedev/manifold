@@ -5,6 +5,7 @@ import type {
   ChatInputRequestChoice,
   ChatMessage,
   ChatSessionMeta,
+  SpecialistActivityEntry,
   SpecialistActivityRecord,
 } from "@/types/chat";
 
@@ -114,6 +115,17 @@ export async function renameChatSession(
   const { data } = await apiClient.patch<ChatSessionMeta>(
     `/chat/sessions/${encodeURIComponent(id)}`,
     { name },
+  );
+  return data;
+}
+
+export async function updateChatSessionProject(
+  id: string,
+  projectId: string,
+): Promise<ChatSessionMeta> {
+  const { data } = await apiClient.patch<ChatSessionMeta>(
+    `/chat/sessions/${encodeURIComponent(id)}`,
+    { projectId },
   );
   return data;
 }
@@ -318,7 +330,9 @@ export async function streamAgentRun(
   }
 }
 
-function mapActivityRecordToThread(record: SpecialistActivityRecord): AgentThread {
+function mapActivityRecordToThread(
+  record: SpecialistActivityRecord,
+): AgentThread {
   return {
     callId: record.callId,
     assistantMessageId: record.assistantMessageId,
@@ -338,7 +352,7 @@ function mapActivityRecordToThread(record: SpecialistActivityRecord): AgentThrea
   };
 }
 
-function mapActivityEntry(entry: SpecialistActivityRecord["entries"][number]): AgentTraceEntry {
+function mapActivityEntry(entry: SpecialistActivityEntry): AgentTraceEntry {
   const kind =
     entry.type === "error"
       ? "error"

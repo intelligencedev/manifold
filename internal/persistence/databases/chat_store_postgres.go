@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     last_message_preview TEXT NOT NULL DEFAULT '',
     model TEXT NOT NULL DEFAULT '',
     summary TEXT NOT NULL DEFAULT '',
-    summarized_count INTEGER NOT NULL DEFAULT 0
+    summarized_count INTEGER NOT NULL DEFAULT 0,
+    project_id TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS chat_messages (
@@ -63,6 +64,9 @@ ALTER TABLE chat_sessions
 
 ALTER TABLE chat_sessions
     ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'chat';
+
+ALTER TABLE chat_sessions
+    ADD COLUMN IF NOT EXISTS project_id TEXT NOT NULL DEFAULT '';
 
 UPDATE chat_sessions
 SET kind = 'matrix'

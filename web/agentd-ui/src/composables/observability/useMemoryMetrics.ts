@@ -1,5 +1,5 @@
 import { computed, type Ref } from "vue";
-import { useQuery } from "@tanstack/vue-query";
+import { keepPreviousData, useQuery } from "@tanstack/vue-query";
 import {
   fetchMemoryMetrics,
   type MemoryReasonMetric,
@@ -32,7 +32,7 @@ export function useMemoryMetrics(selectedRange: Ref<MetricsTimeRangeValue>) {
   const query = useQuery({
     queryKey: computed(() => ["memory-metrics", selectedRange.value]),
     queryFn: () => fetchMemoryMetrics({ window: selectedRange.value }),
-    keepPreviousData: true,
+    placeholderData: keepPreviousData,
     staleTime: 60_000,
     refetchInterval: 60_000,
   });
@@ -111,7 +111,12 @@ function normalizeBreakdown(
     .sort((a, b) => b.count - a.count)
     .slice(0, 5)
     .map((row) => {
-      const rawLabel = keyName === "reason" && "reason" in row ? row.reason : "result" in row ? row.result : "";
+      const rawLabel =
+        keyName === "reason" && "reason" in row
+          ? row.reason
+          : "result" in row
+            ? row.result
+            : "";
       const label = rawLabel || "unknown";
       return {
         key: label,

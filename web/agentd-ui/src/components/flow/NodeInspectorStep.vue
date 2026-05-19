@@ -12,7 +12,9 @@
       >
     </div>
 
-    <label class="flex min-w-0 flex-col gap-1 text-[11px] text-muted-foreground">
+    <label
+      class="flex min-w-0 flex-col gap-1 text-[11px] text-muted-foreground"
+    >
       Tool
       <DropdownSelect
         v-model="toolName"
@@ -88,15 +90,34 @@
         :disabled="(!isDirty && !showAppliedFeedback) || !isDesignMode"
         @click="applyChanges"
       >
-        <svg v-if="showAppliedFeedback" class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-        {{ showAppliedFeedback ? 'Applied' : 'Apply' }}
+        <svg
+          v-if="showAppliedFeedback"
+          class="h-3 w-3"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="3"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+        {{ showAppliedFeedback ? "Applied" : "Apply" }}
       </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, inject, onBeforeUnmount, provide, ref, watch, type Ref } from "vue";
+import {
+  computed,
+  inject,
+  onBeforeUnmount,
+  provide,
+  ref,
+  watch,
+  type Ref,
+} from "vue";
 import { useVueFlow } from "@vue-flow/core";
 import FlowInputBindingsEditor from "@/components/flow/FlowInputBindingsEditor.vue";
 import DropdownSelect from "@/components/DropdownSelect.vue";
@@ -190,15 +211,8 @@ watch(
   { immediate: true, deep: true },
 );
 
-watch(
-  [
-    displayLabel,
-    stepText,
-    guardText,
-    publishResult,
-    toolName,
-  ],
-  () => markDirty(),
+watch([displayLabel, stepText, guardText, publishResult, toolName], () =>
+  markDirty(),
 );
 watch(argsState, () => markDirty(), { deep: true });
 
@@ -298,11 +312,11 @@ function cloneArgs(input: Record<string, unknown> | undefined) {
     return { ...input };
   }
 }
-function cloneStep(step: Record<string, unknown>) {
+function cloneStep(step: FlowEditorStep): FlowEditorStep {
   try {
     return JSON.parse(JSON.stringify(step)) as FlowEditorStep;
   } catch {
-    return step as any;
+    return step;
   }
 }
 </script>

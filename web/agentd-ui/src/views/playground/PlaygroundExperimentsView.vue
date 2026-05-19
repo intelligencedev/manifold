@@ -191,7 +191,7 @@
                     store.runStarting[experiment.id]
                       ? "Starting run"
                       : store.isExperimentRunning(experiment.id)
-                        ? "Queue another run"
+                        ? "Queue run"
                         : "Start run"
                   }}
                 </AppButton>

@@ -66,7 +66,7 @@
                 isRunStarting
                   ? "Starting run"
                   : hasActiveRun
-                    ? "Queue another run"
+                    ? "Queue run"
                     : "Start run"
               }}
             </AppButton>
@@ -166,6 +166,22 @@
               </p>
             </div>
             <div class="flex items-center gap-2">
+              <DropdownSelect
+                v-model="exportFormat"
+                aria-label="Export format"
+                size="sm"
+                :options="[
+                  { id: 'json', label: 'JSON', value: 'json' },
+                  { id: 'csv', label: 'CSV', value: 'csv' },
+                ]"
+              />
+              <AppButton
+                @click="exportSelectedRunResults"
+                size="sm"
+                :disabled="runResults.length === 0"
+              >
+                Export
+              </AppButton>
               <AppButton
                 @click="refreshSelectedRunResults"
                 :loading="loadingSelectedRunResults"
@@ -175,6 +191,9 @@
               </AppButton>
             </div>
           </header>
+          <p v-if="exportError" class="text-sm text-danger-foreground">
+            {{ exportError }}
+          </p>
 
           <div class="grid grid-cols-2 gap-3 text-sm">
             <div>
@@ -404,6 +423,13 @@ import type {
   RunResult,
 } from "@/api/playground";
 import AppButton from "@/components/ui/AppButton.vue";
+import DropdownSelect from "@/components/DropdownSelect.vue";
+import {
+  buildRunExportReport,
+  runExportFilename,
+  serializeRunExportReport,
+  type RunExportFormat,
+} from "@/lib/playgroundRunExport";
 
 const route = useRoute();
 const router = useRouter();
@@ -413,6 +439,8 @@ const experiment = ref<ExperimentSpec | null>(null);
 const runs = ref(store.runsByExperiment[experimentId.value] ?? []);
 const loadingRuns = ref(false);
 const selectedRunId = ref<string | null>(null);
+const exportFormat = ref<RunExportFormat>("json");
+const exportError = ref("");
 
 const selectedRun = computed<Run | null>(() => {
   if (!selectedRunId.value) return null;
@@ -547,6 +575,41 @@ async function refreshSelectedRunResults() {
   } catch (err) {
     console.error("Failed to refresh run results", err);
   }
+}
+
+function exportSelectedRunResults() {
+  exportError.value = "";
+  if (!selectedRun.value) {
+    return;
+  }
+  if (runResults.value.length === 0) {
+    exportError.value = "No run results are available to export.";
+    return;
+  }
+  const report = buildRunExportReport(
+    experiment.value,
+    selectedRun.value,
+    runResults.value,
+  );
+  const content = serializeRunExportReport(report, exportFormat.value);
+  const mime = exportFormat.value === "json" ? "application/json" : "text/csv";
+  downloadTextFile(
+    content,
+    runExportFilename(experiment.value, selectedRun.value, exportFormat.value),
+    mime,
+  );
+}
+
+function downloadTextFile(content: string, filename: string, mime: string) {
+  const blob = new Blob([content], { type: `${mime};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 function formatLatency(latency?: number) {

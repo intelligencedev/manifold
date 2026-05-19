@@ -48,7 +48,8 @@ Summary: {{summary}}
 2. In **Upload Dataset**, enter:
    - **Name**: `Support Samples`
    - **Tags**: `support`
-3. Use this JSON array for **Rows**:
+3. Either paste rows as normalized JSON or import a `.json`, `.jsonl`, or `.csv` file. For CSV imports, the header row is required; `id`, `inputs`, `expected`, `meta`, and `split` are reserved columns, and every other column becomes part of `inputs`.
+4. Use this JSON array for **Rows**:
 
 ```json
 [
@@ -75,7 +76,7 @@ Summary: {{summary}}
 ]
 ```
 
-1. Click **Create dataset**. The dataset appears in the list and is available for experiments.
+5. Click **Create dataset**. The dataset appears in the list and is available for experiments.
 
 ## 3. Configure an Experiment
 
@@ -101,6 +102,7 @@ Summary: {{summary}}
 
 - **Runs Table**: shows the plan status with start/end times.
 - **Metrics (coming soon)**: aggregated evaluator scores appear under the run entry once evaluators complete.
+- **Export**: choose `JSON` or `CSV` in the run detail header and click **Export** to download one file containing each row's inputs, expected value, rendered prompt, and output.
 - **Artifacts**: rendered prompts and outputs are stored in the configured artifact directory, which defaults to `./tmp/playground-artifacts` in `.env` for local runs.
 
 ## API Reference (Quick Shell)
@@ -137,7 +139,7 @@ curl -X POST http://localhost:32180/api/v1/playground/experiments/<experiment-id
 ## Troubleshooting
 
 - **Prompt version creation fails**: ensure the Variables JSON is valid and references all `{{ }}` placeholders.
-- **Dataset upload error**: verify the payload is JSON with an array of rows; each row should include an `id` or one is auto-generated.
+- **Dataset upload error**: verify pasted rows are valid JSON, or upload a valid `.json`, `.jsonl`, or `.csv` file. CSV files need a header row, and non-reserved columns are treated as prompt inputs.
 - **Experiment run stuck**: check `agentd` logs for provider errors; the mock adapter is deterministic and returns instantly.
 - **Artifacts missing**: make sure the `manifold` process can write to the configured playground artifact directory.
 

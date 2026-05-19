@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"manifold/internal/playground/dataset"
@@ -40,6 +41,34 @@ type ConcurrencyConfig struct {
 	MaxVariantsPerRun int `json:"maxVariantsPerRun"`
 }
 
+// ExecutionConfig controls how experiment tasks are executed.
+type ExecutionConfig struct {
+	SpecialistName string `json:"specialistName,omitempty"`
+}
+
+// NormalizeExecution trims empty execution config down to nil.
+func NormalizeExecution(execution *ExecutionConfig) *ExecutionConfig {
+	if execution == nil {
+		return nil
+	}
+	normalized := &ExecutionConfig{
+		SpecialistName: strings.TrimSpace(execution.SpecialistName),
+	}
+	if normalized.SpecialistName == "" {
+		return nil
+	}
+	return normalized
+}
+
+// CloneExecution returns a detached copy of execution.
+func CloneExecution(execution *ExecutionConfig) *ExecutionConfig {
+	if execution == nil {
+		return nil
+	}
+	clone := *execution
+	return &clone
+}
+
 // ExperimentSpec captures how to execute a run against a dataset.
 type ExperimentSpec struct {
 	ID          string            `json:"id"`
@@ -52,6 +81,7 @@ type ExperimentSpec struct {
 	Evaluators  []EvaluatorConfig `json:"evaluators"`
 	Budgets     BudgetConfig      `json:"budgets"`
 	Concurrency ConcurrencyConfig `json:"concurrency"`
+	Execution   *ExecutionConfig  `json:"execution,omitempty"`
 	OwnerID     int64             `json:"ownerId"`
 	CreatedAt   time.Time         `json:"createdAt"`
 	CreatedBy   string            `json:"createdBy"`

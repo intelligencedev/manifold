@@ -75,6 +75,10 @@ export interface ConcurrencyConfig {
   maxVariantsPerRun?: number;
 }
 
+export interface ExecutionConfig {
+  specialistName?: string;
+}
+
 export interface ExperimentSpec {
   id: string;
   projectId?: string;
@@ -86,6 +90,7 @@ export interface ExperimentSpec {
   evaluators?: EvaluatorConfig[];
   budgets?: BudgetConfig;
   concurrency?: ConcurrencyConfig;
+  execution?: ExecutionConfig;
   createdAt: string;
   createdBy?: string;
 }
@@ -106,6 +111,7 @@ export interface Run {
   id: string;
   experimentId: string;
   plan: RunPlan;
+  execution?: ExecutionConfig;
   status: RunStatus;
   createdAt: string;
   startedAt?: string;
@@ -124,6 +130,7 @@ export interface RunResult {
   rendered?: string;
   output?: string;
   providerName?: string;
+  execution?: ExecutionConfig;
   tokens?: number;
   latency?: number;
   artifacts?: Record<string, string>;

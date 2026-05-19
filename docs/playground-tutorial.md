@@ -85,7 +85,8 @@ Summary: {{summary}}
    - **Dataset**: select `Support Samples`
    - **Prompt**: select `Support Greeting`
    - **Prompt version**: choose `1.0.0`
-   - **Model**: e.g. `gpt-4o`
+   - **Specialist runner**: leave `Direct LLM` for a plain model call, or choose an active specialist when the experiment output should be allowed to use that specialist's tools.
+   - **Model**: e.g. `gpt-4o` for direct runs. When a specialist is selected, the specialist's configured model is used instead.
    - **Slice (optional)**: leave blank to use the initial snapshot
    - Click **Create experiment**.
 3. The new experiment is shown in the experiments list. Click **Details** to review the spec and variants.
@@ -123,6 +124,11 @@ curl -X POST http://localhost:32180/api/v1/playground/datasets -H 'Content-Type:
 # Create experiment
 curl -X POST http://localhost:32180/api/v1/playground/experiments \
   -H 'Content-Type: application/json' -d @experiment.json
+
+# Create experiment with a specialist runner
+curl -X POST http://localhost:32180/api/v1/playground/experiments \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Tool-enabled Run","datasetId":"<dataset-id>","variants":[{"id":"v1","promptVersionId":"<prompt-version-id>","model":""}],"execution":{"specialistName":"researcher"}}'
 
 # Start run
 curl -X POST http://localhost:32180/api/v1/playground/experiments/<experiment-id>/runs

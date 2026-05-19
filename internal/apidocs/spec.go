@@ -777,7 +777,7 @@ func routeCatalog() []routeSpec {
 		}},
 		{path: "/api/v1/playground/experiments", operations: []operationSpec{
 			jsonOp(http.MethodGet, "Playground", "List experiments", false),
-			jsonOp(http.MethodPost, "Playground", "Create experiment", false, withRequestBody("json"), withSuccess(http.StatusCreated)),
+			jsonOp(http.MethodPost, "Playground", "Create experiment; include optional execution.specialistName to run tasks through a specialist with tools", false, withRequestBody("json"), withSuccess(http.StatusCreated)),
 		}},
 		{path: "/api/v1/playground/experiments/{experimentID}", operations: []operationSpec{
 			jsonOp(http.MethodGet, "Playground", "Get experiment", false),
@@ -785,7 +785,7 @@ func routeCatalog() []routeSpec {
 		}},
 		{path: "/api/v1/playground/experiments/{experimentID}/runs", operations: []operationSpec{
 			jsonOp(http.MethodGet, "Playground", "List experiment runs", false),
-			jsonOp(http.MethodPost, "Playground", "Start experiment run", false, withSuccess(http.StatusAccepted)),
+			jsonOp(http.MethodPost, "Playground", "Start experiment run using the experiment's direct LLM or specialist execution settings", false, withSuccess(http.StatusAccepted)),
 		}},
 		{path: "/api/v1/playground/runs/{runID}/results", operations: []operationSpec{
 			jsonOp(http.MethodGet, "Playground", "List run results", false),

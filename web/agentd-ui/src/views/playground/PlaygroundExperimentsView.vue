@@ -3,9 +3,7 @@
   <div
     class="grid h-full min-h-0 grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-6 overflow-hidden"
   >
-    <section
-      class="flex h-full min-h-0 flex-col space-y-3 overflow-hidden"
-    >
+    <section class="flex h-full min-h-0 flex-col space-y-3 overflow-hidden">
       <header>
         <h2 class="text-lg font-semibold">New Experiment</h2>
         <p class="text-sm text-subtle-foreground">
@@ -30,6 +28,7 @@
             <DropdownSelect
               v-model="form.datasetId"
               required
+              aria-label="Dataset"
               class="w-full"
               :options="[
                 { id: '', label: 'Select dataset', value: '', disabled: true },
@@ -46,6 +45,7 @@
             <DropdownSelect
               v-model="form.promptId"
               required
+              aria-label="Prompt"
               class="w-full"
               :options="[
                 { id: '', label: 'Select prompt', value: '', disabled: true },
@@ -62,6 +62,7 @@
             <DropdownSelect
               v-model="form.promptVersionId"
               required
+              aria-label="Prompt version"
               class="w-full"
               :options="[
                 { id: '', label: 'Select version', value: '', disabled: true },
@@ -77,9 +78,29 @@
             <span class="text-subtle-foreground mb-1">Model</span>
             <input
               v-model="form.model"
-              required
-              placeholder="gpt-4o"
+              :required="!form.specialistName"
+              :disabled="Boolean(form.specialistName)"
+              :placeholder="
+                form.specialistName ? 'Specialist model is used' : 'gpt-4o'
+              "
               class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2"
+              :class="{ 'opacity-60': Boolean(form.specialistName) }"
+            />
+          </label>
+          <label class="text-sm">
+            <span class="text-subtle-foreground mb-1">Specialist runner</span>
+            <DropdownSelect
+              v-model="form.specialistName"
+              aria-label="Specialist runner"
+              class="w-full"
+              :options="[
+                { id: 'direct', label: 'Direct LLM', value: '' },
+                ...activeSpecialists.map((specialist) => ({
+                  id: specialist.name,
+                  label: `${specialist.name}${specialist.model ? ` · ${specialist.model}` : ''}`,
+                  value: specialist.name,
+                })),
+              ]"
             />
           </label>
           <label class="text-sm">
@@ -113,9 +134,7 @@
       </div>
     </section>
 
-    <section
-      class="flex h-full min-h-0 flex-col gap-4 overflow-hidden"
-    >
+    <section class="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
       <header class="flex items-center justify-between">
         <div>
           <h2 class="text-lg font-semibold">Experiments</h2>
@@ -146,14 +165,13 @@
             :key="experiment.id"
             class="rounded-xl border border-border/60 bg-surface-muted/60 p-4 space-y-2"
           >
-            <div
-              class="flex items-center justify-between gap-2"
-            >
+            <div class="flex items-center justify-between gap-2">
               <div>
                 <h3 class="text-base font-semibold">{{ experiment.name }}</h3>
                 <p class="text-xs text-subtle-foreground">
                   Dataset: {{ experiment.datasetId }} · Variants:
-                  {{ experiment.variants.length }}
+                  {{ experiment.variants.length }} · Runner:
+                  {{ runnerLabel(experiment.execution) }}
                 </p>
               </div>
               <div class="flex gap-2">
@@ -285,10 +303,12 @@
 
 <script setup lang="ts">
 import { RouterLink } from "vue-router";
-import { onMounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { usePlaygroundStore } from "@/stores/playground";
 import DropdownSelect from "@/components/DropdownSelect.vue";
 import AppButton from "@/components/ui/AppButton.vue";
+import { listSpecialists, type Specialist } from "@/api/client";
+import type { ExecutionConfig } from "@/api/playground";
 
 const store = usePlaygroundStore();
 const form = reactive({
@@ -297,6 +317,7 @@ const form = reactive({
   promptId: "",
   promptVersionId: "",
   model: "",
+  specialistName: "",
   sliceExpr: "",
   notes: "",
 });
@@ -305,10 +326,21 @@ const createError = ref("");
 const expandedRun = reactive<Record<string, boolean>>({});
 const runErrors = reactive<Record<string, string>>({});
 const availableVersions = ref(store.promptVersions[form.promptId] ?? []);
+const specialists = ref<Specialist[]>([]);
+const activeSpecialists = computed(() =>
+  specialists.value
+    .filter(
+      (specialist) =>
+        !specialist.paused &&
+        specialist.name.trim().toLowerCase() !== "orchestrator",
+    )
+    .sort((a, b) => a.name.localeCompare(b.name)),
+);
 
 onMounted(async () => {
   if (!store.prompts.length) await store.loadPrompts();
   if (!store.datasets.length) await store.loadDatasets();
+  await loadSpecialists();
   await store.loadExperiments();
 });
 
@@ -331,6 +363,10 @@ async function handleCreateExperiment() {
     createError.value = "Dataset and prompt version are required.";
     return;
   }
+  if (!form.specialistName && !form.model.trim()) {
+    createError.value = "Model is required for direct LLM experiments.";
+    return;
+  }
   try {
     const now = new Date().toISOString();
     const variantId = crypto.randomUUID();
@@ -343,13 +379,16 @@ async function handleCreateExperiment() {
         {
           id: variantId,
           promptVersionId: form.promptVersionId,
-          model: form.model,
+          model: form.specialistName ? "" : form.model,
           params: {},
         },
       ],
       evaluators: [],
       budgets: {},
       concurrency: {},
+      execution: form.specialistName
+        ? { specialistName: form.specialistName }
+        : undefined,
       createdAt: now,
       createdBy: "ui",
     };
@@ -360,8 +399,17 @@ async function handleCreateExperiment() {
     form.promptId = "";
     form.promptVersionId = "";
     form.model = "";
+    form.specialistName = "";
     form.notes = "";
     setTimeout(() => (createMessage.value = ""), 3_000);
+  } catch (err) {
+    createError.value = extractErr(err);
+  }
+}
+
+async function loadSpecialists() {
+  try {
+    specialists.value = await listSpecialists();
   } catch (err) {
     createError.value = extractErr(err);
   }
@@ -403,5 +451,10 @@ function formatDate(value?: string) {
   if (!value) return "—";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function runnerLabel(execution?: ExecutionConfig) {
+  const name = execution?.specialistName?.trim();
+  return name ? `Specialist: ${name}` : "Direct LLM";
 }
 </script>

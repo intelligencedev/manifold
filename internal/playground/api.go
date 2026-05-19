@@ -19,6 +19,12 @@ var (
 	ErrActiveRun = errors.New("playground: experiment already has an active run")
 	// ErrUnknownExperiment is returned when attempting to interact with an experiment that has not been registered.
 	ErrUnknownExperiment = errors.New("playground: unknown experiment")
+	// ErrSpecialistNotFound is returned when a configured specialist runner cannot be found.
+	ErrSpecialistNotFound = errors.New("playground: specialist not found")
+	// ErrSpecialistPaused is returned when a configured specialist runner is paused.
+	ErrSpecialistPaused = errors.New("playground: specialist is paused")
+	// ErrSpecialistRunnerUnavailable is returned when specialist execution is configured but no validator/runner is available.
+	ErrSpecialistRunnerUnavailable = errors.New("playground: specialist runner unavailable")
 )
 
 // Service wires together the playground components and provides a cohesive
@@ -48,9 +54,15 @@ type RunStore interface {
 	DeleteExperiment(ctx context.Context, id string) error
 }
 
+// SpecialistValidator validates experiment specialist execution settings.
+type SpecialistValidator interface {
+	ValidateSpecialist(ctx context.Context, ownerID int64, name string) error
+}
+
 // Config tunes runtime aspects of the service.
 type Config struct {
 	MaxConcurrentShards int
+	SpecialistValidator SpecialistValidator
 }
 
 // NewService assembles the playground service.
@@ -134,11 +146,15 @@ func (s *Service) ListDatasetRows(ctx context.Context, id string) ([]dataset.Row
 
 // CreateExperiment registers an experiment specification and persists it.
 func (s *Service) CreateExperiment(ctx context.Context, spec experiment.ExperimentSpec) (experiment.ExperimentSpec, error) {
+	spec.Execution = experiment.NormalizeExecution(spec.Execution)
 	if u, ok := auth.CurrentUser(ctx); ok && u != nil {
 		spec.OwnerID = u.ID
 		if spec.CreatedBy == "" {
 			spec.CreatedBy = u.Email
 		}
+	}
+	if err := s.validateExecution(ctx, spec.OwnerID, spec.Execution); err != nil {
+		return experiment.ExperimentSpec{}, err
 	}
 	saved, err := s.store.CreateExperiment(ctx, spec)
 	if err != nil {
@@ -184,6 +200,15 @@ func (s *Service) StartRun(ctx context.Context, experimentID string) (Run, error
 	if !ok {
 		return Run{}, ErrUnknownExperiment
 	}
+	spec.Execution = experiment.NormalizeExecution(spec.Execution)
+	ownerID := spec.OwnerID
+	if u, ok := auth.CurrentUser(ctx); ok && u != nil {
+		ownerID = u.ID
+	}
+	if err := s.validateExecution(ctx, ownerID, spec.Execution); err != nil {
+		return Run{}, err
+	}
+	spec.OwnerID = ownerID
 	s.experiments.Save(spec)
 
 	runs, err := s.store.ListRuns(ctx, experimentID)
@@ -203,15 +228,12 @@ func (s *Service) StartRun(ctx context.Context, experimentID string) (Run, error
 	}
 	spec = enrichedSpec
 
-	var ownerID int64
-	if u, ok := auth.CurrentUser(ctx); ok && u != nil {
-		ownerID = u.ID
-	}
 	run := Run{
 		ID:           runID,
 		ExperimentID: experimentID,
 		OwnerID:      ownerID,
 		Plan:         plan,
+		Execution:    experiment.CloneExecution(spec.Execution),
 		Status:       RunStatusPending,
 		CreatedAt:    time.Now().UTC(),
 	}
@@ -285,6 +307,17 @@ func (s *Service) planRun(ctx context.Context, spec experiment.ExperimentSpec) (
 	return plan, enriched, nil
 }
 
+func (s *Service) validateExecution(ctx context.Context, ownerID int64, execution *experiment.ExecutionConfig) error {
+	execution = experiment.NormalizeExecution(execution)
+	if execution == nil {
+		return nil
+	}
+	if s.cfg.SpecialistValidator == nil {
+		return ErrSpecialistRunnerUnavailable
+	}
+	return s.cfg.SpecialistValidator.ValidateSpecialist(ctx, ownerID, execution.SpecialistName)
+}
+
 func (s *Service) enrichVariants(ctx context.Context, spec experiment.ExperimentSpec) (experiment.ExperimentSpec, error) {
 	enriched := spec
 	enriched.Variants = make([]experiment.Variant, len(spec.Variants))
@@ -334,6 +367,7 @@ func RunResultFromWorker(res worker.Result) RunResult {
 		Tokens:          res.Tokens,
 		Latency:         res.Latency,
 		ProviderName:    res.ProviderName,
+		Execution:       experiment.CloneExecution(res.Execution),
 		Artifacts:       cloneStringMap(res.Artifacts),
 		Scores:          cloneScores(res.Scores),
 		Expected:        res.Expected,

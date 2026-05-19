@@ -551,9 +551,10 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	playgroundRepo := experiment.NewRepository()
 	playgroundPlanner := experiment.NewPlanner(experiment.PlannerConfig{MaxRowsPerShard: 32, MaxVariantsPerShard: 4})
 	playgroundProvider := provider.NewLLMAdapter(llm, cfg.OpenAI.Model)
-	playgroundWorker := worker.NewWorker(playgroundProvider, artifactStore)
+	playgroundRunner := newPlaygroundSpecialistRunner(app, worker.NewProviderRunner(playgroundProvider))
+	playgroundWorker := worker.NewWorkerWithRunner(playgroundRunner, artifactStore)
 	playgroundEvals := eval.NewRunner(eval.NewRegistry(), playgroundProvider)
-	playgroundService := playground.NewService(playground.Config{MaxConcurrentShards: 4}, playgroundRegistry, playgroundDataset, playgroundRepo, playgroundPlanner, playgroundWorker, playgroundEvals, mgr.Playground)
+	playgroundService := playground.NewService(playground.Config{MaxConcurrentShards: 4, SpecialistValidator: playgroundRunner}, playgroundRegistry, playgroundDataset, playgroundRepo, playgroundPlanner, playgroundWorker, playgroundEvals, mgr.Playground)
 	app.playgroundHandler = httpapi.NewServer(playgroundService)
 
 	// Filesystem backend only.

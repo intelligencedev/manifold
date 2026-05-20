@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"manifold/internal/config"
+	"manifold/internal/embedding"
 	"manifold/internal/llm"
 )
 
@@ -24,6 +25,11 @@ type countingEmbedder struct {
 	calls int
 }
 
+type recordingEmbedder struct {
+	mu    sync.Mutex
+	texts []string
+}
+
 func (c *countingEmbedder) embed(ctx context.Context, cfg config.EmbeddingConfig, texts []string) ([][]float32, error) {
 	c.mu.Lock()
 	c.calls++
@@ -35,6 +41,19 @@ func (c *countingEmbedder) count() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.calls
+}
+
+func (r *recordingEmbedder) embed(ctx context.Context, cfg config.EmbeddingConfig, texts []string) ([][]float32, error) {
+	r.mu.Lock()
+	r.texts = append(r.texts, texts...)
+	r.mu.Unlock()
+	return testEmbedFn(ctx, cfg, texts)
+}
+
+func (r *recordingEmbedder) snapshot() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.texts...)
 }
 
 func (m *mockLLMProvider) Chat(ctx context.Context, messages []llm.Message, tools []llm.ToolSchema, model string) (llm.Message, error) {
@@ -410,14 +429,17 @@ func TestClassifyMemoryTypeUsesWholeWords(t *testing.T) {
 
 	em := NewEvolvingMemory(EvolvingMemoryConfig{EmbedFn: testEmbedFn})
 
-	if got := em.classifyMemoryType("factory reset failed", "output", "summary"); got != MemoryEpisodic {
+	if got := em.classifyMemoryType("factory reset failed", "output", "summary", ""); got != MemoryEpisodic {
 		t.Fatalf("expected factory not to match factual keyword, got %q", got)
 	}
-	if got := em.classifyMemoryType("how to retry flaky tests", "output", "summary"); got != MemoryProcedural {
+	if got := em.classifyMemoryType("how to retry flaky tests", "output", "summary", ""); got != MemoryProcedural {
 		t.Fatalf("expected procedural classification, got %q", got)
 	}
-	if got := em.classifyMemoryType("what is the cache key", "output", "summary"); got != MemoryFactual {
+	if got := em.classifyMemoryType("what is the cache key", "output", "summary", ""); got != MemoryFactual {
 		t.Fatalf("expected factual classification, got %q", got)
+	}
+	if got := em.classifyMemoryType("debug flaky tests", "output", "summary", "Reusable strategy: retry only the failed shard first"); got != MemoryProcedural {
+		t.Fatalf("expected strategy card to drive procedural classification, got %q", got)
 	}
 }
 
@@ -450,6 +472,111 @@ func TestSearchCachesQueryEmbeddings(t *testing.T) {
 	}
 	if got := counting.count(); got != 1 {
 		t.Fatalf("expected one embedding call for repeated query, got %d", got)
+	}
+}
+
+func TestSearchAppliesQueryInstruction(t *testing.T) {
+	t.Parallel()
+
+	recorder := &recordingEmbedder{}
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbeddingConfig: config.EmbeddingConfig{
+			Model: "Qwen3-Embedding-0.6B-f16.gguf",
+			Instructions: config.EmbeddingInstructionConfig{
+				Mode:   "auto",
+				Format: "qwen",
+			},
+		},
+		EmbedFn:   recorder.embed,
+		TopK:      1,
+		EnableRAG: true,
+	})
+	em.mu.Lock()
+	em.entries = []*MemoryEntry{{ID: "entry", Embedding: []float32{1, 0, 0, 0, 0, 0, 0, 0}}}
+	em.mu.Unlock()
+
+	_, diag, err := em.SearchWithDiagnostics(context.Background(), "fix flaky tests")
+	if err != nil {
+		t.Fatalf("SearchWithDiagnostics failed: %v", err)
+	}
+	texts := recorder.snapshot()
+	if len(texts) != 1 {
+		t.Fatalf("expected one embedding call, got %#v", texts)
+	}
+	want := "Instruct: " + embedding.DefaultMemoryQueryInstruction + "\nQuery: fix flaky tests"
+	if texts[0] != want {
+		t.Fatalf("unexpected query embedding text:\n got %q\nwant %q", texts[0], want)
+	}
+	if !diag.EmbeddingInstructionApplied || diag.EmbeddingInstructionUseCase != embedding.UseCaseEvolvingMemoryQuery {
+		t.Fatalf("unexpected instruction diagnostics: %+v", diag)
+	}
+}
+
+func TestSearchCacheSeparatesEmbeddingInstructions(t *testing.T) {
+	t.Parallel()
+
+	counting := &countingEmbedder{}
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbeddingConfig: config.EmbeddingConfig{
+			Model: "text-embedding-3-small",
+			Instructions: config.EmbeddingInstructionConfig{
+				Mode:                "enabled",
+				Format:              "qwen",
+				EvolvingMemoryQuery: "First instruction.",
+			},
+		},
+		EmbedFn:                 counting.embed,
+		QueryEmbeddingCacheTTL:  time.Minute,
+		QueryEmbeddingCacheSize: 4,
+		TopK:                    1,
+		EnableRAG:               true,
+	})
+	em.mu.Lock()
+	em.entries = []*MemoryEntry{{ID: "entry", Embedding: []float32{1, 0, 0, 0, 0, 0, 0, 0}}}
+	em.mu.Unlock()
+
+	if _, err := em.Search(context.Background(), "same task"); err != nil {
+		t.Fatalf("first search failed: %v", err)
+	}
+	em.embedCfg.Instructions.EvolvingMemoryQuery = "Second instruction."
+	if _, err := em.Search(context.Background(), "same task"); err != nil {
+		t.Fatalf("second search failed: %v", err)
+	}
+	if got := counting.count(); got != 2 {
+		t.Fatalf("expected cache separation by effective instruction, got %d calls", got)
+	}
+}
+
+func TestEvolveEmbedsRawRetrievalText(t *testing.T) {
+	t.Parallel()
+
+	recorder := &recordingEmbedder{}
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbeddingConfig: config.EmbeddingConfig{
+			Model: "Qwen3-Embedding-0.6B-f16.gguf",
+			Instructions: config.EmbeddingInstructionConfig{
+				Mode:   "auto",
+				Format: "qwen",
+			},
+		},
+		EmbedFn:   recorder.embed,
+		LLM:       &mockLLMProvider{response: "check inputs before retrying"},
+		Model:     "test-model",
+		EnableRAG: true,
+	})
+
+	if err := em.EvolveEnhanced(context.Background(), "fix flaky tests", "reran package tests", "success", nil, nil, ""); err != nil {
+		t.Fatalf("EvolveEnhanced failed: %v", err)
+	}
+	texts := recorder.snapshot()
+	if len(texts) != 1 {
+		t.Fatalf("expected one write-time embedding call, got %#v", texts)
+	}
+	if strings.HasPrefix(texts[0], "Instruct: ") {
+		t.Fatalf("expected raw write-time retrieval text, got %q", texts[0])
+	}
+	if !strings.Contains(texts[0], "Task: fix flaky tests") {
+		t.Fatalf("expected retrieval text to include task label, got %q", texts[0])
 	}
 }
 

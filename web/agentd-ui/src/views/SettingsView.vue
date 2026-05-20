@@ -362,6 +362,89 @@
               />
             </div>
 
+            <div class="space-y-1">
+              <label
+                for="embed-instruction-mode"
+                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                >Instruction Mode</label
+              >
+              <DropdownSelect
+                id="embed-instruction-mode"
+                v-model="agentdSettings.embedInstructionMode"
+                :options="embedInstructionModeDropdownOptions"
+                class="w-full"
+              />
+            </div>
+            <div class="space-y-1">
+              <label
+                for="embed-instruction-format"
+                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                >Instruction Format</label
+              >
+              <DropdownSelect
+                id="embed-instruction-format"
+                v-model="agentdSettings.embedInstructionFormat"
+                :options="embedInstructionFormatDropdownOptions"
+                class="w-full"
+              />
+            </div>
+            <div class="space-y-1 col-span-3">
+              <label
+                for="embed-default-query-instruction"
+                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                >Default Query Instruction</label
+              >
+              <textarea
+                id="embed-default-query-instruction"
+                v-model="agentdSettings.embedDefaultQueryInstruction"
+                rows="2"
+                placeholder="Built-in per-surface default"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              ></textarea>
+            </div>
+            <div class="space-y-1 col-span-3">
+              <label
+                for="embed-rag-query-instruction"
+                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                >RAG Query Instruction</label
+              >
+              <textarea
+                id="embed-rag-query-instruction"
+                v-model="agentdSettings.embedRagQueryInstruction"
+                rows="2"
+                placeholder="Given a search query, retrieve relevant passages that answer the query."
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              ></textarea>
+            </div>
+            <div class="space-y-1 col-span-3">
+              <label
+                for="embed-memory-query-instruction"
+                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                >Evolving Memory Query Instruction</label
+              >
+              <textarea
+                id="embed-memory-query-instruction"
+                v-model="agentdSettings.embedEvolvingMemoryQueryInstruction"
+                rows="2"
+                placeholder="Given the current task, retrieve past experiences, lessons, and strategies relevant to the current task."
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              ></textarea>
+            </div>
+            <div class="space-y-1 col-span-3">
+              <label
+                for="embed-transit-query-instruction"
+                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                >Transit Query Instruction</label
+              >
+              <textarea
+                id="embed-transit-query-instruction"
+                v-model="agentdSettings.embedTransitQueryInstruction"
+                rows="2"
+                placeholder="Given a search query, retrieve relevant stored shared-memory records."
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              ></textarea>
+            </div>
+
             <div class="space-y-1 col-span-3">
               <label
                 class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
@@ -1083,6 +1166,12 @@ const defaultAgentdSettings: AgentdSettings = {
   embedApiHeader: "Authorization",
   embedApiHeaders: {},
   embedPath: "/v1/embeddings",
+  embedInstructionMode: "auto",
+  embedInstructionFormat: "qwen",
+  embedDefaultQueryInstruction: "",
+  embedRagQueryInstruction: "",
+  embedEvolvingMemoryQueryInstruction: "",
+  embedTransitQueryInstruction: "",
   agentRunTimeoutSeconds: 0,
   streamRunTimeoutSeconds: 0,
   workflowTimeoutSeconds: 0,
@@ -1142,6 +1231,8 @@ function removeEmbedHeader(key: string) {
 
 const logLevelOptions = ["trace", "debug", "info", "warn", "error"];
 const vectorMetricOptions = ["cosine", "dot", "euclidean"];
+const embedInstructionModeOptions = ["auto", "enabled", "disabled"];
+const embedInstructionFormatOptions = ["qwen"];
 
 const logLevelDropdownOptions = logLevelOptions.map((level) => ({
   id: level,
@@ -1153,6 +1244,20 @@ const vectorMetricDropdownOptions = vectorMetricOptions.map((metric) => ({
   label: metric,
   value: metric,
 }));
+const embedInstructionModeDropdownOptions = embedInstructionModeOptions.map(
+  (mode) => ({
+    id: mode,
+    label: mode,
+    value: mode,
+  }),
+);
+const embedInstructionFormatDropdownOptions = embedInstructionFormatOptions.map(
+  (format) => ({
+    id: format,
+    label: format,
+    value: format,
+  }),
+);
 
 type NumericSettingKey =
   | "summaryPlainTextContextWindowTokens"

@@ -95,6 +95,8 @@ Persistence uses the shared `databases.defaultDSN` setting. If no Postgres DSN i
 
 Search uses the configured search backend. Vector search uses the configured vector backend plus the existing embedding service.
 
+When `embedding.instructions.mode` is `auto` or `enabled`, Transit applies the configured query-side embedding instruction to vector search queries. Stored Transit values or descriptions remain embedded as raw record text, so changing query instructions does not require re-indexing existing Transit records.
+
 Transit registration is gated at startup. The Transit tools are only registered when:
 
 - `transit.enabled` is `true`

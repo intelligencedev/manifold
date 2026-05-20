@@ -151,6 +151,13 @@ embedding:
   apiHeader: Authorization
   headers:
     X-Embed-Trace: abc123
+  instructions:
+    mode: enabled
+    format: qwen
+    defaultQuery: "Find relevant text."
+    ragQuery: "Find relevant passages."
+    evolvingMemoryQuery: "Find relevant memories."
+    transitQuery: "Find relevant shared records."
   path: /v1/embeddings
   timeoutSeconds: 30
 imageTool:
@@ -236,6 +243,14 @@ tokenization:
 	}
 	if cfg.Embedding.Headers["X-Embed-Trace"] != "abc123" {
 		t.Fatalf("unexpected embedding headers: %+v", cfg.Embedding.Headers)
+	}
+	if cfg.Embedding.Instructions.Mode != "enabled" || cfg.Embedding.Instructions.Format != "qwen" {
+		t.Fatalf("unexpected embedding instruction settings: %+v", cfg.Embedding.Instructions)
+	}
+	if cfg.Embedding.Instructions.RAGQuery != "Find relevant passages." ||
+		cfg.Embedding.Instructions.EvolvingMemoryQuery != "Find relevant memories." ||
+		cfg.Embedding.Instructions.TransitQuery != "Find relevant shared records." {
+		t.Fatalf("unexpected embedding query instructions: %+v", cfg.Embedding.Instructions)
 	}
 	if cfg.ImageTool.BaseURL != "http://localhost:11434/v1" || cfg.ImageTool.Model != "llava:latest" {
 		t.Fatalf("unexpected image tool config: %+v", cfg.ImageTool)
@@ -420,6 +435,9 @@ llm_client:
 	if !cfg.Tokenization.FallbackToHeuristic {
 		t.Fatalf("expected default tokenization fallback true")
 	}
+	if cfg.Embedding.Instructions.Mode != "auto" || cfg.Embedding.Instructions.Format != "qwen" {
+		t.Fatalf("unexpected default embedding instructions: %+v", cfg.Embedding.Instructions)
+	}
 }
 
 func TestLoad_MissingRequiredFields(t *testing.T) {
@@ -436,6 +454,50 @@ llm_client:
 
 	if _, err := Load(); err == nil {
 		t.Fatalf("expected missing api key to fail")
+	}
+}
+
+func TestLoad_InvalidEmbeddingInstructionMode(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
+	t.Setenv("OPENAI_API_KEY", "dummy")
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(`workdir: .
+llm_client:
+  provider: openai
+  openai:
+    apiKey: "${OPENAI_API_KEY}"
+embedding:
+  instructions:
+    mode: sometimes
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if _, err := Load(); err == nil {
+		t.Fatalf("expected invalid embedding instruction mode to fail")
+	}
+}
+
+func TestLoad_InvalidEmbeddingInstructionFormat(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
+	t.Setenv("OPENAI_API_KEY", "dummy")
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(`workdir: .
+llm_client:
+  provider: openai
+  openai:
+    apiKey: "${OPENAI_API_KEY}"
+embedding:
+  instructions:
+    format: other
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if _, err := Load(); err == nil {
+		t.Fatalf("expected invalid embedding instruction format to fail")
 	}
 }
 

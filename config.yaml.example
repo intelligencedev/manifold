@@ -248,6 +248,16 @@ embedding:
   apiKey: "${EMBED_API_KEY}"
   apiHeader: Authorization
   headers: {}
+  instructions:
+    # auto applies built-in query instructions when the model looks like Qwen3
+    # Embedding; enabled applies them for any model; disabled leaves queries raw.
+    mode: auto # auto | enabled | disabled
+    format: qwen
+    # Leave blank to use the built-in per-surface defaults.
+    defaultQuery: ""
+    ragQuery: ""
+    evolvingMemoryQuery: ""
+    transitQuery: ""
   path: /v1/embeddings
   timeoutSeconds: 30
 

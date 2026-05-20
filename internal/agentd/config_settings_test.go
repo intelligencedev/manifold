@@ -36,6 +36,9 @@ func TestApplyAgentdSettings_UsesNormalizedAliases(t *testing.T) {
 		DBURL:                               "postgres://dburl",
 		PostgresDSN:                         "postgres://canonical",
 		SummaryPlainTextContextWindowTokens: 8192,
+		EmbedInstructionMode:                "enabled",
+		EmbedInstructionFormat:              "qwen",
+		EmbedRAGQueryInstruction:            "Retrieve relevant passages.",
 	}
 
 	if err := applyAgentdSettings(cfg, settings); err != nil {
@@ -53,6 +56,9 @@ func TestApplyAgentdSettings_UsesNormalizedAliases(t *testing.T) {
 	}
 	if cfg.Summary.PlainTextContextWindowTokens != 8192 {
 		t.Fatalf("expected plain text summary context tokens, got %d", cfg.Summary.PlainTextContextWindowTokens)
+	}
+	if cfg.Embedding.Instructions.Mode != "enabled" || cfg.Embedding.Instructions.RAGQuery != "Retrieve relevant passages." {
+		t.Fatalf("expected embedding instruction settings, got %+v", cfg.Embedding.Instructions)
 	}
 }
 
@@ -78,6 +84,9 @@ func TestApplyAgentdSettingsYAML_UsesNormalizedAliases(t *testing.T) {
 		PostgresDSN:                         "postgres://canonical",
 		SummaryPlainTextContextWindowTokens: 8192,
 		BlockBinaries:                       "git, rg",
+		EmbedInstructionMode:                "enabled",
+		EmbedInstructionFormat:              "qwen",
+		EmbedEvolvingMemoryQueryInstruction: "Retrieve relevant memories.",
 	})
 
 	web, ok := root["web"].(map[string]any)
@@ -99,5 +108,13 @@ func TestApplyAgentdSettingsYAML_UsesNormalizedAliases(t *testing.T) {
 	binaries, ok := execCfg["blockBinaries"].([]string)
 	if !ok || len(binaries) != 2 || binaries[0] != "git" || binaries[1] != "rg" {
 		t.Fatalf("expected split block binaries, got %#v", execCfg["blockBinaries"])
+	}
+	embeddingCfg, ok := root["embedding"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected embedding config in YAML map")
+	}
+	instructions, ok := embeddingCfg["instructions"].(map[string]any)
+	if !ok || instructions["mode"] != "enabled" || instructions["evolvingMemoryQuery"] != "Retrieve relevant memories." {
+		t.Fatalf("expected embedding instructions in YAML map, got %#v", embeddingCfg["instructions"])
 	}
 }

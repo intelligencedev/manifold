@@ -148,10 +148,10 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	if err := emb.Ping(ctx); err != nil {
 		return nil, fmt.Errorf("embedding service reachability check failed: %w", err)
 	}
-	toolRegistry.Register(ragtool.NewIngestTool(mgr, ragservice.WithEmbedder(emb)))
-	toolRegistry.Register(ragtool.NewRetrieveTool(mgr, ragservice.WithEmbedder(emb)))
+	toolRegistry.Register(ragtool.NewIngestTool(mgr, ragservice.WithEmbedder(emb), ragservice.WithEmbeddingConfig(cfg.Embedding)))
+	toolRegistry.Register(ragtool.NewRetrieveTool(mgr, ragservice.WithEmbedder(emb), ragservice.WithEmbeddingConfig(cfg.Embedding)))
 	// Reuse a single shared RAG service for runtime use (belief router, etc.).
-	runtimeRAGService := ragservice.New(mgr, ragservice.WithEmbedder(emb))
+	runtimeRAGService := ragservice.New(mgr, ragservice.WithEmbedder(emb), ragservice.WithEmbeddingConfig(cfg.Embedding))
 
 	// Register the AlphaEvolve-inspired code evolution tool.
 	toolRegistry.Register(codeevolvetool.New(cfg, llm))

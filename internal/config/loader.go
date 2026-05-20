@@ -356,6 +356,16 @@ func applyDefaults(cfg *Config) {
 	if cfg.Embedding.Timeout <= 0 {
 		cfg.Embedding.Timeout = 30
 	}
+	if cfg.Embedding.Instructions.Mode == "" {
+		cfg.Embedding.Instructions.Mode = "auto"
+	} else {
+		cfg.Embedding.Instructions.Mode = strings.ToLower(strings.TrimSpace(cfg.Embedding.Instructions.Mode))
+	}
+	if cfg.Embedding.Instructions.Format == "" {
+		cfg.Embedding.Instructions.Format = "qwen"
+	} else {
+		cfg.Embedding.Instructions.Format = strings.ToLower(strings.TrimSpace(cfg.Embedding.Instructions.Format))
+	}
 	for i := range cfg.MCP.Servers {
 		if cfg.MCP.Servers[i].HTTP.TimeoutSeconds <= 0 {
 			cfg.MCP.Servers[i].HTTP.TimeoutSeconds = 30
@@ -485,6 +495,16 @@ func validateConfig(cfg *Config) error {
 	}
 	if cfg.BeliefMemory.PromotionThreshold < 0 || cfg.BeliefMemory.PromotionThreshold > 1 {
 		return fmt.Errorf("beliefMemory.promotionThreshold must be between 0 and 1 (got %g)", cfg.BeliefMemory.PromotionThreshold)
+	}
+	switch strings.ToLower(strings.TrimSpace(cfg.Embedding.Instructions.Mode)) {
+	case "", "auto", "enabled", "disabled":
+	default:
+		return fmt.Errorf("embedding.instructions.mode must be one of auto, enabled, or disabled (got %q)", cfg.Embedding.Instructions.Mode)
+	}
+	switch strings.ToLower(strings.TrimSpace(cfg.Embedding.Instructions.Format)) {
+	case "", "qwen":
+	default:
+		return fmt.Errorf("embedding.instructions.format must be qwen (got %q)", cfg.Embedding.Instructions.Format)
 	}
 
 	return nil

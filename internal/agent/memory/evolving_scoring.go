@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"manifold/internal/embedding"
 	"manifold/internal/observability"
 	"math"
 	"sort"
@@ -115,28 +116,30 @@ func normalizeRankingWeights(weights RankingWeights) RankingWeights {
 	return weights
 }
 
-func (em *EvolvingMemory) embedQuery(ctx context.Context, query string) ([]float32, error) {
+func (em *EvolvingMemory) embedQuery(ctx context.Context, query string) ([]float32, embedding.InstructionResult, error) {
+	instruction := embedding.FormatQueryInput(em.embedCfg, embedding.UseCaseEvolvingMemoryQuery, query, "")
+	cacheKey := instruction.Input
 	now := time.Now()
 	em.queryCacheMu.Lock()
-	if cached, ok := em.queryCache[query]; ok && now.Before(cached.expiresAt) {
+	if cached, ok := em.queryCache[cacheKey]; ok && now.Before(cached.expiresAt) {
 		cached.lastUsed = now
-		em.queryCache[query] = cached
+		em.queryCache[cacheKey] = cached
 		vec := append([]float32(nil), cached.vec...)
 		em.queryCacheMu.Unlock()
-		return vec, nil
+		return vec, instruction, nil
 	}
 	em.queryCacheMu.Unlock()
 
-	vecs, err := em.embedFn(ctx, em.embedCfg, []string{query})
+	vecs, err := em.embedFn(ctx, em.embedCfg, []string{instruction.Input})
 	if err != nil {
-		return nil, err
+		return nil, instruction, err
 	}
 	if len(vecs) == 0 {
-		return nil, fmt.Errorf("empty query embedding")
+		return nil, instruction, fmt.Errorf("empty query embedding")
 	}
 	vec := normalizeVector(vecs[0])
-	em.storeQueryEmbedding(query, vec, now)
-	return vec, nil
+	em.storeQueryEmbedding(cacheKey, vec, now)
+	return vec, instruction, nil
 }
 
 func (em *EvolvingMemory) storeQueryEmbedding(query string, vec []float32, now time.Time) {

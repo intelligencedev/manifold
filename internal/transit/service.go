@@ -242,7 +242,8 @@ func (s *Service) collectSearch(ctx context.Context, tenantID int64, req SearchR
 	}
 
 	if s.enableVectorSearch && s.vector != nil {
-		vectors, embedErr := s.embedFn(ctx, s.embeddingConfig, []string{req.Query})
+		instruction := embedding.FormatQueryInput(s.embeddingConfig, embedding.UseCaseTransitQuery, req.Query, "")
+		vectors, embedErr := s.embedFn(ctx, s.embeddingConfig, []string{instruction.Input})
 		if embedErr == nil && len(vectors) == 1 {
 			filter := map[string]string{"kind": "transit", "tenant_id": strconv.FormatInt(tenantID, 10)}
 			vectorResults, searchErr := s.vector.SimilaritySearch(ctx, vectors[0], req.Limit*3, filter)

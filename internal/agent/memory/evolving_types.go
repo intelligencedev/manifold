@@ -154,13 +154,19 @@ type MemoryScoreExplanation struct {
 // SearchDiagnostics describes how a memory search was executed. It is kept
 // small so it can be returned by debug APIs and attached to MemoryEvents.
 type SearchDiagnostics struct {
-	EnableRAG         bool   `json:"enableRAG"`
-	Mode              string `json:"mode"`
-	VectorCandidates  int    `json:"vectorCandidates"`
-	KeywordCandidates int    `json:"keywordCandidates"`
-	UsedServerVector  bool   `json:"usedServerVector"`
-	UsedKeywordStore  bool   `json:"usedKeywordStore"`
-	EmbeddingError    string `json:"embeddingError,omitempty"`
+	EnableRAG                   bool   `json:"enableRAG"`
+	Mode                        string `json:"mode"`
+	VectorCandidates            int    `json:"vectorCandidates"`
+	KeywordCandidates           int    `json:"keywordCandidates"`
+	UsedServerVector            bool   `json:"usedServerVector"`
+	UsedKeywordStore            bool   `json:"usedKeywordStore"`
+	EmbeddingInstructionUsed    bool   `json:"embeddingInstructionUsed"`
+	EmbeddingInstructionApplied bool   `json:"embeddingInstructionApplied"`
+	EmbeddingInstructionUseCase string `json:"embeddingInstructionUseCase,omitempty"`
+	EmbeddingInstructionFormat  string `json:"embeddingInstructionFormat,omitempty"`
+	EmbeddingInstructionMode    string `json:"embeddingInstructionMode,omitempty"`
+	EmbeddingInstructionSource  string `json:"embeddingInstructionSource,omitempty"`
+	EmbeddingError              string `json:"embeddingError,omitempty"`
 }
 
 // RankingWeights controls how dense similarity is blended with memory quality,

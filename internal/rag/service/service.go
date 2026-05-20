@@ -4,6 +4,8 @@ import (
 	"context"
 	"time"
 
+	"manifold/internal/config"
+	"manifold/internal/embedding"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/rag/chunker"
 	"manifold/internal/rag/embedder"
@@ -21,6 +23,7 @@ type Service struct {
 	metrics Metrics
 	clock   Clock
 	emb     embedder.Embedder
+	embCfg  config.EmbeddingConfig
 	rerank  retrieve.Reranker
 }
 
@@ -47,6 +50,11 @@ type Option func(*Service)
 
 // WithEmbedder sets a custom embedder implementation used during ingestion.
 func WithEmbedder(e embedder.Embedder) Option { return func(s *Service) { s.emb = e } }
+
+// WithEmbeddingConfig sets embedding configuration used for query instructions.
+func WithEmbeddingConfig(cfg config.EmbeddingConfig) Option {
+	return func(s *Service) { s.embCfg = cfg }
+}
 
 // Ingest performs chunk-centric ingestion. Stubbed for Milestone 3.
 func (s *Service) Ingest(ctx context.Context, in ingest.IngestRequest) (ingest.IngestResponse, error) {
@@ -158,13 +166,11 @@ func (s *Service) Retrieve(ctx context.Context, q string, opt retrieve.RetrieveO
 	plan := retrieve.BuildQueryPlan(ctx, q, opt)
 	// For now, we reuse deterministic embedder to get a query vector when vector store is present.
 	var qvec []float32
+	instruction := embedding.FormatQueryInput(s.embCfg, embedding.UseCaseRAGQuery, plan.Query, opt.Instruction)
+	instructionUsed := false
 	if s.vector != nil && s.emb != nil && plan.VecK > 0 {
-		// Apply retrieval-time instruction to the query if provided.
-		embedText := plan.Query
-		if opt.Instruction != "" {
-			embedText = "Instruct: " + opt.Instruction + "\n" + "Query: " + plan.Query
-		}
-		emb, err := s.emb.EmbedBatch(ctx, []string{embedText})
+		instructionUsed = true
+		emb, err := s.emb.EmbedBatch(ctx, []string{instruction.Input})
 		if err != nil {
 			return retrieve.RetrieveResponse{}, err
 		}
@@ -271,6 +277,14 @@ func (s *Service) Retrieve(ctx context.Context, q string, opt retrieve.RetrieveO
 	debug := map[string]any{
 		"plan":        map[string]any{"lang": plan.Lang, "ftK": plan.FtK, "vecK": plan.VecK},
 		"diagnostics": map[string]any{"ft_ms": ms(diag.FtLatency), "vec_ms": ms(diag.VecLatency), "ft_n": diag.FtCount, "vec_n": diag.VecCount, "package_ms": pkgMS, "fusion_ms": fusionMS, "total_ms": totalMS},
+		"embedding_instruction": map[string]any{
+			"used":    instructionUsed,
+			"applied": instruction.Applied,
+			"useCase": instruction.UseCase,
+			"format":  instruction.Format,
+			"mode":    instruction.Mode,
+			"source":  instruction.Source,
+		},
 	}
 	// Integrate addDbg stage timings into diagnostics when available
 	if dm, ok := debug["diagnostics"].(map[string]any); ok {

@@ -17,12 +17,18 @@ type agentdSettings struct {
 	SummaryPlainTextContextWindowTokens int    `json:"summaryPlainTextContextWindowTokens"`
 	SummaryReserveBufferTokens          int    `json:"summaryReserveBufferTokens"`
 
-	EmbedBaseURL    string            `json:"embedBaseUrl"`
-	EmbedModel      string            `json:"embedModel"`
-	EmbedAPIKey     string            `json:"embedApiKey"`
-	EmbedAPIHeader  string            `json:"embedApiHeader"`
-	EmbedAPIHeaders map[string]string `json:"embedApiHeaders"`
-	EmbedPath       string            `json:"embedPath"`
+	EmbedBaseURL                        string            `json:"embedBaseUrl"`
+	EmbedModel                          string            `json:"embedModel"`
+	EmbedAPIKey                         string            `json:"embedApiKey"`
+	EmbedAPIHeader                      string            `json:"embedApiHeader"`
+	EmbedAPIHeaders                     map[string]string `json:"embedApiHeaders"`
+	EmbedPath                           string            `json:"embedPath"`
+	EmbedInstructionMode                string            `json:"embedInstructionMode"`
+	EmbedInstructionFormat              string            `json:"embedInstructionFormat"`
+	EmbedDefaultQueryInstruction        string            `json:"embedDefaultQueryInstruction"`
+	EmbedRAGQueryInstruction            string            `json:"embedRagQueryInstruction"`
+	EmbedEvolvingMemoryQueryInstruction string            `json:"embedEvolvingMemoryQueryInstruction"`
+	EmbedTransitQueryInstruction        string            `json:"embedTransitQueryInstruction"`
 
 	AgentRunTimeoutSeconds  int `json:"agentRunTimeoutSeconds"`
 	StreamRunTimeoutSeconds int `json:"streamRunTimeoutSeconds"`

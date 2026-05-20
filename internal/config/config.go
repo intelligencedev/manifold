@@ -536,13 +536,24 @@ type MCPTLSConfig struct {
 
 // EmbeddingConfig configures the embedding service endpoint.
 type EmbeddingConfig struct {
-	BaseURL   string            `yaml:"baseURL" json:"baseURL"`
-	Model     string            `yaml:"model" json:"model"`
-	APIKey    string            `yaml:"apiKey" json:"apiKey"`
-	APIHeader string            `yaml:"apiHeader" json:"apiHeader"` // e.g., "Authorization"
-	Headers   map[string]string `yaml:"headers" json:"headers"`     // optional additional headers
-	Path      string            `yaml:"path" json:"path"`           // default: /v1/embeddings
-	Timeout   int               `yaml:"timeoutSeconds" json:"timeoutSeconds"`
+	BaseURL      string                     `yaml:"baseURL" json:"baseURL"`
+	Model        string                     `yaml:"model" json:"model"`
+	APIKey       string                     `yaml:"apiKey" json:"apiKey"`
+	APIHeader    string                     `yaml:"apiHeader" json:"apiHeader"` // e.g., "Authorization"
+	Headers      map[string]string          `yaml:"headers" json:"headers"`     // optional additional headers
+	Path         string                     `yaml:"path" json:"path"`           // default: /v1/embeddings
+	Timeout      int                        `yaml:"timeoutSeconds" json:"timeoutSeconds"`
+	Instructions EmbeddingInstructionConfig `yaml:"instructions" json:"instructions"`
+}
+
+// EmbeddingInstructionConfig configures query-side embedding instructions.
+type EmbeddingInstructionConfig struct {
+	Mode                string `yaml:"mode" json:"mode"` // auto, enabled, disabled
+	Format              string `yaml:"format" json:"format"`
+	DefaultQuery        string `yaml:"defaultQuery" json:"defaultQuery"`
+	RAGQuery            string `yaml:"ragQuery" json:"ragQuery"`
+	EvolvingMemoryQuery string `yaml:"evolvingMemoryQuery" json:"evolvingMemoryQuery"`
+	TransitQuery        string `yaml:"transitQuery" json:"transitQuery"`
 }
 
 // ImageToolConfig configures the describe_image tool defaults.

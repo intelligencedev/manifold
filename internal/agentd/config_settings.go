@@ -21,12 +21,18 @@ func currentAgentdSettings(cfg *config.Config) agentdSettings {
 		SummaryPlainTextContextWindowTokens: cfg.Summary.PlainTextContextWindowTokens,
 		SummaryReserveBufferTokens:          cfg.SummaryReserveBufferTokens,
 
-		EmbedBaseURL:    cfg.Embedding.BaseURL,
-		EmbedModel:      cfg.Embedding.Model,
-		EmbedAPIKey:     cfg.Embedding.APIKey,
-		EmbedAPIHeader:  cfg.Embedding.APIHeader,
-		EmbedAPIHeaders: cfg.Embedding.Headers,
-		EmbedPath:       cfg.Embedding.Path,
+		EmbedBaseURL:                        cfg.Embedding.BaseURL,
+		EmbedModel:                          cfg.Embedding.Model,
+		EmbedAPIKey:                         cfg.Embedding.APIKey,
+		EmbedAPIHeader:                      cfg.Embedding.APIHeader,
+		EmbedAPIHeaders:                     cfg.Embedding.Headers,
+		EmbedPath:                           cfg.Embedding.Path,
+		EmbedInstructionMode:                cfg.Embedding.Instructions.Mode,
+		EmbedInstructionFormat:              cfg.Embedding.Instructions.Format,
+		EmbedDefaultQueryInstruction:        cfg.Embedding.Instructions.DefaultQuery,
+		EmbedRAGQueryInstruction:            cfg.Embedding.Instructions.RAGQuery,
+		EmbedEvolvingMemoryQueryInstruction: cfg.Embedding.Instructions.EvolvingMemoryQuery,
+		EmbedTransitQueryInstruction:        cfg.Embedding.Instructions.TransitQuery,
 
 		AgentRunTimeoutSeconds:  cfg.AgentRunTimeoutSeconds,
 		StreamRunTimeoutSeconds: cfg.StreamRunTimeoutSeconds,
@@ -83,6 +89,16 @@ func normalizeAgentdSettings(settings agentdSettings) agentdSettings {
 	}
 
 	settings.BlockBinaries = strings.TrimSpace(settings.BlockBinaries)
+	if strings.TrimSpace(settings.EmbedInstructionMode) == "" {
+		settings.EmbedInstructionMode = "auto"
+	} else {
+		settings.EmbedInstructionMode = strings.ToLower(strings.TrimSpace(settings.EmbedInstructionMode))
+	}
+	if strings.TrimSpace(settings.EmbedInstructionFormat) == "" {
+		settings.EmbedInstructionFormat = "qwen"
+	} else {
+		settings.EmbedInstructionFormat = strings.ToLower(strings.TrimSpace(settings.EmbedInstructionFormat))
+	}
 
 	return settings
 }
@@ -101,6 +117,9 @@ func applySummaryModel(cfg *config.Config, model string) {
 
 func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	settings = normalizeAgentdSettings(settings)
+	if err := validateEmbeddingInstructionSettings(settings); err != nil {
+		return err
+	}
 
 	if settings.SummaryProvider != "" {
 		cfg.Summary.LLMClient.Provider = settings.SummaryProvider
@@ -144,6 +163,16 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	if settings.EmbedPath != "" {
 		cfg.Embedding.Path = settings.EmbedPath
 	}
+	if settings.EmbedInstructionMode != "" {
+		cfg.Embedding.Instructions.Mode = settings.EmbedInstructionMode
+	}
+	if settings.EmbedInstructionFormat != "" {
+		cfg.Embedding.Instructions.Format = settings.EmbedInstructionFormat
+	}
+	cfg.Embedding.Instructions.DefaultQuery = settings.EmbedDefaultQueryInstruction
+	cfg.Embedding.Instructions.RAGQuery = settings.EmbedRAGQueryInstruction
+	cfg.Embedding.Instructions.EvolvingMemoryQuery = settings.EmbedEvolvingMemoryQueryInstruction
+	cfg.Embedding.Instructions.TransitQuery = settings.EmbedTransitQueryInstruction
 
 	if settings.AgentRunTimeoutSeconds != 0 {
 		cfg.AgentRunTimeoutSeconds = settings.AgentRunTimeoutSeconds
@@ -232,6 +261,20 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	return nil
 }
 
+func validateEmbeddingInstructionSettings(settings agentdSettings) error {
+	switch strings.ToLower(strings.TrimSpace(settings.EmbedInstructionMode)) {
+	case "auto", "enabled", "disabled":
+	default:
+		return fmt.Errorf("embedInstructionMode must be one of auto, enabled, or disabled (got %q)", settings.EmbedInstructionMode)
+	}
+	switch strings.ToLower(strings.TrimSpace(settings.EmbedInstructionFormat)) {
+	case "qwen":
+	default:
+		return fmt.Errorf("embedInstructionFormat must be qwen (got %q)", settings.EmbedInstructionFormat)
+	}
+	return nil
+}
+
 func persistToConfigYAML(settings agentdSettings) error {
 	settings = normalizeAgentdSettings(settings)
 	path := findConfigYAMLPath()
@@ -294,6 +337,16 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	if len(settings.EmbedAPIHeaders) > 0 {
 		setNestedMapValue(root, []string{"embedding", "headers"}, settings.EmbedAPIHeaders)
 	}
+	if settings.EmbedInstructionMode != "" {
+		setNestedMapValue(root, []string{"embedding", "instructions", "mode"}, settings.EmbedInstructionMode)
+	}
+	if settings.EmbedInstructionFormat != "" {
+		setNestedMapValue(root, []string{"embedding", "instructions", "format"}, settings.EmbedInstructionFormat)
+	}
+	setNestedMapValue(root, []string{"embedding", "instructions", "defaultQuery"}, settings.EmbedDefaultQueryInstruction)
+	setNestedMapValue(root, []string{"embedding", "instructions", "ragQuery"}, settings.EmbedRAGQueryInstruction)
+	setNestedMapValue(root, []string{"embedding", "instructions", "evolvingMemoryQuery"}, settings.EmbedEvolvingMemoryQueryInstruction)
+	setNestedMapValue(root, []string{"embedding", "instructions", "transitQuery"}, settings.EmbedTransitQueryInstruction)
 
 	if settings.AgentRunTimeoutSeconds != 0 {
 		setNestedMapValue(root, []string{"agentRunTimeoutSeconds"}, settings.AgentRunTimeoutSeconds)

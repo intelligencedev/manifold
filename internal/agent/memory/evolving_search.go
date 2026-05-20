@@ -100,7 +100,13 @@ func (em *EvolvingMemory) searchWithScores(ctx context.Context, query string, up
 	diag.KeywordCandidates = len(keywordCandidates)
 	_, diag.UsedKeywordStore = em.store.(EvolvingMemoryKeywordStore)
 
-	queryVec, err := em.embedQuery(ctx, query)
+	queryVec, instruction, err := em.embedQuery(ctx, query)
+	diag.EmbeddingInstructionUsed = true
+	diag.EmbeddingInstructionApplied = instruction.Applied
+	diag.EmbeddingInstructionUseCase = instruction.UseCase
+	diag.EmbeddingInstructionFormat = instruction.Format
+	diag.EmbeddingInstructionMode = instruction.Mode
+	diag.EmbeddingInstructionSource = instruction.Source
 	if err != nil {
 		diag.EmbeddingError = err.Error()
 		log.Warn().Err(err).Msg("evolving_memory_embed_query_failed")
@@ -270,7 +276,7 @@ func (em *EvolvingMemory) ExplainSearch(ctx context.Context, query string) ([]Me
 	fetchK := em.searchFetchK()
 	log := observability.LoggerWithTrace(ctx)
 	keywordCandidates := em.keywordCandidates(ctx, query, entries, fetchK, log)
-	queryVec, err := em.embedQuery(ctx, query)
+	queryVec, _, err := em.embedQuery(ctx, query)
 	if err != nil {
 		if len(keywordCandidates) == 0 {
 			return nil, fmt.Errorf("embed query: %w", err)

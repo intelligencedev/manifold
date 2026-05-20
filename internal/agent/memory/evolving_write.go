@@ -35,8 +35,8 @@ func (em *EvolvingMemory) EvolveEnhanced(
 	summary = limitUTF8Bytes(redactPII(summary), maxStoredOutputBytes)
 	strategyCard = limitUTF8Bytes(redactPII(strategyCard), maxStoredOutputBytes)
 
-	// Classify memory type based on content analysis
-	memType := em.classifyMemoryType(input, output, summary)
+	// Classify memory type based on content analysis.
+	memType := em.classifyMemoryType(input, output, summary, strategyCard)
 
 	// Build raw trace from reasoning trace
 	rawTrace := ""
@@ -163,11 +163,11 @@ func (em *EvolvingMemory) EvolveEnhanced(
 
 // classifyMemoryType determines if the memory is factual, procedural, or episodic.
 // This implements the paper's distinction between conversational recall and experience reuse.
-func (em *EvolvingMemory) classifyMemoryType(input, output, summary string) MemoryType {
+func (em *EvolvingMemory) classifyMemoryType(input, output, summary, strategyCard string) MemoryType {
 	// Simple heuristic-based classification
 	// In production, this could use an LLM call for more accurate classification
 
-	combined := input + " " + output + " " + summary
+	combined := input + " " + output + " " + summary + " " + strategyCard
 	if proceduralMemoryPattern.MatchString(combined) {
 		return MemoryProcedural
 	}

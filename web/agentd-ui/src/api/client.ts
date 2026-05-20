@@ -565,6 +565,12 @@ export interface AgentdSettings {
   embedApiHeader: string;
   embedApiHeaders: Record<string, string>;
   embedPath: string;
+  embedInstructionMode: string;
+  embedInstructionFormat: string;
+  embedDefaultQueryInstruction: string;
+  embedRagQueryInstruction: string;
+  embedEvolvingMemoryQueryInstruction: string;
+  embedTransitQueryInstruction: string;
 
   agentRunTimeoutSeconds: number;
   streamRunTimeoutSeconds: number;

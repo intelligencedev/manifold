@@ -4,10 +4,29 @@ import (
 	"context"
 	"testing"
 
+	"manifold/internal/config"
+	"manifold/internal/embedding"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/rag/obs"
 	"manifold/internal/rag/retrieve"
 )
+
+type captureEmbedder struct {
+	texts []string
+}
+
+func (c *captureEmbedder) EmbedBatch(_ context.Context, texts []string) ([][]float32, error) {
+	c.texts = append(c.texts, texts...)
+	out := make([][]float32, len(texts))
+	for i := range texts {
+		out[i] = []float32{1, 0}
+	}
+	return out, nil
+}
+
+func (c *captureEmbedder) Name() string               { return "capture" }
+func (c *captureEmbedder) Dimension() int             { return 2 }
+func (c *captureEmbedder) Ping(context.Context) error { return nil }
 
 func TestRetrieve_EmitsDiagnosticsAndMetrics(t *testing.T) {
 	// Setup memory backends
@@ -48,5 +67,60 @@ func TestRetrieve_EmitsDiagnosticsAndMetrics(t *testing.T) {
 	}
 	if _, ok := metrics.Hists["retrieval_stage_ms"]; !ok {
 		t.Fatalf("expected retrieval_stage_ms observations")
+	}
+}
+
+func TestRetrieve_FormatsQueryEmbeddingInstruction(t *testing.T) {
+	mgr := databases.Manager{Search: databases.NewMemorySearch(), Vector: databases.NewMemoryVector()}
+	emb := &captureEmbedder{}
+	cfg := config.EmbeddingConfig{
+		Model: "Qwen3-Embedding-0.6B-f16.gguf",
+		Instructions: config.EmbeddingInstructionConfig{
+			Mode:   "auto",
+			Format: "qwen",
+		},
+	}
+	s := New(mgr, WithEmbedder(emb), WithEmbeddingConfig(cfg))
+
+	resp, err := s.Retrieve(context.Background(), "where is auth configured?", retrieve.RetrieveOptions{K: 1, VecK: 1})
+	if err != nil {
+		t.Fatalf("Retrieve() error = %v", err)
+	}
+	if len(emb.texts) != 1 {
+		t.Fatalf("expected one embedding call, got %d", len(emb.texts))
+	}
+	want := "Instruct: " + embedding.DefaultRAGQueryInstruction + "\nQuery: where is auth configured?"
+	if emb.texts[0] != want {
+		t.Fatalf("unexpected embedded text:\n got %q\nwant %q", emb.texts[0], want)
+	}
+	info, ok := resp.Debug["embedding_instruction"].(map[string]any)
+	if !ok || info["applied"] != true || info["useCase"] != embedding.UseCaseRAGQuery {
+		t.Fatalf("unexpected embedding instruction debug: %#v", resp.Debug["embedding_instruction"])
+	}
+}
+
+func TestRetrieve_ExplicitInstructionOverridesDefault(t *testing.T) {
+	mgr := databases.Manager{Search: databases.NewMemorySearch(), Vector: databases.NewMemoryVector()}
+	emb := &captureEmbedder{}
+	cfg := config.EmbeddingConfig{
+		Model: "Qwen3-Embedding-0.6B-f16.gguf",
+		Instructions: config.EmbeddingInstructionConfig{
+			Mode:   "auto",
+			Format: "qwen",
+		},
+	}
+	s := New(mgr, WithEmbedder(emb), WithEmbeddingConfig(cfg))
+
+	_, err := s.Retrieve(context.Background(), "where is auth configured?", retrieve.RetrieveOptions{
+		K:           1,
+		VecK:        1,
+		Instruction: "Retrieve implementation details.",
+	})
+	if err != nil {
+		t.Fatalf("Retrieve() error = %v", err)
+	}
+	want := "Instruct: Retrieve implementation details.\nQuery: where is auth configured?"
+	if len(emb.texts) != 1 || emb.texts[0] != want {
+		t.Fatalf("unexpected embedded text: %#v", emb.texts)
 	}
 }

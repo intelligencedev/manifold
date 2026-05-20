@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -112,10 +113,5 @@ func Exists(root string, rel string) bool {
 }
 
 func Contains(languages []Language, target Language) bool {
-	for _, language := range languages {
-		if language == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(languages, target)
 }

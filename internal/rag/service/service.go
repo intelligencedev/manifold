@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"maps"
 	"time"
 
 	"manifold/internal/config"
@@ -100,7 +101,7 @@ func (s *Service) Ingest(ctx context.Context, in ingest.IngestRequest) (ingest.I
 	}
 	s.metrics.ObserveHistogram("ingestion_stage_ms", float64(ms(s.clock.Now().Sub(t0))), map[string]string{"stage": "chunk", "tenant": in.Tenant})
 	// Metrics: count chunks
-	for i := 0; i < len(chunks); i++ {
+	for range chunks {
 		s.metrics.IncCounter("ingestion_chunks_total", map[string]string{"tenant": in.Tenant})
 	}
 
@@ -299,9 +300,7 @@ func (s *Service) Retrieve(ctx context.Context, q string, opt retrieve.RetrieveO
 			dm["rerank_ms"] = rv
 		}
 	}
-	for k, v := range addDbg {
-		debug[k] = v
-	}
+	maps.Copy(debug, addDbg)
 	return retrieve.RetrieveResponse{Query: plan.Query, Items: items, Debug: debug}, nil
 }
 

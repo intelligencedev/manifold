@@ -321,7 +321,7 @@ func RunAlphaEvolve(
 
 	log.Printf("[EVOLVE] Initial program score: %.3f", scores["score"])
 
-	for i := 0; i < generations; i++ {
+	for i := range generations {
 		log.Printf("[EVOLVE] Starting generation %d/%d (stagnation: %d)", i+1, generations, stagnationCount)
 
 		parents, inspirations, err := SampleProgramsFromDatabase(db, 1, 2)

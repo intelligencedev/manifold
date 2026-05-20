@@ -43,7 +43,7 @@ The following Go command-line tools are essential for development, testing, and 
 > **Tip:** Refer to this table whenever you need to build, test, format, or analyze Go code in this project.
 
 ## Coding Style & Naming Conventions
-Target Go 1.24.5 and keep files `gofmt` clean with tabs. Maintain import order with `goimports` and keep `golangci-lint run` (via `make lint`) silent. Name packages after their capability, keep filenames lowercase, and export concise CamelCase APIs. Prefer constructor-style functions (e.g., `NewService`) for dependency injection.
+Target Go 1.26.3 and keep files `gofmt` clean with tabs. Maintain import order with `goimports` and keep `golangci-lint run` (via `make lint`) silent. Name packages after their capability, keep filenames lowercase, and export concise CamelCase APIs. Prefer constructor-style functions (e.g., `NewService`) for dependency injection.
 
 ### Naming Conventions
 

@@ -14,7 +14,7 @@ func TestExpandWithGraph_AddsNeighbors(t *testing.T) {
 	// Setup a small doc with 3 chunks
 	docID := "doc:acme:alpha"
 	_ = g.UpsertNode(ctx, docID, []string{"Doc"}, nil)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		cid := fmt.Sprintf("chunk:%s:%d", docID, i)
 		_ = g.UpsertNode(ctx, cid, []string{"Chunk"}, nil)
 		_ = g.UpsertEdge(ctx, docID, "HAS_CHUNK", cid, nil)

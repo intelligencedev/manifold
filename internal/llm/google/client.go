@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"sort"
 	"strconv"
@@ -388,9 +389,7 @@ func (c *Client) buildExtraBody() map[string]any {
 		switch norm {
 		case "generationconfig":
 			if m, ok := val.(map[string]any); ok {
-				for mk, mv := range m {
-					genCfg[mk] = mv
-				}
+				maps.Copy(genCfg, m)
 			} else {
 				body[key] = val
 			}
@@ -451,12 +450,8 @@ func mergeAnyMap(base, override map[string]any) map[string]any {
 		return nil
 	}
 	out := make(map[string]any, len(base)+len(override))
-	for k, v := range base {
-		out[k] = v
-	}
-	for k, v := range override {
-		out[k] = v
-	}
+	maps.Copy(out, base)
+	maps.Copy(out, override)
 	return out
 }
 

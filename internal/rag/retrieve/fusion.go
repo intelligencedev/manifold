@@ -1,6 +1,7 @@
 package retrieve
 
 import (
+	"maps"
 	"math"
 	"sort"
 	"strings"
@@ -92,9 +93,7 @@ func FuseRRF(fts []databases.SearchResult, vec []databases.VectorResult, opt Ret
 		if r, ok := ftByID[id]; ok {
 			snippet = r.Snippet
 			text = r.Text
-			for k, v := range r.Metadata {
-				md[k] = v
-			}
+			maps.Copy(md, r.Metadata)
 		}
 		if r, ok := vecByID[id]; ok {
 			for k, v := range r.Metadata {
@@ -237,8 +236,8 @@ func deriveDocID(chunkID string, md map[string]string) string {
 		return d
 	}
 	// best-effort: if chunk:<doc-id>:<i>
-	if strings.HasPrefix(chunkID, "chunk:") {
-		rest := strings.TrimPrefix(chunkID, "chunk:")
+	if after, ok := strings.CutPrefix(chunkID, "chunk:"); ok {
+		rest := after
 		// remove trailing index by cutting last ':' if present
 		if idx := strings.LastIndex(rest, ":"); idx != -1 {
 			return rest[:idx]
@@ -249,19 +248,6 @@ func deriveDocID(chunkID string, md map[string]string) string {
 }
 
 func almostEqual(a, b float64) bool { return math.Abs(a-b) < 1e-12 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
 
 // DeriveDocIDPublic exposes internal doc-id derivation for other packages.
 func DeriveDocIDPublic(chunkID string, md map[string]string) string { return deriveDocID(chunkID, md) }

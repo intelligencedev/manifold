@@ -2,6 +2,7 @@ package databases
 
 import (
 	"context"
+	"maps"
 	"sort"
 	"strings"
 	"sync"
@@ -26,9 +27,7 @@ func (m *memorySearch) Index(_ context.Context, id, text string, metadata map[st
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	cp := make(map[string]string, len(metadata))
-	for k, v := range metadata {
-		cp[k] = v
-	}
+	maps.Copy(cp, metadata)
 	m.docs[id] = doc{text: text, metadata: cp}
 	return nil
 }
@@ -156,8 +155,6 @@ func copyMap(m map[string]string) map[string]string {
 		return nil
 	}
 	cp := make(map[string]string, len(m))
-	for k, v := range m {
-		cp[k] = v
-	}
+	maps.Copy(cp, m)
 	return cp
 }

@@ -96,15 +96,9 @@ func (e *Engine) maybeSummarize(ctx context.Context, msgs []llm.Message) []llm.M
 	}
 
 	// Everything between start and the beginning of recent becomes summary input
-	cutIndex := len(msgs) - len(recent)
-	if cutIndex < start {
-		cutIndex = start
-	}
+	cutIndex := max(len(msgs)-len(recent), start)
 	cutIndex = e.adjustCutIndexForToolDeps(msgs, start, cutIndex)
-	cutIndex = e.adjustCutIndexForLatestUser(msgs, start, cutIndex)
-	if cutIndex < start {
-		cutIndex = start
-	}
+	cutIndex = max(e.adjustCutIndexForLatestUser(msgs, start, cutIndex), start)
 	// If we adjusted the cut index, expand the recent tail to keep message order.
 	recent = msgs[cutIndex:]
 	toSummarize := msgs[start:cutIndex]

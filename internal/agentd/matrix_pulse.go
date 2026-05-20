@@ -128,17 +128,14 @@ func (r *pulseRuntime) pollOnce(ctx context.Context) error {
 
 	var wg sync.WaitGroup
 	for target, jobs := range jobsByTarget {
-		target, jobs := target, jobs
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for _, job := range jobs {
 				if ctx.Err() != nil {
 					return
 				}
 				r.runPulseTask(ctx, now, target, job)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	return nil

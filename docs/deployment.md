@@ -39,7 +39,7 @@ Required for Docker deployment:
 
 Required only for local development outside Docker:
 
-- Go 1.25
+- Go 1.26.3
 - Node 22
 - `pnpm`
 - Chrome or another Chromium-compatible browser for browser-driven tools

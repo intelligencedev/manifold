@@ -1,6 +1,7 @@
 package specialists
 
 import (
+	"maps"
 	"strings"
 
 	"manifold/internal/config"
@@ -92,18 +93,12 @@ func mergeAnyMap(base, override map[string]any) map[string]any {
 	}
 	if len(override) == 0 {
 		out := make(map[string]any, len(base))
-		for k, v := range base {
-			out[k] = v
-		}
+		maps.Copy(out, base)
 		return out
 	}
 	out := make(map[string]any, len(base)+len(override))
-	for k, v := range base {
-		out[k] = v
-	}
-	for k, v := range override {
-		out[k] = v
-	}
+	maps.Copy(out, base)
+	maps.Copy(out, override)
 	return out
 }
 
@@ -112,8 +107,6 @@ func copyAnyMap(in map[string]any) map[string]any {
 		return nil
 	}
 	out := make(map[string]any, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }

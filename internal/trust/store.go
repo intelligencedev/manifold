@@ -14,7 +14,7 @@ type Budget struct {
 	Spent      int       `json:"spent"`
 	Unlimited  bool      `json:"unlimited"`
 	UpdatedAt  time.Time `json:"updated_at"`
-	RefilledAt time.Time `json:"refilled_at,omitempty"`
+	RefilledAt time.Time `json:"refilled_at"`
 }
 
 type Store interface {
@@ -108,12 +108,16 @@ CREATE TABLE IF NOT EXISTS trust_budgets (
 
 func (s *pgStore) List(ctx context.Context) ([]Budget, error) {
 	rows, err := s.pool.Query(ctx, `SELECT name, quota, spent, unlimited, updated_at, COALESCE(refilled_at, TIMESTAMPTZ 'epoch') FROM trust_budgets ORDER BY name`)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
 	out := []Budget{}
 	for rows.Next() {
 		var b Budget
-		if err := rows.Scan(&b.Name, &b.Quota, &b.Spent, &b.Unlimited, &b.UpdatedAt, &b.RefilledAt); err != nil { return nil, err }
+		if err := rows.Scan(&b.Name, &b.Quota, &b.Spent, &b.Unlimited, &b.UpdatedAt, &b.RefilledAt); err != nil {
+			return nil, err
+		}
 		out = append(out, b)
 	}
 	return out, rows.Err()
@@ -122,7 +126,9 @@ func (s *pgStore) List(ctx context.Context) ([]Budget, error) {
 func (s *pgStore) Get(ctx context.Context, name string) (Budget, bool, error) {
 	var b Budget
 	err := s.pool.QueryRow(ctx, `SELECT name, quota, spent, unlimited, updated_at, COALESCE(refilled_at, TIMESTAMPTZ 'epoch') FROM trust_budgets WHERE name=$1`, name).Scan(&b.Name, &b.Quota, &b.Spent, &b.Unlimited, &b.UpdatedAt, &b.RefilledAt)
-	if err != nil { return Budget{}, false, nil }
+	if err != nil {
+		return Budget{}, false, nil
+	}
 	return b, true, nil
 }
 

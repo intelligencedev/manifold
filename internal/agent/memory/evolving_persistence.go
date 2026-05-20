@@ -58,7 +58,7 @@ func (em *EvolvingMemory) RebuildEmbeddings(ctx context.Context) error {
 		}
 		entry.Embedding = vec
 		if entry.Metadata == nil {
-			entry.Metadata = make(map[string]interface{})
+			entry.Metadata = make(map[string]any)
 		}
 		entry.Metadata["embedding_enabled"] = true
 		entry.Metadata["embedding_text_basis"] = memoryEmbeddingTextBasis

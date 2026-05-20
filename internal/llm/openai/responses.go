@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"strings"
 	"syscall"
@@ -40,10 +41,7 @@ func boundedResponsesToolOutputWithLimit(content string, maxChars int) string {
 	if len(out) <= maxChars {
 		return out
 	}
-	limit := maxChars - len(responsesToolOutputEllipsis)
-	if limit < 0 {
-		limit = 0
-	}
+	limit := max(maxChars-len(responsesToolOutputEllipsis), 0)
 	return out[:limit] + responsesToolOutputEllipsis
 }
 
@@ -64,15 +62,9 @@ func defaultResponsesContextPolicy(model string) responsesContextPolicy {
 		ctxWindow = 32_000
 	}
 	reserve := defaultResponsesReserveOutputTokens
-	maxInput := ctxWindow - reserve
-	if maxInput < responsesMinInputBudgetTokens {
-		maxInput = responsesMinInputBudgetTokens
-	}
+	maxInput := max(ctxWindow-reserve, responsesMinInputBudgetTokens)
 	toolLimit := defaultResponsesToolOutputTokenLimit
-	toolChars := toolLimit * 4
-	if toolChars < maxResponsesToolOutputChars {
-		toolChars = maxResponsesToolOutputChars
-	}
+	toolChars := max(toolLimit*4, maxResponsesToolOutputChars)
 	return responsesContextPolicy{
 		Enabled:              true,
 		MaxInputTokens:       maxInput,
@@ -485,9 +477,7 @@ func (c *Client) chatResponsesWithImages(ctx context.Context, msgs []llm.Message
 		merged := map[string]any{}
 		if len(c.extra) > 0 {
 			merged = make(map[string]any, len(c.extra))
-			for k, v := range c.extra {
-				merged[k] = v
-			}
+			maps.Copy(merged, c.extra)
 		}
 		if len(merged) > 0 {
 			if len(tools) == 0 {
@@ -578,12 +568,8 @@ func (c *Client) chatResponses(ctx context.Context, msgs []llm.Message, tools []
 		merged := map[string]any{}
 		if len(c.extra) > 0 || len(extra) > 0 {
 			merged = make(map[string]any, len(c.extra)+len(extra))
-			for k, v := range c.extra {
-				merged[k] = v
-			}
-			for k, v := range extra {
-				merged[k] = v
-			}
+			maps.Copy(merged, c.extra)
+			maps.Copy(merged, extra)
 		}
 		if len(merged) > 0 {
 			if len(tools) == 0 {
@@ -719,9 +705,7 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 		merged := map[string]any{}
 		if len(c.extra) > 0 {
 			merged = make(map[string]any, len(c.extra))
-			for k, v := range c.extra {
-				merged[k] = v
-			}
+			maps.Copy(merged, c.extra)
 		}
 		if len(merged) > 0 {
 			if len(tools) == 0 {
@@ -739,7 +723,7 @@ func (c *Client) chatStreamResponses(ctx context.Context, msgs []llm.Message, to
 		}
 
 		streamCompleted := false
-		for attempt := 0; attempt < 2; attempt++ {
+		for attempt := range 2 {
 			if attempt > 0 && ctx.Err() != nil {
 				lastErr = ctx.Err()
 				break

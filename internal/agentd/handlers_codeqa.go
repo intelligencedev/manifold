@@ -109,8 +109,8 @@ func (a *app) codeQARunDetailHandler() http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
-		if strings.HasSuffix(runPath, "/events") {
-			a.serveCodeQARunEvents(w, r, userID, strings.TrimSuffix(runPath, "/events"))
+		if before, ok := strings.CutSuffix(runPath, "/events"); ok {
+			a.serveCodeQARunEvents(w, r, userID, before)
 			return
 		}
 		runID := strings.Trim(runPath, "/")

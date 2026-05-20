@@ -1,6 +1,7 @@
 package agentd
 
 import (
+	"maps"
 	"net/http"
 	"strings"
 
@@ -25,12 +26,8 @@ func mergeStringMap(base, override map[string]string) map[string]string {
 		return nil
 	}
 	out := make(map[string]string, len(base)+len(override))
-	for key, value := range base {
-		out[key] = value
-	}
-	for key, value := range override {
-		out[key] = value
-	}
+	maps.Copy(out, base)
+	maps.Copy(out, override)
 	return out
 }
 
@@ -39,12 +36,8 @@ func mergeAnyMap(base, override map[string]any) map[string]any {
 		return nil
 	}
 	out := make(map[string]any, len(base)+len(override))
-	for key, value := range base {
-		out[key] = value
-	}
-	for key, value := range override {
-		out[key] = value
-	}
+	maps.Copy(out, base)
+	maps.Copy(out, override)
 	return out
 }
 

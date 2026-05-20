@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"path/filepath"
 	"strings"
@@ -105,7 +106,7 @@ func (s *Service) runOptimize(ctx context.Context, userID int64, result *codeqa.
 		bestDelta     = -math.MaxFloat64
 		iterationData = map[string]string{}
 	)
-	for iteration := 0; iteration < iterations; iteration++ {
+	for iteration := range iterations {
 		iterationPath := filepath.Join(result.RunID, fmt.Sprintf("iteration-%03d", iteration))
 		prepared, err := s.workspace.Prepare(ctx, repoPath, iterationPath, codeqa.ModeOptimize)
 		if err != nil {
@@ -159,9 +160,7 @@ func (s *Service) runOptimize(ctx context.Context, userID int64, result *codeqa.
 	if bestResult != nil {
 		*result = *bestResult
 	}
-	for name, path := range iterationData {
-		result.Artifacts[name] = path
-	}
+	maps.Copy(result.Artifacts, iterationData)
 	result.Status = codeqa.StatusCompleted
 	result.CompletedAt = time.Now().UTC()
 	if err := s.persistArtifacts(ctx, req, result); err != nil {
@@ -265,12 +264,8 @@ func mergePayload(base map[string]any, extra map[string]any) map[string]any {
 		return extra
 	}
 	out := make(map[string]any, len(base)+len(extra))
-	for key, value := range base {
-		out[key] = value
-	}
-	for key, value := range extra {
-		out[key] = value
-	}
+	maps.Copy(out, base)
+	maps.Copy(out, extra)
 	return out
 }
 

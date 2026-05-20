@@ -371,10 +371,7 @@ func applyReplacements(lines []string, repls []replacement) []string {
 		if r.Index > len(out) {
 			r.Index = len(out)
 		}
-		end := r.Index + r.Remove
-		if end > len(out) {
-			end = len(out)
-		}
+		end := min(r.Index+r.Remove, len(out))
 		out = append(out[:r.Index], append(r.NewLines, out[end:]...)...)
 	}
 	return out
@@ -390,7 +387,7 @@ func seekSequence(haystack, needle []string, start int, requireEOF bool) int {
 	max := len(haystack) - len(needle)
 	for i := start; i <= max; i++ {
 		match := true
-		for j := 0; j < len(needle); j++ {
+		for j := range needle {
 			if haystack[i+j] != needle[j] {
 				match = false
 				break

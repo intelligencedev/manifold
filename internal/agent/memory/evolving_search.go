@@ -217,10 +217,7 @@ func (em *EvolvingMemory) searchWithScores(ctx context.Context, query string, up
 		return candidates[i].Score > candidates[j].Score
 	})
 
-	k := em.topK
-	if k > len(candidates) {
-		k = len(candidates)
-	}
+	k := min(em.topK, len(candidates))
 	out := applyMMR(candidates, k, em.mmrLambda)
 
 	retrievedIDs := make([]string, 0, len(out))
@@ -352,10 +349,7 @@ func (em *EvolvingMemory) ExplainSearch(ctx context.Context, query string) ([]Me
 }
 
 func (em *EvolvingMemory) searchFetchK() int {
-	fetchK := em.topK * 4
-	if fetchK < em.topK {
-		fetchK = em.topK
-	}
+	fetchK := max(em.topK*4, em.topK)
 	if fetchK <= 0 {
 		fetchK = 4
 	}

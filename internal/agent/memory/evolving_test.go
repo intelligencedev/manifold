@@ -259,7 +259,7 @@ func TestRebuildEmbeddingsBackfillsExistingMemories(t *testing.T) {
 		Feedback:     "success",
 		Summary:      "summary lesson",
 		StrategyCard: "strategy card",
-		Metadata:     map[string]interface{}{},
+		Metadata:     map[string]any{},
 	}}
 	em.mu.Unlock()
 
@@ -586,7 +586,7 @@ func TestEvolvingMemory_ExpRecent(t *testing.T) {
 
 	// Add entries directly to avoid summarizer/embeddings.
 	em.mu.Lock()
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		em.entries = append(em.entries, &MemoryEntry{Input: "task", Output: "out", Feedback: "success"})
 	}
 	em.mu.Unlock()
@@ -685,7 +685,7 @@ func TestEvolvingMemorySnapshotsReturnCopies(t *testing.T) {
 		Output:    "original output",
 		Feedback:  "success",
 		Embedding: []float32{1, 2, 3},
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"tag": "original",
 		},
 		StructuredFeedback: &StructuredFeedback{Message: "keep me"},
@@ -1524,17 +1524,15 @@ func TestConcurrentSearchEvolveAndApplyEdits(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		idx := i
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 20; j++ {
+		wg.Go(func() {
+			for j := range 20 {
 				_, _ = em.Search(ctx, "initial")
 				_ = em.ApplyEdits(ctx, []MemoryEditOp{{Type: "UPDATE_TAG", IDs: []string{"missing"}, Tag: "tag"}})
 				_ = em.EvolveEnhanced(ctx, fmt.Sprintf("task-%d-%d", idx, j), "ok", "success", nil, nil, "")
 			}
-		}()
+		})
 	}
 	wg.Wait()
 }

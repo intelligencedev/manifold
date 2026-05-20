@@ -216,10 +216,7 @@ func (t *tool) searchWithRetry(ctx context.Context, query string, max int, categ
 		lastErr = err
 
 		// Calculate exponential backoff with jitter
-		delay := cfg.BaseDelay * (1 << attempt)
-		if delay > cfg.MaxDelay {
-			delay = cfg.MaxDelay
-		}
+		delay := min(cfg.BaseDelay*(1<<attempt), cfg.MaxDelay)
 		jitter := time.Duration(float64(delay) * cfg.JitterPercent * (0.5 + randFloat64()))
 		delay += jitter
 
@@ -384,12 +381,4 @@ func extractURLsFromHTML(doc *html.Node) ([]string, error) {
 	}
 	f(doc)
 	return urls, nil
-}
-
-// helper min for ints
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

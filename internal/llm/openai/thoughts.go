@@ -98,10 +98,7 @@ func trimLeadingSingleLineBreak(value string) string {
 }
 
 func markerSuffixPrefixLen(value, marker string) int {
-	max := len(value)
-	if len(marker) < max {
-		max = len(marker)
-	}
+	max := min(len(marker), len(value))
 	for n := max; n > 0; n-- {
 		if strings.HasSuffix(value, marker[:n]) {
 			return n

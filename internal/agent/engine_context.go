@@ -45,9 +45,7 @@ func (e *Engine) augmentWithMemory(ctx context.Context, userInput string, msgs [
 			wg            sync.WaitGroup
 		)
 
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			res, diag, err := e.EvolvingMemory.SearchWithDiagnostics(ctx, userInput)
 			diagnostics = diag
 			if err != nil {
@@ -60,7 +58,7 @@ func (e *Engine) augmentWithMemory(ctx context.Context, userInput string, msgs [
 				return
 			}
 			log.Debug().Str("query", userInput).Msg("evolving_memory_search_no_results")
-		}()
+		})
 
 		log.Debug().Msg("evolving_memory_exprecent_starting")
 		recentContext = e.EvolvingMemory.BuildExpRecentContext()

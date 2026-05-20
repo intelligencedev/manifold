@@ -53,7 +53,7 @@ func (goFmtGate) Run(ctx context.Context, dir string, runner codeqa.CommandRunne
 		return codeqa.GateResult{}, err
 	}
 	outLines := 0
-	for _, line := range strings.Split(strings.TrimSpace(res.Stdout), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(res.Stdout), "\n") {
 		if strings.TrimSpace(line) != "" {
 			outLines++
 		}

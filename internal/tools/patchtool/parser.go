@@ -98,20 +98,20 @@ func isHeredocStart(line string) bool {
 
 func parseOneHunk(lines []string, baseLine int) (Hunk, int, error) {
 	header := strings.TrimSpace(lines[0])
-	if strings.HasPrefix(header, addFileMarker) {
-		path := strings.TrimPrefix(header, addFileMarker)
+	if after, ok := strings.CutPrefix(header, addFileMarker); ok {
+		path := after
 		contents, consumed, err := parseAddFile(lines[1:])
 		if err != nil {
 			return Hunk{}, 0, ParseError{Kind: parseErrorInvalidHunk, Line: baseLine, Message: err.Error()}
 		}
 		return Hunk{Kind: hunkAdd, Path: path, Contents: contents}, consumed + 1, nil
 	}
-	if strings.HasPrefix(header, deleteFileMarker) {
-		path := strings.TrimPrefix(header, deleteFileMarker)
+	if after, ok := strings.CutPrefix(header, deleteFileMarker); ok {
+		path := after
 		return Hunk{Kind: hunkDelete, Path: path}, 1, nil
 	}
-	if strings.HasPrefix(header, updateFileMarker) {
-		path := strings.TrimPrefix(header, updateFileMarker)
+	if after, ok := strings.CutPrefix(header, updateFileMarker); ok {
+		path := after
 		h, consumed, err := parseUpdateFile(path, lines[1:], baseLine+1)
 		if err != nil {
 			return Hunk{}, 0, err

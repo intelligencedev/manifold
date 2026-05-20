@@ -474,11 +474,7 @@ func TracesForWindow(window time.Duration, limit int) ([]TraceSnapshot, time.Dur
 	var applied time.Duration
 	if window > 0 && !earliest.IsZero() {
 		available := now.Sub(earliest)
-		if available < window {
-			applied = available
-		} else {
-			applied = window
-		}
+		applied = min(available, window)
 	}
 
 	return out, applied
@@ -565,10 +561,3 @@ func (p *llmTraceProcessor) OnEnd(s sdktrace.ReadOnlySpan) {
 func (p *llmTraceProcessor) Shutdown(context.Context) error { return nil }
 
 func (p *llmTraceProcessor) ForceFlush(context.Context) error { return nil }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

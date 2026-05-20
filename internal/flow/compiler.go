@@ -2,6 +2,7 @@ package flow
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -259,9 +260,7 @@ func ValidateWorkflow(wf Workflow) []Diagnostic {
 
 	if !hasError(diags) {
 		remaining := map[string]int{}
-		for id, d := range indegree {
-			remaining[id] = d
-		}
+		maps.Copy(remaining, indegree)
 		queue := make([]string, 0)
 		for id, d := range remaining {
 			if d == 0 {
@@ -314,9 +313,7 @@ func CompileWorkflow(wf Workflow) (*Plan, []Diagnostic) {
 		indegree[e.Target.NodeID]++
 	}
 	indegreeSnapshot := make(map[string]int, len(indegree))
-	for id, degree := range indegree {
-		indegreeSnapshot[id] = degree
-	}
+	maps.Copy(indegreeSnapshot, indegree)
 
 	// Preserve deterministic order by using node declaration order as tie-breaker.
 	nodeIndex := make(map[string]int, len(wf.Nodes))
@@ -359,9 +356,7 @@ func CompileWorkflow(wf Workflow) (*Plan, []Diagnostic) {
 		Outgoing:   outgoing,
 		Indegree:   make(map[string]int, len(indegreeSnapshot)),
 	}
-	for id, degree := range indegreeSnapshot {
-		plan.Indegree[id] = degree
-	}
+	maps.Copy(plan.Indegree, indegreeSnapshot)
 	return plan, diags
 }
 

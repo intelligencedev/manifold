@@ -1,6 +1,7 @@
 package observability
 
 import (
+	"maps"
 	"net/http"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -33,9 +34,7 @@ func WithHeaders(base *http.Client, headers map[string]string) *http.Client {
 		rt = http.DefaultTransport
 	}
 	headersCopy := make(map[string]string, len(headers))
-	for k, v := range headers {
-		headersCopy[k] = v
-	}
+	maps.Copy(headersCopy, headers)
 	c := *base
 	c.Transport = &staticHeaderTransport{base: rt, headers: headersCopy}
 	return &c

@@ -440,7 +440,7 @@ func extractRoles(payload map[string]any, path string) []string {
 			}
 		}
 	case string:
-		for _, part := range strings.Split(v, ",") {
+		for part := range strings.SplitSeq(v, ",") {
 			n := normalizeRoleName(part)
 			if n != "" {
 				result[n] = struct{}{}
@@ -460,8 +460,8 @@ func dig(payload map[string]any, path string) (any, bool) {
 		return nil, false
 	}
 	cur := any(payload)
-	parts := strings.Split(path, ".")
-	for _, part := range parts {
+	parts := strings.SplitSeq(path, ".")
+	for part := range parts {
 		m, ok := cur.(map[string]any)
 		if !ok {
 			return nil, false

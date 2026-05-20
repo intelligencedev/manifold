@@ -167,8 +167,8 @@ func newClickHouseMemoryMetrics(ctx context.Context, cfg config.ClickHouseConfig
 }
 
 func deriveMetricTableName(sumTable, kind string) string {
-	if strings.HasSuffix(sumTable, "_sum") {
-		return strings.TrimSuffix(sumTable, "_sum") + "_" + kind
+	if before, ok := strings.CutSuffix(sumTable, "_sum"); ok {
+		return before + "_" + kind
 	}
 	if strings.HasSuffix(sumTable, ".metrics_sum") {
 		return strings.TrimSuffix(sumTable, "_sum") + "_" + kind

@@ -65,7 +65,7 @@ func (em *EvolvingMemory) EvolveEnhanced(
 		AccessCount:        0,
 		LastAccessedAt:     time.Now(),
 		RelevanceScore:     1.0, // Start with full relevance
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"domain":                "general",
 			"embedding_enabled":     em.enableRAG,
 			"embedding_text_basis":  memoryEmbeddingTextBasis,
@@ -249,7 +249,7 @@ func (em *EvolvingMemory) applySmartMergePlan(ctx context.Context, plan *smartMe
 		return
 	}
 	if newEntry.Metadata == nil {
-		newEntry.Metadata = make(map[string]interface{})
+		newEntry.Metadata = make(map[string]any)
 	}
 	if len(plan.mergedIDs) > 0 {
 		newEntry.Metadata["merged_from"] = append([]string(nil), plan.mergedIDs...)

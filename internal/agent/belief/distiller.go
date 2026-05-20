@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"maps"
 	"math"
 	"regexp"
 	"strings"
@@ -109,7 +110,7 @@ func firstMeaningfulSentence(text string) string {
 	if text == "" {
 		return ""
 	}
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		line = strings.TrimSpace(strings.TrimLeft(line, "-*•0123456789. )\t"))
 		if len([]rune(line)) < 24 {
 			continue
@@ -315,9 +316,7 @@ func mergeCandidateMetadata(existing, candidate map[string]any) map[string]any {
 	if out == nil {
 		out = map[string]any{}
 	}
-	for key, value := range candidate {
-		out[key] = value
-	}
+	maps.Copy(out, candidate)
 	return out
 }
 
@@ -326,8 +325,6 @@ func cloneCandidateMetadata(in map[string]any) map[string]any {
 		return nil
 	}
 	out := make(map[string]any, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
+	maps.Copy(out, in)
 	return out
 }

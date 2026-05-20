@@ -43,11 +43,8 @@ func (e *Engine) Evaluate(ctx context.Context, bundle codeqa.DiffBundle, gates [
 	sem := make(chan struct{}, parallelism)
 	var wg sync.WaitGroup
 	for idx := range e.profiles {
-		idx := idx
 		profile := e.profiles[idx]
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			select {
 			case sem <- struct{}{}:
 			case <-ctx.Done():
@@ -61,7 +58,7 @@ func (e *Engine) Evaluate(ctx context.Context, bundle codeqa.DiffBundle, gates [
 				return
 			}
 			results[idx] = verdict
-		}()
+		})
 	}
 	wg.Wait()
 	close(errCh)

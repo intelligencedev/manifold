@@ -3,6 +3,7 @@ package matrixgw
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -131,9 +132,7 @@ func (s *Service) Rooms() map[string]RoomConfig {
 	out := make(map[string]RoomConfig, len(s.rooms))
 	for roomID, cfg := range s.rooms {
 		mentions := make(map[string]string, len(cfg.Mentions))
-		for alias, target := range cfg.Mentions {
-			mentions[alias] = target
-		}
+		maps.Copy(mentions, cfg.Mentions)
 		out[roomID] = RoomConfig{
 			DefaultTarget:    cfg.DefaultTarget,
 			AllowUnmentioned: cfg.AllowUnmentioned,

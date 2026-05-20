@@ -124,10 +124,7 @@ func previewSnippet(content string) string {
 	if len(runes) <= 80 {
 		return collapsed
 	}
-	limit := 77
-	if limit > len(runes) {
-		limit = len(runes)
-	}
+	limit := min(77, len(runes))
 	return string(runes[:limit]) + "..."
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -430,9 +431,7 @@ func (a *app) executeFlowV2Run(ctx context.Context, userID int64, runID string, 
 		remaining[node.ID] = len(plan.Incoming[node.ID])
 	}
 	if len(plan.Indegree) > 0 {
-		for nodeID, degree := range plan.Indegree {
-			remaining[nodeID] = degree
-		}
+		maps.Copy(remaining, plan.Indegree)
 	}
 
 	nodeOutputs := make(map[string]map[string]any, len(wf.Nodes))
@@ -820,8 +819,8 @@ func evalFlowExpression(expr string, runInput map[string]any, outputs map[string
 
 singleExpression:
 	norm := normalizeFlowExpression(expr)
-	if strings.HasPrefix(norm, "$run.input") {
-		path := strings.TrimPrefix(norm, "$run.input")
+	if after, ok := strings.CutPrefix(norm, "$run.input"); ok {
+		path := after
 		path = strings.TrimPrefix(path, ".")
 		if path == "" {
 			return cloneMap(runInput), nil
@@ -832,8 +831,8 @@ singleExpression:
 		}
 		return v, nil
 	}
-	if strings.HasPrefix(norm, "$node.") {
-		rest := strings.TrimPrefix(norm, "$node.")
+	if after, ok := strings.CutPrefix(norm, "$node."); ok {
+		rest := after
 		firstDot := strings.Index(rest, ".")
 		if firstDot <= 0 {
 			return nil, fmt.Errorf("invalid node expression: %s", expr)
@@ -871,8 +870,8 @@ singleExpression:
 
 func normalizeFlowExpression(expr string) string {
 	norm := strings.TrimSpace(expr)
-	if strings.HasPrefix(norm, "=") {
-		norm = strings.TrimSpace(strings.TrimPrefix(norm, "="))
+	if after, ok := strings.CutPrefix(norm, "="); ok {
+		norm = strings.TrimSpace(after)
 	}
 	if strings.HasPrefix(norm, "{{") && strings.HasSuffix(norm, "}}") && len(norm) >= 4 {
 		norm = strings.TrimSpace(norm[2 : len(norm)-2])

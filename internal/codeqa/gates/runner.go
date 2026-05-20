@@ -124,11 +124,8 @@ func (r *Runner) evaluateRef(ctx context.Context, dir string) ([]codeqa.GateResu
 	sem := make(chan struct{}, parallelism)
 	var wg sync.WaitGroup
 	for idx := range r.gates {
-		idx := idx
 		gate := r.gates[idx]
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			select {
 			case sem <- struct{}{}:
 			case <-ctx.Done():
@@ -142,7 +139,7 @@ func (r *Runner) evaluateRef(ctx context.Context, dir string) ([]codeqa.GateResu
 				return
 			}
 			results[idx] = result
-		}()
+		})
 	}
 	wg.Wait()
 	close(errCh)

@@ -11,7 +11,7 @@ This wiki documents the Manifold software repository, not a deployed instance. I
 
 ## Repository Snapshot
 
-- Backend language: Go (`go.mod` declares Go 1.25.0).
+- Backend language: Go (`go.mod` declares Go 1.26.3).
 - Frontend stack: Vue 3, Vite, TypeScript, Pinia, Vue Router, Tailwind, Vue Flow.
 - Main backend binary: `cmd/agentd/main.go`.
 - CLI agent binary: `cmd/agent/main.go`.

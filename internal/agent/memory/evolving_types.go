@@ -111,15 +111,15 @@ type StructuredFeedback struct {
 // MemoryEntry represents a structured experience from task execution.
 // Implements the paper's m_i = h(x_i, ŷ_i, f_i) abstraction.
 type MemoryEntry struct {
-	ID        string                 `json:"id"`
-	Input     string                 `json:"input"`     // x_i: task/query
-	Output    string                 `json:"output"`    // ŷ_i: model's answer
-	Feedback  string                 `json:"feedback"`  // f_i: success/failure signal (legacy)
-	Summary   string                 `json:"summary"`   // distilled lesson
-	RawTrace  string                 `json:"raw_trace"` // optional detailed reasoning
-	Embedding []float32              `json:"embedding"` // for retrieval
-	Metadata  map[string]interface{} `json:"metadata"`  // timestamp, domain, task_id, etc.
-	CreatedAt time.Time              `json:"created_at"`
+	ID        string         `json:"id"`
+	Input     string         `json:"input"`     // x_i: task/query
+	Output    string         `json:"output"`    // ŷ_i: model's answer
+	Feedback  string         `json:"feedback"`  // f_i: success/failure signal (legacy)
+	Summary   string         `json:"summary"`   // distilled lesson
+	RawTrace  string         `json:"raw_trace"` // optional detailed reasoning
+	Embedding []float32      `json:"embedding"` // for retrieval
+	Metadata  map[string]any `json:"metadata"`  // timestamp, domain, task_id, etc.
+	CreatedAt time.Time      `json:"created_at"`
 
 	// Enhanced fields from paper review
 	StructuredFeedback *StructuredFeedback `json:"structured_feedback,omitempty"` // Detailed feedback

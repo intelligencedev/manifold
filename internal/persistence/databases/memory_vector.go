@@ -83,12 +83,9 @@ func norm(a []float32) float64 {
 }
 
 func dot(a, b []float32) float64 {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
+	n := min(len(b), len(a))
 	var s float64
-	for i := 0; i < n; i++ {
+	for i := range n {
 		s += float64(a[i]) * float64(b[i])
 	}
 	return s

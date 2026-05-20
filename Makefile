@@ -17,9 +17,9 @@ DIST := dist
 # Platforms to build for in cross (Option A: single job builds all platforms)
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
-GOLANGCI_LINT_VERSION := v1.59.0
+GOLANGCI_LINT_VERSION := v2.12.2
 
-.PHONY: all help fmt fmt-check imports-check vet lint test ci build cross checksums tools clean build-tui frontend frontend-cockpit build-cockpit build-cockpit-beta dev-cockpit openapi
+.PHONY: all help fmt fmt-check imports-check vet lint test modernize modernize-diff ci build cross checksums tools clean build-tui frontend frontend-cockpit build-cockpit build-cockpit-beta dev-cockpit openapi
 .PHONY: sonar sonar-up sonar-down sonar-scan
 
 all: build
@@ -33,6 +33,8 @@ help:
 	@echo "  make vet                # run go vet"
 	@echo "  make lint               # run golangci-lint"
 	@echo "  make test               # run tests with -race and generate coverage.out"
+	@echo "  make modernize-diff     # preview Go modernizer changes"
+	@echo "  make modernize          # apply Go modernizer changes"
 	@echo "  make sonar-up            # start local SonarQube (http://localhost:19000)"
 	@echo "  make sonar-scan          # run SonarScanner against local SonarQube"
 	@echo "  make sonar               # alias for sonar-scan"
@@ -61,7 +63,7 @@ tools:
 	@echo "Installing goimports"
 	GOFLAGS= go install golang.org/x/tools/cmd/goimports@latest
 	@echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION)"
-	GOFLAGS= go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	GOFLAGS= go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	@echo "Done"
 
 fmt:
@@ -87,6 +89,12 @@ lint:
 test:
 	@echo "Running tests with race detector and coverage"
 	go test -race -coverprofile=coverage.out ./...
+
+modernize-diff:
+	go fix -diff ./...
+
+modernize:
+	go fix ./...
 
 # Local SonarQube helpers (token created & revoked per scan)
 SONAR_COMPOSE_FILE := develop/sonarqube/docker-compose.yml

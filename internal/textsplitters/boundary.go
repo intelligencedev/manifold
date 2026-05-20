@@ -225,10 +225,7 @@ func (s *rollingSentenceSplitter) Split(text string) []string {
 	}
 	var out []string
 	for i := 0; i < len(ss); i += step {
-		j := i + n
-		if j > len(ss) {
-			j = len(ss)
-		}
+		j := min(i+n, len(ss))
 		if i >= j {
 			break
 		}

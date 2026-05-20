@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"sort"
 	"strings"
@@ -631,9 +632,7 @@ func adaptTools(tools []llm.ToolSchema, cacheCfg config.AnthropicPromptCacheConf
 			Type: constant.ValueOf[constant.Object](),
 		}
 		extras := map[string]any{}
-		for k, v := range t.Parameters {
-			extras[k] = v
-		}
+		maps.Copy(extras, t.Parameters)
 		if props, ok := extras["properties"]; ok {
 			schema.Properties = props
 			delete(extras, "properties")

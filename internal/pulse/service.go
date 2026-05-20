@@ -32,7 +32,7 @@ type TaskStatus struct {
 	IntervalHuman  string                `json:"intervalHuman"`
 	ScheduleType   string                `json:"scheduleType"`
 	ScheduleLabel  string                `json:"scheduleLabel"`
-	NextRunAt      time.Time             `json:"nextRunAt,omitempty"`
+	NextRunAt      time.Time             `json:"nextRunAt"`
 }
 
 // Plan describes the state of one pulse poll for a room.
@@ -177,7 +177,7 @@ func (s *Service) BuildPrompt(now time.Time, plan Plan, pollInterval time.Durati
 			b.WriteString(fmt.Sprintf("  next_due_in: %s\n", status.RemainingHuman))
 		}
 		b.WriteString("  prompt: |\n")
-		for _, line := range strings.Split(strings.TrimSpace(status.Task.Prompt), "\n") {
+		for line := range strings.SplitSeq(strings.TrimSpace(status.Task.Prompt), "\n") {
 			b.WriteString("    ")
 			b.WriteString(line)
 			b.WriteString("\n")
@@ -235,10 +235,7 @@ func buildIntervalStatus(now time.Time, roomEnabled bool, task persistence.Pulse
 		return status
 	}
 	status.LastRunKnown = true
-	status.Elapsed = now.Sub(task.LastRunAt.UTC())
-	if status.Elapsed < 0 {
-		status.Elapsed = 0
-	}
+	status.Elapsed = max(now.Sub(task.LastRunAt.UTC()), 0)
 	status.LastRunHuman = humanDuration(status.Elapsed) + " ago"
 	if !roomEnabled || !task.Enabled {
 		status.Remaining = interval
@@ -276,10 +273,7 @@ func buildDailyTimeStatus(now time.Time, roomEnabled bool, task persistence.Puls
 		return status
 	}
 	status.LastRunKnown = true
-	status.Elapsed = now.Sub(task.LastRunAt.UTC())
-	if status.Elapsed < 0 {
-		status.Elapsed = 0
-	}
+	status.Elapsed = max(now.Sub(task.LastRunAt.UTC()), 0)
 	status.LastRunHuman = humanDuration(status.Elapsed) + " ago"
 	if !roomEnabled || !task.Enabled {
 		status.Remaining = next.Sub(localNow)
@@ -310,10 +304,7 @@ func buildOnceAtStatus(now time.Time, roomEnabled bool, task persistence.PulseTa
 		return status
 	}
 	status.LastRunKnown = true
-	status.Elapsed = now.Sub(task.LastRunAt.UTC())
-	if status.Elapsed < 0 {
-		status.Elapsed = 0
-	}
+	status.Elapsed = max(now.Sub(task.LastRunAt.UTC()), 0)
 	status.LastRunHuman = humanDuration(status.Elapsed) + " ago"
 	status.RemainingHuman = "done"
 	return status

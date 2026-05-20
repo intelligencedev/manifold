@@ -182,9 +182,7 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 
 	for i := 0; i < total; i++ {
 		i := i
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			select {
 			case sem <- struct{}{}:
 			case <-ctx.Done():
@@ -207,7 +205,7 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 				return
 			}
 			cands[i] = candidate{Index: i, Text: text, FinishReason: finish, DurationMS: durationMS}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -240,10 +238,7 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 		}
 		aggMaxTokens := args.AggregationMaxTokens
 		if aggMaxTokens <= 0 {
-			aggMaxTokens = defaultAggMaxTokens
-			if args.MaxTokens > aggMaxTokens {
-				aggMaxTokens = args.MaxTokens
-			}
+			aggMaxTokens = max(args.MaxTokens, defaultAggMaxTokens)
 		}
 		aggTemp := 0.2
 		if args.AggregationTemperature != nil {

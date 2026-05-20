@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"strings"
 	"time"
@@ -44,9 +45,7 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 		// flags from the client extra params.
 		if !actualTools {
 			tmp := make(map[string]any, len(c.extra))
-			for k, v := range c.extra {
-				tmp[k] = v
-			}
+			maps.Copy(tmp, c.extra)
 			delete(tmp, "parallel_tool_calls")
 			params.SetExtraFields(sanitizeExtraFields(tmp))
 		} else {
@@ -190,12 +189,8 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 	actualTools := configureChatCompletionTools(&params, tools, c.isSelfHosted())
 	if len(c.extra) > 0 || len(extra) > 0 {
 		merged := make(map[string]any, len(c.extra)+len(extra))
-		for k, v := range c.extra {
-			merged[k] = v
-		}
-		for k, v := range extra {
-			merged[k] = v
-		}
+		maps.Copy(merged, c.extra)
+		maps.Copy(merged, extra)
 		// Some provider-specific flags (e.g., parallel_tool_calls) are only
 		// valid when tools are actually provided. Remove those keys when no
 		// tools are present to avoid 400 errors from the API.
@@ -348,9 +343,7 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		// flags from the client extra params.
 		if !actualTools {
 			tmp := make(map[string]any, len(c.extra))
-			for k, v := range c.extra {
-				tmp[k] = v
-			}
+			maps.Copy(tmp, c.extra)
 			delete(tmp, "parallel_tool_calls")
 			params.SetExtraFields(sanitizeExtraFields(tmp))
 		} else {
@@ -539,9 +532,7 @@ func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, 
 	// Merge extra params, but drop tool flags if no tools
 	if len(c.extra) > 0 {
 		tmp := make(map[string]any, len(c.extra))
-		for k, v := range c.extra {
-			tmp[k] = v
-		}
+		maps.Copy(tmp, c.extra)
 		if !actualTools {
 			delete(tmp, "parallel_tool_calls")
 		}
@@ -555,13 +546,9 @@ func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, 
 	}
 	streamOptions := map[string]any{"include_usage": true}
 	if existing, ok := body["stream_options"].(map[string]any); ok {
-		for key, value := range existing {
-			streamOptions[key] = value
-		}
+		maps.Copy(streamOptions, existing)
 	} else if existing, ok := body["streamOptions"].(map[string]any); ok {
-		for key, value := range existing {
-			streamOptions[key] = value
-		}
+		maps.Copy(streamOptions, existing)
 	}
 	body["stream_options"] = streamOptions
 	delete(body, "streamOptions")

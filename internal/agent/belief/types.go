@@ -154,7 +154,7 @@ type PromotionQuery struct {
 // SearchResult is a scored belief retrieval result.
 type SearchResult struct {
 	Belief Belief  `json:"belief"`
-	Scope  Scope   `json:"scope,omitempty"`
+	Scope  Scope   `json:"scope"`
 	Score  float64 `json:"score"`
 	Reason string  `json:"reason,omitempty"`
 }

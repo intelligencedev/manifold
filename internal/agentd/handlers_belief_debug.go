@@ -342,7 +342,7 @@ func splitQueryCSV(r *http.Request, key string) []string {
 	}
 	out := make([]string, 0, len(values))
 	for _, value := range values {
-		for _, part := range strings.Split(value, ",") {
+		for part := range strings.SplitSeq(value, ",") {
 			if trimmed := strings.TrimSpace(part); trimmed != "" {
 				out = append(out, trimmed)
 			}

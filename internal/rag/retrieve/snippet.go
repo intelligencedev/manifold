@@ -70,8 +70,8 @@ func simpleSnippet(text, query string) string {
 	idx := strings.Index(lt, q)
 	if idx == -1 {
 		// try first term
-		parts := strings.Fields(q)
-		for _, p := range parts {
+		parts := strings.FieldsSeq(q)
+		for p := range parts {
 			if p == "" {
 				continue
 			}
@@ -88,13 +88,7 @@ func simpleSnippet(text, query string) string {
 		return text
 	}
 	// build a window around idx
-	start := idx - 60
-	if start < 0 {
-		start = 0
-	}
-	end := start + 160
-	if end > len(text) {
-		end = len(text)
-	}
+	start := max(idx-60, 0)
+	end := min(start+160, len(text))
 	return text[start:end]
 }

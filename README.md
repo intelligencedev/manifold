@@ -88,7 +88,7 @@ For a basic local deployment, you need:
 Optional local tooling is only needed if you are developing Manifold itself:
 
 - Node 22 and `pnpm` for running the frontend outside Docker
-- Go 1.25 for local binary builds
+- Go 1.26.3 for local binary builds
 - Chrome or another Chromium-compatible browser if you plan to use browser-driven tools from a host build
 
 ### Fast path

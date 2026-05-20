@@ -30,15 +30,9 @@ func newFixedSplitter(cfg FixedConfig) (Splitter, error) {
 	if size <= 0 {
 		size = 1
 	}
-	ov := cfg.Overlap
-	if ov < 0 {
-		ov = 0
-	}
+	ov := max(cfg.Overlap, 0)
 	if ov >= size {
-		ov = size - 1
-		if ov < 0 {
-			ov = 0
-		}
+		ov = max(size-1, 0)
 	}
 	tok := cfg.Tokenizer
 	if cfg.Unit == UnitTokens && tok == nil {
@@ -83,10 +77,7 @@ func (s *fixedSplitter) splitRunes(text string) []string {
 
 	// Iterate by rune positions.
 	for start := 0; start < len(idxs)-1; start += step {
-		end := start + size
-		if end >= len(idxs)-1 {
-			end = len(idxs) - 1
-		}
+		end := min(start+size, len(idxs)-1)
 		if end <= start {
 			break
 		}
@@ -117,10 +108,7 @@ func (s *fixedSplitter) splitTokens(text string) []string {
 	}
 	var chunks []string
 	for start := 0; start < len(tokens); start += step {
-		end := start + size
-		if end > len(tokens) {
-			end = len(tokens)
-		}
+		end := min(start+size, len(tokens))
 		if end <= start {
 			break
 		}

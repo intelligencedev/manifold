@@ -152,10 +152,7 @@ func truncateContent(content string, limit int) string {
 		return string(runes[:limit])
 	}
 	available := limit - len(marker)
-	head := available * 6 / 10
-	if head < 1 {
-		head = 1
-	}
+	head := max(available*6/10, 1)
 	tail := available - head
 	if tail < 1 {
 		tail = 1
@@ -172,9 +169,6 @@ func trimContentTail(content string, runesToRemove int) string {
 	if runesToRemove >= len(runes) {
 		return "[TRUNCATED]"
 	}
-	keep := len(runes) - runesToRemove
-	if keep < 1 {
-		keep = 1
-	}
+	keep := max(len(runes)-runesToRemove, 1)
 	return string(runes[:keep]) + "\n[TRUNCATED]"
 }

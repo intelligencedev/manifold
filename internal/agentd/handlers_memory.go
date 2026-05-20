@@ -52,7 +52,7 @@ type debugMemoryEvolvingResponse struct {
 	WindowSize   int                        `json:"windowSize"`
 	RecentWindow []*memory.MemoryEntry      `json:"recentWindow"`
 	LastQuery    string                     `json:"lastQuery,omitempty"`
-	Search       memory.SearchDiagnostics   `json:"search,omitempty"`
+	Search       memory.SearchDiagnostics   `json:"search"`
 	Retrieved    []memory.ScoredMemoryEntry `json:"retrieved,omitempty"`
 }
 

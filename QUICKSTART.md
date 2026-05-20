@@ -13,7 +13,7 @@ You do **not** need local Node, pnpm, or Go for the default Docker deployment pa
 Local development only:
 
 - Node 22 and `pnpm` are needed if you want to run or build the frontend outside Docker.
-- Go 1.25 is needed if you want to build `agentd` on the host.
+- Go 1.26.3 is needed if you want to build `agentd` on the host.
 - Chrome or another Chromium-compatible browser is recommended when using browser-driven tools from a host build.
 
 If you use `nvm`, run `nvm use` from the repository root to pick up the checked-in Node version.

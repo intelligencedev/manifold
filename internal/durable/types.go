@@ -54,8 +54,8 @@ type SpawnRequest struct {
 	IdempotencyKey string         `json:"idempotency_key,omitempty"`
 	ParentTaskID   string         `json:"parent_task_id,omitempty"`
 	ParentRunID    string         `json:"parent_run_id,omitempty"`
-	RetryPolicy    RetryPolicy    `json:"retry_policy,omitempty"`
-	AvailableAt    time.Time      `json:"available_at,omitempty"`
+	RetryPolicy    RetryPolicy    `json:"retry_policy"`
+	AvailableAt    time.Time      `json:"available_at"`
 }
 
 type SpawnResult struct {
@@ -82,7 +82,7 @@ type Task struct {
 	IdempotencyKey string          `json:"idempotency_key,omitempty"`
 	ParentTaskID   string          `json:"parent_task_id,omitempty"`
 	ParentRunID    string          `json:"parent_run_id,omitempty"`
-	RetryPolicy    RetryPolicy     `json:"retry_policy,omitempty"`
+	RetryPolicy    RetryPolicy     `json:"retry_policy"`
 	Attempt        int             `json:"attempt"`
 	AvailableAt    time.Time       `json:"available_at"`
 	Result         json.RawMessage `json:"result,omitempty"`
@@ -99,7 +99,7 @@ type Run struct {
 	Attempt     int        `json:"attempt"`
 	Status      RunStatus  `json:"status"`
 	WorkerID    string     `json:"worker_id,omitempty"`
-	LeaseUntil  time.Time  `json:"lease_until,omitempty"`
+	LeaseUntil  time.Time  `json:"lease_until"`
 	StartedAt   time.Time  `json:"started_at"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
 	Error       string     `json:"error,omitempty"`

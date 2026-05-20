@@ -18,7 +18,7 @@ type SemanticConfig struct {
 // simple sentence embedding: bag of lowercased words hashed into a map; cosine on counts
 func sentVec(s string) map[string]float64 {
 	m := map[string]float64{}
-	for _, w := range strings.Fields(strings.ToLower(s)) {
+	for w := range strings.FieldsSeq(strings.ToLower(s)) {
 		if w == "" {
 			continue
 		}
@@ -85,10 +85,7 @@ func (s *semanticSplitter) Split(text string) []string {
 	cur = append(cur, ss[0])
 	for i := 1; i < len(ss); i++ {
 		// measure similarity to previous w sentences (average)
-		start := i - w
-		if start < 0 {
-			start = 0
-		}
+		start := max(i-w, 0)
 		var total float64
 		var cnt int
 		for k := start; k < i; k++ {
@@ -139,10 +136,7 @@ func (t *textTilingSplitter) Split(text string) []string {
 	// block i: sentences [i*b:(i+1)*b)
 	blocks := [][]string{}
 	for i := 0; i < len(ss); i += b {
-		j := i + b
-		if j > len(ss) {
-			j = len(ss)
-		}
+		j := min(i+b, len(ss))
 		blocks = append(blocks, ss[i:j])
 	}
 	if len(blocks) == 1 {

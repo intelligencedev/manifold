@@ -76,7 +76,6 @@ func (e *Engine) dispatchTools(ctx context.Context, msgs []llm.Message, toolCall
 	var wg sync.WaitGroup
 
 	for i, tc := range toolCalls {
-		i, tc := i, tc
 
 		dispatchCtx := ctx
 		if e.LLM != nil {
@@ -161,7 +160,7 @@ func (e *Engine) executeToolCall(ctx context.Context, tc llm.ToolCall) llm.Messa
 	observability.LoggerWithTrace(ctx).Info().Str("tool", tc.Name).RawJSON("args", observability.RedactJSON(tc.Args)).Msg("engine_tool_call")
 	payload, err := e.Tools.Dispatch(ctx, tc.Name, tc.Args)
 	if err != nil {
-		payload = []byte(fmt.Sprintf(`{"error":%q}`, err.Error()))
+		payload = fmt.Appendf(nil, `{"error":%q}`, err.Error())
 	}
 	if e.OnTool != nil {
 		e.OnTool(tc.Name, tc.Args, payload, tc.ID)
@@ -236,7 +235,7 @@ func (e *Engine) runDelegatedAgent(ctx context.Context, tc llm.ToolCall) []byte 
 		UserID         int64         `json:"user_id"`
 	}
 	if err := json.Unmarshal(tc.Args, &args); err != nil {
-		return []byte(fmt.Sprintf(`{"ok":false,"error":%q}`, err.Error()))
+		return fmt.Appendf(nil, `{"ok":false,"error":%q}`, err.Error())
 	}
 	// Support both `agent_name` (internal) and `to` (ask_agent tool)
 	if strings.TrimSpace(args.AgentName) == "" && strings.TrimSpace(args.To) != "" {
@@ -274,7 +273,7 @@ func (e *Engine) runDelegatedAgent(ctx context.Context, tc llm.ToolCall) []byte 
 	}
 	result, err := e.Delegator.Run(ctx, req, e.AgentTracer)
 	if err != nil {
-		return []byte(fmt.Sprintf(`{"ok":false,"agent":%q,"error":%q}`, req.AgentName, err.Error()))
+		return fmt.Appendf(nil, `{"ok":false,"agent":%q,"error":%q}`, req.AgentName, err.Error())
 	}
 	out := map[string]any{"ok": true, "agent": req.AgentName, "output": result}
 	if b, err := json.Marshal(out); err == nil {
@@ -299,7 +298,7 @@ func (e *Engine) runDelegatedTeam(ctx context.Context, tc llm.ToolCall) []byte {
 		UserID         int64         `json:"user_id"`
 	}
 	if err := json.Unmarshal(tc.Args, &args); err != nil {
-		return []byte(fmt.Sprintf(`{"ok":false,"error":%q}`, err.Error()))
+		return fmt.Appendf(nil, `{"ok":false,"error":%q}`, err.Error())
 	}
 	teamName := strings.TrimSpace(args.Team)
 	if teamName == "" {
@@ -344,7 +343,7 @@ func (e *Engine) runDelegatedTeam(ctx context.Context, tc llm.ToolCall) []byte {
 	}
 	result, err := e.TeamDelegator.RunTeam(ctx, req, e.AgentTracer)
 	if err != nil {
-		return []byte(fmt.Sprintf(`{"ok":false,"team":%q,"error":%q}`, req.TeamName, err.Error()))
+		return fmt.Appendf(nil, `{"ok":false,"team":%q,"error":%q}`, req.TeamName, err.Error())
 	}
 	out := map[string]any{
 		"ok":   true,

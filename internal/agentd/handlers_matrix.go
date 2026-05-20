@@ -22,9 +22,9 @@ type matrixRouteStateResponse struct {
 	Enabled              bool      `json:"enabled"`
 	Revision             int64     `json:"revision"`
 	ActiveClaimToken     string    `json:"activeClaimToken,omitempty"`
-	ActiveClaimUntil     time.Time `json:"activeClaimUntil,omitempty"`
-	LastPulseAttemptAt   time.Time `json:"lastPulseAttemptAt,omitempty"`
-	LastPulseCompletedAt time.Time `json:"lastPulseCompletedAt,omitempty"`
+	ActiveClaimUntil     time.Time `json:"activeClaimUntil"`
+	LastPulseAttemptAt   time.Time `json:"lastPulseAttemptAt"`
+	LastPulseCompletedAt time.Time `json:"lastPulseCompletedAt"`
 	LastPulseSummary     string    `json:"lastPulseSummary,omitempty"`
 	LastPulseError       string    `json:"lastPulseError,omitempty"`
 }
@@ -55,13 +55,13 @@ type matrixTaskResponse struct {
 	IntervalSeconds   int       `json:"intervalSeconds"`
 	IntervalHuman     string    `json:"intervalHuman"`
 	SpecificTime      string    `json:"specificTime,omitempty"`
-	SpecificAt        time.Time `json:"specificAt,omitempty"`
+	SpecificAt        time.Time `json:"specificAt"`
 	Enabled           bool      `json:"enabled"`
 	RoomEnabled       bool      `json:"roomEnabled"`
 	Due               bool      `json:"due"`
-	LastRunAt         time.Time `json:"lastRunAt,omitempty"`
+	LastRunAt         time.Time `json:"lastRunAt"`
 	LastRunHuman      string    `json:"lastRunHuman,omitempty"`
-	NextRunAt         time.Time `json:"nextRunAt,omitempty"`
+	NextRunAt         time.Time `json:"nextRunAt"`
 	NextRunHuman      string    `json:"nextRunHuman,omitempty"`
 	LastResultSummary string    `json:"lastResultSummary,omitempty"`
 	CreatedAt         time.Time `json:"createdAt"`

@@ -38,7 +38,7 @@ func (m *markdownSplitter) Split(text string) []string {
 		return (&boundarySplitter{mode: "hybrid", cfg: m.cfg.Within}).Split(text)
 	}
 	// Append trailing end index
-	for i := 0; i < len(idxs); i++ {
+	for i := range idxs {
 		start := idxs[i][0]
 		end := 0
 		if i+1 < len(idxs) {

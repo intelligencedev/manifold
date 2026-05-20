@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"sort"
 	"strconv"
@@ -297,9 +298,7 @@ func copyStringMap(in map[string]string) map[string]string {
 		return nil
 	}
 	out := make(map[string]string, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }
 
@@ -469,9 +468,7 @@ func (a *Agent) mergedExtraParams() map[string]any {
 		return nil
 	}
 	extra := make(map[string]any, len(a.ExtraParams)+1)
-	for k, v := range a.ExtraParams {
-		extra[k] = v
-	}
+	maps.Copy(extra, a.ExtraParams)
 	if a.ReasoningEffort != "" && extra["reasoning_effort"] == nil {
 		extra["reasoning_effort"] = a.ReasoningEffort
 	}

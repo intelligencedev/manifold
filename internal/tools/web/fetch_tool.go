@@ -184,14 +184,13 @@ func (t *fetchTool) Call(ctx context.Context, raw json.RawMessage) (any, error) 
 		Title        string    `json:"title,omitempty"`
 		Markdown     string    `json:"markdown,omitempty"`
 		UsedReadable bool      `json:"used_readable,omitempty"`
-		FetchedAt    time.Time `json:"fetched_at,omitempty"`
+		FetchedAt    time.Time `json:"fetched_at"`
 	}
 
 	results := make([]out, len(urls))
 	var g errgroup.Group
 	g.SetLimit(conc)
 	for i, u := range urls {
-		i, u := i, u
 		g.Go(func() error {
 			// Try cache first when search backend is available
 			if t.search != nil {

@@ -23,7 +23,7 @@ func TestStoredMemoryEntryRoundTrip(t *testing.T) {
 		Summary:        "summary",
 		RawTrace:       "trace",
 		Embedding:      []float32{1, 2, 3},
-		Metadata:       map[string]interface{}{"domain": "test"},
+		Metadata:       map[string]any{"domain": "test"},
 		CreatedAt:      createdAt,
 		MemoryType:     memory.MemoryProcedural,
 		StrategyCard:   "When confronted with X, do Y.",

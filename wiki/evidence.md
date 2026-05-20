@@ -55,7 +55,7 @@ This page records the repository evidence used to build the wiki. It intentional
 
 ## Unknowns / Follow-Up Checks
 
-- Confirm whether the current GitHub Actions Go matrix is intentional, because `go.mod` declares Go 1.25.0 while the workflow matrix uses older Go setup versions.
+- Confirm whether the current GitHub Actions Go matrix is intentional, because `go.mod` declares Go 1.26.3 and the workflow should use the same required version.
 - Confirm whether all OpenAPI catalog paths match the router for routes added after the catalog was last updated.
 - Confirm which beta UI links should be visible in stable builds before documenting them as end-user-facing features.
 - Confirm production-hardening expectations before using Manifold outside development or controlled experimental deployments.

@@ -276,7 +276,7 @@ func lexicalMatch(query, statement string) bool {
 	if query == "" || statement == "" {
 		return false
 	}
-	for _, token := range strings.Fields(query) {
+	for token := range strings.FieldsSeq(query) {
 		if len(token) >= 4 && strings.Contains(statement, token) {
 			return true
 		}

@@ -104,10 +104,7 @@ func (s *PlaygroundStore) ListPrompts(ctx context.Context, filter registry.ListF
 	if start > len(prompts) {
 		return []registry.Prompt{}, nil
 	}
-	end := start + perPage
-	if end > len(prompts) {
-		end = len(prompts)
-	}
+	end := min(start+perPage, len(prompts))
 	return prompts[start:end], nil
 }
 

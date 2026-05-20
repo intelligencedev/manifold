@@ -224,7 +224,7 @@ func populateLogEntryMeta(entry *LogEntry) {
 
 func buildLogEntryID(timestamp int64, level, message, service, traceID, spanID string) string {
 	h := sha1.New()
-	_, _ = h.Write([]byte(fmt.Sprintf("%d|%s|%s|%s|%s|%s", timestamp, level, service, traceID, spanID, message)))
+	_, _ = h.Write(fmt.Appendf(nil, "%d|%s|%s|%s|%s|%s", timestamp, level, service, traceID, spanID, message))
 	return hex.EncodeToString(h.Sum(nil))
 }
 

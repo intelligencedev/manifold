@@ -145,10 +145,7 @@ func (p *Planner) Plan(ctx context.Context, spec ExperimentSpec, rows []dataset.
 
 	variants := spec.Variants
 	for i := 0; i < len(rows); i += chunkSize {
-		end := i + chunkSize
-		if end > len(rows) {
-			end = len(rows)
-		}
+		end := min(i+chunkSize, len(rows))
 		shardVariants := variants
 		if len(variants) > variantLimit {
 			shardVariants = variants[:variantLimit]

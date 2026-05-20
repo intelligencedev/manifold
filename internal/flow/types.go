@@ -11,7 +11,7 @@ type Workflow struct {
 	Trigger     Trigger          `json:"trigger"`
 	Nodes       []Node           `json:"nodes"`
 	Edges       []Edge           `json:"edges,omitempty"`
-	Settings    WorkflowSettings `json:"settings,omitempty"`
+	Settings    WorkflowSettings `json:"settings"`
 }
 
 // Trigger defines how workflow execution starts.
@@ -56,7 +56,7 @@ type Node struct {
 	PublishResult bool                    `json:"publish_result,omitempty"`
 	PublishMode   string                  `json:"publish_mode,omitempty"`
 	Inputs        map[string]InputBinding `json:"inputs,omitempty"`
-	Execution     NodeExecution           `json:"execution,omitempty"`
+	Execution     NodeExecution           `json:"execution"`
 }
 
 type NodeKind string
@@ -76,7 +76,7 @@ type InputBinding struct {
 // NodeExecution configures runtime behavior for an individual node.
 type NodeExecution struct {
 	Timeout string        `json:"timeout,omitempty"`
-	Retries RetryPolicy   `json:"retries,omitempty"`
+	Retries RetryPolicy   `json:"retries"`
 	OnError ErrorStrategy `json:"on_error,omitempty"`
 }
 
@@ -121,7 +121,7 @@ type FieldMapping struct {
 
 type WorkflowSettings struct {
 	MaxConcurrency   int           `json:"max_concurrency,omitempty"`
-	DefaultExecution NodeExecution `json:"default_execution,omitempty"`
+	DefaultExecution NodeExecution `json:"default_execution"`
 }
 
 // WorkflowCanvas stores editor-only metadata separate from runtime definition.

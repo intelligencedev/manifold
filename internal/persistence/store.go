@@ -18,7 +18,7 @@ var (
 )
 
 // Store is a placeholder for transcripts/state persistence.
-type Store interface{}
+type Store any
 
 // UserPreferences represents a user's persistent settings.
 type UserPreferences struct {
@@ -45,9 +45,9 @@ type PulseRoom struct {
 	Enabled              bool      `json:"enabled"`
 	Revision             int64     `json:"revision"`
 	ActiveClaimToken     string    `json:"activeClaimToken,omitempty"`
-	ActiveClaimUntil     time.Time `json:"activeClaimUntil,omitempty"`
-	LastPulseAttemptAt   time.Time `json:"lastPulseAttemptAt,omitempty"`
-	LastPulseCompletedAt time.Time `json:"lastPulseCompletedAt,omitempty"`
+	ActiveClaimUntil     time.Time `json:"activeClaimUntil"`
+	LastPulseAttemptAt   time.Time `json:"lastPulseAttemptAt"`
+	LastPulseCompletedAt time.Time `json:"lastPulseCompletedAt"`
 	LastPulseSummary     string    `json:"lastPulseSummary,omitempty"`
 	LastPulseError       string    `json:"lastPulseError,omitempty"`
 	CreatedAt            time.Time `json:"createdAt"`
@@ -64,9 +64,9 @@ type PulseTask struct {
 	ScheduleType      string    `json:"scheduleType,omitempty"`
 	IntervalSeconds   int       `json:"intervalSeconds"`
 	SpecificTime      string    `json:"specificTime,omitempty"`
-	SpecificAt        time.Time `json:"specificAt,omitempty"`
+	SpecificAt        time.Time `json:"specificAt"`
 	Enabled           bool      `json:"enabled"`
-	LastRunAt         time.Time `json:"lastRunAt,omitempty"`
+	LastRunAt         time.Time `json:"lastRunAt"`
 	LastResultSummary string    `json:"lastResultSummary,omitempty"`
 	CreatedAt         time.Time `json:"createdAt"`
 	UpdatedAt         time.Time `json:"updatedAt"`
@@ -116,7 +116,7 @@ type MatrixMessage struct {
 type MatrixRoomStats struct {
 	RoomID         string    `json:"roomId"`
 	MessageCount   int       `json:"messageCount"`
-	LastActivityAt time.Time `json:"lastActivityAt,omitempty"`
+	LastActivityAt time.Time `json:"lastActivityAt"`
 	LastSender     string    `json:"lastSender,omitempty"`
 }
 
@@ -295,7 +295,7 @@ type SpecialistActivityStore interface {
 type FlowV2WorkflowRecord struct {
 	UserID    int64               `json:"user_id"`
 	Workflow  flow.Workflow       `json:"workflow"`
-	Canvas    flow.WorkflowCanvas `json:"canvas,omitempty"`
+	Canvas    flow.WorkflowCanvas `json:"canvas"`
 	CreatedAt time.Time           `json:"created_at"`
 	UpdatedAt time.Time           `json:"updated_at"`
 }

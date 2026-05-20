@@ -25,8 +25,8 @@ type Run struct {
 	Execution    *experiment.ExecutionConfig `json:"execution,omitempty"`
 	Status       RunStatus                   `json:"status"`
 	CreatedAt    time.Time                   `json:"createdAt"`
-	StartedAt    time.Time                   `json:"startedAt,omitempty"`
-	EndedAt      time.Time                   `json:"endedAt,omitempty"`
+	StartedAt    time.Time                   `json:"startedAt"`
+	EndedAt      time.Time                   `json:"endedAt"`
 	Error        string                      `json:"error,omitempty"`
 	Metrics      map[string]float64          `json:"metrics,omitempty"`
 }

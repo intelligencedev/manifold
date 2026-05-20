@@ -34,22 +34,22 @@ func (em *EvolvingMemory) SynthesizeScored(ctx context.Context, currentTask stri
 		return ""
 	}
 
-	var result string
-	result += "## Past Relevant Experiences\n\n"
+	var result strings.Builder
+	result.WriteString("## Past Relevant Experiences\n\n")
 
 	successes, cautions := partitionScoredRetrievedByOutcome(retrieved)
 	if len(successes) > 0 {
-		result += "## Strategies That Worked\n\n"
+		result.WriteString("## Strategies That Worked\n\n")
 		for i, entry := range successes {
-			result += fmt.Sprintf("### Experience %d\n", i+1)
-			result += formatScoredExperience(entry) + "\n\n"
+			result.WriteString(fmt.Sprintf("### Experience %d\n", i+1))
+			result.WriteString(formatScoredExperience(entry) + "\n\n")
 		}
 	}
 	if len(cautions) > 0 {
-		result += "## Mistakes to Avoid\n\n"
+		result.WriteString("## Mistakes to Avoid\n\n")
 		for i, entry := range cautions {
-			result += fmt.Sprintf("### Experience %d\n", i+1)
-			result += formatScoredExperience(entry) + "\n\n"
+			result.WriteString(fmt.Sprintf("### Experience %d\n", i+1))
+			result.WriteString(formatScoredExperience(entry) + "\n\n")
 		}
 	}
 
@@ -65,12 +65,12 @@ func (em *EvolvingMemory) SynthesizeScored(ctx context.Context, currentTask stri
 			Timestamp:    start,
 			Input:        currentTask,
 			RetrievedIDs: retrievedIDs,
-			OutputSize:   len(result),
+			OutputSize:   len(result.String()),
 			DurationMs:   time.Since(start).Milliseconds(),
 		})
 	}
 
-	return result
+	return result.String()
 }
 
 func partitionScoredRetrievedByOutcome(retrieved []ScoredMemoryEntry) ([]ScoredMemoryEntry, []ScoredMemoryEntry) {

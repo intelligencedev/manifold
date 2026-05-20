@@ -74,7 +74,6 @@ func TestRelatedTestCandidatesSupportsMultipleLanguages(t *testing.T) {
 		"src/lib.rs":       nil,
 	}
 	for path, want := range tests {
-		path, want := path, want
 		t.Run(path, func(t *testing.T) {
 			t.Parallel()
 			got := relatedTestCandidates(path)

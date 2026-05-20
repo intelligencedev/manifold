@@ -5,11 +5,13 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -175,9 +177,7 @@ func (t *mcpTool) JSONSchema() map[string]any {
 			var m map[string]any
 			if json.Unmarshal(b, &m) == nil && m != nil {
 				// Merge onto defaults
-				for k, v := range m {
-					params[k] = v
-				}
+				maps.Copy(params, m)
 			}
 		}
 	}
@@ -214,10 +214,8 @@ func sanitizeSchema(s map[string]any, prop string) {
 				}
 			}
 		case []string:
-			for _, xs := range tt {
-				if xs == want {
-					return true
-				}
+			if slices.Contains(tt, want) {
+				return true
 			}
 		}
 		return false

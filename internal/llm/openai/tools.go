@@ -2,6 +2,7 @@ package openai
 
 import (
 	"encoding/json"
+	"maps"
 	"strings"
 
 	sdk "github.com/openai/openai-go/v2"
@@ -43,9 +44,7 @@ func sanitizeToolSchemas(src []llm.ToolSchema) []llm.ToolSchema {
 		if s.Parameters != nil {
 			// shallow copy map to avoid mutating original
 			cp := make(map[string]any, len(s.Parameters))
-			for k, v := range s.Parameters {
-				cp[k] = v
-			}
+			maps.Copy(cp, s.Parameters)
 			cleaned := removeUnsupportedSchema(cp)
 			if len(cleaned) == 0 {
 				s.Parameters = nil

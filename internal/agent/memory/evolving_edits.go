@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"manifold/internal/observability"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -92,11 +93,8 @@ func (em *EvolvingMemory) mergeEntries(ctx context.Context, ids []string, newSum
 	// Find entries to merge
 	var toMerge []*MemoryEntry
 	for _, e := range em.entries {
-		for _, id := range ids {
-			if e.ID == id {
-				toMerge = append(toMerge, e)
-				break
-			}
+		if slices.Contains(ids, e.ID) {
+			toMerge = append(toMerge, e)
 		}
 	}
 
@@ -125,14 +123,14 @@ func (em *EvolvingMemory) mergeEntries(ctx context.Context, ids []string, newSum
 		AccessCount:        mergedAccessCount(toMerge),
 		LastAccessedAt:     latestAccessedAt(toMerge),
 		RelevanceScore:     bestRelevanceScore(toMerge),
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"merged_from": ids,
 		},
 		CreatedAt: time.Now(),
 	}
 
 	if merged.Metadata == nil {
-		merged.Metadata = make(map[string]interface{})
+		merged.Metadata = make(map[string]any)
 	}
 	merged.Metadata["embedding_enabled"] = em.enableRAG
 	merged.Metadata["embedding_text_basis"] = memoryEmbeddingTextBasis
@@ -294,7 +292,7 @@ func (em *EvolvingMemory) updateTag(ids []string, tag string) {
 	for _, e := range em.entries {
 		if idSet[e.ID] {
 			if e.Metadata == nil {
-				e.Metadata = make(map[string]interface{})
+				e.Metadata = make(map[string]any)
 			}
 			e.Metadata["tag"] = tag
 			em.markDirtyLocked(e.ID)

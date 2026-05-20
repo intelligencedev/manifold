@@ -2,6 +2,7 @@ package databases
 
 import (
 	"context"
+	"maps"
 	"sort"
 	"sync"
 )
@@ -25,9 +26,7 @@ func (m *memoryGraph) UpsertNode(_ context.Context, id string, labels []string, 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	cp := make(map[string]any, len(props))
-	for k, v := range props {
-		cp[k] = v
-	}
+	maps.Copy(cp, props)
 	m.nodes[id] = Node{ID: id, Labels: append([]string{}, labels...), Props: cp}
 	return nil
 }
@@ -38,9 +37,7 @@ func (m *memoryGraph) UpsertEdge(_ context.Context, srcID, rel, dstID string, pr
 	key := edgeKey{src: srcID, rel: rel}
 	m.ensureEdgeKey(key)
 	cp := make(map[string]any, len(props))
-	for k, v := range props {
-		cp[k] = v
-	}
+	maps.Copy(cp, props)
 	m.edges[key][dstID] = cp
 	return nil
 }

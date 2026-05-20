@@ -9,7 +9,8 @@ import (
 	"manifold/internal/persistence"
 )
 
-func int64ptr(v int64) *int64 { return &v }
+//go:fix inline
+func int64ptr(v int64) *int64 { return new(v) }
 
 func TestMemChatStoreLifecycle(t *testing.T) {
 	store := newMemoryChatStore()
@@ -99,8 +100,8 @@ func TestMemChatStoreLifecycle(t *testing.T) {
 func TestMemChatStoreOwnership(t *testing.T) {
 	store := newMemoryChatStore()
 	ctx := context.Background()
-	user1 := int64ptr(1)
-	user2 := int64ptr(2)
+	user1 := new(int64(1))
+	user2 := new(int64(2))
 
 	sess, err := store.CreateSession(ctx, user1, "Mine")
 	if err != nil {
@@ -146,8 +147,8 @@ func TestMemChatStoreOwnership(t *testing.T) {
 func TestMemChatStoreEnsureSessionOwnership(t *testing.T) {
 	store := newMemoryChatStore()
 	ctx := context.Background()
-	user1 := int64ptr(1)
-	user2 := int64ptr(2)
+	user1 := new(int64(1))
+	user2 := new(int64(2))
 
 	if _, err := store.EnsureSession(ctx, user1, "s", "mine"); err != nil {
 		t.Fatalf("EnsureSession owner: %v", err)

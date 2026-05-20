@@ -102,10 +102,7 @@ func (m *Manager) BuildContextForProvider(ctx context.Context, userID *int64, se
 		// when it fits within the model context budget.
 		maxTail := m.maxKeepLastMessages
 		if maxTail > 0 && total-tailStart > maxTail {
-			tailStart = total - maxTail
-			if tailStart < summarizedCount {
-				tailStart = summarizedCount
-			}
+			tailStart = max(total-maxTail, summarizedCount)
 		}
 
 		// If summarization failed we fall back to sending the full history.
@@ -127,10 +124,7 @@ func (m *Manager) BuildContextForProvider(ctx context.Context, userID *int64, se
 	// Our tail selection is token/count based and can cut between these, so we
 	// adjust the tail start to include any required assistant tool call messages.
 	if total > 0 {
-		minIdx := summarizedCount
-		if minIdx < 0 {
-			minIdx = 0
-		}
+		minIdx := max(summarizedCount, 0)
 		adjusted := adjustIndexForToolDeps(messages, 0, tailStart)
 		if adjusted < tailStart {
 			if adjusted < minIdx {

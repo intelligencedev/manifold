@@ -151,7 +151,7 @@ func TestTraceRetentionAndLimit(t *testing.T) {
 		recordedAt: base.Add(-traceRetention - time.Hour),
 	})
 
-	for i := 0; i < maxTraceEntries+10; i++ {
+	for i := range maxTraceEntries + 10 {
 		recTime := base.Add(-time.Duration(i) * time.Minute)
 		recordTrace(traceRecord{
 			snapshot: TraceSnapshot{

@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"maps"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -135,10 +136,8 @@ func cloneEntry(entry *MemoryEntry) *MemoryEntry {
 		copyEntry.Embedding = append([]float32(nil), entry.Embedding...)
 	}
 	if entry.Metadata != nil {
-		copyEntry.Metadata = make(map[string]interface{}, len(entry.Metadata))
-		for key, value := range entry.Metadata {
-			copyEntry.Metadata[key] = value
-		}
+		copyEntry.Metadata = make(map[string]any, len(entry.Metadata))
+		maps.Copy(copyEntry.Metadata, entry.Metadata)
 	}
 	if entry.StructuredFeedback != nil {
 		feedbackCopy := *entry.StructuredFeedback

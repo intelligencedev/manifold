@@ -12,7 +12,7 @@ func (s *PlaygroundStore) DeletePrompt(ctx context.Context, id string) error {
 	batch.Queue(`DELETE FROM playground_prompt_versions WHERE prompt_id=$1 AND user_id=$2`, id, uid)
 	batch.Queue(`DELETE FROM playground_prompts WHERE id=$1 AND user_id=$2`, id, uid)
 	br := s.pool.SendBatch(ctx, batch)
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if _, err := br.Exec(); err != nil {
 			_ = br.Close()
 			return err

@@ -31,7 +31,7 @@ func (a *app) resolveChatObjectiveID(ctx context.Context, owner int64, req chatR
 		}
 	}
 	if objectiveID == "" {
-		objectiveID = uuid.NewSHA1(uuid.NameSpaceOID, []byte(fmt.Sprintf("%d/%s/%s", owner, projectID, sessionID))).String()
+		objectiveID = uuid.NewSHA1(uuid.NameSpaceOID, fmt.Appendf(nil, "%d/%s/%s", owner, projectID, sessionID)).String()
 	}
 
 	if a.cfg != nil && a.cfg.BeliefMemory.Enabled {

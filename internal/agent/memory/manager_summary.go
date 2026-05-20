@@ -35,10 +35,7 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 
 	// Force summarization once the chat exceeds the configured max tail size.
 	// This keeps the raw transcript short even for very large-context models.
-	maxTail := m.maxKeepLastMessages
-	if maxTail < m.minKeepLastMessages {
-		maxTail = m.minKeepLastMessages
-	}
+	maxTail := max(m.maxKeepLastMessages, m.minKeepLastMessages)
 	compactionEnabled := m.responsesCompactionEnabled(targetCompactor)
 	if !compactionEnabled {
 		ctxSize = minPositiveInt(targetCtxSize, plainCtxSize)
@@ -61,13 +58,7 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 	// Counting the full raw transcript caused summarization to fire every turn
 	// once a large session crossed the budget, even though the existing summary
 	// had already replaced that history.
-	summarizedCursor := session.SummarizedCount
-	if summarizedCursor < 0 {
-		summarizedCursor = 0
-	}
-	if summarizedCursor > total {
-		summarizedCursor = total
-	}
+	summarizedCursor := min(max(session.SummarizedCount, 0), total)
 	unsummarizedCount := total - summarizedCursor
 
 	summaryTokens := 0
@@ -120,10 +111,7 @@ func (m *Manager) ensureSummary(ctx context.Context, userID *int64, session pers
 	// is supposed to replace prior history.
 	target := total
 
-	summarizedCount := session.SummarizedCount
-	if summarizedCount > target {
-		summarizedCount = target
-	}
+	summarizedCount := min(session.SummarizedCount, target)
 
 	if summarizedCount == target {
 		return session.Summary, summarizedCount, nil
@@ -404,7 +392,7 @@ func (m *Manager) reducePlainSummarySections(ctx context.Context, sections []str
 		return summary, nil
 	}
 
-	for pass := 0; pass < 8; pass++ {
+	for range 8 {
 		chunks := packSummarySections(current, chunkBudget)
 		if len(chunks) == 1 {
 			summary, err := m.runPlainSummaryPass(ctx, chunks[0])
@@ -623,10 +611,7 @@ func splitSummarySection(section string, maxTokens int) []string {
 	runes := []rune(section)
 	chunks := make([]string, 0, (len(runes)/maxRunes)+1)
 	for start := 0; start < len(runes); start += maxRunes {
-		end := start + maxRunes
-		if end > len(runes) {
-			end = len(runes)
-		}
+		end := min(start+maxRunes, len(runes))
 		chunks = append(chunks, string(runes[start:end]))
 	}
 	return chunks
@@ -759,10 +744,7 @@ func truncateForSummary(content string, limit int) string {
 		return string(runes[:limit]) + string(markerRunes)
 	}
 	available := limit - len(markerRunes)
-	head := int(float64(available) * 0.6)
-	if head < 1 {
-		head = 1
-	}
+	head := max(int(float64(available)*0.6), 1)
 	tail := available - head
 	if tail < 1 {
 		tail = 1

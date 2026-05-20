@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 	"time"
@@ -75,9 +76,7 @@ func applyImageExtraParams(params *sdk.ImageGenerateParams, extra map[string]any
 		return
 	}
 	remaining := make(map[string]any, len(extra))
-	for k, v := range extra {
-		remaining[k] = v
-	}
+	maps.Copy(remaining, extra)
 	if v, ok := popStringImageExtraParam(remaining, "size"); ok {
 		params.Size = sdk.ImageGenerateParamsSize(normalizeImageSize(v))
 	}
@@ -298,9 +297,7 @@ func (c *Client) ChatWithImageAttachment(ctx context.Context, msgs []llm.Message
 	if len(c.extra) > 0 {
 		if !actualTools {
 			tmp := make(map[string]any, len(c.extra))
-			for k, v := range c.extra {
-				tmp[k] = v
-			}
+			maps.Copy(tmp, c.extra)
 			delete(tmp, "parallel_tool_calls")
 			params.SetExtraFields(sanitizeExtraFields(tmp))
 		} else {
@@ -426,9 +423,7 @@ func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Messag
 	if len(c.extra) > 0 {
 		if !actualTools {
 			tmp := make(map[string]any, len(c.extra))
-			for k, v := range c.extra {
-				tmp[k] = v
-			}
+			maps.Copy(tmp, c.extra)
 			delete(tmp, "parallel_tool_calls")
 			params.SetExtraFields(sanitizeExtraFields(tmp))
 		} else {

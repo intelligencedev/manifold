@@ -50,14 +50,8 @@ func targetLen(opt ingest.ChunkingOptions) int {
 
 // fixedChunk makes contiguous chunks of target size with optional overlap.
 func fixedChunk(text string, opt ingest.ChunkingOptions) []Chunk {
-	tgt := targetLen(opt)
-	if tgt < 32 {
-		tgt = 32
-	}
-	ov := opt.Overlap
-	if ov < 0 {
-		ov = 0
-	}
+	tgt := max(targetLen(opt), 32)
+	ov := max(opt.Overlap, 0)
 	ovChars := ov * 4
 	var out []Chunk
 	start := 0

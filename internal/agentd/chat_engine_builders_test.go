@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -389,12 +390,7 @@ func (t staticTool) Call(context.Context, json.RawMessage) (any, error) {
 }
 
 func containsTool(reg tools.Registry, name string) bool {
-	for _, toolName := range tools.SchemaNames(reg) {
-		if toolName == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(tools.SchemaNames(reg), name)
 }
 
 func skillProjectDir(t *testing.T, name, description string) string {

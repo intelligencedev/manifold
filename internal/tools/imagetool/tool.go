@@ -105,17 +105,11 @@ func (t *DescribeTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 			if w <= h {
 				// width is the smaller dimension -> set width to 512
 				tw = 512
-				th = int(float64(h) * (512.0 / float64(w)))
-				if th < 1 {
-					th = 1
-				}
+				th = max(int(float64(h)*(512.0/float64(w))), 1)
 			} else {
 				// height is the smaller dimension -> set height to 512
 				th = 512
-				tw = int(float64(w) * (512.0 / float64(h)))
-				if tw < 1 {
-					tw = 1
-				}
+				tw = max(int(float64(w)*(512.0/float64(h))), 1)
 			}
 
 			// If already the required size, skip resizing
@@ -213,13 +207,13 @@ func nearestNeighborScale(dst *image.RGBA, src image.Image) {
 	dw := dst.Bounds().Dx()
 	dh := dst.Bounds().Dy()
 
-	for y := 0; y < dh; y++ {
+	for y := range dh {
 		// compute source y
 		sy := int(float64(y) * float64(sh) / float64(dh))
 		if sy >= sh {
 			sy = sh - 1
 		}
-		for x := 0; x < dw; x++ {
+		for x := range dw {
 			sx := int(float64(x) * float64(sw) / float64(dw))
 			if sx >= sw {
 				sx = sw - 1

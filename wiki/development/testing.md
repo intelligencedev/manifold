@@ -59,7 +59,7 @@ The GitHub Actions workflow runs Go formatting/import/vet/lint/tests with covera
 
 ## Notable CI Caveat
 
-The current workflow should be reviewed against the current `go.mod` Go version before relying on it as definitive. The wiki crawl observed `go.mod` declaring Go 1.25.0 while the checked-in workflow uses older Go setup versions.
+The current workflow should be reviewed against the current `go.mod` Go version before relying on it as definitive. The wiki crawl observed `go.mod` declaring Go 1.26.3 and the checked-in workflow should use the same required version.
 
 ## Evidence
 

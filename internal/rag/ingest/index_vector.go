@@ -2,6 +2,7 @@ package ingest
 
 import (
 	"context"
+	"maps"
 	"strconv"
 
 	"manifold/internal/persistence/databases"
@@ -64,8 +65,6 @@ func chunkID(docID string, idx int) string { return "chunk:" + docID + ":" + str
 // copyMap shallow-copies a string map.
 func copyMap(m map[string]string) map[string]string {
 	out := make(map[string]string, len(m))
-	for k, v := range m {
-		out[k] = v
-	}
+	maps.Copy(out, m)
 	return out
 }

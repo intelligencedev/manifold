@@ -33,6 +33,7 @@ type MemoryEvent struct {
 	DurationMs    int64
 	MemorySize    int
 	RelevanceInfo map[string]float64 // memory_id -> similarity score (if available)
+	Search        SearchDiagnostics
 }
 
 // MemoryCallbacks allow embedding the memory system into higher-level
@@ -148,6 +149,18 @@ type MemoryScoreExplanation struct {
 	Composite     float64      `json:"composite"`
 	MMRPenalty    float64      `json:"mmrPenalty"`
 	FinalScore    float64      `json:"finalScore"`
+}
+
+// SearchDiagnostics describes how a memory search was executed. It is kept
+// small so it can be returned by debug APIs and attached to MemoryEvents.
+type SearchDiagnostics struct {
+	EnableRAG         bool   `json:"enableRAG"`
+	Mode              string `json:"mode"`
+	VectorCandidates  int    `json:"vectorCandidates"`
+	KeywordCandidates int    `json:"keywordCandidates"`
+	UsedServerVector  bool   `json:"usedServerVector"`
+	UsedKeywordStore  bool   `json:"usedKeywordStore"`
+	EmbeddingError    string `json:"embeddingError,omitempty"`
 }
 
 // RankingWeights controls how dense similarity is blended with memory quality,
@@ -286,6 +299,9 @@ func (em *EvolvingMemory) MaxSize() int { return em.maxSize }
 
 // WindowSize returns the sliding window size used by ExpRecent.
 func (em *EvolvingMemory) WindowSize() int { return em.windowSz }
+
+// RAGEnabled reports whether embedding/vector retrieval is enabled.
+func (em *EvolvingMemory) RAGEnabled() bool { return em.enableRAG }
 
 // EvolvingMemoryConfig configures the evolving memory system.
 type EvolvingMemoryConfig struct {

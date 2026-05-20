@@ -32,26 +32,8 @@ func (em *EvolvingMemory) EvolveEnhanced(
 		log.Warn().Err(err).Msg("evolving_memory_summarize_failed")
 		summary = "(summary unavailable)"
 	}
-
-	// Embed the input for retrieval
-	vecs, err := em.embedFn(ctx, em.embedCfg, []string{input})
-	if err != nil {
-		log.Error().Err(err).Msg("evolving_memory_embed_failed")
-		if cb != nil && cb.OnEvolve != nil {
-			cb.OnEvolve(&MemoryEvent{
-				Phase:      PhaseEvolve,
-				Timestamp:  start,
-				Input:      input,
-				Error:      err,
-				MemorySize: memorySize,
-				DurationMs: time.Since(start).Milliseconds(),
-			})
-		}
-		if em.metrics != nil {
-			em.metrics.RecordEvolve(ctx, "error", memorySize, em.userID, em.sessionID)
-		}
-		return fmt.Errorf("embed input: %w", err)
-	}
+	summary = limitUTF8Bytes(redactPII(summary), maxStoredOutputBytes)
+	strategyCard = limitUTF8Bytes(redactPII(strategyCard), maxStoredOutputBytes)
 
 	// Classify memory type based on content analysis
 	memType := em.classifyMemoryType(input, output, summary)
@@ -76,7 +58,6 @@ func (em *EvolvingMemory) EvolveEnhanced(
 		Feedback:           feedback,
 		Summary:            summary,
 		RawTrace:           rawTrace,
-		Embedding:          normalizeVector(vecs[0]),
 		MemoryType:         memType,
 		StrategyCard:       strategyCard,
 		Scope:              MemoryScopeSession,
@@ -85,10 +66,27 @@ func (em *EvolvingMemory) EvolveEnhanced(
 		LastAccessedAt:     time.Now(),
 		RelevanceScore:     1.0, // Start with full relevance
 		Metadata: map[string]interface{}{
-			"domain": "general",
+			"domain":                "general",
+			"embedding_enabled":     em.enableRAG,
+			"embedding_text_basis":  memoryEmbeddingTextBasis,
+			"embedding_text_length": len(retrievalTextForMemory(input, output, feedback, summary, strategyCard)),
 		},
 		CreatedAt: time.Now(),
 	}
+	if em.enableRAG {
+		retrievalText := retrievalTextForMemory(input, output, feedback, summary, strategyCard)
+		vecs, err := em.embedFn(ctx, em.embedCfg, []string{retrievalText})
+		if err != nil {
+			log.Warn().Err(err).Msg("evolving_memory_embed_failed_storing_without_embedding")
+			entry.Metadata["embedding_error"] = err.Error()
+		} else if len(vecs) == 0 {
+			log.Warn().Msg("evolving_memory_embed_empty_storing_without_embedding")
+			entry.Metadata["embedding_error"] = "empty embedding"
+		} else {
+			entry.Embedding = normalizeVector(vecs[0])
+		}
+	}
+	entry.Metadata["has_embedding"] = len(entry.Embedding) > 0
 
 	var mergePlan *smartMergePlan
 	if em.enableSmartPrune {
@@ -234,7 +232,8 @@ func (em *EvolvingMemory) prepareSmartMerge(ctx context.Context, existingEntries
 		return plan, nil
 	}
 
-	vecs, err := em.embedFn(ctx, em.embedCfg, []string{mergedSummary})
+	retrievalText := retrievalTextForMemory(newEntry.Input, newEntry.Output, newEntry.Feedback, mergedSummary, newEntry.StrategyCard)
+	vecs, err := em.embedFn(ctx, em.embedCfg, []string{retrievalText})
 	if err != nil {
 		return nil, fmt.Errorf("embed merged summary: %w", err)
 	}

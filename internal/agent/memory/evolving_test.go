@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -130,13 +131,167 @@ func TestGenerateSummaryPromptRequestsReusableMemory(t *testing.T) {
 	}
 }
 
+func TestEvolveWithRAGDisabledDoesNotEmbedAndExpRecentStillWorks(t *testing.T) {
+	t.Parallel()
+
+	counting := &countingEmbedder{}
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbedFn: counting.embed,
+		LLM:     &mockLLMProvider{response: "remember the lesson"},
+	})
+
+	if err := em.EvolveEnhanced(context.Background(), "recent task", "recent output", "success", nil, nil, ""); err != nil {
+		t.Fatalf("EvolveEnhanced failed: %v", err)
+	}
+	if got := counting.count(); got != 0 {
+		t.Fatalf("expected no embedding calls when RAG is disabled, got %d", got)
+	}
+	memories := em.ExportMemories()
+	if len(memories) != 1 {
+		t.Fatalf("expected one memory, got %d", len(memories))
+	}
+	if len(memories[0].Embedding) != 0 {
+		t.Fatalf("expected no stored embedding when RAG is disabled, got %#v", memories[0].Embedding)
+	}
+	results, err := em.Search(context.Background(), "recent task")
+	if err != nil {
+		t.Fatalf("Search failed: %v", err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("expected semantic search disabled, got %#v", results)
+	}
+	if got := em.BuildExpRecentContext(); !strings.Contains(got, "recent task") {
+		t.Fatalf("expected ExpRecent context to include stored task, got %q", got)
+	}
+}
+
+func TestEvolveWithRAGEnabledStoresTextMemoryWhenEmbeddingFails(t *testing.T) {
+	t.Parallel()
+
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbedFn: func(context.Context, config.EmbeddingConfig, []string) ([][]float32, error) {
+			return nil, errors.New("embedding unavailable")
+		},
+		LLM:       &mockLLMProvider{response: "fallback lesson"},
+		EnableRAG: true,
+	})
+
+	if err := em.EvolveEnhanced(context.Background(), "task", "output", "success", nil, nil, ""); err != nil {
+		t.Fatalf("EvolveEnhanced should store without embedding: %v", err)
+	}
+	memories := em.ExportMemories()
+	if len(memories) != 1 {
+		t.Fatalf("expected one memory, got %d", len(memories))
+	}
+	if len(memories[0].Embedding) != 0 {
+		t.Fatalf("expected no embedding after embed failure, got %#v", memories[0].Embedding)
+	}
+	if memories[0].Metadata["embedding_error"] == nil {
+		t.Fatalf("expected embedding_error metadata, got %#v", memories[0].Metadata)
+	}
+}
+
+func TestSearchFallsBackToKeywordWhenEmbeddingFails(t *testing.T) {
+	t.Parallel()
+
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbedFn: func(context.Context, config.EmbeddingConfig, []string) ([][]float32, error) {
+			return nil, errors.New("embedding unavailable")
+		},
+		EnableRAG: true,
+		TopK:      1,
+	})
+	em.mu.Lock()
+	em.entries = []*MemoryEntry{{
+		ID:      "keyword-only",
+		Input:   "worker failed with E_BUSY",
+		Summary: "Retry E_BUSY after releasing the worker lock",
+	}}
+	em.mu.Unlock()
+
+	results, diag, err := em.SearchWithDiagnostics(context.Background(), "E_BUSY")
+	if err != nil {
+		t.Fatalf("SearchWithDiagnostics should use keyword fallback: %v", err)
+	}
+	if len(results) != 1 || results[0].Entry.ID != "keyword-only" {
+		t.Fatalf("expected keyword-only result, got %#v", results)
+	}
+	if diag.Mode != "keyword" || diag.EmbeddingError == "" {
+		t.Fatalf("expected keyword mode with embedding error, got %#v", diag)
+	}
+}
+
+func TestRebuildEmbeddingsBackfillsExistingMemories(t *testing.T) {
+	t.Parallel()
+
+	var embedded []string
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbedFn: func(_ context.Context, _ config.EmbeddingConfig, texts []string) ([][]float32, error) {
+			embedded = append(embedded, texts...)
+			return [][]float32{{1, 0}}, nil
+		},
+		EnableRAG: true,
+	})
+	em.mu.Lock()
+	em.entries = []*MemoryEntry{{
+		ID:           "needs-embedding",
+		Input:        "task",
+		Output:       "output",
+		Feedback:     "success",
+		Summary:      "summary lesson",
+		StrategyCard: "strategy card",
+		Metadata:     map[string]interface{}{},
+	}}
+	em.mu.Unlock()
+
+	if err := em.RebuildEmbeddings(context.Background()); err != nil {
+		t.Fatalf("RebuildEmbeddings failed: %v", err)
+	}
+	memories := em.ExportMemories()
+	if len(memories) != 1 || len(memories[0].Embedding) == 0 {
+		t.Fatalf("expected rebuilt embedding, got %#v", memories)
+	}
+	if len(embedded) != 1 || !strings.Contains(embedded[0], "summary lesson") || !strings.Contains(embedded[0], "strategy card") {
+		t.Fatalf("expected retrieval text embedding, got %#v", embedded)
+	}
+	if memories[0].Metadata["embedding_text_basis"] != memoryEmbeddingTextBasis || memories[0].Metadata["has_embedding"] != true {
+		t.Fatalf("expected embedding metadata, got %#v", memories[0].Metadata)
+	}
+}
+
+func TestEvolveEmbedsReusableLessonText(t *testing.T) {
+	t.Parallel()
+
+	var embeddedText string
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbedFn: func(_ context.Context, _ config.EmbeddingConfig, texts []string) ([][]float32, error) {
+			if len(texts) > 0 {
+				embeddedText = texts[0]
+			}
+			return [][]float32{{1, 0}}, nil
+		},
+		LLM:       &mockLLMProvider{response: "prefer the stable retry strategy"},
+		EnableRAG: true,
+	})
+
+	if err := em.EvolveEnhanced(context.Background(), "fix flaky job", "passed", "success", nil, nil, "When jobs are flaky, retry once after checking logs."); err != nil {
+		t.Fatalf("EvolveEnhanced failed: %v", err)
+	}
+	for _, want := range []string{"fix flaky job", "prefer the stable retry strategy", "When jobs are flaky"} {
+		if !strings.Contains(embeddedText, want) {
+			t.Fatalf("expected embedded text to contain %q, got %q", want, embeddedText)
+		}
+	}
+}
+
 func TestSearchCompositeScorePrefersSuccessfulRecentMemory(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	em := NewEvolvingMemory(EvolvingMemoryConfig{
-		EmbedFn: testEmbedFn,
-		TopK:    1,
+		EmbedFn:   testEmbedFn,
+		TopK:      1,
+		EnableRAG: true,
 		RankingWeights: RankingWeights{
 			DecayHalfLifeDays: 30,
 			SuccessWeight:     1.5,
@@ -201,32 +356,52 @@ func TestSynthesizeGroupsSuccessesAndFailures(t *testing.T) {
 	t.Parallel()
 
 	em := NewEvolvingMemory(EvolvingMemoryConfig{EmbedFn: testEmbedFn})
-	retrieved := []*MemoryEntry{
+	retrieved := []ScoredMemoryEntry{
 		{
-			ID:                 "ok",
-			Input:              "fixed build",
-			Output:             "ran tests",
-			Feedback:           string(FeedbackSuccess),
-			StructuredFeedback: &StructuredFeedback{Type: FeedbackSuccess},
+			Entry: &MemoryEntry{
+				ID:                 "ok",
+				Input:              "fixed build",
+				Output:             "ran tests",
+				Feedback:           string(FeedbackSuccess),
+				StructuredFeedback: &StructuredFeedback{Type: FeedbackSuccess},
+			},
+			Score: 0.91,
 		},
 		{
-			ID:                 "bad",
-			Input:              "skipped tests",
-			Output:             "regression",
-			Feedback:           string(FeedbackFailure),
-			StructuredFeedback: &StructuredFeedback{Type: FeedbackFailure},
+			Entry: &MemoryEntry{
+				ID:                 "bad",
+				Input:              "skipped tests",
+				Output:             "regression",
+				Feedback:           string(FeedbackFailure),
+				StructuredFeedback: &StructuredFeedback{Type: FeedbackFailure},
+			},
+			Score: 0.73,
 		},
 	}
 
-	got := em.Synthesize(context.Background(), "current task", retrieved)
+	got := em.SynthesizeScored(context.Background(), "current task", retrieved)
 	if !strings.Contains(got, "## Strategies That Worked") {
 		t.Fatalf("expected success section, got %s", got)
 	}
 	if !strings.Contains(got, "## Mistakes to Avoid") {
 		t.Fatalf("expected failure section, got %s", got)
 	}
+	if !strings.Contains(got, "**Retrieval Score:** 0.910") {
+		t.Fatalf("expected retrieval score, got %s", got)
+	}
 	if strings.Contains(got, "## Current Task") || strings.Contains(got, "current task") {
 		t.Fatalf("expected synthesized context to omit current task, got %s", got)
+	}
+}
+
+func TestRAGEnabledReportsConfig(t *testing.T) {
+	t.Parallel()
+
+	if NewEvolvingMemory(EvolvingMemoryConfig{}).RAGEnabled() {
+		t.Fatal("expected RAG disabled by default")
+	}
+	if !NewEvolvingMemory(EvolvingMemoryConfig{EnableRAG: true}).RAGEnabled() {
+		t.Fatal("expected RAG enabled from config")
 	}
 }
 
@@ -256,6 +431,7 @@ func TestSearchCachesQueryEmbeddings(t *testing.T) {
 		QueryEmbeddingCacheTTL:  time.Minute,
 		QueryEmbeddingCacheSize: 4,
 		TopK:                    1,
+		EnableRAG:               true,
 	})
 
 	vecs, err := testEmbedFn(ctx, config.EmbeddingConfig{}, []string{"same task"})
@@ -589,6 +765,7 @@ func TestSearchPersistsAccessMetrics(t *testing.T) {
 		Store:     store,
 		UserID:    1,
 		SessionID: "search-session",
+		EnableRAG: true,
 	})
 
 	em.mu.Lock()
@@ -642,6 +819,7 @@ func TestSearchUsesTouchAccessForDeltaStore(t *testing.T) {
 		Store:     store,
 		UserID:    1,
 		SessionID: "delta-search-session",
+		EnableRAG: true,
 	})
 
 	vecs, err := testEmbedFn(context.Background(), config.EmbeddingConfig{}, []string{"same task"})
@@ -699,9 +877,10 @@ func TestSearchUsesServerSideStoreWhenLocalEntriesEmpty(t *testing.T) {
 		}},
 	}
 	em := NewEvolvingMemory(EvolvingMemoryConfig{
-		EmbedFn: testEmbedFn,
-		Store:   store,
-		TopK:    1,
+		EmbedFn:   testEmbedFn,
+		Store:     store,
+		TopK:      1,
+		EnableRAG: true,
 	})
 	em.embedFn = func(context.Context, config.EmbeddingConfig, []string) ([][]float32, error) {
 		return [][]float32{{1, 0}}, nil
@@ -737,9 +916,10 @@ func TestSearchFusesDenseAndKeywordStoreResults(t *testing.T) {
 		keywordResults: []ScoredMemoryEntry{{Entry: keyword, Score: 1.0}},
 	}
 	em := NewEvolvingMemory(EvolvingMemoryConfig{
-		EmbedFn: testEmbedFn,
-		Store:   store,
-		TopK:    2,
+		EmbedFn:   testEmbedFn,
+		Store:     store,
+		TopK:      2,
+		EnableRAG: true,
 	})
 	em.embedFn = func(context.Context, config.EmbeddingConfig, []string) ([][]float32, error) {
 		return [][]float32{{1, 0}}, nil
@@ -812,6 +992,7 @@ func TestSmartMergeReembedsMergedSummary(t *testing.T) {
 		EmbedFn:          testEmbedFn,
 		LLM:              provider,
 		Model:            "test-model",
+		EnableRAG:        true,
 		EnableSmartPrune: true,
 		PruneThreshold:   0.95,
 	})
@@ -838,7 +1019,9 @@ func TestSmartMergeReembedsMergedSummary(t *testing.T) {
 		t.Fatalf("expected merged_from metadata, got %#v", merged.Metadata["merged_from"])
 	}
 
-	wantEmbedding, err := testEmbedFn(ctx, config.EmbeddingConfig{}, []string{wantSummary})
+	wantEmbedding, err := testEmbedFn(ctx, config.EmbeddingConfig{}, []string{
+		retrievalTextForMemory(merged.Input, merged.Output, merged.Feedback, merged.Summary, merged.StrategyCard),
+	})
 	if err != nil {
 		t.Fatalf("testEmbedFn failed: %v", err)
 	}
@@ -1112,6 +1295,7 @@ func TestSearchPromotesSuccessfulProceduralMemory(t *testing.T) {
 		UserID:                   42,
 		SessionID:                "promotion-session",
 		TopK:                     1,
+		EnableRAG:                true,
 		PromotionAccessThreshold: 5,
 	})
 	vecs, err := testEmbedFn(context.Background(), config.EmbeddingConfig{}, []string{"promote me"})
@@ -1146,7 +1330,7 @@ func TestSearchPromotesSuccessfulProceduralMemory(t *testing.T) {
 func TestSearchFiltersExpiredEntries(t *testing.T) {
 	t.Parallel()
 
-	em := NewEvolvingMemory(EvolvingMemoryConfig{EmbedFn: testEmbedFn, TopK: 2})
+	em := NewEvolvingMemory(EvolvingMemoryConfig{EmbedFn: testEmbedFn, TopK: 2, EnableRAG: true})
 	vecs, err := testEmbedFn(context.Background(), config.EmbeddingConfig{}, []string{"live", "expired"})
 	if err != nil {
 		t.Fatalf("embed failed: %v", err)
@@ -1171,7 +1355,7 @@ func TestSearchFiltersExpiredEntries(t *testing.T) {
 func TestExplainSearchIncludesScoreComponents(t *testing.T) {
 	t.Parallel()
 
-	em := NewEvolvingMemory(EvolvingMemoryConfig{EmbedFn: testEmbedFn, TopK: 1})
+	em := NewEvolvingMemory(EvolvingMemoryConfig{EmbedFn: testEmbedFn, TopK: 1, EnableRAG: true})
 	vecs, err := testEmbedFn(context.Background(), config.EmbeddingConfig{}, []string{"component query"})
 	if err != nil {
 		t.Fatalf("embed failed: %v", err)

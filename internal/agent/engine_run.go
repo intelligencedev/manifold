@@ -15,13 +15,15 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 	var final string
 	var err error
 	var evolvingEntryID string
+	var reasoningTrace []string
 	defer func() {
+		evolvingEntryID = e.storeExperience(ctx, userInput, final, err, reasoningTrace)
 		e.recordRunEpisode(ctx, startedAt, final, err, evolvingEntryID)
 	}()
 
 	// If ReMem mode is enabled, use Think-Act-Refine controller
 	if e.ReMemEnabled && e.ReMemController != nil {
-		final, err = e.runWithReMem(ctx, userInput, history)
+		final, reasoningTrace, err = e.runWithReMem(ctx, userInput, history)
 		return final, err
 	}
 
@@ -48,8 +50,6 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 		return "", err
 	}
 
-	evolvingEntryID = e.storeSuccessfulExperience(ctx, userInput, final)
-
 	return final, nil
 }
 
@@ -59,14 +59,16 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 	var final string
 	var err error
 	var evolvingEntryID string
+	var reasoningTrace []string
 	defer func() {
+		evolvingEntryID = e.storeExperience(ctx, userInput, final, err, reasoningTrace)
 		e.recordRunEpisode(ctx, startedAt, final, err, evolvingEntryID)
 	}()
 
 	// If ReMem mode is enabled, use Think-Act-Refine controller
 	// Note: streaming with ReMem may need special handling for THINK/REFINE steps
 	if e.ReMemEnabled && e.ReMemController != nil {
-		final, err = e.runWithReMem(ctx, userInput, history)
+		final, reasoningTrace, err = e.runWithReMem(ctx, userInput, history)
 		return final, err
 	}
 
@@ -92,8 +94,6 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 	if err != nil {
 		return "", err
 	}
-
-	evolvingEntryID = e.storeSuccessfulExperience(ctx, userInput, final)
 
 	return final, nil
 }

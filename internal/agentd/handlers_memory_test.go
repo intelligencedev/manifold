@@ -30,7 +30,8 @@ func TestHandleDebugMemoryExplainReturnsScoreComponents(t *testing.T) {
 			}
 			return out, nil
 		},
-		TopK: 1,
+		TopK:      1,
+		EnableRAG: true,
 	})
 	if err := em.EvolveEnhanced(context.Background(), "explain query", "ok", "success", &memory.StructuredFeedback{Type: memory.FeedbackSuccess}, nil, ""); err != nil {
 		t.Fatalf("EvolveEnhanced failed: %v", err)

@@ -133,20 +133,24 @@ func (e *Engine) promoteEligibleBeliefs(ctx context.Context, items []belief.Beli
 	}
 }
 
-func (e *Engine) storeSuccessfulExperience(ctx context.Context, userInput, final string) string {
+func (e *Engine) storeExperience(ctx context.Context, userInput, final string, runErr error, reasoningTrace []string) string {
 	if e.EvolvingMemory == nil {
+		return ""
+	}
+	if strings.TrimSpace(final) == "" && runErr == nil {
 		return ""
 	}
 
 	log := observability.LoggerWithTrace(ctx)
 	log.Info().Str("user_input", userInput).Int("response_len", len(final)).Msg("evolving_memory_store_triggered")
 
-	feedback := "success" // default; could be derived from user feedback or evaluation
-	structuredFB := &memory.StructuredFeedback{
-		Type:         memory.FeedbackSuccess,
-		Correct:      true,
-		ProgressRate: 1.0,
-		Message:      "Task completed successfully",
+	feedback, structuredFB := deriveMemoryFeedback(final, runErr)
+	storedOutput := final
+	if runErr != nil {
+		if strings.TrimSpace(storedOutput) != "" {
+			storedOutput += "\n\n"
+		}
+		storedOutput += "Error: " + runErr.Error()
 	}
 
 	bgCtx := context.Background()
@@ -156,12 +160,43 @@ func (e *Engine) storeSuccessfulExperience(ctx context.Context, userInput, final
 	entryID := uuid.NewString()
 	bgCtx = memory.WithEntryID(bgCtx, entryID)
 
-	go func(ctx context.Context, input, response, fb string, sfb *memory.StructuredFeedback) {
-		if err := e.EvolvingMemory.EvolveEnhanced(ctx, input, response, fb, sfb, nil, ""); err != nil {
+	go func(ctx context.Context, input, response, fb string, sfb *memory.StructuredFeedback, traceMsgs []string) {
+		var err error
+		if e.ReMemController != nil && len(traceMsgs) > 0 {
+			err = e.ReMemController.StoreExperienceEnhanced(ctx, input, response, fb, sfb, traceMsgs)
+		} else {
+			err = e.EvolvingMemory.EvolveEnhanced(ctx, input, response, fb, sfb, traceMsgs, "")
+		}
+		if err != nil {
 			log.Error().Err(err).Str("feedback", fb).Msg("evolving_memory_store_failed")
 			return
 		}
-		log.Info().Str("feedback", fb).Bool("has_structured_feedback", sfb != nil).Msg("evolving_memory_stored")
-	}(bgCtx, userInput, final, feedback, structuredFB)
+		log.Info().Str("feedback", fb).Bool("has_structured_feedback", sfb != nil).Int("reasoning_steps", len(traceMsgs)).Msg("evolving_memory_stored")
+	}(bgCtx, userInput, storedOutput, feedback, structuredFB, append([]string(nil), reasoningTrace...))
 	return entryID
+}
+
+func deriveMemoryFeedback(final string, runErr error) (string, *memory.StructuredFeedback) {
+	if runErr != nil {
+		return string(memory.FeedbackFailure), &memory.StructuredFeedback{
+			Type:         memory.FeedbackFailure,
+			Correct:      false,
+			ProgressRate: 0,
+			Message:      "Task failed before completion: " + runErr.Error(),
+		}
+	}
+	if strings.TrimSpace(final) == "" || strings.Contains(final, "(no final text") {
+		return string(memory.FeedbackPartial), &memory.StructuredFeedback{
+			Type:         memory.FeedbackPartial,
+			Correct:      false,
+			ProgressRate: 0.5,
+			Message:      "Task ended without a complete final response",
+		}
+	}
+	return string(memory.FeedbackSuccess), &memory.StructuredFeedback{
+		Type:         memory.FeedbackSuccess,
+		Correct:      true,
+		ProgressRate: 1.0,
+		Message:      "Task completed successfully",
+	}
 }

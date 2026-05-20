@@ -131,12 +131,23 @@ func (em *EvolvingMemory) mergeEntries(ctx context.Context, ids []string, newSum
 		CreatedAt: time.Now(),
 	}
 
-	// Re-embed the merged summary
-	vecs, err := em.embedFn(ctx, em.embedCfg, []string{newSummary})
-	if err != nil {
-		return fmt.Errorf("embed merged entry: %w", err)
+	if merged.Metadata == nil {
+		merged.Metadata = make(map[string]interface{})
 	}
-	merged.Embedding = normalizeVector(vecs[0])
+	merged.Metadata["embedding_enabled"] = em.enableRAG
+	merged.Metadata["embedding_text_basis"] = memoryEmbeddingTextBasis
+	if em.enableRAG {
+		retrievalText := retrievalTextForMemory(merged.Input, merged.Output, merged.Feedback, merged.Summary, merged.StrategyCard)
+		merged.Metadata["embedding_text_length"] = len(retrievalText)
+		vecs, err := em.embedFn(ctx, em.embedCfg, []string{retrievalText})
+		if err != nil {
+			observability.LoggerWithTrace(ctx).Warn().Err(err).Msg("evolving_memory_merge_embed_failed_storing_without_embedding")
+			merged.Metadata["embedding_error"] = err.Error()
+		} else if len(vecs) > 0 {
+			merged.Embedding = normalizeVector(vecs[0])
+		}
+	}
+	merged.Metadata["has_embedding"] = len(merged.Embedding) > 0
 
 	// Remove old entries and add merged
 	em.pruneEntries(ids)

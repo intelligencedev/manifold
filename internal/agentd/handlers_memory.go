@@ -45,12 +45,14 @@ type debugMemorySessionResponse struct {
 // debugMemoryEvolvingResponse exposes evolving/ReMem state for observability.
 type debugMemoryEvolvingResponse struct {
 	Enabled      bool                       `json:"enabled"`
+	EnableRAG    bool                       `json:"enableRAG"`
 	TotalEntries int                        `json:"totalEntries"`
 	TopK         int                        `json:"topK"`
 	MaxSize      int                        `json:"maxSize"`
 	WindowSize   int                        `json:"windowSize"`
 	RecentWindow []*memory.MemoryEntry      `json:"recentWindow"`
 	LastQuery    string                     `json:"lastQuery,omitempty"`
+	Search       memory.SearchDiagnostics   `json:"search,omitempty"`
 	Retrieved    []memory.ScoredMemoryEntry `json:"retrieved,omitempty"`
 }
 
@@ -453,6 +455,7 @@ func (a *app) handleDebugMemoryEvolving(w http.ResponseWriter, r *http.Request) 
 	entries := em.ExportMemories()
 	resp := debugMemoryEvolvingResponse{
 		Enabled:      true,
+		EnableRAG:    em.RAGEnabled(),
 		TotalEntries: len(entries),
 		TopK:         em.TopK(),
 		MaxSize:      em.MaxSize(),
@@ -463,8 +466,9 @@ func (a *app) handleDebugMemoryEvolving(w http.ResponseWriter, r *http.Request) 
 	q := strings.TrimSpace(r.URL.Query().Get("query"))
 	if q != "" {
 		resp.LastQuery = q
-		if scored, err := em.SearchWithScores(r.Context(), q); err == nil {
+		if scored, diag, err := em.SearchWithDiagnostics(r.Context(), q); err == nil {
 			resp.Retrieved = scored
+			resp.Search = diag
 		}
 	}
 

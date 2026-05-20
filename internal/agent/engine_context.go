@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+const maxEvolvingMemoryContextChars = 12000
+
 func (e *Engine) augmentWithMemory(ctx context.Context, userInput string, msgs []llm.Message) []llm.Message {
 	log := observability.LoggerWithTrace(ctx)
 
@@ -37,15 +39,17 @@ func (e *Engine) augmentWithMemory(ctx context.Context, userInput string, msgs [
 	if e.EvolvingMemory != nil {
 		log.Debug().Msg("evolving_memory_search_starting")
 		var (
-			retrieved     []*memory.MemoryEntry
+			retrieved     []memory.ScoredMemoryEntry
 			recentContext string
+			diagnostics   memory.SearchDiagnostics
 			wg            sync.WaitGroup
 		)
 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			res, err := e.EvolvingMemory.Search(ctx, userInput)
+			res, diag, err := e.EvolvingMemory.SearchWithDiagnostics(ctx, userInput)
+			diagnostics = diag
 			if err != nil {
 				log.Error().Err(err).Str("query", userInput).Msg("evolving_memory_search_failed")
 				return
@@ -68,10 +72,11 @@ func (e *Engine) augmentWithMemory(ctx context.Context, userInput string, msgs [
 
 		wg.Wait()
 		if len(retrieved) > 0 {
-			memoryContext = e.EvolvingMemory.Synthesize(ctx, userInput, retrieved)
-			log.Info().Int("retrieved", len(retrieved)).Int("context_len", len(memoryContext)).Msg("evolving_memory_exprag_synthesized")
+			memoryContext = e.EvolvingMemory.SynthesizeScored(ctx, userInput, retrieved)
+			log.Info().Int("retrieved", len(retrieved)).Int("context_len", len(memoryContext)).Str("mode", diagnostics.Mode).Msg("evolving_memory_exprag_synthesized")
 		} else if recentContext != "" {
 			memoryContext = recentContext
+			diagnostics.Mode = "recent"
 		}
 	}
 
@@ -82,10 +87,18 @@ func (e *Engine) augmentWithMemory(ctx context.Context, userInput string, msgs [
 
 	log.Info().Int("context_len", len(memoryContext)).Int("orig_msgs", len(msgs)).Msg("evolving_memory_prepending_to_user")
 
+	memoryContext = capEvolvingMemoryContext(memoryContext)
 	msgs = PrependToCurrentUserMessage(msgs, "## Relevant Context from Past Interactions\n\n"+memoryContext)
 
 	log.Info().Int("msgs_count", len(msgs)).Msg("evolving_memory_augmentation_complete")
 	return msgs
+}
+
+func capEvolvingMemoryContext(memoryContext string) string {
+	if len(memoryContext) <= maxEvolvingMemoryContextChars {
+		return memoryContext
+	}
+	return memoryContext[:maxEvolvingMemoryContextChars] + "\n\n[Additional memory context omitted due to prompt budget.]\n"
 }
 
 func (e *Engine) augmentWithBeliefMemory(ctx context.Context, userInput string, msgs []llm.Message) []llm.Message {

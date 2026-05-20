@@ -150,13 +150,17 @@ Internally, retrieval also uses ranking weights and an MMR lambda. These are cur
 
 ## Retrieval and Ranking
 
-When `enableRAG` is enabled, the engine embeds the current task and searches memory.
+When `enableRAG` is disabled, the engine does not call the embedding service for evolving memory. It still stores text memories and can inject the ExpRecent sliding window, but semantic/vector retrieval is skipped.
+
+When `enableRAG` is enabled, the engine embeds the current task and searches memory. New memories are embedded from retrieval-oriented text that combines the task, outcome, distilled summary, strategy card, and result text so the reusable lesson can be found even when the future request is phrased differently.
 
 With Postgres persistence, search uses:
 
 - pgvector cosine search against `embedding_vec`
-- full-text keyword search over `input`, `summary`, and `strategy_card`
+- full-text keyword search over `input`, `output`, `feedback`, `summary`, and `strategy_card`
 - reciprocal-rank fusion when both search modes return candidates
+
+If query embedding fails but keyword candidates are available, search falls back to keyword results. If write-time embedding fails, the text memory is still stored with embedding diagnostics in metadata and can be found by keyword search or included through ExpRecent.
 
 Candidates are then rescored using:
 
@@ -167,6 +171,8 @@ Candidates are then rescored using:
 - MMR diversification to avoid returning several near-identical memories
 
 Search updates access counters asynchronously. Repeated successful procedural memories can move from `session` scope to `user` scope so they are available across that user's future sessions.
+
+Existing rows can be backfilled with the current retrieval-text recipe through `EvolvingMemory.RebuildEmbeddings`.
 
 ## Memory Entry Shape
 
@@ -241,6 +247,8 @@ The debug handler is available at both `/debug/memory` and `/api/debug/memory`.
 | `GET /api/debug/memory/plan` | Shows the derived chat memory budget plan. |
 | `GET /api/debug/memory/evolving?session_id=...&query=...` | Shows evolving-memory state, recent window, and optional retrieved memories. |
 | `GET /api/debug/memory/explain?session_id=...&query=...` | Shows ranking components for retrieved memories. |
+
+The evolving debug response includes `enableRAG` plus search diagnostics such as retrieval mode (`vector`, `keyword`, `hybrid`, `recent`, or `disabled`), candidate counts, server-side vector usage, keyword-store usage, and embedding errors.
 
 When auth is enabled, these endpoints require the current authenticated user and use that user's memory namespace.
 

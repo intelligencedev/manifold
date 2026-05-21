@@ -120,6 +120,63 @@ func TestServiceCRUDAndSearch(t *testing.T) {
 	}
 }
 
+func TestServiceNormalizesKeyNames(t *testing.T) {
+	t.Parallel()
+	store := databases.NewMemoryTransitStore()
+	if err := store.Init(context.Background()); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	service := transit.NewService(transit.ServiceConfig{
+		Store:              store,
+		DefaultSearchLimit: 10,
+		DefaultListLimit:   10,
+		MaxBatchSize:       10,
+		EnableVectorSearch: false,
+	})
+
+	created, err := service.CreateMemory(context.Background(), 1, 1, []transit.CreateMemoryItem{{
+		KeyName:     "Project Demo: Brief!",
+		Description: "Demo brief",
+		Value:       "Transit stores durable shared project notes",
+	}})
+	if err != nil {
+		t.Fatalf("CreateMemory() error = %v", err)
+	}
+	if created[0].KeyName != "Project-Demo-Brief-" {
+		t.Fatalf("CreateMemory() keyName = %q, want %q", created[0].KeyName, "Project-Demo-Brief-")
+	}
+
+	records, err := service.GetMemory(context.Background(), 1, []string{"Project Demo: Brief!"})
+	if err != nil {
+		t.Fatalf("GetMemory() error = %v", err)
+	}
+	if len(records) != 1 || records[0].KeyName != "Project-Demo-Brief-" {
+		t.Fatalf("GetMemory() records = %#v, want normalized key record", records)
+	}
+
+	updated, err := service.UpdateMemory(context.Background(), 1, 1, transit.UpdateMemoryRequest{
+		KeyName: "Project Demo: Brief!",
+		Value:   "Updated value",
+	})
+	if err != nil {
+		t.Fatalf("UpdateMemory() error = %v", err)
+	}
+	if updated.KeyName != "Project-Demo-Brief-" || updated.Value != "Updated value" {
+		t.Fatalf("UpdateMemory() record = %#v, want normalized key and updated value", updated)
+	}
+
+	if err := service.DeleteMemory(context.Background(), 1, []string{"Project Demo: Brief!"}); err != nil {
+		t.Fatalf("DeleteMemory() error = %v", err)
+	}
+	records, err = service.GetMemory(context.Background(), 1, []string{"Project-Demo-Brief-"})
+	if err != nil {
+		t.Fatalf("GetMemory() after delete error = %v", err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("GetMemory() len after delete = %d, want 0", len(records))
+	}
+}
+
 func TestServiceVectorSearchUsesQueryInstructionAndRawRecordEmbedding(t *testing.T) {
 	t.Parallel()
 	store := databases.NewMemoryTransitStore()

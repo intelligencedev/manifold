@@ -51,6 +51,8 @@ Stored fields include:
 
 `keyName` must be hierarchical and stable. Allowed characters are letters, numbers, `_`, `.`, `/`, `@`, and `-`. Keys cannot contain `..` or start/end with `/`.
 
+Transit normalizes incoming key names before validation, so tool calls that use human-readable names such as `Project Demo: Brief` are stored as valid keys such as `Project-Demo-Brief`. Agents should still prefer explicit hierarchical keys like `project/demo/brief` because normalization is a compatibility fallback, not a naming strategy.
+
 ## Configuration
 
 Enable Transit in `config.yaml`:

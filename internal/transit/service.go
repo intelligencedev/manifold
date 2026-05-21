@@ -83,10 +83,10 @@ func (s *Service) CreateMemory(ctx context.Context, tenantID, actorID int64, ite
 	normalized := make([]CreateMemoryItem, 0, len(items))
 	for _, item := range items {
 		item = ApplyCreateDefaults(item)
+		item.KeyName = NormalizeKeyName(item.KeyName)
 		if err := ValidateKey(item.KeyName); err != nil {
 			return nil, err
 		}
-		item.KeyName = strings.TrimSpace(item.KeyName)
 		if _, ok := seen[item.KeyName]; ok {
 			return nil, fmt.Errorf("duplicate keyName in request: %s", item.KeyName)
 		}
@@ -114,10 +114,10 @@ func (s *Service) GetMemory(ctx context.Context, tenantID int64, keys []string) 
 		return nil, fmt.Errorf("batch exceeds max size of %d", s.maxBatchSize)
 	}
 	for index := range keys {
+		keys[index] = NormalizeKeyName(keys[index])
 		if err := ValidateKey(keys[index]); err != nil {
 			return nil, err
 		}
-		keys[index] = strings.TrimSpace(keys[index])
 	}
 	return s.store.Get(ctx, tenantID, keys)
 }
@@ -126,10 +126,10 @@ func (s *Service) UpdateMemory(ctx context.Context, tenantID, actorID int64, req
 	if s.store == nil {
 		return Record{}, fmt.Errorf("transit store is not configured")
 	}
+	req.KeyName = NormalizeKeyName(req.KeyName)
 	if err := ValidateKey(req.KeyName); err != nil {
 		return Record{}, err
 	}
-	req.KeyName = strings.TrimSpace(req.KeyName)
 	req.EmbedSource = NormalizeEmbedSource(req.EmbedSource)
 	record, err := s.store.Update(ctx, tenantID, actorID, req)
 	if err != nil {
@@ -149,11 +149,12 @@ func (s *Service) DeleteMemory(ctx context.Context, tenantID int64, keys []strin
 	if len(keys) > s.maxBatchSize {
 		return fmt.Errorf("batch exceeds max size of %d", s.maxBatchSize)
 	}
-	for _, key := range keys {
-		if err := ValidateKey(key); err != nil {
+	for index, key := range keys {
+		keys[index] = NormalizeKeyName(key)
+		if err := ValidateKey(keys[index]); err != nil {
 			return err
 		}
-		_ = s.removeIndex(ctx, tenantID, strings.TrimSpace(key))
+		_ = s.removeIndex(ctx, tenantID, keys[index])
 	}
 	return s.store.Delete(ctx, tenantID, keys)
 }

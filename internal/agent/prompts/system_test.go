@@ -60,8 +60,9 @@ func TestDefaultSystemPrompt_IncludesCurrentMemoryHeadings(t *testing.T) {
 }
 
 func TestCachedSkillsForProjectLoadsMetadata(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	projectDir := t.TempDir()
-	skillPath := filepath.Join(projectDir, ".skills", "pdf-context-builder", "SKILL.md")
+	skillPath := filepath.Join(projectDir, "skills", "pdf-context-builder", "SKILL.md")
 	if err := os.MkdirAll(filepath.Dir(skillPath), 0o755); err != nil {
 		t.Fatalf("mkdir skills dir: %v", err)
 	}
@@ -91,6 +92,9 @@ func TestCachedSkillsForProjectLoadsMetadata(t *testing.T) {
 	// Skill paths must be project-relative, never absolute.
 	if filepath.IsAbs(cached.Skills[0].Path) {
 		t.Fatalf("expected relative path, got absolute: %q", cached.Skills[0].Path)
+	}
+	if cached.Skills[0].SkillID == "" {
+		t.Fatalf("expected skill id, got %#v", cached.Skills[0])
 	}
 	if !strings.Contains(cached.RenderedPrompt, "## Skills") {
 		t.Fatalf("expected rendered prompt, got %q", cached.RenderedPrompt)

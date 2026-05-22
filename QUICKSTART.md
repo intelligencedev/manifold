@@ -81,9 +81,9 @@ Open <http://localhost:32180>.
 
 Project-local skills:
 
-- Agents load skills only from `.skills/` inside the active project root.
-- Skills are not shared across projects automatically.
-- If a project needs custom skills, create them under that project's `.skills/` folder.
+- Agents load project skills from `skills/` inside the active project root.
+- Agents also discover universal read-only skills from `$HOME/.manifold/skills` and `$HOME/.agents/skills`.
+- If a project needs custom overrides, create them under that project's `skills/` folder.
 - This keeps all agent file access relative to the selected project's root path.
 
 Useful endpoints:

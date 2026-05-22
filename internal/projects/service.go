@@ -165,7 +165,7 @@ func (s *Service) CreateProjectKind(_ context.Context, userID int64, name string
 	// Seed helper files (best-effort)
 	_ = os.WriteFile(filepath.Join(root, "README.md"), []byte("# Project\n\nThis directory is managed by the platform.\n"), 0o644)
 	if strings.TrimSpace(s.defaultSkillsDir) != "" {
-		if err := copyDir(s.defaultSkillsDir, filepath.Join(root, ".skills")); err == nil {
+		if err := copyDir(s.defaultSkillsDir, filepath.Join(root, "skills")); err == nil {
 			meta.SkillsGeneration = 1
 		}
 	}
@@ -388,7 +388,7 @@ func (s *Service) UploadFile(_ context.Context, userID int64, projectID, path, n
 		return err
 	}
 	fullRel := filepath.ToSlash(filepath.Join(rel, name))
-	bumpSkills := strings.HasPrefix(fullRel, ".skills/") || fullRel == ".skills"
+	bumpSkills := strings.HasPrefix(fullRel, "skills/") || fullRel == "skills"
 	s.writeUpdatedAt(userID, projectID, time.Now().UTC(), true, bumpSkills)
 	return nil
 }
@@ -433,7 +433,7 @@ func (s *Service) DeleteFile(_ context.Context, userID int64, projectID, path st
 		}
 	}
 	fullRel := filepath.ToSlash(rel)
-	bumpSkills := strings.HasPrefix(fullRel, ".skills/") || fullRel == ".skills"
+	bumpSkills := strings.HasPrefix(fullRel, "skills/") || fullRel == "skills"
 	s.writeUpdatedAt(userID, projectID, time.Now().UTC(), true, bumpSkills)
 	return nil
 }
@@ -488,7 +488,7 @@ func (s *Service) MovePath(_ context.Context, userID int64, projectID, from, to 
 	}
 	fullSrc := filepath.ToSlash(srcRel)
 	fullDst := filepath.ToSlash(dstRel)
-	bumpSkills := strings.HasPrefix(fullSrc, ".skills/") || strings.HasPrefix(fullDst, ".skills/") || fullSrc == ".skills" || fullDst == ".skills"
+	bumpSkills := strings.HasPrefix(fullSrc, "skills/") || strings.HasPrefix(fullDst, "skills/") || fullSrc == "skills" || fullDst == "skills"
 	s.writeUpdatedAt(userID, projectID, time.Now().UTC(), true, bumpSkills)
 	return nil
 }
@@ -508,7 +508,7 @@ func (s *Service) CreateDir(_ context.Context, userID int64, projectID, path str
 		return err
 	}
 	fullRel := filepath.ToSlash(rel)
-	bumpSkills := strings.HasPrefix(fullRel, ".skills/") || fullRel == ".skills"
+	bumpSkills := strings.HasPrefix(fullRel, "skills/") || fullRel == "skills"
 	s.writeUpdatedAt(userID, projectID, time.Now().UTC(), true, bumpSkills)
 	return nil
 }

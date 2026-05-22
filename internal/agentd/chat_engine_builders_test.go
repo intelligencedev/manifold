@@ -360,6 +360,9 @@ func TestBuildSpecialistChatEngineUsesSkillSearchWhenAutoDiscoverEnabled(t *test
 	if !containsTool(result.Engine.Tools, "skill_search") {
 		t.Fatalf("expected skill_search tool, got %v", tools.SchemaNames(result.Engine.Tools))
 	}
+	if !containsTool(result.Engine.Tools, "skill_read") {
+		t.Fatalf("expected skill_read tool, got %v", tools.SchemaNames(result.Engine.Tools))
+	}
 }
 
 func TestBuildOrchestratorChatEngineFallsBackToInlineSkillsWhenToolsDisabled(t *testing.T) {
@@ -381,6 +384,9 @@ func TestBuildOrchestratorChatEngineFallsBackToInlineSkillsWhenToolsDisabled(t *
 	}
 	if containsTool(result.Engine.Tools, "skill_search") {
 		t.Fatalf("did not expect skill_search tool, got %v", tools.SchemaNames(result.Engine.Tools))
+	}
+	if containsTool(result.Engine.Tools, "skill_read") {
+		t.Fatalf("did not expect skill_read tool, got %v", tools.SchemaNames(result.Engine.Tools))
 	}
 }
 
@@ -406,6 +412,32 @@ func TestBuildOrchestratorChatEngineUsesSkillSearchWhenAutoDiscoverEnabled(t *te
 	}
 	if !containsTool(result.Engine.Tools, "skill_search") {
 		t.Fatalf("expected skill_search tool, got %v", tools.SchemaNames(result.Engine.Tools))
+	}
+	if !containsTool(result.Engine.Tools, "skill_read") {
+		t.Fatalf("expected skill_read tool, got %v", tools.SchemaNames(result.Engine.Tools))
+	}
+}
+
+func TestBuildOrchestratorChatEngineUsesInlineSkillsAndSkillReadWhenAutoDiscoverDisabled(t *testing.T) {
+	t.Parallel()
+
+	app := newChatEngineBuilderTestApp(t)
+	app.cfg.AutoDiscover = false
+	app.cfg.EnableTools = true
+	projectDir := skillProjectDir(t, "release-checklist", "Coordinate a production release checklist.")
+
+	result := app.buildOrchestratorChatEngine(context.Background(), 7, "sess-1", "", "", "", &workspaces.Workspace{BaseDir: projectDir})
+	if result.Err != nil {
+		t.Fatalf("buildOrchestratorChatEngine: %v", result.Err)
+	}
+	if !strings.Contains(result.Engine.UserPromptContext, "## Skills") {
+		t.Fatalf("expected inline skills, got %q", result.Engine.UserPromptContext)
+	}
+	if containsTool(result.Engine.Tools, "skill_search") {
+		t.Fatalf("did not expect skill_search tool, got %v", tools.SchemaNames(result.Engine.Tools))
+	}
+	if !containsTool(result.Engine.Tools, "skill_read") {
+		t.Fatalf("expected skill_read tool, got %v", tools.SchemaNames(result.Engine.Tools))
 	}
 }
 
@@ -450,6 +482,9 @@ func TestBuildTeamChatEngineUsesSkillSearchWhenAutoDiscoverEnabled(t *testing.T)
 	}
 	if !containsTool(result.Engine.Tools, "skill_search") {
 		t.Fatalf("expected skill_search tool, got %v", tools.SchemaNames(result.Engine.Tools))
+	}
+	if !containsTool(result.Engine.Tools, "skill_read") {
+		t.Fatalf("expected skill_read tool, got %v", tools.SchemaNames(result.Engine.Tools))
 	}
 }
 
@@ -555,7 +590,7 @@ func containsTool(reg tools.Registry, name string) bool {
 func skillProjectDir(t *testing.T, name, description string) string {
 	t.Helper()
 	projectDir := t.TempDir()
-	skillPath := filepath.Join(projectDir, ".skills", name, "SKILL.md")
+	skillPath := filepath.Join(projectDir, "skills", name, "SKILL.md")
 	if err := os.MkdirAll(filepath.Dir(skillPath), 0o755); err != nil {
 		t.Fatalf("mkdir skills dir: %v", err)
 	}

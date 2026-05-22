@@ -564,7 +564,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	if cwd, err := os.Getwd(); err != nil {
 		log.Warn().Err(err).Msg("unable_to_resolve_cwd_for_default_skills")
 	} else {
-		skillsPath := filepath.Join(cwd, ".skills")
+		skillsPath := filepath.Join(cwd, "skills")
 		if fi, err := os.Stat(skillsPath); err == nil && fi.IsDir() {
 			defaultSkillsDir = skillsPath
 			log.Info().Str("skillsPath", defaultSkillsDir).Msg("default_skills_source_enabled")

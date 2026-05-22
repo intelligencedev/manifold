@@ -13,7 +13,7 @@ Projects are per-user filesystem workspaces. They are central to safe tool execu
 - file read/write/upload/delete/move;
 - project archive streaming support;
 - generation counters for project and skills changes;
-- optional seeding of default skills into `.skills`.
+- optional seeding of default skills into `skills`.
 
 ```mermaid
 flowchart TB
@@ -23,7 +23,7 @@ flowchart TB
     UserRoot --> ProjectDir[project-id directory]
     ProjectDir --> Meta[.meta/project.json]
     ProjectDir --> Files[workspace files]
-    ProjectDir --> Skills[.skills optional]
+    ProjectDir --> Skills[skills optional]
 ```
 
 ## Workspace Manager
@@ -42,7 +42,7 @@ Path safety appears in several layers:
 
 ## Project-Local Skills
 
-Existing docs emphasize that agents only load skills from `.skills` inside the active project root. Skills are not globally shared across projects by default.
+Agents load project skills from `skills` inside the active project root. They can also discover universal read-only skills from `$HOME/.manifold/skills` and `$HOME/.agents/skills` through dedicated skill tools, while normal file tools stay project-scoped.
 
 ## Contributor Guidance
 

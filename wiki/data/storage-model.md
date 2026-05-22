@@ -4,7 +4,7 @@ Manifold combines filesystem project storage with optional database-backed metad
 
 ## Filesystem Projects
 
-Projects live under the configured `workdir`, grouped by user ID and project ID. Each project has metadata at `.meta/project.json` and may have a `.skills` folder.
+Projects live under the configured `workdir`, grouped by user ID and project ID. Each project has metadata at `.meta/project.json` and may have a `skills` folder.
 
 ```mermaid
 flowchart TB
@@ -14,7 +14,7 @@ flowchart TB
     Projects --> ProjectID[project-id]
     ProjectID --> Meta[.meta/project.json]
     ProjectID --> Readme[README.md]
-    ProjectID --> Skills[.skills]
+    ProjectID --> Skills[skills]
     ProjectID --> Files[project files]
 ```
 

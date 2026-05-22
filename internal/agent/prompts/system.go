@@ -39,10 +39,11 @@ const toolDiscoveryInstructions = `
 
 const skillDiscoveryInstructions = `
 [skill_discovery]
-- You have a skill_search tool for discovering project-local skills during the run.
-- Skills are loaded only from the active project's .skills folder under the project root.
+- You have a skill_search tool for discovering project and universal skills during the run.
+- Skills are loaded from the active project's skills folder and universal Manifold skill folders.
 - Use skill_search when the task may match a reusable workflow or when the user names a skill explicitly.
-- After choosing a skill, open its SKILL.md file and load references, scripts, or assets only as needed.
+- If the user asks to list, show, or enumerate all available skills, call skill_search with all=true.
+- After choosing a skill, use skill_read with the returned skill_id to open SKILL.md and load references, scripts, or assets only as needed.
 - Keep skill loading narrow: start with metadata, then inspect only the selected skill files.
 [/skill_discovery]`
 
@@ -304,7 +305,8 @@ func CachedSkillsForProject(projectDir string) (*skills.CachedSkills, error) {
 		cacheKey = projectDir
 	}
 
-	return skillsCache.GetOrLoad(cacheKey, gen, skillsGen, func() (*skills.CachedSkills, error) {
+	fingerprint := skills.UniversalFingerprint()
+	return skillsCache.GetOrLoadWithFingerprint(cacheKey, gen, skillsGen, fingerprint, func() (*skills.CachedSkills, error) {
 		outcome := skills.LoadFromDir(projectDir)
 
 		log.Debug().
@@ -325,15 +327,16 @@ func CachedSkillsForProject(projectDir string) (*skills.CachedSkills, error) {
 		return &skills.CachedSkills{
 			Generation:       gen,
 			SkillsGeneration: skillsGen,
+			Fingerprint:      fingerprint,
 			Skills:           outcome.Skills,
 			RenderedPrompt:   prompt,
 		}, nil
 	})
 }
 
-// RenderSkillsForProject builds a markdown "## Skills" section from SKILL.md files
-// discovered directly under the project's .skills folder. Only metadata is
-// injected to keep context small. Returns empty string if no skills are found.
+// RenderSkillsForProject builds a markdown "## Skills" section from discovered
+// project and universal SKILL.md files. Only metadata is injected to keep
+// context small. Returns empty string if no skills are found.
 func RenderSkillsForProject(projectDir string) string {
 	cached, err := CachedSkillsForProject(projectDir)
 
@@ -354,18 +357,17 @@ func renderSkillsSection(skillsList []skills.Metadata) string {
 
 	var b strings.Builder
 	b.WriteString("## Skills\n")
-	b.WriteString("These skills are discovered only from the active project's .skills folder under the project root. Each entry includes a name, description, and relative file path.\n")
-	b.WriteString("Each project must define its own .skills folder; skills are not loaded from outside the project.\n")
+	b.WriteString("Skills are discovered from the active project's skills folder, $HOME/.manifold/skills, and $HOME/.agents/skills. Each entry includes a skill_id for skill_read plus metadata.\n")
 	for _, s := range skillsList {
 		desc := s.Description
 		if strings.TrimSpace(s.ShortDescription) != "" {
 			desc = s.ShortDescription
 		}
-		fmt.Fprintf(&b, "- %s: %s (file: %s)\n", s.Name, desc, s.Path)
+		fmt.Fprintf(&b, "- %s: %s (skill_id: %s, source: %s, file: %s)\n", s.Name, desc, s.SkillID, s.Source, s.Path)
 	}
 
 	b.WriteString("- Trigger rules: If the user names a skill (with $skill-name or plain text) OR the task matches a skill description, use it for that turn. Multiple mentions mean use them all.\n")
-	b.WriteString("- Progressive disclosure: After selecting a skill, open its SKILL.md; load additional files (references/, scripts/, assets/) only as needed.\n")
+	b.WriteString("- Progressive disclosure: After selecting a skill, use skill_read with its skill_id to open SKILL.md; load additional files (references/, scripts/, assets/) only as needed.\n")
 	b.WriteString("- Missing/blocked: If a named skill path cannot be read, say so briefly and continue with a fallback.\n")
 	b.WriteString("- Context hygiene: Keep context small—summarize long files, avoid bulk-loading references, and only load variant-specific files when relevant.\n")
 	return b.String()

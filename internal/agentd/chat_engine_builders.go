@@ -292,18 +292,21 @@ func (a *app) applyChatSkillsMode(toolReg tools.Registry, systemPrompt, projectD
 	if strings.TrimSpace(projectDir) == "" {
 		return toolReg, systemPrompt, ""
 	}
-	if !enableTools || !autoDiscover {
+	if !enableTools {
 		return toolReg, systemPrompt, prompts.RenderSkillsForProject(projectDir)
 	}
 	cached, err := prompts.CachedSkillsForProject(projectDir)
 	if err != nil || cached == nil || len(cached.Skills) == 0 {
 		return toolReg, systemPrompt, ""
 	}
-	systemPrompt = prompts.EnsureSkillDiscoveryInstructions(systemPrompt)
 	if toolReg == nil {
 		toolReg = tools.NewRegistry()
 	}
-	return tools.NewOverlayRegistry(toolReg, newSkillSearchTool(projectDir)), systemPrompt, ""
+	if !autoDiscover {
+		return tools.NewOverlayRegistry(toolReg, newSkillReadTool(projectDir)), systemPrompt, cached.RenderedPrompt
+	}
+	systemPrompt = prompts.EnsureSkillDiscoveryInstructions(systemPrompt)
+	return tools.NewOverlayRegistry(toolReg, newSkillReadTool(projectDir), newSkillSearchTool(projectDir)), systemPrompt, ""
 }
 
 func combineUserPromptContext(parts ...string) string {

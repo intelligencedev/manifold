@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
 	"manifold/internal/agent"
+	"manifold/internal/agent/harness"
 	"manifold/internal/agent/memory"
 	"manifold/internal/config"
 	"manifold/internal/llm"
@@ -162,6 +164,163 @@ func TestBuildOrchestratorChatEngineDefaultsMaxSteps(t *testing.T) {
 	}
 	if result.Engine.MaxSteps != 8 {
 		t.Fatalf("expected default max steps, got %d", result.Engine.MaxSteps)
+	}
+}
+
+func TestBuildChatEnginesCarryHarnessConfig(t *testing.T) {
+	t.Parallel()
+
+	app := newChatEngineBuilderTestApp(t)
+	app.cfg.Harness = config.HarnessConfig{
+		Enabled:           true,
+		Mode:              "workflow",
+		RescueEnabled:     true,
+		MaxRetriesPerStep: 5,
+		MaxToolErrors:     4,
+		TerminalTools:     []string{"agent_response"},
+		RequiredSteps:     []string{"search"},
+		Compact: config.HarnessCompactConfig{
+			Enabled:         true,
+			KeepRecentSteps: 6,
+			PhaseThresholds: []float64{0.5, 0.8},
+		},
+	}
+	app.engine.HarnessEnabled = app.cfg.Harness.Enabled
+	app.engine.HarnessConfig = harnessRunConfig(app.cfg.Harness)
+
+	ctx := context.Background()
+	_, err := app.specStore.Upsert(ctx, 7, persistence.Specialist{
+		Name:        "alpha",
+		Provider:    "openai",
+		Model:       "gpt-4.1-mini",
+		System:      "specialist system",
+		EnableTools: true,
+	})
+	if err != nil {
+		t.Fatalf("upsert specialist: %v", err)
+	}
+	_, err = app.teamStore.Upsert(ctx, 9, persistence.SpecialistTeam{
+		Name: "ops",
+		Orchestrator: persistence.Specialist{
+			Name:        "ops-orchestrator",
+			Provider:    "openai",
+			EnableTools: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("upsert team: %v", err)
+	}
+
+	orchestrator := app.buildOrchestratorChatEngine(ctx, 7, "sess-1", "", "", "", nil)
+	specialist := app.buildSpecialistChatEngine(ctx, "alpha", "", "sess-2", "", "", 7)
+	team := app.buildTeamChatEngine(ctx, "ops", "sess-3", "", "", 9)
+
+	for name, result := range map[string]chatEngineBuildResult{
+		"orchestrator": orchestrator,
+		"specialist":   specialist,
+		"team":         team,
+	} {
+		if result.Err != nil {
+			t.Fatalf("%s build error: %v", name, result.Err)
+		}
+		if result.Engine == nil || !result.Engine.HarnessEnabled {
+			t.Fatalf("%s expected harness enabled, got %+v", name, result.Engine)
+		}
+		if result.Engine.HarnessConfig.Mode != harness.ModeWorkflow || result.Engine.HarnessConfig.MaxRetriesPerStep != 5 || result.Engine.HarnessConfig.MaxToolErrors != 4 {
+			t.Fatalf("%s unexpected harness config: %+v", name, result.Engine.HarnessConfig)
+		}
+		if !result.Engine.HarnessConfig.RescueEnabled {
+			t.Fatalf("%s expected rescue enabled", name)
+		}
+		if !reflect.DeepEqual(result.Engine.HarnessConfig.Workflow.RequiredSteps, []string{"search"}) {
+			t.Fatalf("%s unexpected required steps: %+v", name, result.Engine.HarnessConfig.Workflow.RequiredSteps)
+		}
+		if !result.Engine.HarnessConfig.Compact.Enabled || result.Engine.HarnessConfig.Compact.KeepRecentSteps != 6 || !reflect.DeepEqual(result.Engine.HarnessConfig.Compact.PhaseThresholds, []float64{0.5, 0.8}) {
+			t.Fatalf("%s unexpected compact config: %+v", name, result.Engine.HarnessConfig.Compact)
+		}
+	}
+}
+
+func TestBuildChatEnginesApplyPerTargetHarnessOverrides(t *testing.T) {
+	t.Parallel()
+
+	app := newChatEngineBuilderTestApp(t)
+	app.cfg.Harness = config.HarnessConfig{
+		Enabled:       false,
+		Mode:          "guarded_chat",
+		TerminalTools: []string{"agent_response"},
+	}
+	app.engine.HarnessEnabled = app.cfg.Harness.Enabled
+	app.engine.HarnessConfig = harnessRunConfig(app.cfg.Harness)
+
+	ctx := context.Background()
+	override := &persistence.SpecialistHarness{
+		Enabled:           true,
+		Mode:              "workflow",
+		MaxRetriesPerStep: 6,
+		TerminalTools:     []string{"agent_response"},
+		RequiredSteps:     []string{"search"},
+	}
+	_, err := app.specStore.Upsert(ctx, 7, persistence.Specialist{
+		Name:        specialists.OrchestratorName,
+		Provider:    "openai",
+		Model:       "gpt-4.1-mini",
+		EnableTools: true,
+		Harness:     override,
+	})
+	if err != nil {
+		t.Fatalf("upsert orchestrator: %v", err)
+	}
+	_, err = app.specStore.Upsert(ctx, 7, persistence.Specialist{
+		Name:        "alpha",
+		Provider:    "openai",
+		Model:       "gpt-4.1-mini",
+		EnableTools: true,
+		Harness:     override,
+	})
+	if err != nil {
+		t.Fatalf("upsert specialist: %v", err)
+	}
+	app.invalidateSpecialistsCache(ctx, 7)
+	_, err = app.specStore.Upsert(ctx, 9, persistence.Specialist{Name: "member-a", Provider: "openai", Model: "gpt-4.1-mini"})
+	if err != nil {
+		t.Fatalf("upsert team member: %v", err)
+	}
+	_, err = app.teamStore.Upsert(ctx, 9, persistence.SpecialistTeam{
+		Name: "ops",
+		Orchestrator: persistence.Specialist{
+			Name:        "ops-orchestrator",
+			Provider:    "openai",
+			EnableTools: true,
+			Harness:     override,
+		},
+		Members: []string{"member-a"},
+	})
+	if err != nil {
+		t.Fatalf("upsert team: %v", err)
+	}
+
+	orchestrator := app.buildOrchestratorChatEngine(ctx, 7, "sess-1", "", "", "", nil)
+	specialist := app.buildSpecialistChatEngine(ctx, "alpha", "", "sess-2", "", "", 7)
+	team := app.buildTeamChatEngine(ctx, "ops", "sess-3", "", "", 9)
+
+	for name, result := range map[string]chatEngineBuildResult{
+		"orchestrator": orchestrator,
+		"specialist":   specialist,
+		"team":         team,
+	} {
+		if result.Err != nil {
+			t.Fatalf("%s build error: %v", name, result.Err)
+		}
+		if result.Engine == nil || !result.Engine.HarnessEnabled {
+			t.Fatalf("%s expected harness override enabled, got %+v", name, result.Engine)
+		}
+		if result.Engine.HarnessConfig.Mode != harness.ModeWorkflow || result.Engine.HarnessConfig.MaxRetriesPerStep != 6 {
+			t.Fatalf("%s unexpected harness override: %+v", name, result.Engine.HarnessConfig)
+		}
+		if !reflect.DeepEqual(result.Engine.HarnessConfig.Workflow.RequiredSteps, []string{"search"}) {
+			t.Fatalf("%s unexpected required steps: %+v", name, result.Engine.HarnessConfig.Workflow.RequiredSteps)
+		}
 	}
 }
 

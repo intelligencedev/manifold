@@ -148,17 +148,44 @@ type Specialist struct {
 	Model       string `json:"model"`
 	// SummaryContextWindowTokens overrides the summary context window size (in tokens)
 	// for this specialist. Zero means use the global fallback.
-	SummaryContextWindowTokens int               `json:"summaryContextWindowTokens"`
-	EnableTools                bool              `json:"enableTools"`
-	ImageGeneration            bool              `json:"imageGeneration"`
-	AutoDiscover               *bool             `json:"autoDiscover,omitempty"`
-	Paused                     bool              `json:"paused"`
-	AllowTools                 []string          `json:"allowTools"`
-	ReasoningEffort            string            `json:"reasoningEffort"`
-	System                     string            `json:"system"`
-	ExtraHeaders               map[string]string `json:"extraHeaders"`
-	ExtraParams                map[string]any    `json:"extraParams"`
-	Teams                      []string          `json:"teams,omitempty"`
+	SummaryContextWindowTokens int                `json:"summaryContextWindowTokens"`
+	EnableTools                bool               `json:"enableTools"`
+	ImageGeneration            bool               `json:"imageGeneration"`
+	AutoDiscover               *bool              `json:"autoDiscover,omitempty"`
+	Paused                     bool               `json:"paused"`
+	AllowTools                 []string           `json:"allowTools"`
+	ReasoningEffort            string             `json:"reasoningEffort"`
+	System                     string             `json:"system"`
+	ExtraHeaders               map[string]string  `json:"extraHeaders"`
+	ExtraParams                map[string]any     `json:"extraParams"`
+	Teams                      []string           `json:"teams,omitempty"`
+	Harness                    *SpecialistHarness `json:"harness,omitempty"`
+}
+
+// SpecialistHarness stores per-specialist Forge harness overrides.
+type SpecialistHarness struct {
+	Enabled           bool                                       `json:"enabled"`
+	Mode              string                                     `json:"mode"`
+	RescueEnabled     bool                                       `json:"rescueEnabled"`
+	MaxRetriesPerStep int                                        `json:"maxRetriesPerStep"`
+	MaxToolErrors     int                                        `json:"maxToolErrors"`
+	TerminalTools     []string                                   `json:"terminalTools"`
+	RequiredSteps     []string                                   `json:"requiredSteps"`
+	ToolPrerequisites map[string][]SpecialistHarnessPrerequisite `json:"toolPrerequisites"`
+	Compact           SpecialistHarnessCompact                   `json:"compact"`
+}
+
+// SpecialistHarnessPrerequisite requires one successful tool call before another tool can run.
+type SpecialistHarnessPrerequisite struct {
+	Tool     string `json:"tool"`
+	MatchArg string `json:"matchArg"`
+}
+
+// SpecialistHarnessCompact stores per-specialist harness compaction overrides.
+type SpecialistHarnessCompact struct {
+	Enabled         bool      `json:"enabled"`
+	KeepRecentSteps int       `json:"keepRecentSteps"`
+	PhaseThresholds []float64 `json:"phaseThresholds"`
 }
 
 // SpecialistTeam represents a team of specialists with a unique orchestrator config.

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"manifold/internal/agent"
+	"manifold/internal/agent/harness"
 	"manifold/internal/agent/prompts"
 	"manifold/internal/config"
 	"manifold/internal/llm"
@@ -48,6 +49,8 @@ func sanitizeImageGenerationBuild(build chatEngineBuildResult) chatEngineBuildRe
 	build.Engine.ReMemEnabled = false
 	build.Engine.ReMemController = nil
 	build.Engine.SummaryEnabled = false
+	build.Engine.HarnessEnabled = false
+	build.Engine.HarnessConfig = harness.RunConfig{}
 	build.Engine.SkipInitialSummarization = true
 	return build
 }
@@ -106,6 +109,7 @@ func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptO
 	var skillsContext string
 	toolReg, systemPrompt, skillsContext = a.applyChatSkillsMode(toolReg, systemPrompt, a.chatProjectDir(ctx, nil), sp.EnableTools, sp.AutoDiscover)
 	toolReg = withChatInputRequestTool(toolReg, sp.EnableTools)
+	harnessCfg := harnessOverrideConfig(a.cfg.Harness, sp.Harness)
 
 	eng := &agent.Engine{
 		LLM:                          prov,
@@ -119,6 +123,8 @@ func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptO
 		SummaryReserveBufferTokens:   a.cfg.SummaryReserveBufferTokens,
 		SummaryMinKeepLastMessages:   a.cfg.SummaryMinKeepLastMessages,
 		SummaryMaxSummaryChunkTokens: a.cfg.SummaryMaxSummaryChunkTokens,
+		HarnessEnabled:               harnessCfg.Enabled,
+		HarnessConfig:                harnessRunConfig(harnessCfg),
 	}
 	a.configureBeliefRunState(eng, owner, sessionID, projectID, objectiveID, name)
 	em := a.attachSessionEvolvingMemory(eng, owner, sessionID)
@@ -189,6 +195,7 @@ func (a *app) buildTeamChatEngine(ctx context.Context, name, sessionID, projectI
 	var skillsContext string
 	toolReg, systemPrompt, skillsContext = a.applyChatSkillsMode(toolReg, systemPrompt, a.chatProjectDir(ctx, nil), sp.EnableTools, resolvedAutoDiscover)
 	toolReg = withChatInputRequestTool(toolReg, sp.EnableTools)
+	harnessCfg := harnessOverrideConfig(a.cfg.Harness, harnessConfigFromPersist(sp.Harness))
 	eng := &agent.Engine{
 		LLM:                          userLLM,
 		Tools:                        toolReg,
@@ -201,6 +208,8 @@ func (a *app) buildTeamChatEngine(ctx context.Context, name, sessionID, projectI
 		SummaryReserveBufferTokens:   a.cfg.SummaryReserveBufferTokens,
 		SummaryMinKeepLastMessages:   a.cfg.SummaryMinKeepLastMessages,
 		SummaryMaxSummaryChunkTokens: a.cfg.SummaryMaxSummaryChunkTokens,
+		HarnessEnabled:               harnessCfg.Enabled,
+		HarnessConfig:                harnessRunConfig(harnessCfg),
 	}
 	a.configureBeliefRunState(eng, owner, sessionID, projectID, objectiveID, name)
 	em := a.attachSessionEvolvingMemory(eng, owner, sessionID)

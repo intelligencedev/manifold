@@ -145,3 +145,7 @@ make build-manifold FEATURE_GATE=beta
 ```
 
 The build passes `FEATURE_GATE` through to Vite as `VITE_MANIFOLD_FEATURE_GATE`.
+
+### Forge harness
+
+Manifold includes an optional Forge-style guarded agent loop for workflow enforcement, tool-error recovery, and control-flow-safe compaction. It is disabled by default. See [docs/forge_harness.md](./docs/forge_harness.md) for modes, configuration, rollout guidance, and deterministic scenario tests.

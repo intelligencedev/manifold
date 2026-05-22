@@ -83,6 +83,9 @@ func ApplyOrchestratorConfig(cfg *config.Config, sp persistence.Specialist) stri
 		cfg.AutoDiscover = *sp.AutoDiscover
 	}
 	cfg.SystemPrompt = sp.System
+	if sp.Harness != nil {
+		cfg.Harness = *harnessConfigFromStore(sp.Harness)
+	}
 
 	return provider
 }

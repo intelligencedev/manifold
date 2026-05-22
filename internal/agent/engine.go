@@ -2,6 +2,7 @@ package agent
 
 import (
 	"manifold/internal/agent/belief"
+	"manifold/internal/agent/harness"
 	"manifold/internal/agent/memory"
 	"manifold/internal/llm"
 	"manifold/internal/policy"
@@ -35,6 +36,11 @@ type Engine struct {
 	// MaxToolParallelism controls how many tool calls may run concurrently within a single step.
 	// <= 0 means unbounded (default to len(toolCalls)); 1 preserves sequential behavior.
 	MaxToolParallelism int
+	// HarnessEnabled routes non-streaming runs through the Forge-style guarded loop.
+	// It is disabled by default so existing Manifold behavior is preserved.
+	HarnessEnabled bool
+	// HarnessConfig controls guarded chat/workflow validation when HarnessEnabled is true.
+	HarnessConfig harness.RunConfig
 	// Delegator, when set, is used to execute nested agent calls (e.g., specialists)
 	// without routing through tool implementations. This makes agent-to-agent
 	// collaboration a core engine capability and enables rich tracing.

@@ -407,6 +407,30 @@ export interface Specialist {
   extraHeaders?: Record<string, string>;
   extraParams?: Record<string, any>;
   teams?: string[];
+  harness?: SpecialistHarness | null;
+}
+
+export interface SpecialistHarness {
+  enabled: boolean;
+  mode: "legacy" | "guarded_chat" | "workflow" | string;
+  rescueEnabled: boolean;
+  maxRetriesPerStep: number;
+  maxToolErrors: number;
+  terminalTools: string[];
+  requiredSteps: string[];
+  toolPrerequisites: Record<string, SpecialistHarnessPrerequisite[]>;
+  compact: SpecialistHarnessCompact;
+}
+
+export interface SpecialistHarnessPrerequisite {
+  tool: string;
+  matchArg?: string;
+}
+
+export interface SpecialistHarnessCompact {
+  enabled: boolean;
+  keepRecentSteps: number;
+  phaseThresholds: number[];
 }
 
 export interface SpecialistTeam {

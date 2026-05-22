@@ -99,6 +99,7 @@ func newRouter(a *app) *http.ServeMux {
 	mux.HandleFunc("/agent/run", a.agentRunHandler())
 	mux.HandleFunc("/agent/vision", a.agentVisionHandler())
 	mux.HandleFunc("/api/prompt", a.promptHandler())
+	mux.HandleFunc("/v1/chat/completions", a.openAIChatCompletionsProxyHandler())
 
 	mux.HandleFunc("/audio/", a.audioServeHandler())
 	mux.HandleFunc("/stt", a.sttHandler())

@@ -411,6 +411,8 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		SummaryReserveBufferTokens:   cfg.SummaryReserveBufferTokens,
 		SummaryMinKeepLastMessages:   cfg.SummaryMinKeepLastMessages,
 		SummaryMaxSummaryChunkTokens: cfg.SummaryMaxSummaryChunkTokens,
+		HarnessEnabled:               cfg.Harness.Enabled,
+		HarnessConfig:                harnessRunConfig(cfg.Harness),
 	}
 	app.engine.AttachTokenizer(llm, nil)
 

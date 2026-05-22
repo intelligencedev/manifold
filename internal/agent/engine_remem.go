@@ -6,7 +6,7 @@ import (
 	"manifold/internal/observability"
 )
 
-func (e *Engine) runWithReMem(ctx context.Context, userInput string, history []llm.Message) (string, []string, error) {
+func (e *Engine) runWithReMem(ctx context.Context, userInput string, history []llm.Message, stream bool) (string, []string, error) {
 	log := observability.LoggerWithTrace(ctx)
 
 	// Execute ReMem controller (internal memory reasoning/refinement).
@@ -37,7 +37,23 @@ func (e *Engine) runWithReMem(ctx context.Context, userInput string, history []l
 		msgs = e.maybeSummarize(ctx, msgs)
 	}
 
-	// Run the streaming loop to generate actual response (preserves streaming behavior)
+	if e.HarnessEnabled {
+		cfg := e.effectiveHarnessConfig()
+		log.Info().Str("mode", string(cfg.Mode)).Bool("stream", stream).Msg("remem_continuing_with_harness_loop")
+		var final string
+		var err error
+		if stream {
+			final, err = e.runHarnessStreamLoop(ctx, msgs)
+		} else {
+			final, err = e.runHarnessLoop(ctx, msgs)
+		}
+		if err != nil {
+			return "", reasoningTrace, err
+		}
+		return final, reasoningTrace, nil
+	}
+
+	// Run the streaming loop to generate actual response (preserves existing ReMem behavior)
 	final, err := e.runStreamLoop(ctx, msgs)
 	if err != nil {
 		return "", reasoningTrace, err

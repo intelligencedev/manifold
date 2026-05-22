@@ -31,6 +31,21 @@ specialists:
     extraParams:
       temperature: 0.2
       top_p: 0.95
+    # Optional per-specialist Forge harness override. If omitted, the top-level
+    # harness config from config.yaml applies.
+    harness:
+      enabled: false
+      mode: guarded_chat # legacy | guarded_chat | workflow
+      rescueEnabled: true
+      maxRetriesPerStep: 3
+      maxToolErrors: 2
+      terminalTools: [agent_response]
+      requiredSteps: []
+      toolPrerequisites: {}
+      compact:
+        enabled: true
+        keepRecentSteps: 4
+        phaseThresholds: [0.60, 0.75, 0.90]
 
   # Second SpecialistConfig example with a narrower tool policy.
   - name: researcher

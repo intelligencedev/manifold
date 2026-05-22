@@ -66,6 +66,22 @@ summaryMaxSummaryChunkTokens: 4096
 agentRunTimeoutSeconds: 60
 streamRunTimeoutSeconds: 75
 workflowTimeoutSeconds: 90
+harness:
+  enabled: true
+  mode: workflow
+  rescueEnabled: true
+  maxRetriesPerStep: 5
+  maxToolErrors: 4
+  terminalTools: [agent_response]
+  requiredSteps: [search, fetch]
+  toolPrerequisites:
+    fetch:
+      - tool: search
+        matchArg: url
+  compact:
+    enabled: true
+    keepRecentSteps: 6
+    phaseThresholds: [0.5, 0.8]
 exec:
   blockBinaries: [rm, sudo]
   maxCommandSeconds: 900
@@ -276,6 +292,18 @@ tokenization:
 	if cfg.Tokenization.FallbackToHeuristic {
 		t.Fatalf("expected fallbackToHeuristic false")
 	}
+	if !cfg.Harness.Enabled || cfg.Harness.Mode != "workflow" || cfg.Harness.MaxRetriesPerStep != 5 || cfg.Harness.MaxToolErrors != 4 {
+		t.Fatalf("unexpected harness config: %+v", cfg.Harness)
+	}
+	if !reflect.DeepEqual(cfg.Harness.TerminalTools, []string{"agent_response"}) || !reflect.DeepEqual(cfg.Harness.RequiredSteps, []string{"search", "fetch"}) {
+		t.Fatalf("unexpected harness workflow tools: %+v", cfg.Harness)
+	}
+	if got := cfg.Harness.ToolPrerequisites["fetch"]; len(got) != 1 || got[0].Tool != "search" || got[0].MatchArg != "url" {
+		t.Fatalf("unexpected harness prerequisites: %+v", cfg.Harness.ToolPrerequisites)
+	}
+	if !cfg.Harness.Compact.Enabled || cfg.Harness.Compact.KeepRecentSteps != 6 || !reflect.DeepEqual(cfg.Harness.Compact.PhaseThresholds, []float64{0.5, 0.8}) {
+		t.Fatalf("unexpected harness compact config: %+v", cfg.Harness.Compact)
+	}
 }
 
 func TestLoad_EnvVarExpansion(t *testing.T) {
@@ -438,6 +466,18 @@ llm_client:
 	if cfg.Embedding.Instructions.Mode != "auto" || cfg.Embedding.Instructions.Format != "qwen" {
 		t.Fatalf("unexpected default embedding instructions: %+v", cfg.Embedding.Instructions)
 	}
+	if cfg.Harness.Enabled {
+		t.Fatalf("expected harness to default disabled")
+	}
+	if cfg.Harness.Mode != "guarded_chat" || cfg.Harness.MaxRetriesPerStep != 3 || cfg.Harness.MaxToolErrors != 2 {
+		t.Fatalf("unexpected default harness config: %+v", cfg.Harness)
+	}
+	if !reflect.DeepEqual(cfg.Harness.TerminalTools, []string{"agent_response"}) {
+		t.Fatalf("unexpected default harness terminal tools: %v", cfg.Harness.TerminalTools)
+	}
+	if cfg.Harness.Compact.KeepRecentSteps != 4 || !reflect.DeepEqual(cfg.Harness.Compact.PhaseThresholds, []float64{0.60, 0.75, 0.90}) {
+		t.Fatalf("unexpected default harness compact config: %+v", cfg.Harness.Compact)
+	}
 }
 
 func TestLoad_MissingRequiredFields(t *testing.T) {
@@ -498,6 +538,79 @@ embedding:
 
 	if _, err := Load(); err == nil {
 		t.Fatalf("expected invalid embedding instruction format to fail")
+	}
+}
+
+func TestLoad_InvalidHarnessMode(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
+	t.Setenv("OPENAI_API_KEY", "dummy")
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(`workdir: .
+llm_client:
+  provider: openai
+  openai:
+    apiKey: "${OPENAI_API_KEY}"
+harness:
+  mode: strict
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if _, err := Load(); err == nil {
+		t.Fatalf("expected invalid harness mode to fail")
+	}
+}
+
+func TestLoad_SpecialistHarnessOverride(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
+	t.Setenv("OPENAI_API_KEY", "dummy")
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(`workdir: .
+llm_client:
+  provider: openai
+  openai:
+    apiKey: "${OPENAI_API_KEY}"
+specialists:
+  - name: planner
+    model: gpt-4.1-mini
+    harness:
+      enabled: true
+      mode: WORKFLOW
+      rescueEnabled: true
+      maxRetriesPerStep: 6
+      maxToolErrors: 3
+      terminalTools: [agent_response]
+      requiredSteps: [search]
+      toolPrerequisites:
+        fetch:
+          - tool: search
+            matchArg: query
+      compact:
+        enabled: true
+        keepRecentSteps: 5
+        phaseThresholds: [0.55, 0.8]
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if len(cfg.Specialists) != 1 || cfg.Specialists[0].Harness == nil {
+		t.Fatalf("expected specialist harness override, got %+v", cfg.Specialists)
+	}
+	got := cfg.Specialists[0].Harness
+	if !got.Enabled || got.Mode != "workflow" || got.MaxRetriesPerStep != 6 || got.MaxToolErrors != 3 {
+		t.Fatalf("unexpected specialist harness config: %+v", got)
+	}
+	if got.ToolPrerequisites["fetch"][0].Tool != "search" || got.ToolPrerequisites["fetch"][0].MatchArg != "query" {
+		t.Fatalf("unexpected specialist prerequisites: %+v", got.ToolPrerequisites)
+	}
+	if !got.Compact.Enabled || got.Compact.KeepRecentSteps != 5 || !reflect.DeepEqual(got.Compact.PhaseThresholds, []float64{0.55, 0.8}) {
+		t.Fatalf("unexpected specialist compact config: %+v", got.Compact)
 	}
 }
 

@@ -23,7 +23,7 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 
 	// If ReMem mode is enabled, use Think-Act-Refine controller
 	if e.ReMemEnabled && e.ReMemController != nil {
-		final, reasoningTrace, err = e.runWithReMem(ctx, userInput, history)
+		final, reasoningTrace, err = e.runWithReMem(ctx, userInput, history, false)
 		return final, err
 	}
 
@@ -45,7 +45,11 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 		msgs = e.maybeSummarize(ctx, msgs)
 	}
 
-	final, err = e.runLoop(ctx, msgs)
+	if e.HarnessEnabled {
+		final, err = e.runHarnessLoop(ctx, msgs)
+	} else {
+		final, err = e.runLoop(ctx, msgs)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -68,7 +72,7 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 	// If ReMem mode is enabled, use Think-Act-Refine controller
 	// Note: streaming with ReMem may need special handling for THINK/REFINE steps
 	if e.ReMemEnabled && e.ReMemController != nil {
-		final, reasoningTrace, err = e.runWithReMem(ctx, userInput, history)
+		final, reasoningTrace, err = e.runWithReMem(ctx, userInput, history, true)
 		return final, err
 	}
 
@@ -90,7 +94,11 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 		msgs = e.maybeSummarize(ctx, msgs)
 	}
 
-	final, err = e.runStreamLoop(ctx, msgs)
+	if e.HarnessEnabled {
+		final, err = e.runHarnessStreamLoop(ctx, msgs)
+	} else {
+		final, err = e.runStreamLoop(ctx, msgs)
+	}
 	if err != nil {
 		return "", err
 	}

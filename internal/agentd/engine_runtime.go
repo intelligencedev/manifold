@@ -83,6 +83,11 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID, p
 
 			// Apply user's tool configuration
 			eng.Tools = a.chatToolRegistry(sp.EnableTools, sp.AllowTools, sp.AutoDiscover)
+			if sp.Harness != nil {
+				harnessCfg := harnessOverrideConfig(a.cfg.Harness, harnessConfigFromPersist(sp.Harness))
+				eng.HarnessEnabled = harnessCfg.Enabled
+				eng.HarnessConfig = harnessRunConfig(harnessCfg)
+			}
 
 			// Apply user's system prompt if set.
 			// This should preserve the user-scoped specialists catalog.

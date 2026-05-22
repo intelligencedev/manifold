@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS specialists (
 	system TEXT NOT NULL DEFAULT '',
 	extra_headers JSONB NOT NULL DEFAULT '{}',
 	extra_params JSONB NOT NULL DEFAULT '{}',
+	harness JSONB DEFAULT NULL,
 	provider TEXT NOT NULL DEFAULT ''
 );
 
@@ -121,6 +122,9 @@ ALTER TABLE specialists
 	ADD COLUMN IF NOT EXISTS image_generation BOOLEAN NOT NULL DEFAULT false;
 
 ALTER TABLE specialists
+	ADD COLUMN IF NOT EXISTS harness JSONB DEFAULT NULL;
+
+ALTER TABLE specialists
 	DROP CONSTRAINT IF EXISTS specialists_name_key;
 
 CREATE UNIQUE INDEX IF NOT EXISTS specialists_user_name_idx ON specialists(user_id, name);
@@ -129,7 +133,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS specialists_user_name_idx ON specialists(user_
 }
 
 func (s *pgSpecStore) List(ctx context.Context, userID int64) ([]persistence.Specialist, error) {
-	rows, err := s.pool.Query(ctx, `SELECT id,user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,image_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,provider FROM specialists WHERE user_id=$1 ORDER BY LOWER(name)`, userID)
+	rows, err := s.pool.Query(ctx, `SELECT id,user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,image_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,harness,provider FROM specialists WHERE user_id=$1 ORDER BY LOWER(name)`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -137,28 +141,30 @@ func (s *pgSpecStore) List(ctx context.Context, userID int64) ([]persistence.Spe
 	var out []persistence.Specialist
 	for rows.Next() {
 		var sp persistence.Specialist
-		var allow, headers, params []byte
-		if err := rows.Scan(&sp.ID, &sp.UserID, &sp.Name, &sp.Description, &sp.BaseURL, &sp.APIKey, &sp.Model, &sp.SummaryContextWindowTokens, &sp.EnableTools, &sp.ImageGeneration, &sp.AutoDiscover, &sp.Paused, &allow, &sp.ReasoningEffort, &sp.System, &headers, &params, &sp.Provider); err != nil {
+		var allow, headers, params, harness []byte
+		if err := rows.Scan(&sp.ID, &sp.UserID, &sp.Name, &sp.Description, &sp.BaseURL, &sp.APIKey, &sp.Model, &sp.SummaryContextWindowTokens, &sp.EnableTools, &sp.ImageGeneration, &sp.AutoDiscover, &sp.Paused, &allow, &sp.ReasoningEffort, &sp.System, &headers, &params, &harness, &sp.Provider); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(allow, &sp.AllowTools)
 		_ = json.Unmarshal(headers, &sp.ExtraHeaders)
 		_ = json.Unmarshal(params, &sp.ExtraParams)
+		sp.Harness = decodeSpecialistHarness(harness)
 		out = append(out, sp)
 	}
 	return out, rows.Err()
 }
 
 func (s *pgSpecStore) GetByName(ctx context.Context, userID int64, name string) (persistence.Specialist, bool, error) {
-	row := s.pool.QueryRow(ctx, `SELECT id,user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,image_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,provider FROM specialists WHERE user_id=$1 AND name=$2`, userID, name)
+	row := s.pool.QueryRow(ctx, `SELECT id,user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,image_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,harness,provider FROM specialists WHERE user_id=$1 AND name=$2`, userID, name)
 	var sp persistence.Specialist
-	var allow, headers, params []byte
-	if err := row.Scan(&sp.ID, &sp.UserID, &sp.Name, &sp.Description, &sp.BaseURL, &sp.APIKey, &sp.Model, &sp.SummaryContextWindowTokens, &sp.EnableTools, &sp.ImageGeneration, &sp.AutoDiscover, &sp.Paused, &allow, &sp.ReasoningEffort, &sp.System, &headers, &params, &sp.Provider); err != nil {
+	var allow, headers, params, harness []byte
+	if err := row.Scan(&sp.ID, &sp.UserID, &sp.Name, &sp.Description, &sp.BaseURL, &sp.APIKey, &sp.Model, &sp.SummaryContextWindowTokens, &sp.EnableTools, &sp.ImageGeneration, &sp.AutoDiscover, &sp.Paused, &allow, &sp.ReasoningEffort, &sp.System, &headers, &params, &harness, &sp.Provider); err != nil {
 		return persistence.Specialist{}, false, nil
 	}
 	_ = json.Unmarshal(allow, &sp.AllowTools)
 	_ = json.Unmarshal(headers, &sp.ExtraHeaders)
 	_ = json.Unmarshal(params, &sp.ExtraParams)
+	sp.Harness = decodeSpecialistHarness(harness)
 	return sp, true, nil
 }
 
@@ -169,9 +175,10 @@ func (s *pgSpecStore) Upsert(ctx context.Context, userID int64, sp persistence.S
 	allow, _ := json.Marshal(sp.AllowTools)
 	headers, _ := json.Marshal(sp.ExtraHeaders)
 	params, _ := json.Marshal(sp.ExtraParams)
+	harness := encodeSpecialistHarness(sp.Harness)
 	row := s.pool.QueryRow(ctx, `
-INSERT INTO specialists(user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,image_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,provider)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+INSERT INTO specialists(user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,image_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,harness,provider)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
 	ON CONFLICT (user_id, name) DO UPDATE SET description=EXCLUDED.description, base_url=EXCLUDED.base_url,
 		api_key=CASE
 			WHEN NULLIF(BTRIM(EXCLUDED.api_key), '') IS NULL THEN specialists.api_key
@@ -179,13 +186,35 @@ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 		END,
 		model=EXCLUDED.model,
 	summary_context_window_tokens=EXCLUDED.summary_context_window_tokens, enable_tools=EXCLUDED.enable_tools, image_generation=EXCLUDED.image_generation, auto_discover=EXCLUDED.auto_discover, paused=EXCLUDED.paused, allow_tools=EXCLUDED.allow_tools,
-	reasoning_effort=EXCLUDED.reasoning_effort, system=EXCLUDED.system, extra_headers=EXCLUDED.extra_headers, extra_params=EXCLUDED.extra_params, provider=EXCLUDED.provider
-RETURNING id;`, userID, sp.Name, sp.Description, sp.BaseURL, sp.APIKey, sp.Model, sp.SummaryContextWindowTokens, sp.EnableTools, sp.ImageGeneration, sp.AutoDiscover, sp.Paused, allow, sp.ReasoningEffort, sp.System, headers, params, sp.Provider)
+	reasoning_effort=EXCLUDED.reasoning_effort, system=EXCLUDED.system, extra_headers=EXCLUDED.extra_headers, extra_params=EXCLUDED.extra_params, harness=EXCLUDED.harness, provider=EXCLUDED.provider
+RETURNING id;`, userID, sp.Name, sp.Description, sp.BaseURL, sp.APIKey, sp.Model, sp.SummaryContextWindowTokens, sp.EnableTools, sp.ImageGeneration, sp.AutoDiscover, sp.Paused, allow, sp.ReasoningEffort, sp.System, headers, params, harness, sp.Provider)
 	if err := row.Scan(&sp.ID); err != nil {
 		return persistence.Specialist{}, err
 	}
 	sp.UserID = userID
 	return sp, nil
+}
+
+func decodeSpecialistHarness(data []byte) *persistence.SpecialistHarness {
+	if len(data) == 0 || string(data) == "null" {
+		return nil
+	}
+	var cfg persistence.SpecialistHarness
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil
+	}
+	return &cfg
+}
+
+func encodeSpecialistHarness(cfg *persistence.SpecialistHarness) []byte {
+	if cfg == nil {
+		return nil
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return nil
+	}
+	return data
 }
 
 func (s *pgSpecStore) Delete(ctx context.Context, userID int64, name string) error {

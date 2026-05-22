@@ -33,6 +33,7 @@ func (e *Engine) runLoop(ctx context.Context, msgs []llm.Message) (string, error
 			return "", err
 		}
 
+		msg.ToolCalls = llm.NormalizeToolCalls(msg.ToolCalls)
 		msg.ToolCalls = e.ensureToolCallIDs(msgs, msg.ToolCalls)
 		msgs = append(msgs, msg)
 		if e.OnAssistant != nil {
@@ -118,6 +119,7 @@ func (e *Engine) runStreamLoop(ctx context.Context, msgs []llm.Message) (string,
 			return "", err
 		}
 
+		accumulatedToolCalls = llm.NormalizeToolCalls(accumulatedToolCalls)
 		accumulatedToolCalls = e.ensureToolCallIDs(msgs, accumulatedToolCalls)
 		msg := llm.Message{
 			Role:             "assistant",

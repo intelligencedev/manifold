@@ -41,12 +41,13 @@ type Config struct {
 	MaxSteps int `yaml:"maxSteps" json:"maxSteps"`
 	// MaxToolParallelism controls how many tool calls may run concurrently within a single step.
 	// <= 0 means unbounded (run all tools in parallel); 1 forces sequential execution.
-	MaxToolParallelism int        `yaml:"maxToolParallelism" json:"maxToolParallelism"`
-	LogPath            string     `yaml:"logPath" json:"logPath"`
-	LogLevel           string     `yaml:"logLevel" json:"logLevel"`
-	LogPayloads        bool       `yaml:"logPayloads" json:"logPayloads"`
-	LogRawPrompts      bool       `yaml:"logRawPrompts" json:"logRawPrompts"`
-	Exec               ExecConfig `yaml:"exec" json:"exec"`
+	MaxToolParallelism int           `yaml:"maxToolParallelism" json:"maxToolParallelism"`
+	Harness            HarnessConfig `yaml:"harness" json:"harness"`
+	LogPath            string        `yaml:"logPath" json:"logPath"`
+	LogLevel           string        `yaml:"logLevel" json:"logLevel"`
+	LogPayloads        bool          `yaml:"logPayloads" json:"logPayloads"`
+	LogRawPrompts      bool          `yaml:"logRawPrompts" json:"logRawPrompts"`
+	Exec               ExecConfig    `yaml:"exec" json:"exec"`
 	// LLMClient controls which LLM provider to use and holds provider-specific settings.
 	LLMClient LLMClientConfig `yaml:"llm_client" json:"llmClient"`
 	// OpenAI retains the active OpenAI-compatible configuration for backward compatibility.
@@ -113,6 +114,32 @@ type Config struct {
 	CodeQA CodeQAConfig `yaml:"codeQA" json:"codeQA"`
 	// Tokenization configures accurate token counting for summarization.
 	Tokenization TokenizationConfig `yaml:"tokenization" json:"tokenization"`
+}
+
+// HarnessConfig controls the optional Forge-style guarded agent loop.
+type HarnessConfig struct {
+	Enabled           bool                             `yaml:"enabled" json:"enabled"`
+	Mode              string                           `yaml:"mode" json:"mode"`
+	RescueEnabled     bool                             `yaml:"rescueEnabled" json:"rescueEnabled"`
+	MaxRetriesPerStep int                              `yaml:"maxRetriesPerStep" json:"maxRetriesPerStep"`
+	MaxToolErrors     int                              `yaml:"maxToolErrors" json:"maxToolErrors"`
+	TerminalTools     []string                         `yaml:"terminalTools" json:"terminalTools"`
+	RequiredSteps     []string                         `yaml:"requiredSteps" json:"requiredSteps"`
+	ToolPrerequisites map[string][]HarnessPrerequisite `yaml:"toolPrerequisites" json:"toolPrerequisites"`
+	Compact           HarnessCompactConfig             `yaml:"compact" json:"compact"`
+}
+
+// HarnessPrerequisite requires one successful tool call before another tool can run.
+type HarnessPrerequisite struct {
+	Tool     string `yaml:"tool" json:"tool"`
+	MatchArg string `yaml:"matchArg" json:"matchArg"`
+}
+
+// HarnessCompactConfig reserves config shape for later metadata-aware compaction.
+type HarnessCompactConfig struct {
+	Enabled         bool      `yaml:"enabled" json:"enabled"`
+	KeepRecentSteps int       `yaml:"keepRecentSteps" json:"keepRecentSteps"`
+	PhaseThresholds []float64 `yaml:"phaseThresholds" json:"phaseThresholds"`
 }
 
 // CodeQAConfig controls the Phase 1 code-quality judge pipeline.
@@ -333,6 +360,8 @@ type SpecialistConfig struct {
 	System          string            `yaml:"system" json:"system"`
 	ExtraHeaders    map[string]string `yaml:"extraHeaders" json:"extraHeaders"`
 	ExtraParams     map[string]any    `yaml:"extraParams" json:"extraParams"`
+	// Harness optionally overrides the top-level Forge harness settings for this specialist.
+	Harness *HarnessConfig `yaml:"harness,omitempty" json:"harness,omitempty"`
 }
 
 // SpecialistRoute defines simple pre-dispatch rules. If the user's prompt

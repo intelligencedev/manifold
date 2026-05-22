@@ -263,6 +263,7 @@ func applyDefaults(cfg *Config) {
 	if cfg.MaxSteps <= 0 {
 		cfg.MaxSteps = 8
 	}
+	applyHarnessDefaults(cfg)
 	if cfg.MaxDiscoveredTools <= 0 {
 		cfg.MaxDiscoveredTools = 20
 	}
@@ -416,6 +417,7 @@ func applyDefaults(cfg *Config) {
 func applyDerivedConfig(cfg *Config) {
 	cfg.LLMClient.Provider = strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider))
 	cfg.Summary.LLMClient.Provider = strings.ToLower(strings.TrimSpace(cfg.Summary.LLMClient.Provider))
+	cfg.Harness.Mode = strings.ToLower(strings.TrimSpace(cfg.Harness.Mode))
 	cfg.EvolvingMemory.Provider = strings.ToLower(strings.TrimSpace(cfg.EvolvingMemory.Provider))
 	cfg.EvolvingMemory.LLMClient.Provider = strings.ToLower(strings.TrimSpace(cfg.EvolvingMemory.LLMClient.Provider))
 
@@ -430,6 +432,9 @@ func applyDerivedConfig(cfg *Config) {
 	for i := range cfg.Specialists {
 		if strings.TrimSpace(cfg.Specialists[i].Provider) == "" {
 			cfg.Specialists[i].Provider = cfg.LLMClient.Provider
+		}
+		if cfg.Specialists[i].Harness != nil {
+			cfg.Specialists[i].Harness.Mode = strings.ToLower(strings.TrimSpace(cfg.Specialists[i].Harness.Mode))
 		}
 	}
 }
@@ -450,6 +455,21 @@ func validateConfig(cfg *Config) error {
 	}
 	if cfg.Summary.Enabled {
 		if err := validateProvider("summary.llm_client.provider", cfg.Summary.LLMClient.Provider); err != nil {
+			return err
+		}
+	}
+	if err := validateHarnessConfig("harness", cfg.Harness); err != nil {
+		return err
+	}
+	for i, specialist := range cfg.Specialists {
+		if specialist.Harness == nil {
+			continue
+		}
+		name := strings.TrimSpace(specialist.Name)
+		if name == "" {
+			name = fmt.Sprintf("%d", i)
+		}
+		if err := validateHarnessConfig("specialists."+name+".harness", *specialist.Harness); err != nil {
 			return err
 		}
 	}
@@ -508,6 +528,48 @@ func validateConfig(cfg *Config) error {
 	}
 
 	return nil
+}
+
+func validateHarnessConfig(path string, cfg HarnessConfig) error {
+	switch cfg.Mode {
+	case "", "legacy", "guarded_chat", "workflow":
+		return nil
+	default:
+		return fmt.Errorf("%s.mode must be one of legacy, guarded_chat, or workflow (got %q)", path, cfg.Mode)
+	}
+}
+
+func applyHarnessDefaults(cfg *Config) {
+	applyHarnessConfigDefaults(&cfg.Harness)
+	for i := range cfg.Specialists {
+		if cfg.Specialists[i].Harness != nil {
+			applyHarnessConfigDefaults(cfg.Specialists[i].Harness)
+		}
+	}
+}
+
+func applyHarnessConfigDefaults(cfg *HarnessConfig) {
+	if cfg == nil {
+		return
+	}
+	if cfg.Mode == "" {
+		cfg.Mode = "guarded_chat"
+	}
+	if cfg.MaxRetriesPerStep <= 0 {
+		cfg.MaxRetriesPerStep = 3
+	}
+	if cfg.MaxToolErrors <= 0 {
+		cfg.MaxToolErrors = 2
+	}
+	if len(cfg.TerminalTools) == 0 {
+		cfg.TerminalTools = []string{"agent_response"}
+	}
+	if cfg.Compact.KeepRecentSteps <= 0 {
+		cfg.Compact.KeepRecentSteps = 4
+	}
+	if len(cfg.Compact.PhaseThresholds) == 0 {
+		cfg.Compact.PhaseThresholds = []float64{0.60, 0.75, 0.90}
+	}
 }
 
 func validateProvider(path, provider string) error {

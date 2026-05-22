@@ -18,8 +18,9 @@ DIST := dist
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
 GOLANGCI_LINT_VERSION := v2.12.2
+FORGE_BUILD_TAGS ?= forge
 
-.PHONY: all help fmt fmt-check imports-check vet lint test modernize modernize-diff ci build cross checksums tools clean build-tui frontend frontend-cockpit build-cockpit build-cockpit-beta dev-cockpit openapi
+.PHONY: all help fmt fmt-check imports-check vet lint test test-forge-harness modernize modernize-diff ci build build-forge cross checksums tools clean build-tui frontend frontend-cockpit build-cockpit build-cockpit-beta dev-cockpit openapi
 .PHONY: sonar sonar-up sonar-down sonar-scan
 
 all: build
@@ -33,6 +34,7 @@ help:
 	@echo "  make vet                # run go vet"
 	@echo "  make lint               # run golangci-lint"
 	@echo "  make test               # run tests with -race and generate coverage.out"
+	@echo "  make test-forge-harness # run deterministic Forge harness scenario tests"
 	@echo "  make modernize-diff     # preview Go modernizer changes"
 	@echo "  make modernize          # apply Go modernizer changes"
 	@echo "  make sonar-up            # start local SonarQube (http://localhost:19000)"
@@ -40,6 +42,7 @@ help:
 	@echo "  make sonar               # alias for sonar-scan"
 	@echo "  make sonar-down          # stop local SonarQube stack"
 	@echo "  make build              # build host platform binaries into $(DIST)/"
+	@echo "  make build-forge        # build Forge architecture agentd + embedded frontend"
 	@echo "  make build-agentd       # build only the agentd binary"
 	@echo "  make build-manifold     # build agentd + embedded frontend"
 	@echo "  make build-manifold-beta # build agentd + embedded frontend with beta UI links"
@@ -89,6 +92,10 @@ lint:
 test:
 	@echo "Running tests with race detector and coverage"
 	go test -race -coverprofile=coverage.out ./...
+
+test-forge-harness:
+	@echo "Running deterministic Forge harness scenario tests"
+	go test ./internal/agent -run TestForgeHarnessScenarios
 
 modernize-diff:
 	go fix -diff ./...
@@ -164,6 +171,11 @@ build: clean | $(DIST)
 		go build -o "$$out" ./cmd/$$b; \
 	done
 	@echo "Host build complete"
+
+build-forge: frontend | $(DIST)
+	@echo "Building Forge architecture agentd with embedded frontend and tags '$(FORGE_BUILD_TAGS)' -> $(DIST)/agentd-forge"
+	go build -tags "$(FORGE_BUILD_TAGS)" -o $(DIST)/agentd-forge ./cmd/agentd
+	@echo "Forge architecture build complete"
 
 
 # Cross compile all platforms and package them into $(DIST)/

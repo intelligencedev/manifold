@@ -20,6 +20,24 @@ agentRunTimeoutSeconds: 0
 streamRunTimeoutSeconds: 0
 workflowTimeoutSeconds: 0
 
+# Optional Forge-style guarded agent loop. Disabled by default so Manifold uses
+# the current legacy loop unless this is explicitly enabled.
+harness:
+  enabled: false
+  # legacy | guarded_chat | workflow
+  mode: guarded_chat
+  rescueEnabled: true
+  maxRetriesPerStep: 3
+  maxToolErrors: 2
+  terminalTools:
+    - agent_response
+  requiredSteps: []
+  toolPrerequisites: {}
+  compact:
+    enabled: true
+    keepRecentSteps: 4
+    phaseThresholds: [0.60, 0.75, 0.90]
+
 # Logging.
 logPath: manifold.log
 logLevel: info

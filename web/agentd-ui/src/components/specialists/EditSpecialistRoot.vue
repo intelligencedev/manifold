@@ -664,6 +664,296 @@
             </div>
           </div>
         </FormSection>
+
+        <FormSection
+          title="Forge harness"
+          helper="Override the top-level guarded loop settings for this specialist."
+        >
+          <div class="flex flex-col gap-4">
+            <label
+              class="flex items-start justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2"
+            >
+              <span class="min-w-0">
+                <span class="block text-sm font-medium text-foreground">
+                  Per-specialist override
+                </span>
+                <span class="block text-xs text-subtle-foreground">
+                  Leave off to inherit the global harness configuration.
+                </span>
+              </span>
+              <input
+                id="sp-harness-override"
+                v-model="draft.harnessOverride"
+                type="checkbox"
+                class="mt-1 h-4 w-4 shrink-0"
+              />
+            </label>
+
+            <div
+              v-if="!draft.harnessOverride"
+              class="rounded border border-border/60 bg-surface-muted/20 px-3 py-2 text-sm text-subtle-foreground"
+            >
+              This specialist currently inherits the global harness setting.
+            </div>
+
+            <div v-else class="flex flex-col gap-4">
+              <label
+                class="flex items-start justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2"
+              >
+                <span class="min-w-0">
+                  <span class="block text-sm font-medium text-foreground">
+                    Harness enabled
+                  </span>
+                  <span class="block text-xs text-subtle-foreground">
+                    Turn off here to force legacy behavior for this specialist.
+                  </span>
+                </span>
+                <input
+                  id="sp-harness-enabled"
+                  v-model="draft.harnessEnabled"
+                  type="checkbox"
+                  class="mt-1 h-4 w-4 shrink-0"
+                />
+              </label>
+
+              <div class="grid gap-3 md:grid-cols-3">
+                <div class="flex flex-col gap-1">
+                  <label
+                    for="sp-harness-mode"
+                    class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                    >Mode</label
+                  >
+                  <DropdownSelect
+                    id="sp-harness-mode"
+                    v-model="draft.harnessMode"
+                    :options="harnessModeOptions"
+                    class="w-full text-sm"
+                    @update:modelValue="touch('harnessMode')"
+                  />
+                  <p
+                    v-if="fieldError('harnessMode')"
+                    class="text-xs text-danger-foreground"
+                  >
+                    {{ fieldError("harnessMode") }}
+                  </p>
+                </div>
+
+                <div class="flex flex-col gap-1">
+                  <label
+                    for="sp-harness-max-retries"
+                    class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                    >Validation retries</label
+                  >
+                  <input
+                    id="sp-harness-max-retries"
+                    v-model="draft.harnessMaxRetriesPerStep"
+                    type="number"
+                    min="1"
+                    step="1"
+                    class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
+                    @blur="touch('harnessMaxRetriesPerStep')"
+                  />
+                  <p
+                    v-if="fieldError('harnessMaxRetriesPerStep')"
+                    class="text-xs text-danger-foreground"
+                  >
+                    {{ fieldError("harnessMaxRetriesPerStep") }}
+                  </p>
+                </div>
+
+                <div class="flex flex-col gap-1">
+                  <label
+                    for="sp-harness-max-tool-errors"
+                    class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                    >Tool error limit</label
+                  >
+                  <input
+                    id="sp-harness-max-tool-errors"
+                    v-model="draft.harnessMaxToolErrors"
+                    type="number"
+                    min="1"
+                    step="1"
+                    class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
+                    @blur="touch('harnessMaxToolErrors')"
+                  />
+                  <p
+                    v-if="fieldError('harnessMaxToolErrors')"
+                    class="text-xs text-danger-foreground"
+                  >
+                    {{ fieldError("harnessMaxToolErrors") }}
+                  </p>
+                </div>
+              </div>
+
+              <label
+                class="flex items-start justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2"
+              >
+                <span class="min-w-0">
+                  <span class="block text-sm font-medium text-foreground">
+                    Rescue embedded tool calls
+                  </span>
+                  <span class="block text-xs text-subtle-foreground">
+                    Recover when a model writes tool JSON in plain text.
+                  </span>
+                </span>
+                <input
+                  v-model="draft.harnessRescueEnabled"
+                  type="checkbox"
+                  class="mt-1 h-4 w-4 shrink-0"
+                />
+              </label>
+
+              <div class="grid gap-3 md:grid-cols-2">
+                <div class="flex flex-col gap-1">
+                  <label
+                    for="sp-harness-terminal-tools"
+                    class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                    >Terminal tools</label
+                  >
+                  <textarea
+                    id="sp-harness-terminal-tools"
+                    v-model="draft.harnessTerminalTools"
+                    rows="3"
+                    class="w-full resize-y rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
+                    placeholder="agent_response"
+                    @blur="touch('harnessTerminalTools')"
+                  ></textarea>
+                  <p class="text-xs text-subtle-foreground">
+                    One per line or comma-separated.
+                  </p>
+                  <p
+                    v-if="fieldError('harnessTerminalTools')"
+                    class="text-xs text-danger-foreground"
+                  >
+                    {{ fieldError("harnessTerminalTools") }}
+                  </p>
+                </div>
+
+                <div class="flex flex-col gap-1">
+                  <label
+                    for="sp-harness-required-steps"
+                    class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                    >Required steps</label
+                  >
+                  <textarea
+                    id="sp-harness-required-steps"
+                    v-model="draft.harnessRequiredSteps"
+                    rows="3"
+                    class="w-full resize-y rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
+                    placeholder="search"
+                    @blur="touch('harnessRequiredSteps')"
+                  ></textarea>
+                  <p class="text-xs text-subtle-foreground">
+                    Workflow mode requires these tools before terminal tools.
+                  </p>
+                </div>
+              </div>
+
+              <div
+                class="rounded border border-border/60 bg-surface-muted/20 p-3"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <div class="min-w-0">
+                    <p class="text-sm font-medium text-foreground">
+                      Tool prerequisites
+                    </p>
+                    <p class="text-xs text-subtle-foreground">
+                      Require prior successful tool calls before selected tools.
+                    </p>
+                  </div>
+                  <button
+                    id="sp-harness-prerequisites"
+                    type="button"
+                    class="shrink-0 rounded border border-border/60 bg-surface px-3 py-1 text-xs font-semibold text-subtle-foreground hover:border-border"
+                    @click="openJsonModal('harnessPrerequisites')"
+                  >
+                    Edit JSON…
+                  </button>
+                </div>
+                <pre
+                  class="mt-3 max-h-40 overflow-auto rounded border border-border/50 bg-surface px-3 py-2 text-xs text-subtle-foreground"
+                  >{{ harnessPrerequisitesPreview }}</pre
+                >
+                <p
+                  v-if="fieldError('harnessPrerequisites')"
+                  class="mt-2 text-xs text-danger-foreground"
+                >
+                  {{ fieldError("harnessPrerequisites") }}
+                </p>
+              </div>
+
+              <div
+                class="flex flex-col gap-3 rounded border border-border/60 bg-surface-muted/20 p-3"
+              >
+                <label class="inline-flex items-center justify-between gap-3">
+                  <span class="min-w-0">
+                    <span class="block text-sm font-medium text-foreground">
+                      Harness compaction
+                    </span>
+                    <span class="block text-xs text-subtle-foreground">
+                      Compact long in-run tool histories inside the harness.
+                    </span>
+                  </span>
+                  <input
+                    v-model="draft.harnessCompactEnabled"
+                    type="checkbox"
+                    class="h-4 w-4 shrink-0"
+                  />
+                </label>
+
+                <div
+                  v-if="draft.harnessCompactEnabled"
+                  class="grid gap-3 md:grid-cols-2"
+                >
+                  <div class="flex flex-col gap-1">
+                    <label
+                      for="sp-harness-compact-keep"
+                      class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                      >Keep recent steps</label
+                    >
+                    <input
+                      id="sp-harness-compact-keep"
+                      v-model="draft.harnessCompactKeepRecentSteps"
+                      type="number"
+                      min="1"
+                      step="1"
+                      class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
+                      @blur="touch('harnessCompactKeepRecentSteps')"
+                    />
+                    <p
+                      v-if="fieldError('harnessCompactKeepRecentSteps')"
+                      class="text-xs text-danger-foreground"
+                    >
+                      {{ fieldError("harnessCompactKeepRecentSteps") }}
+                    </p>
+                  </div>
+
+                  <div class="flex flex-col gap-1">
+                    <label
+                      for="sp-harness-phase-thresholds"
+                      class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                      >Phase thresholds</label
+                    >
+                    <input
+                      id="sp-harness-phase-thresholds"
+                      v-model="draft.harnessCompactPhaseThresholds"
+                      type="text"
+                      class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
+                      placeholder="0.60, 0.75, 0.90"
+                      @blur="touch('harnessCompactPhaseThresholds')"
+                    />
+                    <p
+                      v-if="fieldError('harnessCompactPhaseThresholds')"
+                      class="text-xs text-danger-foreground"
+                    >
+                      {{ fieldError("harnessCompactPhaseThresholds") }}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </FormSection>
       </div>
 
       <!-- ADVANCED -->
@@ -874,6 +1164,8 @@ import JsonEditorModal from "@/components/specialists/edit/JsonEditorModal.vue";
 import {
   upsertSpecialist,
   type Specialist,
+  type SpecialistHarness,
+  type SpecialistHarnessPrerequisite,
   type SpecialistProviderDefaults,
 } from "@/api/client";
 import {
@@ -888,6 +1180,11 @@ import type { FlowEditorTool } from "@/types/flowEditor";
 type TabId = "basics" | "prompt" | "tools" | "advanced";
 type ToolPolicy = "none" | "any" | "allow-list";
 type AutoDiscoverMode = "inherit" | "enabled" | "disabled";
+type HarnessMode = "legacy" | "guarded_chat" | "workflow";
+type JsonTarget = "headers" | "params" | "harnessPrerequisites";
+
+const defaultHarnessTerminalTools = "agent_response";
+const defaultHarnessPhaseThresholds = "0.60, 0.75, 0.90";
 
 const props = withDefaults(
   defineProps<{
@@ -933,6 +1230,17 @@ const draft = reactive({
   system: "",
   toolPolicy: "none" as ToolPolicy,
   autoDiscoverMode: "inherit" as AutoDiscoverMode,
+  harnessOverride: false,
+  harnessEnabled: true,
+  harnessMode: "guarded_chat" as HarnessMode,
+  harnessRescueEnabled: true,
+  harnessMaxRetriesPerStep: "3",
+  harnessMaxToolErrors: "2",
+  harnessTerminalTools: defaultHarnessTerminalTools,
+  harnessRequiredSteps: "",
+  harnessCompactEnabled: true,
+  harnessCompactKeepRecentSteps: "4",
+  harnessCompactPhaseThresholds: defaultHarnessPhaseThresholds,
 });
 
 const nameLockedAfterSave = ref(false);
@@ -964,7 +1272,7 @@ const credCloseBtn = ref<HTMLButtonElement | null>(null);
 const credRestoreFocusEl = ref<HTMLElement | null>(null);
 
 const showJsonModal = ref(false);
-const jsonTarget = ref<"headers" | "params">("headers");
+const jsonTarget = ref<JsonTarget>("headers");
 
 // Prompts
 const availablePrompts = ref<Prompt[]>([]);
@@ -980,6 +1288,12 @@ const promptApply = ref<{ promptId: string; versionId: string }>({
 const providerDropdownOptions = computed(() =>
   props.providerOptions.map((opt) => ({ id: opt, label: opt, value: opt })),
 );
+
+const harnessModeOptions = [
+  { id: "legacy", label: "Legacy", value: "legacy" },
+  { id: "guarded_chat", label: "Guarded chat", value: "guarded_chat" },
+  { id: "workflow", label: "Workflow", value: "workflow" },
+];
 
 const availableTeams = computed(() => props.availableTeams || []);
 const selectedTeamsSet = computed(() => new Set(selectedTeams.value));
@@ -1010,6 +1324,12 @@ const headerSubtitle = computed(() =>
 
 const allowTools = ref<string[]>([]);
 const allowToolsSet = computed(() => new Set(allowTools.value));
+const harnessPrerequisitesObj = ref<
+  Record<string, SpecialistHarnessPrerequisite[]>
+>({});
+const harnessPrerequisitesPreview = computed(() =>
+  JSON.stringify(harnessPrerequisitesObj.value || {}, null, 2),
+);
 
 const filteredTools = computed(() => {
   const q = toolsSearch.value.trim().toLowerCase();
@@ -1080,6 +1400,49 @@ const fieldErrors = computed<Record<string, string>>(() => {
     }
   }
 
+  if (draft.harnessOverride) {
+    if (!isHarnessMode(draft.harnessMode)) {
+      errs.harnessMode =
+        "Harness mode must be legacy, guarded chat, or workflow.";
+    }
+
+    if (parsePositiveWholeNumber(draft.harnessMaxRetriesPerStep) == null) {
+      errs.harnessMaxRetriesPerStep =
+        "Harness validation retries must be a positive whole number.";
+    }
+
+    if (parsePositiveWholeNumber(draft.harnessMaxToolErrors) == null) {
+      errs.harnessMaxToolErrors =
+        "Harness tool error limit must be a positive whole number.";
+    }
+
+    if (splitListText(draft.harnessTerminalTools).length === 0) {
+      errs.harnessTerminalTools =
+        "Harness terminal tools must include at least one tool.";
+    }
+
+    const prereqErrors = validateHarnessPrerequisites(
+      harnessPrerequisitesObj.value,
+    );
+    if (prereqErrors.length) {
+      errs.harnessPrerequisites = prereqErrors[0];
+    }
+
+    if (draft.harnessCompactEnabled) {
+      if (
+        parsePositiveWholeNumber(draft.harnessCompactKeepRecentSteps) == null
+      ) {
+        errs.harnessCompactKeepRecentSteps =
+          "Harness compact keep-recent steps must be a positive whole number.";
+      }
+
+      if (!parsePhaseThresholds(draft.harnessCompactPhaseThresholds)) {
+        errs.harnessCompactPhaseThresholds =
+          "Harness compact phase thresholds must be numbers between 0 and 1.";
+      }
+    }
+  }
+
   return errs;
 });
 
@@ -1096,8 +1459,19 @@ const errorsByTab = computed(() => {
 
   if (fieldErrors.value.system) prompt.push(fieldErrors.value.system);
 
-  // No hard validation for tools selection beyond syntactic constraints.
-  void toolsTab;
+  const toolErrorFields = [
+    "harnessMode",
+    "harnessMaxRetriesPerStep",
+    "harnessMaxToolErrors",
+    "harnessTerminalTools",
+    "harnessPrerequisites",
+    "harnessCompactKeepRecentSteps",
+    "harnessCompactPhaseThresholds",
+  ];
+  for (const field of toolErrorFields) {
+    const err = fieldErrors.value[field];
+    if (err) toolsTab.push(err);
+  }
 
   if (fieldErrors.value.extraHeaders)
     advanced.push(fieldErrors.value.extraHeaders);
@@ -1142,6 +1516,188 @@ function sortKeys(value: any): any {
   return out;
 }
 
+function isHarnessMode(value: string): value is HarnessMode {
+  return value === "legacy" || value === "guarded_chat" || value === "workflow";
+}
+
+function splitListText(value: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of String(value || "").split(/[,\n]+/)) {
+    const trimmed = item.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
+}
+
+function normalizeStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of value) {
+    const trimmed = String(item || "").trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
+}
+
+function listToText(value: unknown): string {
+  return normalizeStringList(value).join("\n");
+}
+
+function parsePositiveWholeNumber(value: string): number | null {
+  const parsed = Number(String(value || "").trim());
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed <= 0) {
+    return null;
+  }
+  return parsed;
+}
+
+function normalizedPositiveNumber(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
+}
+
+function parsePhaseThresholds(value: string): number[] | null {
+  const parts = splitListText(value);
+  if (!parts.length) return null;
+  const out: number[] = [];
+  for (const part of parts) {
+    const parsed = Number(part);
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+      return null;
+    }
+    out.push(parsed);
+  }
+  return out;
+}
+
+function defaultPhaseThresholds(): number[] {
+  return [0.6, 0.75, 0.9];
+}
+
+function normalizePhaseThresholds(value: unknown): number[] {
+  if (!Array.isArray(value)) return defaultPhaseThresholds();
+  const out: number[] = [];
+  for (const item of value) {
+    const parsed = Number(item);
+    if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+      return defaultPhaseThresholds();
+    }
+    out.push(parsed);
+  }
+  return out.length ? out : defaultPhaseThresholds();
+}
+
+function parseHarnessPrerequisites(raw: unknown): {
+  value: Record<string, SpecialistHarnessPrerequisite[]>;
+  errors: string[];
+} {
+  const errors: string[] = [];
+  const out: Record<string, SpecialistHarnessPrerequisite[]> = {};
+
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return {
+      value: out,
+      errors: ["Harness tool prerequisites must be a JSON object."],
+    };
+  }
+
+  for (const [toolName, entries] of Object.entries(raw)) {
+    const key = String(toolName || "").trim();
+    if (!key) {
+      errors.push("Harness prerequisite keys must be tool names.");
+      continue;
+    }
+    if (!Array.isArray(entries)) {
+      errors.push(`Harness prerequisites for ${key} must be an array.`);
+      continue;
+    }
+
+    const next: SpecialistHarnessPrerequisite[] = [];
+    for (const entry of entries) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        errors.push(`Harness prerequisite entries for ${key} must be objects.`);
+        continue;
+      }
+      const item = entry as Record<string, unknown>;
+      const tool = String(item.tool || "").trim();
+      if (!tool) {
+        errors.push(`Harness prerequisites for ${key} must include tool.`);
+        continue;
+      }
+      const matchArg = String(item.matchArg || "").trim();
+      next.push(matchArg ? { tool, matchArg } : { tool });
+    }
+
+    if (next.length) out[key] = next;
+  }
+
+  return { value: out, errors };
+}
+
+function validateHarnessPrerequisites(
+  raw: Record<string, SpecialistHarnessPrerequisite[]>,
+): string[] {
+  return parseHarnessPrerequisites(raw).errors;
+}
+
+function normalizeHarnessPrerequisites(
+  raw: unknown,
+): Record<string, SpecialistHarnessPrerequisite[]> {
+  return parseHarnessPrerequisites(raw).value;
+}
+
+function defaultHarnessConfig(): SpecialistHarness {
+  return {
+    enabled: true,
+    mode: "guarded_chat",
+    rescueEnabled: true,
+    maxRetriesPerStep: 3,
+    maxToolErrors: 2,
+    terminalTools: ["agent_response"],
+    requiredSteps: [],
+    toolPrerequisites: {},
+    compact: {
+      enabled: true,
+      keepRecentSteps: 4,
+      phaseThresholds: defaultPhaseThresholds(),
+    },
+  };
+}
+
+function normalizeHarness(
+  harness: SpecialistHarness | null | undefined,
+): SpecialistHarness | null {
+  if (!harness) return null;
+  const compact = harness.compact || defaultHarnessConfig().compact;
+  const terminalTools = normalizeStringList(harness.terminalTools);
+  return {
+    enabled: !!harness.enabled,
+    mode: isHarnessMode(harness.mode) ? harness.mode : "guarded_chat",
+    rescueEnabled: !!harness.rescueEnabled,
+    maxRetriesPerStep: normalizedPositiveNumber(harness.maxRetriesPerStep, 3),
+    maxToolErrors: normalizedPositiveNumber(harness.maxToolErrors, 2),
+    terminalTools: terminalTools.length ? terminalTools : ["agent_response"],
+    requiredSteps: normalizeStringList(harness.requiredSteps),
+    toolPrerequisites: normalizeHarnessPrerequisites(
+      harness.toolPrerequisites || {},
+    ),
+    compact: {
+      enabled: !!compact.enabled,
+      keepRecentSteps: normalizedPositiveNumber(compact.keepRecentSteps, 4),
+      phaseThresholds: normalizePhaseThresholds(compact.phaseThresholds),
+    },
+  };
+}
+
 function normalizeComparable(sp: Specialist): SpecialistComparable {
   const allowTools = Array.isArray(sp.allowTools) ? [...sp.allowTools] : [];
   allowTools.sort((a, b) =>
@@ -1166,6 +1722,7 @@ function normalizeComparable(sp: Specialist): SpecialistComparable {
     extraHeaders: sp.extraHeaders || {},
     extraParams: sp.extraParams || {},
     teams,
+    harness: normalizeHarness(sp.harness),
   };
 }
 
@@ -1188,6 +1745,7 @@ function normalizePayload(sp: Specialist): Specialist {
     extraHeaders: sp.extraHeaders || {},
     extraParams: sp.extraParams || {},
     teams: Array.isArray(sp.teams) ? sp.teams : [],
+    harness: normalizeHarness(sp.harness),
   };
 }
 
@@ -1252,6 +1810,32 @@ function objectToRows(obj: Record<string, any>): KeyValueRow[] {
   }));
 }
 
+function buildHarnessFromDraft(): SpecialistHarness | null {
+  if (!draft.harnessOverride) return null;
+
+  return {
+    enabled: !!draft.harnessEnabled,
+    mode: isHarnessMode(draft.harnessMode) ? draft.harnessMode : "guarded_chat",
+    rescueEnabled: !!draft.harnessRescueEnabled,
+    maxRetriesPerStep:
+      parsePositiveWholeNumber(draft.harnessMaxRetriesPerStep) || 3,
+    maxToolErrors: parsePositiveWholeNumber(draft.harnessMaxToolErrors) || 2,
+    terminalTools: splitListText(draft.harnessTerminalTools),
+    requiredSteps: splitListText(draft.harnessRequiredSteps),
+    toolPrerequisites: normalizeHarnessPrerequisites(
+      harnessPrerequisitesObj.value,
+    ),
+    compact: {
+      enabled: !!draft.harnessCompactEnabled,
+      keepRecentSteps:
+        parsePositiveWholeNumber(draft.harnessCompactKeepRecentSteps) || 4,
+      phaseThresholds:
+        parsePhaseThresholds(draft.harnessCompactPhaseThresholds) ||
+        defaultPhaseThresholds(),
+    },
+  };
+}
+
 function buildPayloadFromDraft(): Specialist {
   const defaults = providerDefaultsForSelected.value;
   const baseURL = draft.useDefaultEndpoint
@@ -1286,6 +1870,7 @@ function buildPayloadFromDraft(): Specialist {
     extraHeaders: extraHeadersObj.value,
     extraParams: extraParamsObj.value,
     teams: selectedTeams.value,
+    harness: buildHarnessFromDraft(),
   };
 
   const summaryOverride = String(draft.summaryContextWindowTokens || "").trim();
@@ -1310,6 +1895,37 @@ function focusFirstInvalid() {
     { field: "provider", tab: "basics", el: "sp-provider" },
     { field: "model", tab: "basics", el: "sp-model" },
     { field: "baseURL", tab: "basics", el: "sp-baseurl" },
+    { field: "harnessMode", tab: "tools", el: "sp-harness-mode" },
+    {
+      field: "harnessMaxRetriesPerStep",
+      tab: "tools",
+      el: "sp-harness-max-retries",
+    },
+    {
+      field: "harnessMaxToolErrors",
+      tab: "tools",
+      el: "sp-harness-max-tool-errors",
+    },
+    {
+      field: "harnessTerminalTools",
+      tab: "tools",
+      el: "sp-harness-terminal-tools",
+    },
+    {
+      field: "harnessPrerequisites",
+      tab: "tools",
+      el: "sp-harness-prerequisites",
+    },
+    {
+      field: "harnessCompactKeepRecentSteps",
+      tab: "tools",
+      el: "sp-harness-compact-keep",
+    },
+    {
+      field: "harnessCompactPhaseThresholds",
+      tab: "tools",
+      el: "sp-harness-phase-thresholds",
+    },
   ];
 
   for (const item of order) {
@@ -1580,23 +2196,29 @@ function credContains(el: HTMLElement | null): boolean {
 const jsonModalTitle = computed(() =>
   jsonTarget.value === "headers"
     ? "Edit extra headers as JSON"
-    : "Edit extra params as JSON",
+    : jsonTarget.value === "params"
+      ? "Edit extra params as JSON"
+      : "Edit tool prerequisites as JSON",
 );
 const jsonModalSubtitle = computed(() =>
   jsonTarget.value === "headers"
     ? "Must be a JSON object of string values."
-    : "Must be a JSON object.",
+    : jsonTarget.value === "params"
+      ? "Must be a JSON object."
+      : 'Use {"targetTool":[{"tool":"requiredTool","matchArg":"optionalArg"}]}.',
 );
 
 const jsonModalText = computed(() => {
   const obj =
     jsonTarget.value === "headers"
       ? extraHeadersObj.value
-      : extraParamsObj.value;
+      : jsonTarget.value === "params"
+        ? extraParamsObj.value
+        : harnessPrerequisitesObj.value;
   return JSON.stringify(obj || {}, null, 2);
 });
 
-function openJsonModal(target: "headers" | "params") {
+function openJsonModal(target: JsonTarget) {
   jsonTarget.value = target;
   showJsonModal.value = true;
 }
@@ -1618,12 +2240,46 @@ function applyJson(obj: any) {
     }
     extraHeadersObj.value = headers;
     extraHeadersRows.value = objectToRows(headers);
-  } else {
+  } else if (jsonTarget.value === "params") {
     extraParamsObj.value = obj;
     extraParamsRows.value = objectToRows(obj);
+  } else {
+    const parsed = parseHarnessPrerequisites(obj);
+    if (parsed.errors.length) {
+      actionError.value = parsed.errors[0];
+      return;
+    }
+    harnessPrerequisitesObj.value = parsed.value;
+    touch("harnessPrerequisites");
   }
 
   showJsonModal.value = false;
+}
+
+function initHarnessDraft(harness: SpecialistHarness | null | undefined) {
+  const normalized = normalizeHarness(harness);
+  const cfg = normalized || defaultHarnessConfig();
+
+  draft.harnessOverride = !!normalized;
+  draft.harnessEnabled = !!cfg.enabled;
+  draft.harnessMode = isHarnessMode(cfg.mode) ? cfg.mode : "guarded_chat";
+  draft.harnessRescueEnabled = !!cfg.rescueEnabled;
+  draft.harnessMaxRetriesPerStep = String(cfg.maxRetriesPerStep || 3);
+  draft.harnessMaxToolErrors = String(cfg.maxToolErrors || 2);
+  draft.harnessTerminalTools =
+    listToText(cfg.terminalTools) || defaultHarnessTerminalTools;
+  draft.harnessRequiredSteps = listToText(cfg.requiredSteps);
+  draft.harnessCompactEnabled = !!cfg.compact.enabled;
+  draft.harnessCompactKeepRecentSteps = String(
+    cfg.compact.keepRecentSteps || 4,
+  );
+  draft.harnessCompactPhaseThresholds =
+    cfg.compact.phaseThresholds?.length > 0
+      ? cfg.compact.phaseThresholds.join(", ")
+      : defaultHarnessPhaseThresholds;
+  harnessPrerequisitesObj.value = normalizeHarnessPrerequisites(
+    cfg.toolPrerequisites || {},
+  );
 }
 
 function initFromInitial(sp: Specialist) {
@@ -1684,6 +2340,7 @@ function initFromInitial(sp: Specialist) {
   extraParamsObj.value = normalized.extraParams || {};
   extraHeadersRows.value = objectToRows(extraHeadersObj.value);
   extraParamsRows.value = objectToRows(extraParamsObj.value);
+  initHarnessDraft(normalized.harness);
 
   // never preload secret into the draft
   credentialDraft.value = "";

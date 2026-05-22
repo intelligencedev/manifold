@@ -111,6 +111,82 @@ func TestChatToolCall(t *testing.T) {
 	}
 }
 
+func TestRejectedToolCallRetryShapeIsForwarded(t *testing.T) {
+	var reqBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		_ = json.NewDecoder(r.Body).Decode(&reqBody)
+		w.Header().Set("Content-Type", "application/json")
+		resp := sdk.Message{
+			ID:           "msg_retry",
+			Type:         constant.Message("message"),
+			Role:         constant.Assistant("assistant"),
+			Model:        sdk.ModelClaude3_7SonnetLatest,
+			StopReason:   sdk.StopReasonEndTurn,
+			StopSequence: "",
+			Content: []sdk.ContentBlockUnion{
+				{Type: "text", Text: "ok"},
+			},
+			Usage: minimalUsage(),
+		}
+		b, _ := json.Marshal(resp)
+		_, _ = w.Write(b)
+	}))
+	t.Cleanup(srv.Close)
+
+	client := New(config.AnthropicConfig{APIKey: "k", BaseURL: srv.URL}, srv.Client())
+	_, err := client.Chat(context.Background(), []llm.Message{
+		{Role: "user", Content: "go"},
+		{Role: "assistant", ToolCalls: []llm.ToolCall{{Name: "agent_response", ID: "call_terminal", Args: json.RawMessage(`{"text":"too soon"}`)}}},
+		{Role: "tool", ToolID: "call_terminal", Content: "Tool call rejected by harness before execution: complete required steps first."},
+		{Role: "user", Content: "The terminal tool cannot be called yet. Complete the required step first."},
+	}, []llm.ToolSchema{{Name: "agent_response", Parameters: map[string]any{"type": "object"}}}, "")
+	if err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+
+	messages, ok := reqBody["messages"].([]any)
+	if !ok || len(messages) != 4 {
+		t.Fatalf("expected 4 messages, got %#v", reqBody["messages"])
+	}
+	assistant, ok := messages[1].(map[string]any)
+	if !ok || assistant["role"] != "assistant" {
+		t.Fatalf("expected assistant tool call message, got %#v", messages[1])
+	}
+	assistantContent, ok := assistant["content"].([]any)
+	if !ok || len(assistantContent) != 1 {
+		t.Fatalf("expected assistant content block, got %#v", assistant["content"])
+	}
+	toolUse, ok := assistantContent[0].(map[string]any)
+	if !ok || toolUse["type"] != "tool_use" || toolUse["id"] != "call_terminal" || toolUse["name"] != "agent_response" {
+		t.Fatalf("expected tool_use call_terminal, got %#v", assistantContent[0])
+	}
+	toolResultMessage, ok := messages[2].(map[string]any)
+	if !ok || toolResultMessage["role"] != "user" {
+		t.Fatalf("expected user tool_result message, got %#v", messages[2])
+	}
+	toolResultContent, ok := toolResultMessage["content"].([]any)
+	if !ok || len(toolResultContent) != 1 {
+		t.Fatalf("expected tool_result content block, got %#v", toolResultMessage["content"])
+	}
+	toolResult, ok := toolResultContent[0].(map[string]any)
+	if !ok || toolResult["type"] != "tool_result" || toolResult["tool_use_id"] != "call_terminal" {
+		t.Fatalf("expected matching tool_result, got %#v", toolResultContent[0])
+	}
+	nudgeMessage, ok := messages[3].(map[string]any)
+	if !ok || nudgeMessage["role"] != "user" {
+		t.Fatalf("expected user nudge message, got %#v", messages[3])
+	}
+	nudgeContent, ok := nudgeMessage["content"].([]any)
+	if !ok || len(nudgeContent) != 1 {
+		t.Fatalf("expected nudge content block, got %#v", nudgeMessage["content"])
+	}
+	nudgeText, ok := nudgeContent[0].(map[string]any)["text"].(string)
+	if !ok || !strings.Contains(nudgeText, "cannot be called yet") {
+		t.Fatalf("expected retry nudge text, got %#v", nudgeContent[0])
+	}
+}
+
 func TestChatWithImageAttachmentsIncludesImageBlock(t *testing.T) {
 	var reqBody map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

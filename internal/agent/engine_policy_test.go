@@ -50,7 +50,7 @@ func TestRunWithReMemInjectsSoftPolicyContext(t *testing.T) {
 		}}),
 	}
 
-	if _, _, err := eng.runWithReMem(context.Background(), "deploy", nil); err != nil {
+	if _, _, err := eng.runWithReMem(context.Background(), "deploy", nil, false); err != nil {
 		t.Fatalf("runWithReMem returned error: %v", err)
 	}
 	if len(provider.messages) < 2 || provider.messages[1].Role != "user" || !strings.Contains(provider.messages[1].Content, "## Runtime Policy Context") || !strings.Contains(provider.messages[1].Content, "Prefer reviewer confirmation") {

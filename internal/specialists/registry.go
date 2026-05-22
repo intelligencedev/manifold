@@ -35,6 +35,7 @@ type Agent struct {
 	AutoDiscover               bool
 	ReasoningEffort            string // optional: "low"|"medium"|"high"
 	ExtraParams                map[string]any
+	Harness                    *config.HarnessConfig
 
 	provider llm.Provider
 	tools    tools.Registry
@@ -255,6 +256,7 @@ func (r *Registry) rebuildLocked() {
 			AutoDiscover:               resolvedAutoDiscover,
 			ReasoningEffort:            strings.TrimSpace(sc.ReasoningEffort),
 			ExtraParams:                sc.ExtraParams,
+			Harness:                    cloneHarnessConfig(sc.Harness),
 			provider:                   prov,
 			tools:                      toolsView,
 		}
@@ -286,11 +288,31 @@ func cloneSpecialistConfigs(list []config.SpecialistConfig) []config.SpecialistC
 			value := *sc.AutoDiscover
 			clone.AutoDiscover = &value
 		}
+		clone.Harness = cloneHarnessConfig(sc.Harness)
 		clone.ExtraHeaders = copyStringMap(sc.ExtraHeaders)
 		clone.ExtraParams = copyAnyMap(sc.ExtraParams)
 		out = append(out, clone)
 	}
 	return out
+}
+
+func cloneHarnessConfig(in *config.HarnessConfig) *config.HarnessConfig {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.TerminalTools = append([]string(nil), in.TerminalTools...)
+	out.RequiredSteps = append([]string(nil), in.RequiredSteps...)
+	if len(in.ToolPrerequisites) > 0 {
+		out.ToolPrerequisites = make(map[string][]config.HarnessPrerequisite, len(in.ToolPrerequisites))
+		for tool, prereqs := range in.ToolPrerequisites {
+			out.ToolPrerequisites[tool] = append([]config.HarnessPrerequisite(nil), prereqs...)
+		}
+	} else {
+		out.ToolPrerequisites = nil
+	}
+	out.Compact.PhaseThresholds = append([]float64(nil), in.Compact.PhaseThresholds...)
+	return &out
 }
 
 func copyStringMap(in map[string]string) map[string]string {

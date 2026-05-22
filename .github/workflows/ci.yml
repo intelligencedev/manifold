@@ -79,6 +79,9 @@ jobs:
         run: |
           go test -race -coverprofile=coverage.out ./...
 
+      - name: Run Forge harness scenarios
+        run: make test-forge-harness
+
       - name: Upload coverage
         uses: actions/upload-artifact@v4
         with:

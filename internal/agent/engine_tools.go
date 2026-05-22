@@ -157,7 +157,14 @@ func (e *Engine) executeToolCall(ctx context.Context, tc llm.ToolCall) llm.Messa
 		return llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID}
 	}
 
-	observability.LoggerWithTrace(ctx).Info().Str("tool", tc.Name).RawJSON("args", observability.RedactJSON(tc.Args)).Msg("engine_tool_call")
+	redactedArgs := observability.RedactJSON(tc.Args)
+	event := observability.LoggerWithTrace(ctx).Info().Str("tool", tc.Name)
+	if json.Valid(redactedArgs) {
+		event = event.RawJSON("args", redactedArgs)
+	} else {
+		event = event.Str("args", string(redactedArgs)).Bool("args_json_valid", false)
+	}
+	event.Msg("engine_tool_call")
 	payload, err := e.Tools.Dispatch(ctx, tc.Name, tc.Args)
 	if err != nil {
 		payload = fmt.Appendf(nil, `{"error":%q}`, err.Error())

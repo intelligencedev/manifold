@@ -13,7 +13,7 @@ import (
 )
 
 func (e *Engine) recordRunEpisode(ctx context.Context, startedAt time.Time, userInput, final string, runErr error, evolvingEntryID string, reasoningTrace []string) {
-	if e == nil || e.BeliefStore == nil {
+	if e == nil || e.DisableBeliefMemory || e.BeliefStore == nil {
 		return
 	}
 	projectID := belief.NormalizeProjectID(e.ProjectID)
@@ -68,7 +68,7 @@ func (e *Engine) recordRunEpisode(ctx context.Context, startedAt time.Time, user
 }
 
 func (e *Engine) distillBeliefs(ctx context.Context, episode belief.Episode, userInput, final string, reasoningTrace []string) {
-	if e == nil || e.BeliefStore == nil || e.BeliefDistiller == nil {
+	if e == nil || e.DisableBeliefMemory || e.BeliefStore == nil || e.BeliefDistiller == nil {
 		return
 	}
 	input := belief.DistillationInput{
@@ -150,6 +150,9 @@ func auditCandidates(episode belief.Episode, candidates []belief.Candidate) []be
 }
 
 func (e *Engine) recordCandidateAudit(ctx context.Context, records []belief.CandidateRecord) {
+	if e == nil || e.DisableBeliefMemory || e.BeliefStore == nil {
+		return
+	}
 	for _, record := range records {
 		if _, err := e.BeliefStore.RecordCandidate(ctx, record); err != nil {
 			observability.LoggerWithTrace(ctx).Warn().Err(err).Str("episode_id", record.EpisodeID).Msg("belief_candidate_audit_failed")
@@ -158,6 +161,9 @@ func (e *Engine) recordCandidateAudit(ctx context.Context, records []belief.Cand
 }
 
 func (e *Engine) linkCandidateAudit(ctx context.Context, episode belief.Episode, candidate belief.Candidate, item belief.Belief) {
+	if e == nil || e.DisableBeliefMemory || e.BeliefStore == nil {
+		return
+	}
 	records, err := e.BeliefStore.ListCandidates(ctx, belief.CandidateQuery{
 		TenantID:         episode.TenantID,
 		EpisodeID:        episode.ID,
@@ -182,7 +188,7 @@ func (e *Engine) linkCandidateAudit(ctx context.Context, episode belief.Episode,
 }
 
 func (e *Engine) promoteEligibleBeliefs(ctx context.Context, items []belief.Belief) {
-	if e == nil || e.BeliefStore == nil || len(items) == 0 {
+	if e == nil || e.DisableBeliefMemory || e.BeliefStore == nil || len(items) == 0 {
 		return
 	}
 	projectID := belief.NormalizeProjectID(e.ProjectID)
@@ -225,7 +231,7 @@ func (e *Engine) promoteEligibleBeliefs(ctx context.Context, items []belief.Beli
 }
 
 func (e *Engine) compileEnforceableBeliefs(ctx context.Context, items []belief.Belief, promotion belief.Promotion) {
-	if e == nil || e.BeliefPolicySink == nil || len(items) == 0 {
+	if e == nil || e.DisableBeliefMemory || e.BeliefPolicySink == nil || len(items) == 0 {
 		return
 	}
 	policy := e.BeliefEnforcementPolicy
@@ -263,7 +269,7 @@ func (e *Engine) compileEnforceableBeliefs(ctx context.Context, items []belief.B
 }
 
 func (e *Engine) storeExperience(ctx context.Context, userInput, final string, runErr error, reasoningTrace []string) string {
-	if e.EvolvingMemory == nil {
+	if e == nil || e.DisableEvolvingMemory || e.EvolvingMemory == nil {
 		return ""
 	}
 	if strings.TrimSpace(final) == "" && runErr == nil {

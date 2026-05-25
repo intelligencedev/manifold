@@ -28,6 +28,7 @@ type chatTargetDispatchOptions struct {
 	ProjectID            string
 	ObjectiveID          string
 	EphemeralSession     bool
+	MemorySettings       chatMemoryRunSettings
 	UserID               *int64
 	IncludeSummary       bool
 	RunContext           context.Context
@@ -50,11 +51,12 @@ type chatTargetDescriptor struct {
 	JSON                 chatJSONOptions
 }
 
-func (a *app) describeChatTarget(target chatDispatchTarget, sessionID, projectID, objectiveID, systemPromptOverride string, owner int64) (chatTargetDescriptor, bool) {
+func (a *app) describeChatTarget(target chatDispatchTarget, sessionID, projectID, objectiveID, systemPromptOverride string, owner int64, settingsOpt ...chatMemoryRunSettings) (chatTargetDescriptor, bool) {
+	settings := withChatMemorySettings(settingsOpt)
 	if target.SpecialistName != "" && !strings.EqualFold(target.SpecialistName, specialists.OrchestratorName) {
 		return chatTargetDescriptor{
 			Build: func(ctx context.Context) chatEngineBuildResult {
-				return a.buildSpecialistChatEngine(ctx, target.SpecialistName, systemPromptOverride, sessionID, projectID, objectiveID, owner)
+				return a.buildSpecialistChatEngine(ctx, target.SpecialistName, systemPromptOverride, sessionID, projectID, objectiveID, owner, settings)
 			},
 			NotFoundMessage:      "specialist not found",
 			InternalErrorMessage: "specialist registry unavailable",
@@ -79,7 +81,7 @@ func (a *app) describeChatTarget(target chatDispatchTarget, sessionID, projectID
 		teamTimeout := workflowLikeTimeout(a.cfg.WorkflowTimeoutSeconds, a.cfg.AgentRunTimeoutSeconds)
 		return chatTargetDescriptor{
 			Build: func(ctx context.Context) chatEngineBuildResult {
-				return a.buildTeamChatEngine(ctx, target.TeamName, sessionID, projectID, objectiveID, owner)
+				return a.buildTeamChatEngine(ctx, target.TeamName, sessionID, projectID, objectiveID, owner, settings)
 			},
 			NotFoundMessage:      "team not found",
 			InternalErrorMessage: "failed to load team",
@@ -124,13 +126,14 @@ func writeChatTargetBuildError(w http.ResponseWriter, build chatEngineBuildResul
 	}
 }
 
-func dispatchOptionsFromDescriptor(descriptor chatTargetDescriptor, prompt, sessionID, projectID, objectiveID string, ephemeralSession bool, userID *int64) chatTargetDispatchOptions {
+func dispatchOptionsFromDescriptor(descriptor chatTargetDescriptor, prompt, sessionID, projectID, objectiveID string, ephemeralSession bool, userID *int64, settings chatMemoryRunSettings) chatTargetDispatchOptions {
 	return chatTargetDispatchOptions{
 		Prompt:               prompt,
 		SessionID:            sessionID,
 		ProjectID:            projectID,
 		ObjectiveID:          objectiveID,
 		EphemeralSession:     ephemeralSession,
+		MemorySettings:       settings,
 		UserID:               userID,
 		IncludeSummary:       descriptor.IncludeSummary,
 		RunContext:           descriptor.RunContext,
@@ -146,7 +149,7 @@ func dispatchOptionsFromDescriptor(descriptor chatTargetDescriptor, prompt, sess
 func (a *app) agentRunOrchestratorDescriptor(baseCtx context.Context, owner int64, req chatRunRequest, checkedOutWorkspace *workspaces.Workspace) chatTargetDescriptor {
 	return chatTargetDescriptor{
 		Build: func(ctx context.Context) chatEngineBuildResult {
-			return a.buildOrchestratorChatEngine(ctx, owner, req.SessionID, req.ProjectID, req.ObjectiveID, "", checkedOutWorkspace)
+			return a.buildOrchestratorChatEngine(ctx, owner, req.SessionID, req.ProjectID, req.ObjectiveID, "", checkedOutWorkspace, chatMemorySettingsFromRunRequest(req))
 		},
 		InternalErrorMessage: "agent unavailable",
 		IncludeSummary:       true,
@@ -166,7 +169,7 @@ func (a *app) agentRunOrchestratorDescriptor(baseCtx context.Context, owner int6
 func (a *app) promptOrchestratorDescriptor(baseCtx context.Context, owner int64, req chatRunRequest, checkedOutWorkspace *workspaces.Workspace) chatTargetDescriptor {
 	return chatTargetDescriptor{
 		Build: func(ctx context.Context) chatEngineBuildResult {
-			return a.buildOrchestratorChatEngine(ctx, owner, req.SessionID, req.ProjectID, req.ObjectiveID, req.SystemPrompt, checkedOutWorkspace)
+			return a.buildOrchestratorChatEngine(ctx, owner, req.SessionID, req.ProjectID, req.ObjectiveID, req.SystemPrompt, checkedOutWorkspace, chatMemorySettingsFromRunRequest(req))
 		},
 		InternalErrorMessage: "agent unavailable",
 		RunContext:           llm.WithUserID(baseCtx, owner),
@@ -216,7 +219,15 @@ func (a *app) dispatchBuiltChatTarget(w http.ResponseWriter, r *http.Request, op
 		runCtx = sandbox.WithObjectiveID(runCtx, opts.ObjectiveID)
 	}
 	runCtx = applyBuildImagePrompt(runCtx, build)
-	req := chatRunRequest{Prompt: opts.Prompt, SessionID: opts.SessionID, ProjectID: opts.ProjectID, ObjectiveID: opts.ObjectiveID, EphemeralSession: opts.EphemeralSession}
+	req := chatRunRequest{
+		Prompt:                opts.Prompt,
+		SessionID:             opts.SessionID,
+		ProjectID:             opts.ProjectID,
+		ObjectiveID:           opts.ObjectiveID,
+		EphemeralSession:      opts.EphemeralSession,
+		EvolvingMemoryEnabled: boolPtr(opts.MemorySettings.EvolvingMemoryEnabled),
+		BeliefMemoryEnabled:   boolPtr(opts.MemorySettings.BeliefMemoryEnabled),
+	}
 
 	if r.Header.Get("Accept") == "text/event-stream" {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -245,8 +256,9 @@ func (a *app) dispatchBuiltChatTarget(w http.ResponseWriter, r *http.Request, op
 	return true
 }
 
-func (a *app) handleChatTarget(w http.ResponseWriter, r *http.Request, target chatDispatchTarget, prompt, sessionID, projectID, objectiveID string, ephemeralSession bool, systemPromptOverride string, userID *int64, owner int64, fallback chatTargetDescriptor) bool {
-	descriptor, ok := a.describeChatTarget(target, sessionID, projectID, objectiveID, systemPromptOverride, owner)
+func (a *app) handleChatTarget(w http.ResponseWriter, r *http.Request, target chatDispatchTarget, prompt, sessionID, projectID, objectiveID string, ephemeralSession bool, systemPromptOverride string, userID *int64, owner int64, fallback chatTargetDescriptor, settingsOpt ...chatMemoryRunSettings) bool {
+	settings := withChatMemorySettings(settingsOpt)
+	descriptor, ok := a.describeChatTarget(target, sessionID, projectID, objectiveID, systemPromptOverride, owner, settings)
 	if !ok {
 		if fallback.Build == nil {
 			return false
@@ -257,5 +269,5 @@ func (a *app) handleChatTarget(w http.ResponseWriter, r *http.Request, target ch
 	if descriptor.RunContext == nil {
 		descriptor.RunContext = r.Context()
 	}
-	return a.dispatchBuiltChatTarget(w, r, dispatchOptionsFromDescriptor(descriptor, prompt, sessionID, projectID, objectiveID, ephemeralSession, userID))
+	return a.dispatchBuiltChatTarget(w, r, dispatchOptionsFromDescriptor(descriptor, prompt, sessionID, projectID, objectiveID, ephemeralSession, userID, settings))
 }

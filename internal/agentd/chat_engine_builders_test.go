@@ -522,6 +522,62 @@ func TestBuildSpecialistChatEngineAttachesSessionEvolvingMemory(t *testing.T) {
 	}
 }
 
+func TestBuildSpecialistChatEngineCanDisableSessionEvolvingMemory(t *testing.T) {
+	t.Parallel()
+
+	app := newChatEngineBuilderTestApp(t)
+	app.evolvingCfg = memory.EvolvingMemoryConfig{LLM: app.llm}
+	app.engine.ReMemEnabled = true
+	ctx := sandbox.WithBaseDir(context.Background(), t.TempDir())
+
+	_, err := app.specStore.Upsert(ctx, 7, persistence.Specialist{
+		Name:        "alpha",
+		Provider:    "openai",
+		Model:       "gpt-4.1-mini",
+		System:      "specialist system",
+		EnableTools: true,
+	})
+	if err != nil {
+		t.Fatalf("upsert specialist: %v", err)
+	}
+	app.invalidateSpecialistsCache(ctx, 7)
+
+	result := app.buildSpecialistChatEngine(ctx, "alpha", "", "sess-42", "", "", 7, chatMemoryRunSettings{
+		EvolvingMemoryEnabled: false,
+		BeliefMemoryEnabled:   true,
+	})
+	if result.Err != nil {
+		t.Fatalf("buildSpecialistChatEngine: %v", result.Err)
+	}
+	if result.Engine.EvolvingMemory != nil || result.Engine.ReMemEnabled || result.Engine.ReMemController != nil {
+		t.Fatalf("expected evolving memory and ReMem disabled, got memory=%v remem=%v controller=%v", result.Engine.EvolvingMemory, result.Engine.ReMemEnabled, result.Engine.ReMemController)
+	}
+	if !result.Engine.DisableEvolvingMemory {
+		t.Fatal("expected DisableEvolvingMemory flag")
+	}
+}
+
+func TestApplyChatMemorySettingsCanDisableBeliefMemory(t *testing.T) {
+	t.Parallel()
+
+	eng := &agent.Engine{
+		BeliefMaxBeliefsPerPrompt: 4,
+		BeliefPromptTokenBudget:   700,
+		BeliefPromotionThreshold:  0.8,
+	}
+	applyChatMemorySettingsToEngine(eng, chatMemoryRunSettings{
+		EvolvingMemoryEnabled: true,
+		BeliefMemoryEnabled:   false,
+	})
+
+	if !eng.DisableBeliefMemory {
+		t.Fatal("expected DisableBeliefMemory flag")
+	}
+	if eng.BeliefMaxBeliefsPerPrompt != 0 || eng.BeliefPromptTokenBudget != 0 || eng.BeliefPromotionThreshold != 0 {
+		t.Fatalf("expected belief runtime settings cleared, got %+v", eng)
+	}
+}
+
 func TestBuildTeamChatEngineAttachesSessionEvolvingMemory(t *testing.T) {
 	t.Parallel()
 

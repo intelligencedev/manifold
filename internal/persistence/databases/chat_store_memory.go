@@ -29,6 +29,19 @@ type memChatStore struct {
 
 func (s *memChatStore) Init(ctx context.Context) error { return nil }
 
+func newChatSession(id string, userID *int64, name string, kind string, now time.Time) persistence.ChatSession {
+	return persistence.ChatSession{
+		ID:                    id,
+		Name:                  name,
+		Kind:                  kind,
+		UserID:                copyUserID(userID),
+		CreatedAt:             now,
+		UpdatedAt:             now,
+		EvolvingMemoryEnabled: true,
+		BeliefMemoryEnabled:   true,
+	}
+}
+
 func copyUserID(id *int64) *int64 {
 	if id == nil {
 		return nil
@@ -70,7 +83,7 @@ func (s *memChatStore) EnsureSessionKind(ctx context.Context, userID *int64, id,
 		return sess, nil
 	}
 	now := time.Now().UTC()
-	sess := persistence.ChatSession{ID: id, Name: name, Kind: kind, UserID: copyUserID(userID), CreatedAt: now, UpdatedAt: now}
+	sess := newChatSession(id, userID, name, kind, now)
 	s.sessions[id] = sess
 	s.messages[id] = nil
 	return sess, nil
@@ -129,7 +142,7 @@ func (s *memChatStore) CreateSessionKind(ctx context.Context, userID *int64, nam
 	defer s.mu.Unlock()
 	id := uuid.NewString()
 	now := time.Now().UTC()
-	sess := persistence.ChatSession{ID: id, Name: name, Kind: kind, UserID: copyUserID(userID), CreatedAt: now, UpdatedAt: now}
+	sess := newChatSession(id, userID, name, kind, now)
 	s.sessions[id] = sess
 	s.messages[id] = nil
 	return sess, nil
@@ -165,6 +178,23 @@ func (s *memChatStore) SetSessionProject(ctx context.Context, userID *int64, id,
 		return persistence.ChatSession{}, persistence.ErrForbidden
 	}
 	sess.ProjectID = strings.TrimSpace(projectID)
+	sess.UpdatedAt = time.Now().UTC()
+	s.sessions[id] = sess
+	return sess, nil
+}
+
+func (s *memChatStore) SetSessionMemorySettings(ctx context.Context, userID *int64, id string, evolvingMemoryEnabled bool, beliefMemoryEnabled bool) (persistence.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[id]
+	if !ok {
+		return persistence.ChatSession{}, persistence.ErrNotFound
+	}
+	if !hasAccess(userID, sess.UserID) {
+		return persistence.ChatSession{}, persistence.ErrForbidden
+	}
+	sess.EvolvingMemoryEnabled = evolvingMemoryEnabled
+	sess.BeliefMemoryEnabled = beliefMemoryEnabled
 	sess.UpdatedAt = time.Now().UTC()
 	s.sessions[id] = sess
 	return sess, nil

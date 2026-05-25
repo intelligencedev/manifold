@@ -125,7 +125,7 @@ func (s *stubChatStore) EnsureSessionKind(ctx context.Context, userID *int64, id
 	if strings.TrimSpace(kind) == "" {
 		kind = persistence.ChatSessionKindChat
 	}
-	sess := &persistence.ChatSession{ID: id, Name: name, Kind: kind, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	sess := &persistence.ChatSession{ID: id, Name: name, Kind: kind, CreatedAt: time.Now(), UpdatedAt: time.Now(), EvolvingMemoryEnabled: true, BeliefMemoryEnabled: true}
 	s.sessions[id] = sess
 	s.messages[id] = nil
 	return *sess, nil
@@ -187,6 +187,17 @@ func (s *stubChatStore) SetSessionProject(ctx context.Context, userID *int64, id
 	defer s.mu.Unlock()
 	if sess, ok := s.sessions[id]; ok {
 		sess.ProjectID = strings.TrimSpace(projectID)
+		return *sess, nil
+	}
+	return persistence.ChatSession{}, nil
+}
+
+func (s *stubChatStore) SetSessionMemorySettings(ctx context.Context, userID *int64, id string, evolvingMemoryEnabled bool, beliefMemoryEnabled bool) (persistence.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sess, ok := s.sessions[id]; ok {
+		sess.EvolvingMemoryEnabled = evolvingMemoryEnabled
+		sess.BeliefMemoryEnabled = beliefMemoryEnabled
 		return *sess, nil
 	}
 	return persistence.ChatSession{}, nil

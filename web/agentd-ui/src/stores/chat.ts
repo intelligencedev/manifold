@@ -23,6 +23,7 @@ import {
   renameChatSession as apiRenameChatSession,
   streamAgentRun,
   streamAgentVisionRun,
+  updateChatSessionMemorySettings as apiUpdateChatSessionMemorySettings,
   updateChatSessionProject as apiUpdateChatSessionProject,
   type ChatStreamEvent,
 } from "@/api/chat";
@@ -357,7 +358,26 @@ export const useChatStore = defineStore("chat", () => {
         : 0;
     const rawProjectID = (meta as any).projectId ?? (meta as any).project_id;
     const projectId = typeof rawProjectID === "string" ? rawProjectID : "";
-    return { ...meta, messageCount, projectId };
+    const rawEvolvingMemoryEnabled =
+      (meta as any).evolvingMemoryEnabled ??
+      (meta as any).evolving_memory_enabled;
+    const rawBeliefMemoryEnabled =
+      (meta as any).beliefMemoryEnabled ?? (meta as any).belief_memory_enabled;
+    const evolvingMemoryEnabled =
+      typeof rawEvolvingMemoryEnabled === "boolean"
+        ? rawEvolvingMemoryEnabled
+        : true;
+    const beliefMemoryEnabled =
+      typeof rawBeliefMemoryEnabled === "boolean"
+        ? rawBeliefMemoryEnabled
+        : true;
+    return {
+      ...meta,
+      messageCount,
+      projectId,
+      evolvingMemoryEnabled,
+      beliefMemoryEnabled,
+    };
   }
 
   const defaultSessionNames = new Set(["", "new chat", "conversation"]);
@@ -542,6 +562,39 @@ export const useChatStore = defineStore("chat", () => {
     return normalized;
   }
 
+  async function updateSessionMemorySettings(
+    sessionId: string,
+    settings: {
+      evolvingMemoryEnabled?: boolean;
+      beliefMemoryEnabled?: boolean;
+    },
+  ) {
+    const existing = sessions.value.find((s) => s.id === sessionId);
+    const nextEvolving =
+      typeof settings.evolvingMemoryEnabled === "boolean"
+        ? settings.evolvingMemoryEnabled
+        : (existing?.evolvingMemoryEnabled ?? true);
+    const nextBelief =
+      typeof settings.beliefMemoryEnabled === "boolean"
+        ? settings.beliefMemoryEnabled
+        : (existing?.beliefMemoryEnabled ?? true);
+    if (
+      existing &&
+      (existing.evolvingMemoryEnabled ?? true) === nextEvolving &&
+      (existing.beliefMemoryEnabled ?? true) === nextBelief
+    ) {
+      return existing;
+    }
+    const updated = await apiUpdateChatSessionMemorySettings(sessionId, {
+      evolvingMemoryEnabled: nextEvolving,
+      beliefMemoryEnabled: nextBelief,
+    });
+    sessionsError.value = null;
+    const normalized = normalizeSessionMeta(updated);
+    upsertSessionMeta(normalized);
+    return normalized;
+  }
+
   async function sendPrompt(
     text: string,
     attachments: ChatAttachment[] = [],
@@ -554,6 +607,8 @@ export const useChatStore = defineStore("chat", () => {
       projectId?: string;
       image?: boolean;
       imageSize?: string;
+      evolvingMemoryEnabled?: boolean;
+      beliefMemoryEnabled?: boolean;
       agentName?: string;
       agentModel?: string;
     } = {},
@@ -655,6 +710,8 @@ export const useChatStore = defineStore("chat", () => {
           specialist: options.specialist,
           teamName: options.teamName,
           projectId: options.projectId,
+          evolvingMemoryEnabled: options.evolvingMemoryEnabled,
+          beliefMemoryEnabled: options.beliefMemoryEnabled,
         });
       } else {
         await streamAgentRun({
@@ -666,6 +723,8 @@ export const useChatStore = defineStore("chat", () => {
           specialist: options.specialist,
           teamName: options.teamName,
           projectId: options.projectId,
+          evolvingMemoryEnabled: options.evolvingMemoryEnabled,
+          beliefMemoryEnabled: options.beliefMemoryEnabled,
           image: options.image,
           imageSize: options.imageSize,
         });
@@ -1539,6 +1598,8 @@ export const useChatStore = defineStore("chat", () => {
       routingSpecialist?: string;
       teamName?: string;
       projectId?: string;
+      evolvingMemoryEnabled?: boolean;
+      beliefMemoryEnabled?: boolean;
       agentName?: string;
       agentModel?: string;
       messageId?: string;
@@ -1568,6 +1629,8 @@ export const useChatStore = defineStore("chat", () => {
       routingSpecialist: options.routingSpecialist,
       teamName: options.teamName,
       projectId: options.projectId,
+      evolvingMemoryEnabled: options.evolvingMemoryEnabled,
+      beliefMemoryEnabled: options.beliefMemoryEnabled,
       agentName: options.agentName,
       agentModel: options.agentModel,
     });
@@ -1599,6 +1662,7 @@ export const useChatStore = defineStore("chat", () => {
     deleteMessage,
     renameSession,
     updateSessionProject,
+    updateSessionMemorySettings,
     submitInputRequest,
     sendPrompt,
     stopStreaming,

@@ -31,11 +31,12 @@ func (a *app) cloneEngine() *agent.Engine {
 // cloneEngineForUser returns a shallow copy of the base engine with user-specific
 // orchestrator settings applied (particularly the tool allowlist). This enables
 // per-user orchestrator configurations.
-func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID, projectID, objectiveID string) *agent.Engine {
+func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID, projectID, objectiveID string, settingsOpt ...chatMemoryRunSettings) *agent.Engine {
 	eng := a.cloneEngine()
 	if eng == nil {
 		return nil
 	}
+	settings := withChatMemorySettings(settingsOpt)
 	a.configureBeliefRunState(eng, userID, sessionID, projectID, objectiveID, "orchestrator")
 
 	// Ensure the specialists catalog in the system prompt is user-scoped.
@@ -49,7 +50,7 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID, p
 		eng.UserPromptContext = a.composeUserPromptContextForUser(ctx, userID)
 	}
 
-	em := a.attachSessionEvolvingMemory(eng, userID, sessionID)
+	em := a.attachSessionEvolvingMemory(eng, userID, sessionID, settings.EvolvingMemoryEnabled)
 
 	// Look up user's orchestrator overlay
 	if a.cfg.Auth.Enabled && userID != systemUserID {
@@ -109,6 +110,10 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID, p
 	}
 	delegator := agenttools.NewDelegator(eng.Tools, reg, a.workspaceManager, a.cfg.MaxSteps)
 	delegator.SetDefaultTimeout(a.cfg.AgentRunTimeoutSeconds)
+	applyChatMemorySettingsToEngine(eng, settings)
+	if eng.DisableEvolvingMemory {
+		em = nil
+	}
 	delegator.SetEvolvingMemory(em)
 	delegator.SetBeliefMemory(eng.BeliefStore)
 	delegator.SetBeliefDistiller(eng.BeliefDistiller)
@@ -116,7 +121,7 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID, p
 	delegator.SetBeliefLifecycle(eng.BeliefGraph, eng.BeliefPromotionThreshold)
 	delegator.SetPolicyEnforcer(eng.PolicyEnforcer)
 	delegator.SetTeamDelegator(a)
-	if a.engine != nil && a.engine.ReMemEnabled {
+	if eng.ReMemEnabled {
 		delegator.ConfigureReMem(a.evolvingCfg.LLM, a.evolvingCfg.Model, a.rememMaxInnerSteps)
 	}
 	eng.Delegator = delegator
@@ -254,6 +259,7 @@ func (a *app) applyRAGEvidenceBlend(inner belief.Retriever) belief.Retriever {
 				Tenant:         tenant,
 				Filter:         filter,
 				UseRRF:         true,
+				Rerank:         a.cfg.Reranking.Enabled,
 				IncludeSnippet: true,
 				Diversify:      true,
 			})

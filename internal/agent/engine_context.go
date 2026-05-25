@@ -15,6 +15,9 @@ import (
 const maxEvolvingMemoryContextChars = 12000
 
 func (e *Engine) augmentWithMemory(ctx context.Context, userInput string, msgs []llm.Message) []llm.Message {
+	if e == nil || e.DisableEvolvingMemory || e.EvolvingMemory == nil {
+		return msgs
+	}
 	log := observability.LoggerWithTrace(ctx)
 
 	log.Info().Str("user_input", userInput).Msg("evolving_memory_augment_triggered")
@@ -83,10 +86,10 @@ func (e *Engine) augmentWithMemory(ctx context.Context, userInput string, msgs [
 		return msgs
 	}
 
-	log.Info().Int("context_len", len(memoryContext)).Int("orig_msgs", len(msgs)).Msg("evolving_memory_prepending_to_user")
+	log.Info().Int("context_len", len(memoryContext)).Int("orig_msgs", len(msgs)).Msg("evolving_memory_adding_runtime_context")
 
 	memoryContext = capEvolvingMemoryContext(memoryContext)
-	msgs = PrependToCurrentUserMessage(msgs, "## Relevant Context from Past Interactions\n\n"+memoryContext)
+	msgs = AddRuntimeContextToCurrentUserMessage(msgs, "## Relevant Context from Past Interactions\n\n"+memoryContext)
 
 	log.Info().Int("msgs_count", len(msgs)).Msg("evolving_memory_augmentation_complete")
 	return msgs
@@ -100,7 +103,7 @@ func capEvolvingMemoryContext(memoryContext string) string {
 }
 
 func (e *Engine) augmentWithBeliefMemory(ctx context.Context, userInput string, msgs []llm.Message) []llm.Message {
-	if e == nil || e.BeliefRetriever == nil {
+	if e == nil || e.DisableBeliefMemory || e.BeliefRetriever == nil {
 		return msgs
 	}
 	objectiveID := strings.TrimSpace(e.ObjectiveID)
@@ -142,8 +145,8 @@ func (e *Engine) augmentWithBeliefMemory(ctx context.Context, userInput string, 
 		Int("selected_rag", ragSelected).
 		Int("overflow", len(contextBlock.Overflow)).
 		Int("tokens", contextBlock.TokenEstimate).
-		Msg("belief_memory_prepending_to_user")
-	return PrependToCurrentUserMessage(msgs, contextBlock.Text)
+		Msg("belief_memory_adding_runtime_context")
+	return AddRuntimeContextToCurrentUserMessage(msgs, contextBlock.Text)
 }
 
 func countBySource(results []belief.SearchResult) (beliefCount, ragCount int) {
@@ -163,7 +166,7 @@ func countBySource(results []belief.SearchResult) (beliefCount, ragCount int) {
 }
 
 func (e *Engine) augmentWithPolicyContext(ctx context.Context, _ string, msgs []llm.Message) []llm.Message {
-	if e == nil || e.PolicyEnforcer == nil {
+	if e == nil || e.DisableBeliefMemory || e.PolicyEnforcer == nil {
 		return msgs
 	}
 	provider, ok := e.PolicyEnforcer.(policy.ContextProvider)
@@ -185,8 +188,8 @@ func (e *Engine) augmentWithPolicyContext(ctx context.Context, _ string, msgs []
 	if strings.TrimSpace(section) == "" {
 		return msgs
 	}
-	observability.LoggerWithTrace(ctx).Info().Int("policy_context_items", len(records)).Msg("policy_prompt_context_prepended_to_user")
-	return PrependToCurrentUserMessage(msgs, section)
+	observability.LoggerWithTrace(ctx).Info().Int("policy_context_items", len(records)).Msg("policy_prompt_context_added_runtime_context")
+	return AddRuntimeContextToCurrentUserMessage(msgs, section)
 }
 
 // runWithReMem executes the Think-Act-Refine pre-processing, then continues with the main agent loop.

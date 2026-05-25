@@ -177,7 +177,7 @@ func (t *retrieveTool) JSONSchema() map[string]any {
 				"include_text":    map[string]any{"type": "boolean"},
 				"include_snippet": map[string]any{"type": "boolean"},
 				"diversify":       map[string]any{"type": "boolean"},
-				"rerank":          map[string]any{"type": "boolean"},
+				"rerank":          map[string]any{"type": "boolean", "description": "When true, use the configured external reranking endpoint. Ignored when reranking.enabled is false."},
 				"graph_augment":   map[string]any{"type": "boolean"},
 				"tenant":          map[string]any{"type": "string"},
 				"filter":          map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},

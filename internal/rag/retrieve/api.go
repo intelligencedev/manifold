@@ -20,7 +20,7 @@ type RetrieveOptions struct {
 	IncludeSnippet bool
 	// Diversify penalizes near-duplicates.
 	Diversify bool
-	// Rerank toggles an optional cross-encoder reranking stage.
+	// Rerank toggles the optional external reranking stage.
 	Rerank bool
 	// GraphAugment toggles graph-based neighborhood expansion.
 	GraphAugment bool

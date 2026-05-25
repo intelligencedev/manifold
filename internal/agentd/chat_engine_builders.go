@@ -46,6 +46,8 @@ func sanitizeImageGenerationBuild(build chatEngineBuildResult) chatEngineBuildRe
 	build.Engine.BeliefGraph = nil
 	build.Engine.PolicyEnforcer = nil
 	build.Engine.EvolvingMemory = nil
+	build.Engine.DisableEvolvingMemory = true
+	build.Engine.DisableBeliefMemory = true
 	build.Engine.ReMemEnabled = false
 	build.Engine.ReMemController = nil
 	build.Engine.SummaryEnabled = false
@@ -62,8 +64,9 @@ func (a *app) chatMaxSteps() int {
 	return 8
 }
 
-func (a *app) buildOrchestratorChatEngine(ctx context.Context, owner int64, sessionID, projectID, objectiveID, systemPromptOverride string, checkedOutWorkspace *workspaces.Workspace) chatEngineBuildResult {
-	eng := a.cloneEngineForUser(ctx, owner, sessionID, projectID, objectiveID)
+func (a *app) buildOrchestratorChatEngine(ctx context.Context, owner int64, sessionID, projectID, objectiveID, systemPromptOverride string, checkedOutWorkspace *workspaces.Workspace, settingsOpt ...chatMemoryRunSettings) chatEngineBuildResult {
+	settings := withChatMemorySettings(settingsOpt)
+	eng := a.cloneEngineForUser(ctx, owner, sessionID, projectID, objectiveID, settings)
 	if eng == nil {
 		return chatEngineBuildResult{StatusCode: http.StatusServiceUnavailable, Err: fmt.Errorf("agent unavailable")}
 	}
@@ -82,7 +85,8 @@ func (a *app) buildOrchestratorChatEngine(ctx context.Context, owner int64, sess
 	return chatEngineBuildResult{Engine: eng, ModelLabel: eng.Model}
 }
 
-func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptOverride, sessionID, projectID, objectiveID string, owner int64) chatEngineBuildResult {
+func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptOverride, sessionID, projectID, objectiveID string, owner int64, settingsOpt ...chatMemoryRunSettings) chatEngineBuildResult {
+	settings := withChatMemorySettings(settingsOpt)
 	reg, err := a.specialistsRegistryForUser(ctx, owner)
 	if err != nil {
 		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: fmt.Errorf("specialist registry unavailable: %w", err)}
@@ -127,7 +131,11 @@ func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptO
 		HarnessConfig:                harnessRunConfig(harnessCfg),
 	}
 	a.configureBeliefRunState(eng, owner, sessionID, projectID, objectiveID, name)
-	em := a.attachSessionEvolvingMemory(eng, owner, sessionID)
+	em := a.attachSessionEvolvingMemory(eng, owner, sessionID, settings.EvolvingMemoryEnabled)
+	applyChatMemorySettingsToEngine(eng, settings)
+	if eng.DisableEvolvingMemory {
+		em = nil
+	}
 	delegator := agenttools.NewDelegator(eng.Tools, reg, a.workspaceManager, a.chatMaxSteps())
 	delegator.SetDefaultTimeout(a.cfg.AgentRunTimeoutSeconds)
 	delegator.SetEvolvingMemory(em)
@@ -150,7 +158,8 @@ func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptO
 	}
 }
 
-func (a *app) buildTeamChatEngine(ctx context.Context, name, sessionID, projectID, objectiveID string, owner int64) chatEngineBuildResult {
+func (a *app) buildTeamChatEngine(ctx context.Context, name, sessionID, projectID, objectiveID string, owner int64, settingsOpt ...chatMemoryRunSettings) chatEngineBuildResult {
+	settings := withChatMemorySettings(settingsOpt)
 	if a.teamStore == nil {
 		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: fmt.Errorf("teams unavailable")}
 	}
@@ -212,7 +221,11 @@ func (a *app) buildTeamChatEngine(ctx context.Context, name, sessionID, projectI
 		HarnessConfig:                harnessRunConfig(harnessCfg),
 	}
 	a.configureBeliefRunState(eng, owner, sessionID, projectID, objectiveID, name)
-	em := a.attachSessionEvolvingMemory(eng, owner, sessionID)
+	em := a.attachSessionEvolvingMemory(eng, owner, sessionID, settings.EvolvingMemoryEnabled)
+	applyChatMemorySettingsToEngine(eng, settings)
+	if eng.DisableEvolvingMemory {
+		em = nil
+	}
 	eng.AttachTokenizer(userLLM, nil)
 	delegator := agenttools.NewDelegator(eng.Tools, teamReg, a.workspaceManager, a.chatMaxSteps())
 	delegator.SetDefaultTimeout(a.cfg.AgentRunTimeoutSeconds)

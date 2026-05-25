@@ -368,6 +368,15 @@ func applyDefaults(cfg *Config) {
 	} else {
 		cfg.Embedding.Instructions.Format = strings.ToLower(strings.TrimSpace(cfg.Embedding.Instructions.Format))
 	}
+	if cfg.Reranking.APIHeader == "" {
+		cfg.Reranking.APIHeader = "Authorization"
+	}
+	if cfg.Reranking.Path == "" {
+		cfg.Reranking.Path = "/v1/rerank"
+	}
+	if cfg.Reranking.Timeout <= 0 {
+		cfg.Reranking.Timeout = 30
+	}
 	for i := range cfg.MCP.Servers {
 		if cfg.MCP.Servers[i].HTTP.TimeoutSeconds <= 0 {
 			cfg.MCP.Servers[i].HTTP.TimeoutSeconds = 30
@@ -531,6 +540,12 @@ func validateConfig(cfg *Config) error {
 	case "", "qwen":
 	default:
 		return fmt.Errorf("embedding.instructions.format must be qwen (got %q)", cfg.Embedding.Instructions.Format)
+	}
+	if cfg.Reranking.Enabled && strings.TrimSpace(cfg.Reranking.BaseURL) == "" {
+		return fmt.Errorf("reranking.baseURL is required when reranking.enabled is true")
+	}
+	if cfg.Reranking.Timeout < 0 {
+		return fmt.Errorf("reranking.timeoutSeconds must be non-negative")
 	}
 
 	return nil

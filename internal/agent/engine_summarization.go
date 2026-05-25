@@ -66,13 +66,12 @@ func (e *Engine) maybeSummarize(ctx context.Context, msgs []llm.Message) []llm.M
 		Int("reserve_buffer", reserveBuffer).
 		Msg("summarization_triggered")
 
-	// Preserve leading system message if present
-	start := 0
-	var sysMsg *llm.Message
-	if msgs[0].Role == "system" {
-		sysMsg = &msgs[0]
-		start = 1
-	}
+	// Preserve only the static prompt prefix. Runtime context is volatile and
+	// lives with the current request, so it remains eligible for normal budget
+	// enforcement instead of expanding the cache boundary.
+	start := cacheBoundaryPrefixEnd(msgs)
+	prefix := make([]llm.Message, start)
+	copy(prefix, msgs[:start])
 
 	// Work backwards from the end, keeping as many recent messages as will fit
 	// in roughly half the budget (leaving room for system prompt, tools, and summary)
@@ -111,7 +110,7 @@ func (e *Engine) maybeSummarize(ctx context.Context, msgs []llm.Message) []llm.M
 		e.OnSummaryTriggered(inputTokens, tokenBudget, len(msgs), len(toSummarize))
 	}
 
-	return e.buildSummarizedMessages(ctx, sysMsg, toSummarize, recent, len(recent))
+	return e.buildSummarizedMessages(ctx, prefix, toSummarize, recent, len(recent))
 }
 
 // adjustCutIndexForToolDeps ensures that if the kept "recent" tail includes any
@@ -189,10 +188,10 @@ func (e *Engine) adjustCutIndexForLatestUser(msgs []llm.Message, start, cutIndex
 }
 
 // buildSummarizedMessages constructs a summary prompt, calls the LLM, and
-// returns the new message list (system + [summary] + recent).
+// returns the new message list (static prefix + [summary] + recent).
 func (e *Engine) buildSummarizedMessages(
 	ctx context.Context,
-	sysMsg *llm.Message,
+	prefix []llm.Message,
 	toSummarize []llm.Message,
 	recent []llm.Message,
 	keep int,
@@ -228,16 +227,18 @@ func (e *Engine) buildSummarizedMessages(
 	sumMsg, err := e.LLM.Chat(ctx, summReq, nil, e.model())
 	if err != nil {
 		observability.LoggerWithTrace(ctx).Error().Err(err).Msg("summary_failed")
-		return append([]llm.Message{}, append(toSummarize, recent...)...)
+		newMsgs := make([]llm.Message, 0, len(prefix)+len(toSummarize)+len(recent))
+		newMsgs = append(newMsgs, prefix...)
+		newMsgs = append(newMsgs, toSummarize...)
+		newMsgs = append(newMsgs, recent...)
+		return newMsgs
 	}
 
 	summaryContent := "[SUMMARY] " + strings.TrimSpace(sumMsg.Content)
 	summary := llm.Message{Role: "assistant", Content: summaryContent}
 
-	newMsgs := make([]llm.Message, 0, 1+keep+2)
-	if sysMsg != nil {
-		newMsgs = append(newMsgs, *sysMsg)
-	}
+	newMsgs := make([]llm.Message, 0, len(prefix)+keep+2)
+	newMsgs = append(newMsgs, prefix...)
 	newMsgs = append(newMsgs, summary)
 	newMsgs = append(newMsgs, recent...)
 
@@ -248,4 +249,4 @@ func (e *Engine) buildSummarizedMessages(
 	return newMsgs
 }
 
-// augmentWithMemory appends evolving memory context to the system prompt (ExpRAG or ExpRecent).
+// augmentWithMemory appends evolving memory context to the current request (ExpRAG or ExpRecent).

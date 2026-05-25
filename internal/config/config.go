@@ -86,6 +86,8 @@ type Config struct {
 	MaxDiscoveredTools int `yaml:"maxDiscoveredTools" json:"maxDiscoveredTools"`
 	// Embedding configures the embedding service endpoint for text embeddings.
 	Embedding EmbeddingConfig `yaml:"embedding" json:"embedding"`
+	// Reranking configures the optional external reranking service for RAG retrieval.
+	Reranking RerankingConfig `yaml:"reranking" json:"reranking"`
 	// ImageTool configures defaults for the describe_image tool.
 	ImageTool ImageToolConfig `yaml:"imageTool" json:"imageTool"`
 	// EvolvingMemory configures the Search-Synthesis-Evolve memory system.
@@ -606,6 +608,19 @@ type EmbeddingConfig struct {
 	Path         string                     `yaml:"path" json:"path"`           // default: /v1/embeddings
 	Timeout      int                        `yaml:"timeoutSeconds" json:"timeoutSeconds"`
 	Instructions EmbeddingInstructionConfig `yaml:"instructions" json:"instructions"`
+}
+
+// RerankingConfig configures the optional reranking service endpoint.
+type RerankingConfig struct {
+	Enabled     bool              `yaml:"enabled" json:"enabled"`
+	BaseURL     string            `yaml:"baseURL" json:"baseURL"`
+	Model       string            `yaml:"model" json:"model"`
+	Instruction string            `yaml:"instruction" json:"instruction"` // optional query-side instruction
+	APIKey      string            `yaml:"apiKey" json:"apiKey"`
+	APIHeader   string            `yaml:"apiHeader" json:"apiHeader"` // e.g., "Authorization"
+	Headers     map[string]string `yaml:"headers" json:"headers"`     // optional additional headers
+	Path        string            `yaml:"path" json:"path"`           // default: /v1/rerank
+	Timeout     int               `yaml:"timeoutSeconds" json:"timeoutSeconds"`
 }
 
 // EmbeddingInstructionConfig configures query-side embedding instructions.

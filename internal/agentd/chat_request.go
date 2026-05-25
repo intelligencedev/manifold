@@ -15,33 +15,39 @@ import (
 )
 
 type chatRunRequest struct {
-	Prompt             string `json:"prompt"`
-	SessionID          string `json:"session_id,omitempty"`
-	AssistantMessageID string `json:"assistant_message_id,omitempty"`
-	EphemeralSession   bool   `json:"ephemeral_session,omitempty"`
-	ProjectID          string `json:"project_id,omitempty"`
-	ObjectiveID        string `json:"objective_id,omitempty"`
-	RoomID             string `json:"room_id,omitempty"`
-	RouteTarget        string `json:"route_target,omitempty"`
-	SystemPrompt       string `json:"system_prompt,omitempty"`
-	Image              bool   `json:"image,omitempty"`
-	ImageSize          string `json:"image_size,omitempty"`
+	Prompt                 string `json:"prompt"`
+	SessionID              string `json:"session_id,omitempty"`
+	AssistantMessageID     string `json:"assistant_message_id,omitempty"`
+	EphemeralSession       bool   `json:"ephemeral_session,omitempty"`
+	ProjectID              string `json:"project_id,omitempty"`
+	ObjectiveID            string `json:"objective_id,omitempty"`
+	RoomID                 string `json:"room_id,omitempty"`
+	RouteTarget            string `json:"route_target,omitempty"`
+	SystemPrompt           string `json:"system_prompt,omitempty"`
+	Image                  bool   `json:"image,omitempty"`
+	ImageSize              string `json:"image_size,omitempty"`
+	EvolvingMemoryEnabled  *bool  `json:"evolving_memory_enabled,omitempty"`
+	BeliefMemoryEnabled    *bool  `json:"belief_memory_enabled,omitempty"`
 }
 
 func (req *chatRunRequest) UnmarshalJSON(data []byte) error {
 	type rawChatRunRequest struct {
-		Prompt             string `json:"prompt"`
-		SessionID          string `json:"session_id,omitempty"`
-		AssistantMessageID string `json:"assistant_message_id,omitempty"`
-		EphemeralSession   bool   `json:"ephemeral_session,omitempty"`
-		ProjectID          string `json:"project_id,omitempty"`
-		ObjectiveID        string `json:"objective_id,omitempty"`
-		RoomID             string `json:"room_id,omitempty"`
-		RouteTarget        string `json:"route_target,omitempty"`
-		BotID              string `json:"bot_id,omitempty"`
-		SystemPrompt       string `json:"system_prompt,omitempty"`
-		Image              bool   `json:"image,omitempty"`
-		ImageSize          string `json:"image_size,omitempty"`
+		Prompt                       string `json:"prompt"`
+		SessionID                    string `json:"session_id,omitempty"`
+		AssistantMessageID           string `json:"assistant_message_id,omitempty"`
+		EphemeralSession             bool   `json:"ephemeral_session,omitempty"`
+		ProjectID                    string `json:"project_id,omitempty"`
+		ObjectiveID                  string `json:"objective_id,omitempty"`
+		RoomID                       string `json:"room_id,omitempty"`
+		RouteTarget                  string `json:"route_target,omitempty"`
+		BotID                        string `json:"bot_id,omitempty"`
+		SystemPrompt                 string `json:"system_prompt,omitempty"`
+		Image                        bool   `json:"image,omitempty"`
+		ImageSize                    string `json:"image_size,omitempty"`
+		EvolvingMemoryEnabled        *bool  `json:"evolvingMemoryEnabled,omitempty"`
+		LegacyEvolvingMemoryEnabled  *bool  `json:"evolving_memory_enabled,omitempty"`
+		BeliefMemoryEnabled          *bool  `json:"beliefMemoryEnabled,omitempty"`
+		LegacyBeliefMemoryEnabled    *bool  `json:"belief_memory_enabled,omitempty"`
 	}
 	var decoded rawChatRunRequest
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -61,6 +67,14 @@ func (req *chatRunRequest) UnmarshalJSON(data []byte) error {
 	req.SystemPrompt = decoded.SystemPrompt
 	req.Image = decoded.Image
 	req.ImageSize = decoded.ImageSize
+	req.EvolvingMemoryEnabled = decoded.EvolvingMemoryEnabled
+	if req.EvolvingMemoryEnabled == nil {
+		req.EvolvingMemoryEnabled = decoded.LegacyEvolvingMemoryEnabled
+	}
+	req.BeliefMemoryEnabled = decoded.BeliefMemoryEnabled
+	if req.BeliefMemoryEnabled == nil {
+		req.BeliefMemoryEnabled = decoded.LegacyBeliefMemoryEnabled
+	}
 	return nil
 }
 

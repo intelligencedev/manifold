@@ -77,6 +77,8 @@ export interface ChatSessionMeta {
   messageCount?: number;
   model?: string;
   projectId?: string;
+  evolvingMemoryEnabled?: boolean;
+  beliefMemoryEnabled?: boolean;
 }
 
 export interface AgentTraceEntry {

@@ -79,6 +79,33 @@ func (a *app) prepareChatHandlerState(w http.ResponseWriter, r *http.Request, re
 		req.ProjectID = sess.ProjectID
 	}
 
+	sessionMemorySettings := chatMemorySettingsFromSession(sess)
+	runMemorySettings := sessionMemorySettings
+	memorySettingsChanged := false
+	if req.EvolvingMemoryEnabled != nil {
+		runMemorySettings.EvolvingMemoryEnabled = *req.EvolvingMemoryEnabled
+		memorySettingsChanged = true
+	}
+	if req.BeliefMemoryEnabled != nil {
+		runMemorySettings.BeliefMemoryEnabled = *req.BeliefMemoryEnabled
+		memorySettingsChanged = true
+	}
+	if memorySettingsChanged && runMemorySettings != sessionMemorySettings {
+		updated, err := a.chatStore.SetSessionMemorySettings(r.Context(), userID, req.SessionID, runMemorySettings.EvolvingMemoryEnabled, runMemorySettings.BeliefMemoryEnabled)
+		if err != nil {
+			if err == persist.ErrForbidden {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return nil, false
+			}
+			log.Error().Err(err).Str("session", req.SessionID).Msg("set_chat_session_memory_settings")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return nil, false
+		}
+		runMemorySettings = chatMemorySettingsFromSession(updated)
+	}
+	req.EvolvingMemoryEnabled = boolPtr(runMemorySettings.EvolvingMemoryEnabled)
+	req.BeliefMemoryEnabled = boolPtr(runMemorySettings.BeliefMemoryEnabled)
+
 	r, checkedOutWorkspace, statusCode, err := a.prepareChatRunRequest(r, userID, req)
 	if err != nil {
 		switch statusCode {

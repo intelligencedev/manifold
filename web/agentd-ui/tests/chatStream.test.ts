@@ -80,4 +80,29 @@ describe("streamAgentRun", () => {
 
     expect(received).toEqual([{ type: "final", data: "done" }]);
   });
+
+  it("includes memory settings in the run payload", async () => {
+    const response = new Response(JSON.stringify({ result: "done" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+    const fetchMock = vi.fn().mockResolvedValue(response);
+
+    await streamAgentRun({
+      prompt: "hello",
+      sessionId: "abc",
+      evolvingMemoryEnabled: false,
+      beliefMemoryEnabled: true,
+      onEvent: () => {},
+      fetchImpl: fetchMock,
+    });
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      prompt: "hello",
+      session_id: "abc",
+      evolving_memory_enabled: false,
+      belief_memory_enabled: true,
+    });
+  });
 });

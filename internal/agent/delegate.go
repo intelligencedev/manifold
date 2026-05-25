@@ -34,19 +34,21 @@ type AgentTracer interface {
 
 // DelegateRequest describes a delegated agent invocation.
 type DelegateRequest struct {
-	AgentName      string
-	Prompt         string
-	History        []llm.Message
-	EnableTools    *bool
-	MaxSteps       int
-	TimeoutSeconds int
-	ProjectID      string
-	ObjectiveID    string
-	SessionID      string
-	UserID         int64
-	CallID         string
-	ParentCallID   string
-	Depth          int
+	AgentName             string
+	Prompt                string
+	History               []llm.Message
+	EnableTools           *bool
+	MaxSteps              int
+	TimeoutSeconds        int
+	ProjectID             string
+	ObjectiveID           string
+	SessionID             string
+	UserID                int64
+	CallID                string
+	ParentCallID          string
+	Depth                 int
+	DisableEvolvingMemory bool
+	DisableBeliefMemory   bool
 }
 
 // Delegator executes delegated agent runs, optionally streaming trace events
@@ -58,18 +60,20 @@ type Delegator interface {
 
 // TeamDelegateRequest describes a delegated team invocation.
 type TeamDelegateRequest struct {
-	TeamName       string
-	Prompt         string
-	History        []llm.Message
-	TimeoutSeconds int
-	TimeoutMS      int
-	ProjectID      string
-	ObjectiveID    string
-	SessionID      string
-	UserID         int64
-	CallID         string
-	ParentCallID   string
-	Depth          int
+	TeamName              string
+	Prompt                string
+	History               []llm.Message
+	TimeoutSeconds        int
+	TimeoutMS             int
+	ProjectID             string
+	ObjectiveID           string
+	SessionID             string
+	UserID                int64
+	CallID                string
+	ParentCallID          string
+	Depth                 int
+	DisableEvolvingMemory bool
+	DisableBeliefMemory   bool
 }
 
 // TeamDelegator executes delegated team runs, optionally streaming trace events

@@ -214,15 +214,28 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 		BeliefPromotionThreshold:  d.beliefThreshold,
 		PolicyEnforcer:            d.policyEnforcer,
 		EvolvingMemory:            d.evolvingMemory,
+		DisableEvolvingMemory:     req.DisableEvolvingMemory,
+		DisableBeliefMemory:       req.DisableBeliefMemory,
 		Delegator:                 d,
 		TeamDelegator:             d.teamDelegator,
 		AgentTracer:               tracer,
 		AgentDepth:                req.Depth,
 	}
+	if req.DisableBeliefMemory {
+		eng.BeliefStore = nil
+		eng.BeliefDistiller = nil
+		eng.BeliefRetriever = nil
+		eng.BeliefGraph = nil
+		eng.PolicyEnforcer = nil
+	}
+	if req.DisableEvolvingMemory {
+		eng.EvolvingMemory = nil
+	}
 	if imageGeneration {
 		eng.System = ""
 		eng.UserPromptContext = ""
 		eng.EvolvingMemory = nil
+		eng.DisableEvolvingMemory = true
 		eng.Delegator = nil
 		eng.TeamDelegator = nil
 		eng.BeliefStore = nil
@@ -230,10 +243,11 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 		eng.BeliefRetriever = nil
 		eng.BeliefGraph = nil
 		eng.PolicyEnforcer = nil
+		eng.DisableBeliefMemory = true
 		eng.SummaryEnabled = false
 		eng.SkipInitialSummarization = true
 	}
-	if !imageGeneration && d.evolvingMemory != nil && d.reMemLLM != nil {
+	if !imageGeneration && !req.DisableEvolvingMemory && d.evolvingMemory != nil && d.reMemLLM != nil {
 		eng.ReMemEnabled = true
 		eng.ReMemController = memory.NewReMemController(memory.ReMemConfig{
 			LLM:           d.reMemLLM,

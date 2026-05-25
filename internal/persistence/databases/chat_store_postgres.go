@@ -40,7 +40,9 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     model TEXT NOT NULL DEFAULT '',
     summary TEXT NOT NULL DEFAULT '',
     summarized_count INTEGER NOT NULL DEFAULT 0,
-    project_id TEXT NOT NULL DEFAULT ''
+    project_id TEXT NOT NULL DEFAULT '',
+    evolving_memory_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    belief_memory_enabled BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 CREATE TABLE IF NOT EXISTS chat_messages (
@@ -67,6 +69,12 @@ ALTER TABLE chat_sessions
 
 ALTER TABLE chat_sessions
     ADD COLUMN IF NOT EXISTS project_id TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE chat_sessions
+    ADD COLUMN IF NOT EXISTS evolving_memory_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+
+ALTER TABLE chat_sessions
+    ADD COLUMN IF NOT EXISTS belief_memory_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 
 UPDATE chat_sessions
 SET kind = 'matrix'

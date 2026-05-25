@@ -211,10 +211,10 @@
                 </svg>
               </button>
             </span>
-            <div class="flex items-center gap-2 -mt-1.5">
-              <div class="flex flex-col items-start gap-1">
+            <div class="flex items-center gap-3" aria-label="Conversation settings">
+              <div class="flex items-center gap-1.5">
                 <span
-                  class="ml-1 text-[10px] font-medium leading-none text-faint-foreground"
+                  class="text-[11px] font-medium text-subtle-foreground"
                 >
                   Project
                 </span>
@@ -224,8 +224,68 @@
                   size="xs"
                   title="Project for this conversation"
                   aria-label="Project"
-                  class="min-w-[180px]"
+                  class="min-w-[160px]"
                 />
+              </div>
+              <span class="h-4 w-px bg-border/60" aria-hidden="true"></span>
+              <div
+                class="flex items-center gap-3"
+                aria-label="Memory controls"
+              >
+                <label
+                  class="inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium leading-none text-subtle-foreground"
+                  title="Enable evolving memory and ReMem for this conversation"
+                >
+                  <input
+                    type="checkbox"
+                    class="sr-only"
+                    :checked="evolvingMemoryEnabled"
+                    :disabled="!activeSessionId || isStreaming || activeMemorySettingsSaving"
+                    aria-label="Evolving memory"
+                    @change="setSessionMemorySetting('evolving', $event)"
+                  />
+                  <span
+                    class="relative h-4 w-7 rounded-full border transition-colors"
+                    :class="
+                      evolvingMemoryEnabled
+                        ? 'border-accent bg-accent'
+                        : 'border-border bg-surface'
+                    "
+                  >
+                    <span
+                      class="absolute top-0.5 h-2.5 w-2.5 rounded-full bg-background shadow-1 transition-transform"
+                      :class="evolvingMemoryEnabled ? 'translate-x-3.5' : 'translate-x-0.5'"
+                    ></span>
+                  </span>
+                  <span>Memory</span>
+                </label>
+                <label
+                  class="inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium leading-none text-subtle-foreground"
+                  title="Enable belief memory for this conversation"
+                >
+                  <input
+                    type="checkbox"
+                    class="sr-only"
+                    :checked="beliefMemoryEnabled"
+                    :disabled="!activeSessionId || isStreaming || activeMemorySettingsSaving"
+                    aria-label="Belief memory"
+                    @change="setSessionMemorySetting('belief', $event)"
+                  />
+                  <span
+                    class="relative h-4 w-7 rounded-full border transition-colors"
+                    :class="
+                      beliefMemoryEnabled
+                        ? 'border-accent bg-accent'
+                        : 'border-border bg-surface'
+                    "
+                  >
+                    <span
+                      class="absolute top-0.5 h-2.5 w-2.5 rounded-full bg-background shadow-1 transition-transform"
+                      :class="beliefMemoryEnabled ? 'translate-x-3.5' : 'translate-x-0.5'"
+                    ></span>
+                  </span>
+                  <span>Beliefs</span>
+                </label>
               </div>
               <!-- Render mode dropdown retained for future use.
               <div class="flex flex-col items-start gap-1">
@@ -1820,6 +1880,17 @@ const activeMessages = computed(() => chat.activeMessages);
 const chatMessages = computed(() => chat.chatMessages);
 const toolMessages = computed(() => chat.toolMessages);
 const activeThoughtSummaries = computed(() => chat.activeThoughtSummaries);
+const memorySettingsSavingBySession = ref<Record<string, boolean>>({});
+const activeMemorySettingsSaving = computed(() => {
+  const sessionId = activeSessionId.value;
+  return Boolean(sessionId && memorySettingsSavingBySession.value[sessionId]);
+});
+const evolvingMemoryEnabled = computed(
+  () => activeSession.value?.evolvingMemoryEnabled ?? true,
+);
+const beliefMemoryEnabled = computed(
+  () => activeSession.value?.beliefMemoryEnabled ?? true,
+);
 const hasPendingInputRequest = computed(() =>
   activeMessages.value.some((message) =>
     (message.inputRequests || []).some((request) =>
@@ -3031,6 +3102,31 @@ function cancelRename() {
   renamingName.value = "";
 }
 
+async function setSessionMemorySetting(
+  target: "evolving" | "belief",
+  event: Event,
+) {
+  const sessionId = activeSessionId.value;
+  const checked = Boolean((event.target as HTMLInputElement | null)?.checked);
+  if (!sessionId || isStreaming.value) return;
+  memorySettingsSavingBySession.value = {
+    ...memorySettingsSavingBySession.value,
+    [sessionId]: true,
+  };
+  try {
+    await chat.updateSessionMemorySettings(sessionId, {
+      evolvingMemoryEnabled: target === "evolving" ? checked : undefined,
+      beliefMemoryEnabled: target === "belief" ? checked : undefined,
+    });
+  } catch (error) {
+    console.warn("Failed to persist chat memory settings:", error);
+  } finally {
+    const { [sessionId]: _removed, ...rest } =
+      memorySettingsSavingBySession.value;
+    memorySettingsSavingBySession.value = rest;
+  }
+}
+
 async function sendCurrentPrompt() {
   if (hasPendingInputRequest.value) return;
   await sendPrompt(draft.value);
@@ -3088,6 +3184,8 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
         routingSpecialist,
         teamName,
         projectId: projectId || undefined,
+        evolvingMemoryEnabled: evolvingMemoryEnabled.value,
+        beliefMemoryEnabled: beliefMemoryEnabled.value,
         image: imagePrompt.value,
         imageSize: "1K",
         agentName,
@@ -3127,6 +3225,8 @@ async function regenerateAssistant(message: ChatMessage) {
     routingSpecialist,
     teamName,
     projectId,
+    evolvingMemoryEnabled: evolvingMemoryEnabled.value,
+    beliefMemoryEnabled: beliefMemoryEnabled.value,
     agentName,
     agentModel,
     messageId: message.id,

@@ -264,19 +264,21 @@ func (e *Engine) runDelegatedAgent(ctx context.Context, tc llm.ToolCall) []byte 
 		callID = fmt.Sprintf("agent-%d", time.Now().UnixNano())
 	}
 	req := DelegateRequest{
-		AgentName:      strings.TrimSpace(args.AgentName),
-		Prompt:         args.Prompt,
-		History:        args.History,
-		EnableTools:    args.EnableTools,
-		MaxSteps:       args.MaxSteps,
-		TimeoutSeconds: args.TimeoutSeconds,
-		ProjectID:      projectID,
-		ObjectiveID:    strings.TrimSpace(e.ObjectiveID),
-		SessionID:      e.SessionID,
-		UserID:         userID,
-		CallID:         callID,
-		ParentCallID:   tc.ID,
-		Depth:          e.AgentDepth + 1,
+		AgentName:             strings.TrimSpace(args.AgentName),
+		Prompt:                args.Prompt,
+		History:               args.History,
+		EnableTools:           args.EnableTools,
+		MaxSteps:              args.MaxSteps,
+		TimeoutSeconds:        args.TimeoutSeconds,
+		ProjectID:             projectID,
+		ObjectiveID:           strings.TrimSpace(e.ObjectiveID),
+		SessionID:             e.SessionID,
+		UserID:                userID,
+		CallID:                callID,
+		ParentCallID:          tc.ID,
+		Depth:                 e.AgentDepth + 1,
+		DisableEvolvingMemory: e.DisableEvolvingMemory,
+		DisableBeliefMemory:   e.DisableBeliefMemory,
 	}
 	result, err := e.Delegator.Run(ctx, req, e.AgentTracer)
 	if err != nil {
@@ -335,18 +337,20 @@ func (e *Engine) runDelegatedTeam(ctx context.Context, tc llm.ToolCall) []byte {
 		callID = fmt.Sprintf("team-%d", time.Now().UnixNano())
 	}
 	req := TeamDelegateRequest{
-		TeamName:       teamName,
-		Prompt:         args.Prompt,
-		History:        args.History,
-		TimeoutSeconds: args.TimeoutSeconds,
-		TimeoutMS:      args.TimeoutMS,
-		ProjectID:      projectID,
-		ObjectiveID:    objectiveID,
-		SessionID:      sessionID,
-		UserID:         userID,
-		CallID:         callID,
-		ParentCallID:   tc.ID,
-		Depth:          e.AgentDepth + 1,
+		TeamName:              teamName,
+		Prompt:                args.Prompt,
+		History:               args.History,
+		TimeoutSeconds:        args.TimeoutSeconds,
+		TimeoutMS:             args.TimeoutMS,
+		ProjectID:             projectID,
+		ObjectiveID:           objectiveID,
+		SessionID:             sessionID,
+		UserID:                userID,
+		CallID:                callID,
+		ParentCallID:          tc.ID,
+		Depth:                 e.AgentDepth + 1,
+		DisableEvolvingMemory: e.DisableEvolvingMemory,
+		DisableBeliefMemory:   e.DisableBeliefMemory,
 	}
 	result, err := e.TeamDelegator.RunTeam(ctx, req, e.AgentTracer)
 	if err != nil {

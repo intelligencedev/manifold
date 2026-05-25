@@ -603,9 +603,13 @@ func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 		case http.MethodPatch:
 			defer r.Body.Close()
 			var body struct {
-				Name            *string `json:"name"`
-				ProjectID       *string `json:"projectId"`
-				LegacyProjectID *string `json:"project_id"`
+				Name                         *string `json:"name"`
+				ProjectID                    *string `json:"projectId"`
+				LegacyProjectID              *string `json:"project_id"`
+				EvolvingMemoryEnabled        *bool   `json:"evolvingMemoryEnabled"`
+				LegacyEvolvingMemoryEnabled  *bool   `json:"evolving_memory_enabled"`
+				BeliefMemoryEnabled          *bool   `json:"beliefMemoryEnabled"`
+				LegacyBeliefMemoryEnabled    *bool   `json:"belief_memory_enabled"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				http.Error(w, "bad request", http.StatusBadRequest)
@@ -615,7 +619,15 @@ func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 			if projectID == nil {
 				projectID = body.LegacyProjectID
 			}
-			if body.Name == nil && projectID == nil {
+			evolvingMemoryEnabled := body.EvolvingMemoryEnabled
+			if evolvingMemoryEnabled == nil {
+				evolvingMemoryEnabled = body.LegacyEvolvingMemoryEnabled
+			}
+			beliefMemoryEnabled := body.BeliefMemoryEnabled
+			if beliefMemoryEnabled == nil {
+				beliefMemoryEnabled = body.LegacyBeliefMemoryEnabled
+			}
+			if body.Name == nil && projectID == nil && evolvingMemoryEnabled == nil && beliefMemoryEnabled == nil {
 				http.Error(w, "bad request", http.StatusBadRequest)
 				return
 			}
@@ -662,6 +674,45 @@ func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 						return
 					}
 					log.Error().Err(err).Str("session", id).Str("project_id", cleanProjectID).Msg("set_chat_session_project")
+					http.Error(w, "internal server error", http.StatusInternalServerError)
+					return
+				}
+			}
+			if evolvingMemoryEnabled != nil || beliefMemoryEnabled != nil {
+				if sess.ID == "" {
+					sess, err = a.chatStore.GetSession(r.Context(), userID, id)
+					if err != nil {
+						if errors.Is(err, persist.ErrForbidden) {
+							http.Error(w, "forbidden", http.StatusForbidden)
+							return
+						}
+						if errors.Is(err, persist.ErrNotFound) {
+							http.NotFound(w, r)
+							return
+						}
+						log.Error().Err(err).Str("session", id).Msg("get_chat_session_for_memory_settings")
+						http.Error(w, "internal server error", http.StatusInternalServerError)
+						return
+					}
+				}
+				nextSettings := chatMemorySettingsFromSession(sess)
+				if evolvingMemoryEnabled != nil {
+					nextSettings.EvolvingMemoryEnabled = *evolvingMemoryEnabled
+				}
+				if beliefMemoryEnabled != nil {
+					nextSettings.BeliefMemoryEnabled = *beliefMemoryEnabled
+				}
+				sess, err = a.chatStore.SetSessionMemorySettings(r.Context(), userID, id, nextSettings.EvolvingMemoryEnabled, nextSettings.BeliefMemoryEnabled)
+				if err != nil {
+					if errors.Is(err, persist.ErrForbidden) {
+						http.Error(w, "forbidden", http.StatusForbidden)
+						return
+					}
+					if errors.Is(err, persist.ErrNotFound) {
+						http.NotFound(w, r)
+						return
+					}
+					log.Error().Err(err).Str("session", id).Msg("set_chat_session_memory_settings")
 					http.Error(w, "internal server error", http.StatusInternalServerError)
 					return
 				}
@@ -863,15 +914,16 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 		specOwner := state.Owner
 		req.ObjectiveID = a.resolveChatObjectiveID(r.Context(), specOwner, req)
 		r = r.WithContext(sandbox.WithObjectiveID(r.Context(), req.ObjectiveID))
+		memorySettings := chatMemorySettingsFromRunRequest(req)
 
 		target := resolveChatDispatchTarget(r.URL.Query())
-		_, hasCustomTarget := a.describeChatTarget(target, req.SessionID, req.ProjectID, req.ObjectiveID, req.SystemPrompt, specOwner)
+		_, hasCustomTarget := a.describeChatTarget(target, req.SessionID, req.ProjectID, req.ObjectiveID, req.SystemPrompt, specOwner, memorySettings)
 
 		if a.cfg.OpenAI.APIKey == "" && !hasCustomTarget {
 			a.handleDevMockChat(w, r, req.Prompt)
 			return
 		}
-		if handled := a.handleChatTarget(w, r, target, req.Prompt, req.SessionID, req.ProjectID, req.ObjectiveID, req.EphemeralSession, req.SystemPrompt, state.UserID, specOwner, a.agentRunOrchestratorDescriptor(r.Context(), specOwner, req, state.CheckedOutWorkspace)); handled {
+		if handled := a.handleChatTarget(w, r, target, req.Prompt, req.SessionID, req.ProjectID, req.ObjectiveID, req.EphemeralSession, req.SystemPrompt, state.UserID, specOwner, a.agentRunOrchestratorDescriptor(r.Context(), specOwner, req, state.CheckedOutWorkspace), memorySettings); handled {
 			return
 		}
 	}
@@ -911,15 +963,16 @@ func (a *app) promptHandler() http.HandlerFunc {
 		specOwner := state.Owner
 		req.ObjectiveID = a.resolveChatObjectiveID(r.Context(), specOwner, req)
 		r = r.WithContext(sandbox.WithObjectiveID(r.Context(), req.ObjectiveID))
+		memorySettings := chatMemorySettingsFromRunRequest(req)
 
 		target := resolveChatDispatchTarget(r.URL.Query())
-		_, hasCustomTarget := a.describeChatTarget(target, req.SessionID, req.ProjectID, req.ObjectiveID, req.SystemPrompt, specOwner)
+		_, hasCustomTarget := a.describeChatTarget(target, req.SessionID, req.ProjectID, req.ObjectiveID, req.SystemPrompt, specOwner, memorySettings)
 
 		if a.cfg.OpenAI.APIKey == "" && !hasCustomTarget {
 			a.handleDevMockChat(w, r, req.Prompt)
 			return
 		}
-		if handled := a.handleChatTarget(w, r, target, req.Prompt, req.SessionID, req.ProjectID, req.ObjectiveID, req.EphemeralSession, req.SystemPrompt, state.UserID, specOwner, a.promptOrchestratorDescriptor(r.Context(), specOwner, req, state.CheckedOutWorkspace)); handled {
+		if handled := a.handleChatTarget(w, r, target, req.Prompt, req.SessionID, req.ProjectID, req.ObjectiveID, req.EphemeralSession, req.SystemPrompt, state.UserID, specOwner, a.promptOrchestratorDescriptor(r.Context(), specOwner, req, state.CheckedOutWorkspace), memorySettings); handled {
 			return
 		}
 	}

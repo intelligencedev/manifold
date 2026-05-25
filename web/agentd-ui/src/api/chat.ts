@@ -87,6 +87,9 @@ export interface StreamAgentRunOptions {
   // Optional project context: when provided, backend will sandbox tools under
   // the user's project root and attach { project_id } in the JSON body.
   projectId?: string;
+  // Per-session memory controls. Evolving memory also controls ReMem.
+  evolvingMemoryEnabled?: boolean;
+  beliefMemoryEnabled?: boolean;
   // When true, request image output from providers that support it (e.g., Google Gemini).
   image?: boolean;
   imageSize?: string;
@@ -126,6 +129,20 @@ export async function updateChatSessionProject(
   const { data } = await apiClient.patch<ChatSessionMeta>(
     `/chat/sessions/${encodeURIComponent(id)}`,
     { projectId },
+  );
+  return data;
+}
+
+export async function updateChatSessionMemorySettings(
+  id: string,
+  settings: {
+    evolvingMemoryEnabled?: boolean;
+    beliefMemoryEnabled?: boolean;
+  },
+): Promise<ChatSessionMeta> {
+  const { data } = await apiClient.patch<ChatSessionMeta>(
+    `/chat/sessions/${encodeURIComponent(id)}`,
+    settings,
   );
   return data;
 }
@@ -225,12 +242,18 @@ export async function streamAgentRun(
     specialist,
     teamName,
     projectId,
+    evolvingMemoryEnabled,
+    beliefMemoryEnabled,
   } = options;
   const fetchFn = fetchImpl ?? fetch;
   const payload: Record<string, any> = { prompt, session_id: sessionId };
   if (assistantMessageId && assistantMessageId.trim())
     payload.assistant_message_id = assistantMessageId.trim();
   if (projectId && projectId.trim()) payload.project_id = projectId.trim();
+  if (typeof evolvingMemoryEnabled === "boolean")
+    payload.evolving_memory_enabled = evolvingMemoryEnabled;
+  if (typeof beliefMemoryEnabled === "boolean")
+    payload.belief_memory_enabled = beliefMemoryEnabled;
   if (options.image) payload.image = true;
   if (options.imageSize && options.imageSize.trim())
     payload.image_size = options.imageSize.trim();

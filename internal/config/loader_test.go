@@ -176,6 +176,17 @@ embedding:
     transitQuery: "Find relevant shared records."
   path: /v1/embeddings
   timeoutSeconds: 30
+reranking:
+  enabled: true
+  baseURL: http://localhost:8203
+  model: qwen3-reranker-0.6b
+  instruction: "Classify whether the document matches the query topic"
+  apiKey: "${EMBED_API_KEY}"
+  apiHeader: Authorization
+  headers:
+    X-Rerank-Trace: rerank123
+  path: /v1/rerank
+  timeoutSeconds: 15
 imageTool:
   baseURL: http://localhost:11434/v1
   model: llava:latest
@@ -267,6 +278,15 @@ tokenization:
 		cfg.Embedding.Instructions.EvolvingMemoryQuery != "Find relevant memories." ||
 		cfg.Embedding.Instructions.TransitQuery != "Find relevant shared records." {
 		t.Fatalf("unexpected embedding query instructions: %+v", cfg.Embedding.Instructions)
+	}
+	if !cfg.Reranking.Enabled || cfg.Reranking.BaseURL != "http://localhost:8203" || cfg.Reranking.Model != "qwen3-reranker-0.6b" {
+		t.Fatalf("unexpected reranking config: %+v", cfg.Reranking)
+	}
+	if cfg.Reranking.Instruction != "Classify whether the document matches the query topic" {
+		t.Fatalf("unexpected reranking instruction: %+v", cfg.Reranking)
+	}
+	if cfg.Reranking.APIKey != "embed-secret" || cfg.Reranking.Headers["X-Rerank-Trace"] != "rerank123" || cfg.Reranking.Timeout != 15 {
+		t.Fatalf("unexpected reranking auth config: %+v", cfg.Reranking)
 	}
 	if cfg.ImageTool.BaseURL != "http://localhost:11434/v1" || cfg.ImageTool.Model != "llava:latest" {
 		t.Fatalf("unexpected image tool config: %+v", cfg.ImageTool)
@@ -465,6 +485,12 @@ llm_client:
 	}
 	if cfg.Embedding.Instructions.Mode != "auto" || cfg.Embedding.Instructions.Format != "qwen" {
 		t.Fatalf("unexpected default embedding instructions: %+v", cfg.Embedding.Instructions)
+	}
+	if cfg.Reranking.Enabled || cfg.Reranking.Path != "/v1/rerank" || cfg.Reranking.Timeout != 30 || cfg.Reranking.APIHeader != "Authorization" {
+		t.Fatalf("unexpected default reranking config: %+v", cfg.Reranking)
+	}
+	if cfg.Reranking.Instruction != "" {
+		t.Fatalf("expected empty default reranking instruction, got %q", cfg.Reranking.Instruction)
 	}
 	if cfg.Harness.Enabled {
 		t.Fatalf("expected harness to default disabled")

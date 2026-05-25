@@ -34,6 +34,15 @@ func currentAgentdSettings(cfg *config.Config) agentdSettings {
 		EmbedEvolvingMemoryQueryInstruction: cfg.Embedding.Instructions.EvolvingMemoryQuery,
 		EmbedTransitQueryInstruction:        cfg.Embedding.Instructions.TransitQuery,
 
+		RerankEnabled:     cfg.Reranking.Enabled,
+		RerankBaseURL:     cfg.Reranking.BaseURL,
+		RerankModel:       cfg.Reranking.Model,
+		RerankInstruction: cfg.Reranking.Instruction,
+		RerankAPIKey:      cfg.Reranking.APIKey,
+		RerankAPIHeader:   cfg.Reranking.APIHeader,
+		RerankAPIHeaders:  cfg.Reranking.Headers,
+		RerankPath:        cfg.Reranking.Path,
+
 		AgentRunTimeoutSeconds:  cfg.AgentRunTimeoutSeconds,
 		StreamRunTimeoutSeconds: cfg.StreamRunTimeoutSeconds,
 		WorkflowTimeoutSeconds:  cfg.WorkflowTimeoutSeconds,
@@ -99,6 +108,12 @@ func normalizeAgentdSettings(settings agentdSettings) agentdSettings {
 	} else {
 		settings.EmbedInstructionFormat = strings.ToLower(strings.TrimSpace(settings.EmbedInstructionFormat))
 	}
+	if strings.TrimSpace(settings.RerankAPIHeader) == "" {
+		settings.RerankAPIHeader = "Authorization"
+	}
+	if strings.TrimSpace(settings.RerankPath) == "" {
+		settings.RerankPath = "/v1/rerank"
+	}
 
 	return settings
 }
@@ -119,6 +134,9 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	settings = normalizeAgentdSettings(settings)
 	if err := validateEmbeddingInstructionSettings(settings); err != nil {
 		return err
+	}
+	if settings.RerankEnabled && strings.TrimSpace(settings.RerankBaseURL) == "" {
+		return fmt.Errorf("rerankBaseUrl is required when rerankEnabled is true")
 	}
 
 	if settings.SummaryProvider != "" {
@@ -173,6 +191,27 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	cfg.Embedding.Instructions.RAGQuery = settings.EmbedRAGQueryInstruction
 	cfg.Embedding.Instructions.EvolvingMemoryQuery = settings.EmbedEvolvingMemoryQueryInstruction
 	cfg.Embedding.Instructions.TransitQuery = settings.EmbedTransitQueryInstruction
+
+	cfg.Reranking.Enabled = settings.RerankEnabled
+	if settings.RerankBaseURL != "" {
+		cfg.Reranking.BaseURL = settings.RerankBaseURL
+	}
+	if settings.RerankModel != "" {
+		cfg.Reranking.Model = settings.RerankModel
+	}
+	cfg.Reranking.Instruction = settings.RerankInstruction
+	if settings.RerankAPIKey != "" {
+		cfg.Reranking.APIKey = settings.RerankAPIKey
+	}
+	if settings.RerankAPIHeader != "" {
+		cfg.Reranking.APIHeader = settings.RerankAPIHeader
+	}
+	if settings.RerankAPIHeaders != nil {
+		cfg.Reranking.Headers = settings.RerankAPIHeaders
+	}
+	if settings.RerankPath != "" {
+		cfg.Reranking.Path = settings.RerankPath
+	}
 
 	if settings.AgentRunTimeoutSeconds != 0 {
 		cfg.AgentRunTimeoutSeconds = settings.AgentRunTimeoutSeconds
@@ -347,6 +386,27 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	setNestedMapValue(root, []string{"embedding", "instructions", "ragQuery"}, settings.EmbedRAGQueryInstruction)
 	setNestedMapValue(root, []string{"embedding", "instructions", "evolvingMemoryQuery"}, settings.EmbedEvolvingMemoryQueryInstruction)
 	setNestedMapValue(root, []string{"embedding", "instructions", "transitQuery"}, settings.EmbedTransitQueryInstruction)
+
+	setNestedMapValue(root, []string{"reranking", "enabled"}, settings.RerankEnabled)
+	if settings.RerankBaseURL != "" {
+		setNestedMapValue(root, []string{"reranking", "baseURL"}, settings.RerankBaseURL)
+	}
+	if settings.RerankModel != "" {
+		setNestedMapValue(root, []string{"reranking", "model"}, settings.RerankModel)
+	}
+	setNestedMapValue(root, []string{"reranking", "instruction"}, settings.RerankInstruction)
+	if settings.RerankAPIKey != "" {
+		setNestedMapValue(root, []string{"reranking", "apiKey"}, settings.RerankAPIKey)
+	}
+	if settings.RerankAPIHeader != "" {
+		setNestedMapValue(root, []string{"reranking", "apiHeader"}, settings.RerankAPIHeader)
+	}
+	if settings.RerankPath != "" {
+		setNestedMapValue(root, []string{"reranking", "path"}, settings.RerankPath)
+	}
+	if len(settings.RerankAPIHeaders) > 0 {
+		setNestedMapValue(root, []string{"reranking", "headers"}, settings.RerankAPIHeaders)
+	}
 
 	if settings.AgentRunTimeoutSeconds != 0 {
 		setNestedMapValue(root, []string{"agentRunTimeoutSeconds"}, settings.AgentRunTimeoutSeconds)

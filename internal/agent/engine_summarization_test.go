@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"manifold/internal/llm"
@@ -82,6 +83,52 @@ func TestMaybeSummarizeKeepsLatestUserInRecentTail(t *testing.T) {
 	}
 	if summarized[latestUserIdx+1].Role != "assistant" || summarized[latestUserIdx+2].Role != "tool" {
 		t.Fatalf("expected assistant/tool to follow latest user, got %#v", summarized)
+	}
+}
+
+func TestMaybeSummarizeKeepsRuntimeContextWithCurrentRequest(t *testing.T) {
+	t.Parallel()
+
+	eng := &Engine{
+		LLM:                             &summaryOnlyProvider{},
+		SummaryEnabled:                  true,
+		ContextWindowTokens:             120,
+		SummaryReserveBufferTokens:      40,
+		SummaryMinKeepLastMessages:      2,
+		SummaryMaxSummaryChunkTokens:    256,
+		TokenizationFallbackToHeuristic: true,
+	}
+
+	msgs := []llm.Message{
+		{Role: "system", Content: "static system"},
+		{Role: "user", Content: historyContextPrefix + "Older request " + strings.Repeat("x", 300)},
+		{Role: "assistant", Content: "Older answer " + strings.Repeat("y", 300)},
+		{Role: "user", Content: currentRequestPrefix + "Current request"},
+		{Role: "assistant", Content: "Using a tool", ToolCalls: []llm.ToolCall{{Name: "lookup", ID: "call_1"}}},
+		{Role: "tool", ToolID: "call_1", Content: "tool result"},
+	}
+	msgs = AddRuntimeContextToCurrentUserMessage(msgs, "runtime memory")
+
+	summarized := eng.maybeSummarize(context.Background(), msgs)
+
+	if len(summarized) < 5 {
+		t.Fatalf("expected summarized messages, got %#v", summarized)
+	}
+	if summarized[0].Role != "system" || summarized[0].Content != "static system" {
+		t.Fatalf("expected static system first, got %#v", summarized[0])
+	}
+	if summarized[1].Role != "assistant" || !strings.HasPrefix(summarized[1].Content, "[SUMMARY]") {
+		t.Fatalf("expected generated summary after static system, got %#v", summarized[1])
+	}
+	var current llm.Message
+	for _, msg := range summarized {
+		if IsRuntimeContextMessage(msg) && strings.Contains(msg.Content, "Current request") {
+			current = msg
+			break
+		}
+	}
+	if current.Role != "user" || !strings.Contains(current.Content, "runtime memory") {
+		t.Fatalf("expected runtime context preserved on current request, got %#v", summarized)
 	}
 }
 

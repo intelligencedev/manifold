@@ -509,6 +509,105 @@
             </div>
           </div>
         </fieldset>
+        <fieldset class="space-y-4">
+          <legend class="text-sm font-semibold text-foreground">
+            Reranking Provider
+          </legend>
+          <div class="grid gap-4 grid-cols-3">
+            <label class="col-span-3 flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                v-model="agentdSettings.rerankEnabled"
+                class="h-4 w-4 rounded border-border text-accent"
+              />
+              <span>Enabled</span>
+            </label>
+            <div class="space-y-1 col-span-3">
+              <label
+                for="rerank-base"
+                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                >Base URL</label
+              >
+              <input
+                id="rerank-base"
+                type="url"
+                v-model="agentdSettings.rerankBaseUrl"
+                placeholder="http://localhost:8203"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              />
+            </div>
+            <div class="space-y-1">
+              <label
+                for="rerank-model"
+                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                >Model</label
+              >
+              <input
+                id="rerank-model"
+                type="text"
+                v-model="agentdSettings.rerankModel"
+                placeholder="qwen3-reranker-0.6b"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              />
+            </div>
+            <div class="space-y-1">
+              <label
+                for="rerank-path"
+                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                >Path</label
+              >
+              <input
+                id="rerank-path"
+                type="text"
+                v-model="agentdSettings.rerankPath"
+                placeholder="/v1/rerank"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              />
+            </div>
+            <div class="space-y-1">
+              <label
+                for="rerank-header"
+                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                >API Header</label
+              >
+              <input
+                id="rerank-header"
+                type="text"
+                v-model="agentdSettings.rerankApiHeader"
+                placeholder="Authorization"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              />
+            </div>
+            <div class="space-y-1 col-span-3">
+              <label
+                for="rerank-key"
+                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                >API Key</label
+              >
+              <input
+                id="rerank-key"
+                type="password"
+                autocomplete="off"
+                v-model="agentdSettings.rerankApiKey"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              />
+            </div>
+            <div class="space-y-1 col-span-3">
+              <label
+                for="rerank-instruction"
+                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                >Instruction</label
+              >
+              <textarea
+                id="rerank-instruction"
+                v-model="agentdSettings.rerankInstruction"
+                rows="2"
+                placeholder="Classify whether the document matches the query topic"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              ></textarea>
+            </div>
+          </div>
+        </fieldset>
       </template>
 
       <!-- Timeouts & Safety -->
@@ -1172,6 +1271,14 @@ const defaultAgentdSettings: AgentdSettings = {
   embedRagQueryInstruction: "",
   embedEvolvingMemoryQueryInstruction: "",
   embedTransitQueryInstruction: "",
+  rerankEnabled: false,
+  rerankBaseUrl: "http://localhost:8203",
+  rerankModel: "qwen3-reranker-0.6b",
+  rerankInstruction: "Classify whether the document matches the query topic",
+  rerankApiKey: "",
+  rerankApiHeader: "Authorization",
+  rerankApiHeaders: {},
+  rerankPath: "/v1/rerank",
   agentRunTimeoutSeconds: 0,
   streamRunTimeoutSeconds: 0,
   workflowTimeoutSeconds: 0,
@@ -1269,7 +1376,11 @@ type NumericSettingKey =
   | "outputTruncateBytes"
   | "vectorDimensions";
 
-type BooleanSettingKey = "summaryEnabled" | "logPayloads" | "logRawPrompts";
+type BooleanSettingKey =
+  | "summaryEnabled"
+  | "rerankEnabled"
+  | "logPayloads"
+  | "logRawPrompts";
 
 const numericSettingKeys: NumericSettingKey[] = [
   "summaryPlainTextContextWindowTokens",
@@ -1283,6 +1394,7 @@ const numericSettingKeys: NumericSettingKey[] = [
 ];
 const booleanSettingKeys: BooleanSettingKey[] = [
   "summaryEnabled",
+  "rerankEnabled",
   "logPayloads",
   "logRawPrompts",
 ];

@@ -596,6 +596,15 @@ export interface AgentdSettings {
   embedEvolvingMemoryQueryInstruction: string;
   embedTransitQueryInstruction: string;
 
+  rerankEnabled: boolean;
+  rerankBaseUrl: string;
+  rerankModel: string;
+  rerankInstruction: string;
+  rerankApiKey: string;
+  rerankApiHeader: string;
+  rerankApiHeaders: Record<string, string>;
+  rerankPath: string;
+
   agentRunTimeoutSeconds: number;
   streamRunTimeoutSeconds: number;
   workflowTimeoutSeconds: number;

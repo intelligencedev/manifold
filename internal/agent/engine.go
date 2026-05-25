@@ -14,8 +14,8 @@ type Engine struct {
 	Tools    tools.Registry
 	MaxSteps int
 	System   string
-	// UserPromptContext is prepended to the current user prompt for dynamic
-	// runtime context that should not perturb provider system-prompt caches.
+	// UserPromptContext is inserted into the current user request as dynamic
+	// runtime context.
 	UserPromptContext string
 	Model             string // default model name to pass to provider (used for metrics)
 	SessionID         string
@@ -76,9 +76,11 @@ type Engine struct {
 	// conversation) in tokens.
 	SummaryMaxSummaryChunkTokens int
 	// Evolving memory configuration (Search → Synthesis → Evolve)
-	EvolvingMemory  *memory.EvolvingMemory  // nil = disabled
-	ReMemEnabled    bool                    // enable Think-Act-Refine mode
-	ReMemController *memory.ReMemController // nil unless ReMemEnabled
+	EvolvingMemory        *memory.EvolvingMemory  // nil = disabled
+	ReMemEnabled          bool                    // enable Think-Act-Refine mode
+	ReMemController       *memory.ReMemController // nil unless ReMemEnabled
+	DisableEvolvingMemory bool                    // per-run override; also disables ReMem
+	DisableBeliefMemory   bool                    // per-run override for belief retrieval, distillation, and policy context
 	// OnAssistant, if set, is called with each assistant message the provider
 	// returns (including those containing tool calls and the final answer).
 	OnAssistant func(llm.Message)

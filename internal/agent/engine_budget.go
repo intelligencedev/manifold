@@ -48,7 +48,7 @@ func (e *Engine) enforceContextBudget(ctx context.Context, msgs []llm.Message) [
 	}
 
 	before := budget.EstimateTokens(msgs)
-	out := budget.Fit(msgs, ctxSize, reserve, perMsgRunes)
+	out := budget.FitWithProtectedPrefix(msgs, cacheBoundaryPrefixEnd(msgs), ctxSize, reserve, perMsgRunes)
 	after := budget.EstimateTokens(out)
 
 	if after < before {

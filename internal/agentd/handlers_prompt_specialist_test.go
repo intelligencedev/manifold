@@ -54,7 +54,7 @@ func (s *promptHandlerChatStore) EnsureSessionKind(_ context.Context, userID *in
 	if strings.TrimSpace(kind) == "" {
 		kind = persistence.ChatSessionKindChat
 	}
-	sess := persistence.ChatSession{ID: id, Name: name, Kind: kind, UserID: userID, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	sess := persistence.ChatSession{ID: id, Name: name, Kind: kind, UserID: userID, CreatedAt: time.Now(), UpdatedAt: time.Now(), EvolvingMemoryEnabled: true, BeliefMemoryEnabled: true}
 	s.sessions[id] = sess
 	s.messages[id] = nil
 	return sess, nil
@@ -119,6 +119,19 @@ func (s *promptHandlerChatStore) SetSessionProject(_ context.Context, _ *int64, 
 		return persistence.ChatSession{}, persistence.ErrNotFound
 	}
 	sess.ProjectID = strings.TrimSpace(projectID)
+	s.sessions[id] = sess
+	return sess, nil
+}
+
+func (s *promptHandlerChatStore) SetSessionMemorySettings(_ context.Context, _ *int64, id string, evolvingMemoryEnabled bool, beliefMemoryEnabled bool) (persistence.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[id]
+	if !ok {
+		return persistence.ChatSession{}, persistence.ErrNotFound
+	}
+	sess.EvolvingMemoryEnabled = evolvingMemoryEnabled
+	sess.BeliefMemoryEnabled = beliefMemoryEnabled
 	s.sessions[id] = sess
 	return sess, nil
 }

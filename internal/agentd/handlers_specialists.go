@@ -465,8 +465,3 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 		Msg("tool_registry_contents_updated")
 	return nil
 }
-
-func boolPtr(value bool) *bool {
-	v := value
-	return &v
-}

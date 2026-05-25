@@ -33,7 +33,11 @@ func (a *app) RunTeam(ctx context.Context, req agent.TeamDelegateRequest, tracer
 		return "", fmt.Errorf("prompt is required")
 	}
 
-	build := a.buildTeamChatEngine(ctx, teamName, req.SessionID, req.ProjectID, req.ObjectiveID, req.UserID)
+	settings := chatMemoryRunSettings{
+		EvolvingMemoryEnabled: !req.DisableEvolvingMemory,
+		BeliefMemoryEnabled:   !req.DisableBeliefMemory,
+	}
+	build := a.buildTeamChatEngine(ctx, teamName, req.SessionID, req.ProjectID, req.ObjectiveID, req.UserID, settings)
 	if build.Err != nil {
 		return "", build.Err
 	}

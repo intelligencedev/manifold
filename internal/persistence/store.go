@@ -228,17 +228,19 @@ const (
 
 // ChatSession represents a persisted conversation with metadata for display.
 type ChatSession struct {
-	ID                 string    `json:"id"`
-	Name               string    `json:"name"`
-	Kind               string    `json:"kind"`
-	UserID             *int64    `json:"userId,omitempty"`
-	CreatedAt          time.Time `json:"createdAt"`
-	UpdatedAt          time.Time `json:"updatedAt"`
-	LastMessagePreview string    `json:"lastMessagePreview"`
-	Model              string    `json:"model"`
-	Summary            string    `json:"summary"`
-	SummarizedCount    int       `json:"summarizedCount"`
-	ProjectID          string    `json:"projectId,omitempty"`
+	ID                    string    `json:"id"`
+	Name                  string    `json:"name"`
+	Kind                  string    `json:"kind"`
+	UserID                *int64    `json:"userId,omitempty"`
+	CreatedAt             time.Time `json:"createdAt"`
+	UpdatedAt             time.Time `json:"updatedAt"`
+	LastMessagePreview    string    `json:"lastMessagePreview"`
+	Model                 string    `json:"model"`
+	Summary               string    `json:"summary"`
+	SummarizedCount       int       `json:"summarizedCount"`
+	ProjectID             string    `json:"projectId,omitempty"`
+	EvolvingMemoryEnabled bool      `json:"evolvingMemoryEnabled"`
+	BeliefMemoryEnabled   bool      `json:"beliefMemoryEnabled"`
 }
 
 // ChatMessage is a single turn within a chat session.
@@ -266,6 +268,7 @@ type ChatStore interface {
 	CreateSessionKind(ctx context.Context, userID *int64, name string, kind string) (ChatSession, error)
 	RenameSession(ctx context.Context, userID *int64, id, name string) (ChatSession, error)
 	SetSessionProject(ctx context.Context, userID *int64, id, projectID string) (ChatSession, error)
+	SetSessionMemorySettings(ctx context.Context, userID *int64, id string, evolvingMemoryEnabled bool, beliefMemoryEnabled bool) (ChatSession, error)
 	DeleteSession(ctx context.Context, userID *int64, id string) error
 	ListMessages(ctx context.Context, userID *int64, sessionID string, limit int) ([]ChatMessage, error)
 	DeleteMessage(ctx context.Context, userID *int64, sessionID string, messageID string) error

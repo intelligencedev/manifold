@@ -41,6 +41,7 @@ import (
 	"manifold/internal/playground/worker"
 	"manifold/internal/projects"
 	"manifold/internal/rag/embedder"
+	ragreranker "manifold/internal/rag/reranker"
 	ragservice "manifold/internal/rag/service"
 	"manifold/internal/skills"
 	"manifold/internal/specialists"
@@ -148,10 +149,21 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	if err := emb.Ping(ctx); err != nil {
 		return nil, fmt.Errorf("embedding service reachability check failed: %w", err)
 	}
-	toolRegistry.Register(ragtool.NewIngestTool(mgr, ragservice.WithEmbedder(emb), ragservice.WithEmbeddingConfig(cfg.Embedding)))
-	toolRegistry.Register(ragtool.NewRetrieveTool(mgr, ragservice.WithEmbedder(emb), ragservice.WithEmbeddingConfig(cfg.Embedding)))
+	ragOpts := []ragservice.Option{
+		ragservice.WithEmbedder(emb),
+		ragservice.WithEmbeddingConfig(cfg.Embedding),
+	}
+	if cfg.Reranking.Enabled {
+		rr := ragreranker.NewClient(cfg.Reranking)
+		if err := rr.Ping(ctx); err != nil {
+			return nil, err
+		}
+		ragOpts = append(ragOpts, ragservice.WithReranker(rr))
+	}
+	toolRegistry.Register(ragtool.NewIngestTool(mgr, ragOpts...))
+	toolRegistry.Register(ragtool.NewRetrieveTool(mgr, ragOpts...))
 	// Reuse a single shared RAG service for runtime use (belief router, etc.).
-	runtimeRAGService := ragservice.New(mgr, ragservice.WithEmbedder(emb), ragservice.WithEmbeddingConfig(cfg.Embedding))
+	runtimeRAGService := ragservice.New(mgr, ragOpts...)
 
 	// Register the AlphaEvolve-inspired code evolution tool.
 	toolRegistry.Register(codeevolvetool.New(cfg, llm))

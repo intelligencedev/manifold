@@ -5,6 +5,21 @@ import type { StreamAgentRunOptions } from "@/api/chat";
 
 const chatApiMocks = vi.hoisted(() => ({
   streamAgentRun: vi.fn(async (_options: StreamAgentRunOptions) => {}),
+  updateChatSessionMemorySettings: vi.fn(
+    async (
+      id: string,
+      settings: {
+        evolvingMemoryEnabled?: boolean;
+        beliefMemoryEnabled?: boolean;
+      },
+    ) => ({
+      id,
+      name: "Session",
+      projectId: "proj-1",
+      evolvingMemoryEnabled: settings.evolvingMemoryEnabled ?? true,
+      beliefMemoryEnabled: settings.beliefMemoryEnabled ?? true,
+    }),
+  ),
 }));
 
 vi.mock("@/api/client", () => ({
@@ -33,6 +48,8 @@ vi.mock("@/api/chat", () => ({
     id: "session-1",
     name: "Session",
     projectId: "proj-1",
+    evolvingMemoryEnabled: true,
+    beliefMemoryEnabled: true,
   }),
   deleteChatSession: async () => {},
   renameChatSession: async () => {},
@@ -40,14 +57,25 @@ vi.mock("@/api/chat", () => ({
     id,
     name: "Session",
     projectId,
+    evolvingMemoryEnabled: true,
+    beliefMemoryEnabled: true,
   }),
-  generateChatSessionTitle: async () => "Session",
+  updateChatSessionMemorySettings:
+    chatApiMocks.updateChatSessionMemorySettings,
+  generateChatSessionTitle: async () => ({
+    id: "session-1",
+    name: "Session",
+    projectId: "proj-1",
+    evolvingMemoryEnabled: true,
+    beliefMemoryEnabled: true,
+  }),
   streamAgentRun: chatApiMocks.streamAgentRun,
   streamAgentVisionRun: vi.fn(async () => {}),
 }));
 
 beforeEach(() => {
   chatApiMocks.streamAgentRun.mockClear();
+  chatApiMocks.updateChatSessionMemorySettings.mockClear();
   vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
     if (String(input).includes("/api/me")) {
       return new Response(JSON.stringify({ name: "Test User" }), {
@@ -109,5 +137,40 @@ describe("ChatView", () => {
     expect(args?.specialist).toBe("orchestrator-max");
     expect(args?.projectId).toBe("proj-1");
     expect(args?.prompt).toBe("write a haiku");
+  });
+
+  it("sends the active session memory toggles with a run", async () => {
+    const { findByLabelText, findByPlaceholderText } = render(ChatView);
+
+    const input = (await findByPlaceholderText(
+      "Message the agent...",
+    )) as HTMLTextAreaElement;
+    const projectSelect = (await findByLabelText(
+      "Project",
+    )) as HTMLSelectElement;
+    await waitFor(() => {
+      expect(projectSelect.value).toBe("proj-1");
+    });
+
+    const memoryToggle = (await findByLabelText(
+      "Evolving memory",
+    )) as HTMLInputElement;
+    await fireEvent.click(memoryToggle);
+    await waitFor(() => {
+      expect(chatApiMocks.updateChatSessionMemorySettings).toHaveBeenCalledWith(
+        "session-1",
+        { evolvingMemoryEnabled: false, beliefMemoryEnabled: undefined },
+      );
+    });
+
+    await fireEvent.update(input, "remember less");
+    await fireEvent.submit(input.form as HTMLFormElement);
+
+    await waitFor(() => {
+      expect(chatApiMocks.streamAgentRun).toHaveBeenCalled();
+    });
+    const args = chatApiMocks.streamAgentRun.mock.calls.at(-1)?.[0];
+    expect(args?.evolvingMemoryEnabled).toBe(false);
+    expect(args?.beliefMemoryEnabled).toBe(true);
   });
 });

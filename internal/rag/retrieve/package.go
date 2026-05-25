@@ -30,10 +30,7 @@ func AssembleResults(ctx context.Context, g GraphFacade, rr Reranker, plan Query
 	}
 
 	// Reranking
-	if opt.Rerank {
-		if rr == nil {
-			rr = NoopReranker{}
-		}
+	if opt.Rerank && rr != nil {
 		t0 := time.Now()
 		out, err := rr.Rerank(ctx, plan.Query, items)
 		if err != nil {

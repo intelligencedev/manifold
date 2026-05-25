@@ -30,6 +30,15 @@ type agentdSettings struct {
 	EmbedEvolvingMemoryQueryInstruction string            `json:"embedEvolvingMemoryQueryInstruction"`
 	EmbedTransitQueryInstruction        string            `json:"embedTransitQueryInstruction"`
 
+	RerankEnabled     bool              `json:"rerankEnabled"`
+	RerankBaseURL     string            `json:"rerankBaseUrl"`
+	RerankModel       string            `json:"rerankModel"`
+	RerankInstruction string            `json:"rerankInstruction"`
+	RerankAPIKey      string            `json:"rerankApiKey"`
+	RerankAPIHeader   string            `json:"rerankApiHeader"`
+	RerankAPIHeaders  map[string]string `json:"rerankApiHeaders"`
+	RerankPath        string            `json:"rerankPath"`
+
 	AgentRunTimeoutSeconds  int `json:"agentRunTimeoutSeconds"`
 	StreamRunTimeoutSeconds int `json:"streamRunTimeoutSeconds"`
 	WorkflowTimeoutSeconds  int `json:"workflowTimeoutSeconds"`

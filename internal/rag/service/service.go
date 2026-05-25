@@ -38,7 +38,6 @@ func New(mgr databases.Manager, opts ...Option) *Service {
 		metrics: NoopMetrics{},
 		clock:   SystemClock{},
 		emb:     embedder.NewDeterministic(64, true, 0),
-		rerank:  retrieve.NoopReranker{},
 	}
 	for _, o := range opts {
 		o(s)
@@ -55,6 +54,12 @@ func WithEmbedder(e embedder.Embedder) Option { return func(s *Service) { s.emb 
 // WithEmbeddingConfig sets embedding configuration used for query instructions.
 func WithEmbeddingConfig(cfg config.EmbeddingConfig) Option {
 	return func(s *Service) { s.embCfg = cfg }
+}
+
+// WithReranker sets the optional external reranker used when a retrieval
+// request enables reranking.
+func WithReranker(rr retrieve.Reranker) Option {
+	return func(s *Service) { s.rerank = rr }
 }
 
 // Ingest performs chunk-centric ingestion. Stubbed for Milestone 3.
@@ -163,6 +168,7 @@ func (s *Service) Ingest(ctx context.Context, in ingest.IngestRequest) (ingest.I
 // Retrieve executes a hybrid retrieval query. Stubbed for Milestone 3.
 func (s *Service) Retrieve(ctx context.Context, q string, opt retrieve.RetrieveOptions) (retrieve.RetrieveResponse, error) {
 	rStart := s.clock.Now()
+	opt = s.normalizeRetrieveOptions(opt)
 	// Plan query
 	plan := retrieve.BuildQueryPlan(ctx, q, opt)
 	// For now, we reuse deterministic embedder to get a query vector when vector store is present.
@@ -195,7 +201,8 @@ func (s *Service) Retrieve(ctx context.Context, q string, opt retrieve.RetrieveO
 		s.metrics.IncCounter("retrieval_candidates", map[string]string{"type": "vec", "tenant": plan.Tenant})
 	}
 
-	// Fusion: use RRF (with optional diversification) when requested, else simple concat.
+	// Fusion: use RRF (with optional diversification) when requested or when
+	// reranking is inactive, else simple concat for reranker candidate pools.
 	var items []retrieve.RetrievedItem
 	var fusionMS int64
 	if opt.UseRRF {
@@ -221,6 +228,9 @@ func (s *Service) Retrieve(ctx context.Context, q string, opt retrieve.RetrieveO
 		}
 	}
 	// Graph augment + optional rerank + final prune
+	if opt.Rerank && s.rerank != nil {
+		items = s.hydrateRerankText(ctx, items)
+	}
 	items, addDbg, err := retrieve.AssembleResults(ctx, s.graph, s.rerank, plan, opt, items)
 	if err != nil {
 		return retrieve.RetrieveResponse{}, err
@@ -315,3 +325,37 @@ func (defaultLogger) Debug(string, map[string]any) {}
 func approxTokens(s string) int { return (len(s) + 3) / 4 }
 
 func ms(d time.Duration) int64 { return int64(d / time.Millisecond) }
+
+func (s *Service) normalizeRetrieveOptions(opt retrieve.RetrieveOptions) retrieve.RetrieveOptions {
+	rerankActive := opt.Rerank && s.rerank != nil
+	if rerankActive {
+		return opt
+	}
+	opt.UseRRF = true
+	if opt.FtK <= 0 && opt.VecK <= 0 && opt.Alpha == 0 {
+		opt.Alpha = 0.5
+	}
+	return opt
+}
+
+func (s *Service) hydrateRerankText(ctx context.Context, items []retrieve.RetrievedItem) []retrieve.RetrievedItem {
+	if s.search == nil || len(items) == 0 {
+		return items
+	}
+	out := append([]retrieve.RetrievedItem(nil), items...)
+	for i := range out {
+		if out[i].Text != "" || out[i].Snippet != "" {
+			continue
+		}
+		doc, ok, err := s.search.GetByID(ctx, out[i].ID)
+		if err != nil || !ok {
+			continue
+		}
+		out[i].Text = doc.Text
+		if out[i].Metadata == nil {
+			out[i].Metadata = map[string]string{}
+		}
+		maps.Copy(out[i].Metadata, doc.Metadata)
+	}
+	return out
+}

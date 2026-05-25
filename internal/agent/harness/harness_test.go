@@ -342,6 +342,39 @@ func TestCompactMessagesDropsOldNudgesAndKeepsRecentStep(t *testing.T) {
 	require.True(t, sawToolCallSkeleton)
 }
 
+func TestCompactMessagesKeepsRuntimeContextOnCurrentPrompt(t *testing.T) {
+	tracker := NewStepTracker()
+	messages := []HarnessMessage{
+		{Message: llm.Message{Role: "system", Content: "system"}, Meta: MessageMeta{Type: MessageTypePrompt}},
+		{Message: llm.Message{Role: "user", Content: "prior request"}, Meta: MessageMeta{Type: MessageTypePrompt}},
+		{Message: llm.Message{Role: "user", Content: "[RUNTIME CONTEXT]\nruntime memory\n\ncurrent request"}, Meta: MessageMeta{Type: MessageTypePrompt}},
+		{Message: llm.Message{Role: "assistant", Content: strings.Repeat("old answer ", 200)}, Meta: MessageMeta{Type: MessageTypeAssistant, StepIndex: 0}},
+		{Message: llm.Message{Role: "tool", ToolID: "call-search", Content: strings.Repeat("result ", 200)}, Meta: MessageMeta{Type: MessageTypeTool, StepIndex: 0}},
+	}
+
+	result := CompactMessages(messages, CompactConfig{
+		Enabled:             true,
+		KeepRecentSteps:     0,
+		ContextWindowTokens: 80,
+		PhaseThresholds:     []float64{0.01, 0.02, 0.03},
+		PerMessageRunes:     64,
+	}, tracker)
+
+	require.True(t, result.Changed)
+	require.GreaterOrEqual(t, len(result.Messages), 3)
+	require.Equal(t, "system", result.Messages[0].Message.Content)
+	var current string
+	for _, message := range result.Messages {
+		if message.Meta.Type == MessageTypePrompt && message.Message.Role == "user" && strings.Contains(message.Message.Content, "current request") {
+			current = message.Message.Content
+			break
+		}
+	}
+	require.Contains(t, current, "[RUNTIME CONTEXT]")
+	require.Contains(t, current, "runtime memory")
+	require.Contains(t, current, "current request")
+}
+
 func TestCompactMessagesDoesNotEraseAuthoritativeStepState(t *testing.T) {
 	tracker := NewStepTracker()
 	tracker.RecordSuccess(llm.ToolCall{Name: "search", ID: "call-search", Args: json.RawMessage(`{"url":"https://example.com"}`)})

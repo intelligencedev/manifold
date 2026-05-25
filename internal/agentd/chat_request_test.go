@@ -197,3 +197,18 @@ func TestChatRunRequestUnmarshalAcceptsLegacyBotID(t *testing.T) {
 		t.Fatalf("expected route target from legacy bot_id, got %q", req.RouteTarget)
 	}
 }
+
+func TestChatRunRequestUnmarshalMemorySettings(t *testing.T) {
+	t.Parallel()
+
+	var req chatRunRequest
+	if err := json.Unmarshal([]byte(`{"prompt":"hello","evolving_memory_enabled":false,"beliefMemoryEnabled":true}`), &req); err != nil {
+		t.Fatalf("unmarshal memory settings: %v", err)
+	}
+	if req.EvolvingMemoryEnabled == nil || *req.EvolvingMemoryEnabled {
+		t.Fatalf("expected evolving memory false, got %#v", req.EvolvingMemoryEnabled)
+	}
+	if req.BeliefMemoryEnabled == nil || !*req.BeliefMemoryEnabled {
+		t.Fatalf("expected belief memory true, got %#v", req.BeliefMemoryEnabled)
+	}
+}

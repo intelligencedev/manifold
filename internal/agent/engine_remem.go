@@ -8,6 +8,24 @@ import (
 
 func (e *Engine) runWithReMem(ctx context.Context, userInput string, history []llm.Message, stream bool) (string, []string, error) {
 	log := observability.LoggerWithTrace(ctx)
+	if e.DisableEvolvingMemory || e.ReMemController == nil {
+		msgs := BuildInitialLLMMessages(e.System, userInput, history)
+		if e != nil && e.SummaryEnabled && !e.consumeSkipInitialSummarization() {
+			msgs = e.maybeSummarize(ctx, msgs)
+		}
+		msgs = AddRuntimeContextToCurrentUserMessage(msgs, e.UserPromptContext)
+		msgs = e.augmentWithPolicyContext(ctx, userInput, msgs)
+		msgs = e.augmentWithBeliefMemory(ctx, userInput, msgs)
+		if e != nil && !e.DisableEvolvingMemory && e.EvolvingMemory != nil {
+			msgs = e.augmentWithMemory(ctx, userInput, msgs)
+		}
+		if stream {
+			final, err := e.runStreamLoop(ctx, msgs)
+			return final, nil, err
+		}
+		final, err := e.runLoop(ctx, msgs)
+		return final, nil, err
+	}
 
 	// Execute ReMem controller (internal memory reasoning/refinement).
 	// ReMem does not dispatch tools; the tool schema argument is preserved on
@@ -23,18 +41,17 @@ func (e *Engine) runWithReMem(ctx context.Context, userInput string, history []l
 
 	// Now run the main agent loop with (potentially refined) memories
 	msgs := BuildInitialLLMMessages(e.System, userInput, history)
-	msgs = PrependToCurrentUserMessage(msgs, e.UserPromptContext)
+	// Possibly summarize older history
+	if e.SummaryEnabled && !e.consumeSkipInitialSummarization() {
+		msgs = e.maybeSummarize(ctx, msgs)
+	}
+	msgs = AddRuntimeContextToCurrentUserMessage(msgs, e.UserPromptContext)
 	msgs = e.augmentWithPolicyContext(ctx, userInput, msgs)
 	msgs = e.augmentWithBeliefMemory(ctx, userInput, msgs)
 
 	// Augment with evolving memory (which may have been refined by ReMem)
-	if e.EvolvingMemory != nil {
+	if !e.DisableEvolvingMemory && e.EvolvingMemory != nil {
 		msgs = e.augmentWithMemory(ctx, userInput, msgs)
-	}
-
-	// Possibly summarize older history
-	if e.SummaryEnabled && !e.consumeSkipInitialSummarization() {
-		msgs = e.maybeSummarize(ctx, msgs)
 	}
 
 	if e.HarnessEnabled {

@@ -35,7 +35,9 @@ func (a *app) debugBeliefsHandler() http.HandlerFunc {
 		}
 
 		basePath := "/debug/beliefs"
-		if strings.HasPrefix(r.URL.Path, "/api/debug/beliefs") {
+		if strings.HasPrefix(r.URL.Path, "/api/beliefs") {
+			basePath = "/api/beliefs"
+		} else if strings.HasPrefix(r.URL.Path, "/api/debug/beliefs") {
 			basePath = "/api/debug/beliefs"
 		}
 		path := strings.Trim(strings.TrimPrefix(r.URL.Path, basePath), "/")
@@ -47,6 +49,7 @@ func (a *app) debugBeliefsHandler() http.HandlerFunc {
 				"promotions": basePath + "/promotions",
 				"influence":  basePath + "/influence",
 				"policies":   basePath + "/policies",
+				"candidates": basePath + "/candidates",
 			})
 			return
 		}
@@ -62,6 +65,12 @@ func (a *app) debugBeliefsHandler() http.HandlerFunc {
 			a.handleDebugBeliefInfluence(w, r)
 		case path == "policies":
 			a.handleDebugBeliefPolicies(w, r)
+		case path == "candidates":
+			a.handleDebugBeliefCandidates(w, r)
+		case strings.HasSuffix(path, "/accept"):
+			a.handleDebugBeliefCandidateReview(w, r, strings.TrimSuffix(path, "/accept"), true)
+		case strings.HasSuffix(path, "/reject"):
+			a.handleDebugBeliefCandidateReview(w, r, strings.TrimSuffix(path, "/reject"), false)
 		case strings.HasSuffix(path, "/retract"):
 			a.handleDebugBeliefRetract(w, r, strings.TrimSuffix(path, "/retract"))
 		case strings.HasSuffix(path, "/supersede"):
@@ -172,6 +181,104 @@ func (a *app) handleDebugBeliefPromotions(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, items)
 }
 
+func (a *app) handleDebugBeliefCandidates(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	tenantID, err := a.debugBeliefTenantID(r)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	items, err := a.mgr.Belief.ListCandidates(r.Context(), belief.CandidateQuery{
+		TenantID:         tenantID,
+		EpisodeID:        strings.TrimSpace(r.URL.Query().Get("episode_id")),
+		ReviewState:      belief.ReviewState(strings.TrimSpace(r.URL.Query().Get("review_state"))),
+		ValidationStatus: belief.CandidateValidationStatus(strings.TrimSpace(r.URL.Query().Get("validation_status"))),
+		Limit:            parseIntQuery(r, "limit"),
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (a *app) handleDebugBeliefCandidateReview(w http.ResponseWriter, r *http.Request, candidatePath string, accept bool) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	tenantID, err := a.debugBeliefTenantID(r)
+	if err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	candidateID := strings.Trim(strings.TrimPrefix(candidatePath, "candidates/"), "/")
+	if candidateID == "" || candidateID == candidatePath {
+		http.NotFound(w, r)
+		return
+	}
+	record, ok, err := a.mgr.Belief.GetCandidate(r.Context(), tenantID, candidateID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if !accept {
+		record.ReviewState = belief.ReviewStateOperatorRejected
+		record.ValidationStatus = belief.CandidateValidationRejected
+		if strings.TrimSpace(record.RejectionReason) == "" {
+			record.RejectionReason = "operator rejected"
+		}
+		updated, err := a.mgr.Belief.RecordCandidate(r.Context(), record)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, updated)
+		return
+	}
+	episode, ok, err := a.mgr.Belief.GetEpisode(r.Context(), tenantID, record.EpisodeID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("candidate episode not found"))
+		return
+	}
+	applied, err := belief.ApplyCandidate(r.Context(), a.mgr.Belief, episode, belief.Candidate{
+		Statement:     record.Statement,
+		StatementHash: record.StatementHash,
+		Kind:          record.Kind,
+		Enforcement:   record.Enforcement,
+		SourceQuality: record.SourceQuality,
+		ReviewState:   belief.ReviewStateOperatorApproved,
+		Confidence:    record.Confidence,
+		Polarity:      record.Polarity,
+		EvidenceNote:  record.EvidenceNote,
+		Metadata:      record.Metadata,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	record.ReviewState = belief.ReviewStateOperatorApproved
+	record.ValidationStatus = belief.CandidateValidationAccepted
+	record.AcceptedBeliefID = applied.ID
+	updated, err := a.mgr.Belief.RecordCandidate(r.Context(), record)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"candidate": updated, "belief": applied})
+}
+
 func (a *app) handleDebugBeliefInfluence(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -184,14 +291,16 @@ func (a *app) handleDebugBeliefInfluence(w http.ResponseWriter, r *http.Request)
 	}
 	retriever := a.applyRAGEvidenceBlend(belief.NewGraphEnrichedRetriever(a.mgr.Belief, a.mgr.Graph, 2))
 	results, err := retriever.Retrieve(r.Context(), belief.RetrievalRequest{
-		TenantID:    tenantID,
-		UserID:      tenantID,
-		ProjectID:   strings.TrimSpace(r.URL.Query().Get("project_id")),
-		ObjectiveID: strings.TrimSpace(r.URL.Query().Get("objective_id")),
-		SessionID:   strings.TrimSpace(r.URL.Query().Get("session_id")),
-		Role:        strings.TrimSpace(r.URL.Query().Get("role")),
-		Query:       strings.TrimSpace(r.URL.Query().Get("q")),
-		Limit:       parseIntQuery(r, "limit"),
+		TenantID:              tenantID,
+		UserID:                tenantID,
+		ProjectID:             strings.TrimSpace(r.URL.Query().Get("project_id")),
+		ObjectiveID:           strings.TrimSpace(r.URL.Query().Get("objective_id")),
+		SessionID:             strings.TrimSpace(r.URL.Query().Get("session_id")),
+		Role:                  strings.TrimSpace(r.URL.Query().Get("role")),
+		Query:                 strings.TrimSpace(r.URL.Query().Get("q")),
+		Limit:                 parseIntQuery(r, "limit"),
+		MinConfidence:         a.cfg.BeliefMemory.Retrieval.MinConfidence,
+		IncludeContradictions: a.cfg.BeliefMemory.Retrieval.IncludeContradictions,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)

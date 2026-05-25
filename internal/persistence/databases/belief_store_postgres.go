@@ -112,6 +112,12 @@ CREATE INDEX IF NOT EXISTS beliefs_tenant_scope_status_updated_idx
     ON beliefs(tenant_id, scope_id, status, updated_at DESC);
 
 ALTER TABLE beliefs
+    ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'fact',
+    ADD COLUMN IF NOT EXISTS enforcement TEXT NOT NULL DEFAULT 'none',
+    ADD COLUMN IF NOT EXISTS source_quality DOUBLE PRECISION NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS review_state TEXT NOT NULL DEFAULT 'auto_active';
+
+ALTER TABLE beliefs
     ADD COLUMN IF NOT EXISTS search_tsv tsvector GENERATED ALWAYS AS (
         to_tsvector('simple', coalesce(statement, ''))
     ) STORED;
@@ -155,6 +161,37 @@ CREATE TABLE IF NOT EXISTS belief_promotions (
 
 CREATE INDEX IF NOT EXISTS belief_promotions_belief_created_idx
     ON belief_promotions(tenant_id, belief_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS belief_candidates (
+    id UUID PRIMARY KEY,
+    tenant_id BIGINT NOT NULL,
+    episode_id UUID NULL REFERENCES belief_episodes(id),
+    scope_id UUID NULL REFERENCES belief_scopes(id),
+    statement TEXT NOT NULL DEFAULT '',
+    statement_hash TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL DEFAULT 'fact',
+    enforcement TEXT NOT NULL DEFAULT 'none',
+    polarity TEXT NOT NULL DEFAULT 'for',
+    confidence DOUBLE PRECISION NOT NULL DEFAULT 0,
+    source_quality DOUBLE PRECISION NOT NULL DEFAULT 0,
+    review_state TEXT NOT NULL DEFAULT 'needs_review',
+    evidence_note TEXT NOT NULL DEFAULT '',
+    raw_payload TEXT NOT NULL DEFAULT '',
+    normalized_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    validation_status TEXT NOT NULL DEFAULT 'queued',
+    rejection_reason TEXT NOT NULL DEFAULT '',
+    accepted_belief_id UUID NULL REFERENCES beliefs(id),
+    model TEXT NOT NULL DEFAULT '',
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS belief_candidates_tenant_review_created_idx
+    ON belief_candidates(tenant_id, review_state, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS belief_candidates_tenant_episode_idx
+    ON belief_candidates(tenant_id, episode_id, created_at DESC);
 `)
 	if err != nil {
 		return err

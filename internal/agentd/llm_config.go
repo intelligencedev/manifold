@@ -204,6 +204,28 @@ func resolveEvolvingMemoryLLM(cfg *config.Config, mainLLM llmpkg.Provider, summa
 	return mainLLM, resolveLLMClientModel(cfg.LLMClient), strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider)), nil
 }
 
+func resolveBeliefMemoryLLM(cfg *config.Config, mainLLM llmpkg.Provider, httpClient *http.Client) (llmpkg.Provider, string, string, error) {
+	if cfg == nil {
+		return nil, "", "", nil
+	}
+	if hasLLMClientOverride(cfg.BeliefMemory.LLMClient) {
+		llmCfg := mergeLLMClientConfig(cfg.LLMClient, cfg.BeliefMemory.LLMClient)
+		provider, err := llmproviders.BuildFromLLMClientConfig(llmCfg, httpClient)
+		if err != nil {
+			return nil, "", "", err
+		}
+		return provider, resolveLLMClientModel(llmCfg), strings.ToLower(strings.TrimSpace(llmCfg.Provider)), nil
+	}
+	if mainLLM != nil {
+		return mainLLM, resolveLLMClientModel(cfg.LLMClient), strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider)), nil
+	}
+	provider, err := llmproviders.BuildFromLLMClientConfig(cfg.LLMClient, httpClient)
+	if err != nil {
+		return nil, "", "", err
+	}
+	return provider, resolveLLMClientModel(cfg.LLMClient), strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider)), nil
+}
+
 func buildSummaryLLM(cfg *config.Config, httpClient *http.Client) (llmpkg.Provider, string, error) {
 	if !cfg.Summary.Enabled {
 		return nil, "", nil

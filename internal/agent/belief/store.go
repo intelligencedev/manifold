@@ -17,6 +17,9 @@ type Store interface {
 	ListEvidence(ctx context.Context, query EvidenceQuery) ([]Evidence, error)
 	RecordPromotion(ctx context.Context, promotion Promotion) (Promotion, error)
 	ListPromotions(ctx context.Context, query PromotionQuery) ([]Promotion, error)
+	RecordCandidate(ctx context.Context, candidate CandidateRecord) (CandidateRecord, error)
+	GetCandidate(ctx context.Context, tenantID int64, id string) (CandidateRecord, bool, error)
+	ListCandidates(ctx context.Context, query CandidateQuery) ([]CandidateRecord, error)
 }
 
 // NoopStore is a disabled belief store implementation.
@@ -57,5 +60,14 @@ func (NoopStore) RecordPromotion(_ context.Context, promotion Promotion) (Promot
 	return promotion, nil
 }
 func (NoopStore) ListPromotions(context.Context, PromotionQuery) ([]Promotion, error) {
+	return nil, nil
+}
+func (NoopStore) RecordCandidate(_ context.Context, candidate CandidateRecord) (CandidateRecord, error) {
+	return candidate, nil
+}
+func (NoopStore) GetCandidate(context.Context, int64, string) (CandidateRecord, bool, error) {
+	return CandidateRecord{}, false, nil
+}
+func (NoopStore) ListCandidates(context.Context, CandidateQuery) ([]CandidateRecord, error) {
 	return nil, nil
 }

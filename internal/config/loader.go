@@ -303,6 +303,7 @@ func applyDefaults(cfg *Config) {
 	if cfg.BeliefMemory.PromotionThreshold == 0 {
 		cfg.BeliefMemory.PromotionThreshold = 0.80
 	}
+	applyBeliefMemoryDefaults(cfg)
 	if cfg.BeliefMemory.MaxRAGEvidencePerPrompt <= 0 {
 		cfg.BeliefMemory.MaxRAGEvidencePerPrompt = 3
 	}
@@ -420,6 +421,8 @@ func applyDerivedConfig(cfg *Config) {
 	cfg.Harness.Mode = strings.ToLower(strings.TrimSpace(cfg.Harness.Mode))
 	cfg.EvolvingMemory.Provider = strings.ToLower(strings.TrimSpace(cfg.EvolvingMemory.Provider))
 	cfg.EvolvingMemory.LLMClient.Provider = strings.ToLower(strings.TrimSpace(cfg.EvolvingMemory.LLMClient.Provider))
+	cfg.BeliefMemory.LLMClient.Provider = strings.ToLower(strings.TrimSpace(cfg.BeliefMemory.LLMClient.Provider))
+	cfg.BeliefMemory.Distillation.Mode = strings.ToLower(strings.TrimSpace(cfg.BeliefMemory.Distillation.Mode))
 
 	if cfg.LLMClient.Provider == "local" {
 		cfg.LLMClient.OpenAI.API = "completions"
@@ -516,6 +519,9 @@ func validateConfig(cfg *Config) error {
 	if cfg.BeliefMemory.PromotionThreshold < 0 || cfg.BeliefMemory.PromotionThreshold > 1 {
 		return fmt.Errorf("beliefMemory.promotionThreshold must be between 0 and 1 (got %g)", cfg.BeliefMemory.PromotionThreshold)
 	}
+	if err := validateBeliefMemoryConfig(cfg.BeliefMemory); err != nil {
+		return err
+	}
 	switch strings.ToLower(strings.TrimSpace(cfg.Embedding.Instructions.Mode)) {
 	case "", "auto", "enabled", "disabled":
 	default:
@@ -572,6 +578,56 @@ func applyHarnessConfigDefaults(cfg *HarnessConfig) {
 	}
 }
 
+func applyBeliefMemoryDefaults(cfg *Config) {
+	beliefs := &cfg.BeliefMemory
+	if beliefs.Distillation.Mode == "" {
+		if hasConfigLLMClientOverride(beliefs.LLMClient) {
+			beliefs.Distillation.Mode = "llm"
+		} else {
+			beliefs.Distillation.Mode = "simple"
+		}
+	}
+	if beliefs.Distillation.MaxCandidatesPerEpisode <= 0 {
+		beliefs.Distillation.MaxCandidatesPerEpisode = 5
+	}
+	if beliefs.Distillation.MinCandidateConfidence == 0 {
+		beliefs.Distillation.MinCandidateConfidence = 0.55
+	}
+	if beliefs.Distillation.AutoApplyMinConfidence == 0 {
+		beliefs.Distillation.AutoApplyMinConfidence = 0.65
+	}
+	if beliefs.Retrieval.MinConfidence == 0 {
+		beliefs.Retrieval.MinConfidence = 0.35
+	}
+	if beliefs.Retrieval.MaxTokensPerPrompt <= 0 {
+		beliefs.Retrieval.MaxTokensPerPrompt = 700
+	}
+	if !beliefs.Retrieval.IncludeContradictions {
+		beliefs.Retrieval.IncludeContradictions = true
+	}
+	if beliefs.Lifecycle.MinEvidenceForPromotion <= 0 {
+		beliefs.Lifecycle.MinEvidenceForPromotion = 2
+	}
+	if beliefs.Lifecycle.StaleAfterDays <= 0 {
+		beliefs.Lifecycle.StaleAfterDays = 30
+	}
+	if beliefs.Lifecycle.StaleConfidenceDecay == 0 {
+		beliefs.Lifecycle.StaleConfidenceDecay = 0.90
+	}
+	if !beliefs.Enforcement.AutoEnable {
+		beliefs.Enforcement.AutoEnable = true
+	}
+	if beliefs.Enforcement.SoftPolicyThreshold == 0 {
+		beliefs.Enforcement.SoftPolicyThreshold = 0.85
+	}
+	if beliefs.Enforcement.HardConstraintThreshold == 0 {
+		beliefs.Enforcement.HardConstraintThreshold = 0.95
+	}
+	if beliefs.Enforcement.HardConstraintMinEvidenceFor <= 0 {
+		beliefs.Enforcement.HardConstraintMinEvidenceFor = 3
+	}
+}
+
 func validateProvider(path, provider string) error {
 	switch provider {
 	case "openai", "anthropic", "google", "local":
@@ -579,6 +635,78 @@ func validateProvider(path, provider string) error {
 	default:
 		return fmt.Errorf("%s must be one of openai, anthropic, google, or local (got %q)", path, provider)
 	}
+}
+
+func validateBeliefMemoryConfig(cfg BeliefMemoryConfig) error {
+	switch cfg.Distillation.Mode {
+	case "", "simple", "llm":
+	default:
+		return fmt.Errorf("beliefMemory.distillation.mode must be simple or llm (got %q)", cfg.Distillation.Mode)
+	}
+	if cfg.LLMClient.Provider != "" {
+		if err := validateProvider("beliefMemory.llmClient.provider", cfg.LLMClient.Provider); err != nil {
+			return err
+		}
+	}
+	if cfg.Distillation.MaxCandidatesPerEpisode <= 0 {
+		return fmt.Errorf("beliefMemory.distillation.maxCandidatesPerEpisode must be greater than 0")
+	}
+	if cfg.Distillation.MinCandidateConfidence < 0 || cfg.Distillation.MinCandidateConfidence > 1 {
+		return fmt.Errorf("beliefMemory.distillation.minCandidateConfidence must be between 0 and 1 (got %g)", cfg.Distillation.MinCandidateConfidence)
+	}
+	if cfg.Distillation.AutoApplyMinConfidence < 0 || cfg.Distillation.AutoApplyMinConfidence > 1 {
+		return fmt.Errorf("beliefMemory.distillation.autoApplyMinConfidence must be between 0 and 1 (got %g)", cfg.Distillation.AutoApplyMinConfidence)
+	}
+	if cfg.Distillation.AutoApplyMinConfidence < cfg.Distillation.MinCandidateConfidence {
+		return fmt.Errorf("beliefMemory.distillation.autoApplyMinConfidence must be >= minCandidateConfidence")
+	}
+	if cfg.Retrieval.MinConfidence < 0 || cfg.Retrieval.MinConfidence > 1 {
+		return fmt.Errorf("beliefMemory.retrieval.minConfidence must be between 0 and 1 (got %g)", cfg.Retrieval.MinConfidence)
+	}
+	if cfg.Retrieval.MaxTokensPerPrompt <= 0 {
+		return fmt.Errorf("beliefMemory.retrieval.maxTokensPerPrompt must be greater than 0")
+	}
+	if cfg.Lifecycle.MinEvidenceForPromotion <= 0 {
+		return fmt.Errorf("beliefMemory.lifecycle.minEvidenceForPromotion must be greater than 0")
+	}
+	if cfg.Lifecycle.MaxEvidenceAgainstPromotion < 0 {
+		return fmt.Errorf("beliefMemory.lifecycle.maxEvidenceAgainstPromotion must be >= 0")
+	}
+	if cfg.Lifecycle.StaleAfterDays <= 0 {
+		return fmt.Errorf("beliefMemory.lifecycle.staleAfterDays must be greater than 0")
+	}
+	if cfg.Lifecycle.StaleConfidenceDecay < 0 || cfg.Lifecycle.StaleConfidenceDecay > 1 {
+		return fmt.Errorf("beliefMemory.lifecycle.staleConfidenceDecay must be between 0 and 1 (got %g)", cfg.Lifecycle.StaleConfidenceDecay)
+	}
+	if cfg.Enforcement.SoftPolicyThreshold < 0 || cfg.Enforcement.SoftPolicyThreshold > 1 {
+		return fmt.Errorf("beliefMemory.enforcement.softPolicyThreshold must be between 0 and 1 (got %g)", cfg.Enforcement.SoftPolicyThreshold)
+	}
+	if cfg.Enforcement.HardConstraintThreshold < 0 || cfg.Enforcement.HardConstraintThreshold > 1 {
+		return fmt.Errorf("beliefMemory.enforcement.hardConstraintThreshold must be between 0 and 1 (got %g)", cfg.Enforcement.HardConstraintThreshold)
+	}
+	if cfg.Enforcement.HardConstraintThreshold < cfg.Enforcement.SoftPolicyThreshold {
+		return fmt.Errorf("beliefMemory.enforcement.hardConstraintThreshold must be >= softPolicyThreshold")
+	}
+	if cfg.Enforcement.HardConstraintMinEvidenceFor <= 0 {
+		return fmt.Errorf("beliefMemory.enforcement.hardConstraintMinEvidenceFor must be greater than 0")
+	}
+	return nil
+}
+
+func hasConfigLLMClientOverride(cfg LLMClientConfig) bool {
+	if strings.TrimSpace(cfg.Provider) != "" {
+		return true
+	}
+	if strings.TrimSpace(cfg.OpenAI.APIKey) != "" || strings.TrimSpace(cfg.OpenAI.Model) != "" || strings.TrimSpace(cfg.OpenAI.BaseURL) != "" || strings.TrimSpace(cfg.OpenAI.SummaryModel) != "" || strings.TrimSpace(cfg.OpenAI.SummaryBaseURL) != "" || strings.TrimSpace(cfg.OpenAI.API) != "" || len(cfg.OpenAI.ExtraHeaders) > 0 || len(cfg.OpenAI.ExtraParams) > 0 || cfg.OpenAI.LogPayloads {
+		return true
+	}
+	if strings.TrimSpace(cfg.Anthropic.APIKey) != "" || strings.TrimSpace(cfg.Anthropic.Model) != "" || strings.TrimSpace(cfg.Anthropic.BaseURL) != "" || cfg.Anthropic.MaxTokens != 0 || len(cfg.Anthropic.ExtraParams) > 0 || cfg.Anthropic.PromptCache.Enabled || cfg.Anthropic.PromptCache.CacheSystem || cfg.Anthropic.PromptCache.CacheTools || cfg.Anthropic.PromptCache.CacheMessages {
+		return true
+	}
+	if strings.TrimSpace(cfg.Google.APIKey) != "" || strings.TrimSpace(cfg.Google.Model) != "" || strings.TrimSpace(cfg.Google.BaseURL) != "" || cfg.Google.Timeout != 0 || len(cfg.Google.ExtraParams) > 0 {
+		return true
+	}
+	return false
 }
 
 func mergeOpenAIConfig(dst *OpenAIConfig, src OpenAIConfig) {

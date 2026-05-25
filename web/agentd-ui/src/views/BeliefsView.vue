@@ -9,7 +9,7 @@
           Belief operations
         </h1>
       </div>
-      <form class="flex min-w-[560px] items-center gap-2" @submit.prevent="loadSearch">
+      <form class="flex min-w-[640px] items-center gap-2" @submit.prevent="loadSearch">
         <input
           v-model="query"
           class="min-h-[38px] flex-1 rounded-md border border-border bg-surface px-3 text-sm outline-none transition focus:border-accent"
@@ -30,6 +30,13 @@
           :disabled="loadingSearch"
         >
           Search
+        </button>
+        <button
+          class="min-h-[38px] rounded-md border border-border px-3 text-sm font-semibold transition hover:bg-surface-muted"
+          type="button"
+          @click="loadCandidates"
+        >
+          Candidates {{ candidates.length }}
         </button>
       </form>
     </header>
@@ -58,6 +65,8 @@
               </span>
             </div>
             <div class="mt-2 flex items-center gap-2 text-xs text-subtle-foreground">
+              <span>{{ result.belief.kind || 'fact' }}</span>
+              <span>{{ result.belief.enforcement || 'none' }}</span>
               <span>{{ result.belief.status }}</span>
               <span>for {{ result.belief.evidenceFor }}</span>
               <span>against {{ result.belief.evidenceAgainst }}</span>
@@ -106,6 +115,22 @@
               <div class="rounded-md bg-background/80 p-3">
                 <p class="text-xs text-subtle-foreground">Status</p>
                 <p class="mt-1 font-semibold capitalize">{{ selected.belief.status }}</p>
+              </div>
+              <div class="rounded-md bg-background/80 p-3">
+                <p class="text-xs text-subtle-foreground">Kind</p>
+                <p class="mt-1 font-semibold">{{ selected.belief.kind || 'fact' }}</p>
+              </div>
+              <div class="rounded-md bg-background/80 p-3">
+                <p class="text-xs text-subtle-foreground">Enforcement</p>
+                <p class="mt-1 font-semibold">{{ selected.belief.enforcement || 'none' }}</p>
+              </div>
+              <div class="rounded-md bg-background/80 p-3">
+                <p class="text-xs text-subtle-foreground">Review</p>
+                <p class="mt-1 font-semibold">{{ selected.belief.reviewState || 'auto_active' }}</p>
+              </div>
+              <div class="rounded-md bg-background/80 p-3">
+                <p class="text-xs text-subtle-foreground">Source quality</p>
+                <p class="mt-1 font-semibold">{{ confidence(selected.belief.sourceQuality) }}</p>
               </div>
             </div>
           </div>
@@ -170,7 +195,7 @@
       </div>
     </footer>
 
-    <div v-if="influence || policies.length" class="max-h-72 overflow-y-auto rounded-lg border border-border/70 bg-background/90 p-3 text-xs text-subtle-foreground">
+    <div v-if="influence || policies.length || candidates.length" class="max-h-72 overflow-y-auto rounded-lg border border-border/70 bg-background/90 p-3 text-xs text-subtle-foreground">
       <pre v-if="influence" class="whitespace-pre-wrap font-mono">{{ influence.prompt.text || 'No prompt context selected.' }}</pre>
       <ul v-if="influence && influence.results && influence.results.length" class="mt-2 space-y-1">
         <li v-for="(entry, idx) in influence.results" :key="idx" class="flex items-start gap-2">
@@ -183,8 +208,41 @@
       </ul>
       <div v-if="policies.length" class="mt-2 space-y-2">
         <div v-for="policy in policies" :key="policy.id" class="border-t border-border/50 pt-2">
-          <span class="font-semibold text-foreground">{{ policy.kind }} / {{ policy.mode }}</span>
+          <span class="font-semibold text-foreground">{{ policy.kind }} / {{ policy.mode || policy.severity }}</span>
           <span class="ml-2">{{ policy.statement }}</span>
+        </div>
+      </div>
+      <div v-if="candidates.length" class="mt-2 space-y-2">
+        <div v-for="candidate in candidates" :key="candidate.id" class="border-t border-border/50 pt-2">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <span class="font-semibold text-foreground">
+                {{ candidate.kind }} / {{ candidate.enforcement }} / {{ confidence(candidate.confidence) }}
+              </span>
+              <p class="mt-1 text-subtle-foreground">{{ candidate.statement || candidate.rejectionReason }}</p>
+              <p class="mt-1 text-[11px] text-subtle-foreground">
+                {{ candidate.validationStatus }} · {{ candidate.reviewState }} · {{ candidate.model || 'unknown model' }}
+              </p>
+            </div>
+            <div class="flex shrink-0 items-center gap-1">
+              <button
+                class="rounded border border-border px-2 py-1 font-semibold text-foreground transition hover:bg-surface-muted disabled:opacity-50"
+                type="button"
+                :disabled="reviewingCandidate === candidate.id || !!candidate.acceptedBeliefId"
+                @click="acceptCandidate(candidate.id)"
+              >
+                Accept
+              </button>
+              <button
+                class="rounded border border-destructive/40 px-2 py-1 font-semibold text-destructive transition hover:bg-destructive/10 disabled:opacity-50"
+                type="button"
+                :disabled="reviewingCandidate === candidate.id || candidate.reviewState === 'operator_rejected'"
+                @click="rejectCandidate(candidate.id)"
+              >
+                Reject
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -194,11 +252,15 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import {
+  acceptBeliefCandidate,
   fetchBeliefDetail,
+  fetchBeliefCandidates,
   fetchBeliefInfluence,
   fetchBeliefPolicies,
+  rejectBeliefCandidate,
   retractBelief,
   searchBeliefs,
+  type BeliefCandidate,
   type BeliefDetail,
   type BeliefInfluenceTrace,
   type BeliefSearchResult,
@@ -216,8 +278,13 @@ const influenceQuery = ref("");
 const influence = ref<BeliefInfluenceTrace | null>(null);
 const projectId = ref("");
 const policies = ref<PolicyRecord[]>([]);
+const candidates = ref<BeliefCandidate[]>([]);
+const reviewingCandidate = ref("");
 
-onMounted(loadSearch);
+onMounted(() => {
+  void loadSearch();
+  void loadCandidates();
+});
 
 async function loadSearch() {
   loadingSearch.value = true;
@@ -264,6 +331,33 @@ async function loadPolicies() {
   policies.value = await fetchBeliefPolicies({
     project_id: projectId.value || undefined,
   });
+}
+
+async function loadCandidates() {
+  candidates.value = await fetchBeliefCandidates({
+    review_state: "needs_review",
+    limit: 20,
+  });
+}
+
+async function acceptCandidate(id: string) {
+  reviewingCandidate.value = id;
+  try {
+    await acceptBeliefCandidate(id);
+    await Promise.all([loadCandidates(), loadSearch()]);
+  } finally {
+    reviewingCandidate.value = "";
+  }
+}
+
+async function rejectCandidate(id: string) {
+  reviewingCandidate.value = id;
+  try {
+    await rejectBeliefCandidate(id);
+    await loadCandidates();
+  } finally {
+    reviewingCandidate.value = "";
+  }
 }
 
 function confidence(value: number) {

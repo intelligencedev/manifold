@@ -189,14 +189,19 @@ type MatrixRoomConfig struct {
 
 // BeliefMemoryConfig controls the shared belief-memory subsystem.
 type BeliefMemoryConfig struct {
-	Enabled                     bool    `yaml:"enabled" json:"enabled"`
-	EnableDistillation          bool    `yaml:"enableDistillation" json:"enableDistillation"`
-	EnableRetrieval             bool    `yaml:"enableRetrieval" json:"enableRetrieval"`
-	EnableConstraintEnforcement bool    `yaml:"enableConstraintEnforcement" json:"enableConstraintEnforcement"`
-	MaxBeliefsPerPrompt         int     `yaml:"maxBeliefsPerPrompt" json:"maxBeliefsPerPrompt"`
-	MaxEvidencePerBelief        int     `yaml:"maxEvidencePerBelief" json:"maxEvidencePerBelief"`
-	DefaultConfidence           float64 `yaml:"defaultConfidence" json:"defaultConfidence"`
-	PromotionThreshold          float64 `yaml:"promotionThreshold" json:"promotionThreshold"`
+	Enabled                     bool                           `yaml:"enabled" json:"enabled"`
+	EnableDistillation          bool                           `yaml:"enableDistillation" json:"enableDistillation"`
+	EnableRetrieval             bool                           `yaml:"enableRetrieval" json:"enableRetrieval"`
+	EnableConstraintEnforcement bool                           `yaml:"enableConstraintEnforcement" json:"enableConstraintEnforcement"`
+	MaxBeliefsPerPrompt         int                            `yaml:"maxBeliefsPerPrompt" json:"maxBeliefsPerPrompt"`
+	MaxEvidencePerBelief        int                            `yaml:"maxEvidencePerBelief" json:"maxEvidencePerBelief"`
+	DefaultConfidence           float64                        `yaml:"defaultConfidence" json:"defaultConfidence"`
+	PromotionThreshold          float64                        `yaml:"promotionThreshold" json:"promotionThreshold"`
+	LLMClient                   LLMClientConfig                `yaml:"llmClient" json:"llmClient"`
+	Distillation                BeliefMemoryDistillationConfig `yaml:"distillation" json:"distillation"`
+	Retrieval                   BeliefMemoryRetrievalConfig    `yaml:"retrieval" json:"retrieval"`
+	Lifecycle                   BeliefMemoryLifecycleConfig    `yaml:"lifecycle" json:"lifecycle"`
+	Enforcement                 BeliefMemoryEnforcementConfig  `yaml:"enforcement" json:"enforcement"`
 	// EnableRAGEvidence blends RAG retrieval results into the belief router as a
 	// dedicated evidence lane. Hard/soft constraints, approved policies, and
 	// scoped beliefs continue to take precedence; RAG hits are surfaced as a
@@ -205,6 +210,34 @@ type BeliefMemoryConfig struct {
 	MaxRAGEvidencePerPrompt int     `yaml:"maxRAGEvidencePerPrompt" json:"maxRAGEvidencePerPrompt"`
 	RAGRetrievalK           int     `yaml:"ragRetrievalK" json:"ragRetrievalK"`
 	RAGMinScore             float64 `yaml:"ragMinScore" json:"ragMinScore"`
+}
+
+type BeliefMemoryDistillationConfig struct {
+	Mode                    string  `yaml:"mode" json:"mode"`
+	MaxCandidatesPerEpisode int     `yaml:"maxCandidatesPerEpisode" json:"maxCandidatesPerEpisode"`
+	MinCandidateConfidence  float64 `yaml:"minCandidateConfidence" json:"minCandidateConfidence"`
+	AutoApplyMinConfidence  float64 `yaml:"autoApplyMinConfidence" json:"autoApplyMinConfidence"`
+}
+
+type BeliefMemoryRetrievalConfig struct {
+	MinConfidence         float64 `yaml:"minConfidence" json:"minConfidence"`
+	MaxTokensPerPrompt    int     `yaml:"maxTokensPerPrompt" json:"maxTokensPerPrompt"`
+	IncludeContradictions bool    `yaml:"includeContradictions" json:"includeContradictions"`
+}
+
+type BeliefMemoryLifecycleConfig struct {
+	MinEvidenceForPromotion     int     `yaml:"minEvidenceForPromotion" json:"minEvidenceForPromotion"`
+	MaxEvidenceAgainstPromotion int     `yaml:"maxEvidenceAgainstPromotion" json:"maxEvidenceAgainstPromotion"`
+	StaleAfterDays              int     `yaml:"staleAfterDays" json:"staleAfterDays"`
+	StaleConfidenceDecay        float64 `yaml:"staleConfidenceDecay" json:"staleConfidenceDecay"`
+	AllowOrgPromotion           bool    `yaml:"allowOrgPromotion" json:"allowOrgPromotion"`
+}
+
+type BeliefMemoryEnforcementConfig struct {
+	AutoEnable                   bool    `yaml:"autoEnable" json:"autoEnable"`
+	SoftPolicyThreshold          float64 `yaml:"softPolicyThreshold" json:"softPolicyThreshold"`
+	HardConstraintThreshold      float64 `yaml:"hardConstraintThreshold" json:"hardConstraintThreshold"`
+	HardConstraintMinEvidenceFor int     `yaml:"hardConstraintMinEvidenceFor" json:"hardConstraintMinEvidenceFor"`
 }
 
 // TokenizationConfig controls how tokens are counted for summarization decisions.

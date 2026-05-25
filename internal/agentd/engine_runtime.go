@@ -11,6 +11,7 @@ import (
 	"manifold/internal/specialists"
 	agenttools "manifold/internal/tools/agents"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 )
@@ -137,6 +138,19 @@ func (a *app) configureBeliefRunState(eng *agent.Engine, userID int64, sessionID
 		eng.BeliefStore = a.mgr.Belief
 		eng.BeliefGraph = a.mgr.Graph
 		eng.BeliefPromotionThreshold = a.cfg.BeliefMemory.PromotionThreshold
+		eng.BeliefLifecyclePolicy = belief.PromotionPolicy{
+			MinEvidenceFor:       a.cfg.BeliefMemory.Lifecycle.MinEvidenceForPromotion,
+			MaxEvidenceAgainst:   a.cfg.BeliefMemory.Lifecycle.MaxEvidenceAgainstPromotion,
+			ConfidenceThreshold:  a.cfg.BeliefMemory.PromotionThreshold,
+			StaleAfter:           durationDays(a.cfg.BeliefMemory.Lifecycle.StaleAfterDays),
+			StaleConfidenceDecay: a.cfg.BeliefMemory.Lifecycle.StaleConfidenceDecay,
+		}
+		eng.BeliefEnforcementPolicy = belief.EnforcementPolicy{
+			AutoEnable:                   a.cfg.BeliefMemory.Enforcement.AutoEnable,
+			SoftPolicyThreshold:          a.cfg.BeliefMemory.Enforcement.SoftPolicyThreshold,
+			HardConstraintThreshold:      a.cfg.BeliefMemory.Enforcement.HardConstraintThreshold,
+			HardConstraintMinEvidenceFor: a.cfg.BeliefMemory.Enforcement.HardConstraintMinEvidenceFor,
+		}
 		if a.cfg.BeliefMemory.EnableDistillation {
 			eng.BeliefDistiller = a.newBeliefDistiller()
 		} else {
@@ -146,16 +160,26 @@ func (a *app) configureBeliefRunState(eng *agent.Engine, userID int64, sessionID
 			base := belief.NewGraphEnrichedRetriever(a.mgr.Belief, a.mgr.Graph, 2)
 			eng.BeliefRetriever = a.applyRAGEvidenceBlend(base)
 			eng.BeliefMaxBeliefsPerPrompt = a.cfg.BeliefMemory.MaxBeliefsPerPrompt
-			eng.BeliefPromptTokenBudget = a.cfg.BeliefMemory.MaxBeliefsPerPrompt * 140
+			eng.BeliefPromptTokenBudget = a.cfg.BeliefMemory.Retrieval.MaxTokensPerPrompt
+			eng.BeliefRetrievalMinConfidence = a.cfg.BeliefMemory.Retrieval.MinConfidence
+			eng.BeliefIncludeContradictions = a.cfg.BeliefMemory.Retrieval.IncludeContradictions
 		} else {
 			eng.BeliefRetriever = nil
 			eng.BeliefMaxBeliefsPerPrompt = 0
 			eng.BeliefPromptTokenBudget = 0
+			eng.BeliefRetrievalMinConfidence = 0
+			eng.BeliefIncludeContradictions = false
 		}
 		if a.cfg.BeliefMemory.EnableConstraintEnforcement && a.transitService != nil {
 			eng.PolicyEnforcer = policy.NewTransitEnforcer(a.transitService)
+			if a.cfg.BeliefMemory.Enforcement.AutoEnable {
+				eng.BeliefPolicySink = beliefPolicySink{service: a.transitService}
+			} else {
+				eng.BeliefPolicySink = nil
+			}
 		} else {
 			eng.PolicyEnforcer = nil
+			eng.BeliefPolicySink = nil
 		}
 	} else {
 		eng.BeliefStore = nil
@@ -164,19 +188,46 @@ func (a *app) configureBeliefRunState(eng *agent.Engine, userID int64, sessionID
 		eng.BeliefGraph = nil
 		eng.BeliefMaxBeliefsPerPrompt = 0
 		eng.BeliefPromptTokenBudget = 0
+		eng.BeliefRetrievalMinConfidence = 0
+		eng.BeliefIncludeContradictions = false
 		eng.BeliefPromotionThreshold = 0
+		eng.BeliefLifecyclePolicy = belief.PromotionPolicy{}
+		eng.BeliefEnforcementPolicy = belief.EnforcementPolicy{}
+		eng.BeliefPolicySink = nil
 		eng.PolicyEnforcer = nil
 	}
 }
 
 func (a *app) newBeliefDistiller() belief.Distiller {
-	if a == nil || a.cfg == nil || strings.TrimSpace(a.cfg.Embedding.BaseURL) == "" || strings.TrimSpace(a.cfg.Embedding.Model) == "" {
+	if a == nil || a.cfg == nil {
 		return belief.SimpleDistiller{}
 	}
 	cfg := a.cfg.Embedding
-	return belief.SimpleDistiller{Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
-		return embedding.EmbedText(ctx, cfg, texts)
-	}}
+	var embed belief.EmbedFunc
+	if strings.TrimSpace(cfg.BaseURL) != "" && strings.TrimSpace(cfg.Model) != "" {
+		embed = func(ctx context.Context, texts []string) ([][]float32, error) {
+			return embedding.EmbedText(ctx, cfg, texts)
+		}
+	}
+	if a.cfg.BeliefMemory.Distillation.Mode == "llm" && a.beliefLLM != nil {
+		return belief.LLMDistiller{Config: belief.LLMDistillerConfig{
+			LLM:                    a.beliefLLM,
+			Model:                  a.beliefModel,
+			MaxCandidates:          a.cfg.BeliefMemory.Distillation.MaxCandidatesPerEpisode,
+			MinCandidateConfidence: a.cfg.BeliefMemory.Distillation.MinCandidateConfidence,
+			AutoApplyMinConfidence: a.cfg.BeliefMemory.Distillation.AutoApplyMinConfidence,
+			DefaultConfidence:      a.cfg.BeliefMemory.DefaultConfidence,
+			Embed:                  embed,
+		}}
+	}
+	return belief.SimpleDistiller{Embed: embed}
+}
+
+func durationDays(days int) time.Duration {
+	if days <= 0 {
+		return 0
+	}
+	return time.Duration(days) * 24 * time.Hour
 }
 
 // applyRAGEvidenceBlend wraps a primary belief Retriever with a RAG-backed

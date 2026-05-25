@@ -90,6 +90,69 @@ func TestDebugBeliefsHandlerSearchAndHistoryAreTenantScoped(t *testing.T) {
 	}
 }
 
+func TestBeliefsStableRoutesListAndReviewCandidates(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := databases.NewBeliefStore(nil)
+	scope, err := store.EnsureScope(ctx, belief.Scope{TenantID: 1, Kind: belief.ScopeKindObjective, Path: "project/objective"})
+	if err != nil {
+		t.Fatalf("ensure scope: %v", err)
+	}
+	episode, err := store.UpsertEpisode(ctx, belief.Episode{TenantID: 1, ScopeID: scope.ID, ProjectID: "project", ObjectiveID: "objective", StartedAt: scope.CreatedAt})
+	if err != nil {
+		t.Fatalf("upsert episode: %v", err)
+	}
+	candidate, err := store.RecordCandidate(ctx, belief.CandidateRecord{
+		TenantID:         1,
+		EpisodeID:        episode.ID,
+		ScopeID:          scope.ID,
+		Statement:        "Belief candidates are operator-reviewable.",
+		StatementHash:    belief.StatementHash("Belief candidates are operator-reviewable."),
+		Kind:             belief.BeliefKindFact,
+		Enforcement:      belief.EnforcementPrompt,
+		Polarity:         belief.EvidencePolarityFor,
+		Confidence:       0.6,
+		SourceQuality:    0.6,
+		ReviewState:      belief.ReviewStateNeedsReview,
+		EvidenceNote:     "candidate queue test",
+		ValidationStatus: belief.CandidateValidationQueued,
+	})
+	if err != nil {
+		t.Fatalf("record candidate: %v", err)
+	}
+	app := &app{cfg: &config.Config{}, mgr: &databases.Manager{Belief: store, Graph: databases.NewMemoryGraph()}}
+	router := newRouter(app)
+
+	listReq := httptest.NewRequest(http.MethodGet, "/api/beliefs/candidates?user_id=1&review_state=needs_review", nil)
+	listRec := httptest.NewRecorder()
+	router.ServeHTTP(listRec, listReq)
+	if listRec.Code != http.StatusOK {
+		t.Fatalf("candidate list status = %d body=%s", listRec.Code, listRec.Body.String())
+	}
+	var candidates []belief.CandidateRecord
+	if err := json.Unmarshal(listRec.Body.Bytes(), &candidates); err != nil {
+		t.Fatalf("decode candidates: %v", err)
+	}
+	if len(candidates) != 1 || candidates[0].ID != candidate.ID {
+		t.Fatalf("expected queued candidate, got %#v", candidates)
+	}
+
+	acceptReq := httptest.NewRequest(http.MethodPost, "/api/beliefs/candidates/"+candidate.ID+"/accept?user_id=1", nil)
+	acceptRec := httptest.NewRecorder()
+	router.ServeHTTP(acceptRec, acceptReq)
+	if acceptRec.Code != http.StatusOK {
+		t.Fatalf("candidate accept status = %d body=%s", acceptRec.Code, acceptRec.Body.String())
+	}
+	updated, ok, err := store.GetCandidate(ctx, 1, candidate.ID)
+	if err != nil || !ok {
+		t.Fatalf("get candidate ok=%v err=%v", ok, err)
+	}
+	if updated.ReviewState != belief.ReviewStateOperatorApproved || updated.AcceptedBeliefID == "" {
+		t.Fatalf("expected approved candidate linked to belief, got %#v", updated)
+	}
+}
+
 func TestDebugBeliefsHandlerRequiresAuthWhenEnabled(t *testing.T) {
 	t.Parallel()
 

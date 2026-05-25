@@ -18,7 +18,7 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 	var reasoningTrace []string
 	defer func() {
 		evolvingEntryID = e.storeExperience(ctx, userInput, final, err, reasoningTrace)
-		e.recordRunEpisode(ctx, startedAt, final, err, evolvingEntryID)
+		e.recordRunEpisode(ctx, startedAt, userInput, final, err, evolvingEntryID, reasoningTrace)
 	}()
 
 	// If ReMem mode is enabled, use Think-Act-Refine controller
@@ -66,7 +66,7 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 	var reasoningTrace []string
 	defer func() {
 		evolvingEntryID = e.storeExperience(ctx, userInput, final, err, reasoningTrace)
-		e.recordRunEpisode(ctx, startedAt, final, err, evolvingEntryID)
+		e.recordRunEpisode(ctx, startedAt, userInput, final, err, evolvingEntryID, reasoningTrace)
 	}()
 
 	// If ReMem mode is enabled, use Think-Act-Refine controller

@@ -23,6 +23,7 @@ func NewMemoryBeliefStore() belief.Store {
 		beliefs:    map[string]belief.Belief{},
 		evidence:   map[string]belief.Evidence{},
 		promotions: map[string]belief.Promotion{},
+		candidates: map[string]belief.CandidateRecord{},
 	}
 }
 
@@ -34,6 +35,7 @@ type memBeliefStore struct {
 	beliefs    map[string]belief.Belief
 	evidence   map[string]belief.Evidence
 	promotions map[string]belief.Promotion
+	candidates map[string]belief.CandidateRecord
 }
 
 func (s *memBeliefStore) Init(context.Context) error { return nil }
@@ -129,6 +131,9 @@ func (s *memBeliefStore) UpsertBelief(_ context.Context, item belief.Belief) (be
 
 	item.TenantID = normalizeTenantID(item.TenantID)
 	item.Status = normalizeBeliefStatus(item.Status)
+	item.Kind = belief.NormalizeBeliefKind(item.Kind)
+	item.Enforcement = belief.NormalizeEnforcement(item.Enforcement)
+	item.ReviewState = belief.NormalizeReviewState(item.ReviewState)
 	now := time.Now().UTC()
 	if strings.TrimSpace(item.ID) == "" {
 		item.ID = uuid.NewString()
@@ -325,6 +330,76 @@ func (s *memBeliefStore) ListPromotions(_ context.Context, query belief.Promotio
 	return out, nil
 }
 
+func (s *memBeliefStore) RecordCandidate(_ context.Context, candidate belief.CandidateRecord) (belief.CandidateRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	candidate.TenantID = normalizeTenantID(candidate.TenantID)
+	candidate.Kind = belief.NormalizeBeliefKind(candidate.Kind)
+	candidate.Enforcement = belief.NormalizeEnforcement(candidate.Enforcement)
+	candidate.ReviewState = belief.NormalizeReviewState(candidate.ReviewState)
+	candidate.ValidationStatus = belief.NormalizeCandidateValidationStatus(candidate.ValidationStatus)
+	if strings.TrimSpace(candidate.ID) == "" {
+		candidate.ID = uuid.NewString()
+	}
+	if strings.TrimSpace(candidate.StatementHash) == "" && strings.TrimSpace(candidate.Statement) != "" {
+		candidate.StatementHash = belief.StatementHash(candidate.Statement)
+	}
+	if candidate.NormalizedPayload == nil {
+		candidate.NormalizedPayload = map[string]any{}
+	}
+	if candidate.Metadata == nil {
+		candidate.Metadata = map[string]any{}
+	}
+	now := time.Now().UTC()
+	if candidate.CreatedAt.IsZero() {
+		candidate.CreatedAt = now
+	}
+	candidate.UpdatedAt = now
+	s.candidates[candidate.ID] = cloneBeliefCandidate(candidate)
+	return cloneBeliefCandidate(candidate), nil
+}
+
+func (s *memBeliefStore) GetCandidate(_ context.Context, tenantID int64, id string) (belief.CandidateRecord, bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	candidate, ok := s.candidates[strings.TrimSpace(id)]
+	if !ok || candidate.TenantID != normalizeTenantID(tenantID) {
+		return belief.CandidateRecord{}, false, nil
+	}
+	return cloneBeliefCandidate(candidate), true, nil
+}
+
+func (s *memBeliefStore) ListCandidates(_ context.Context, query belief.CandidateQuery) ([]belief.CandidateRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	limit := query.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	out := make([]belief.CandidateRecord, 0, limit)
+	for _, candidate := range s.candidates {
+		if candidate.TenantID != normalizeTenantID(query.TenantID) {
+			continue
+		}
+		if strings.TrimSpace(query.EpisodeID) != "" && candidate.EpisodeID != strings.TrimSpace(query.EpisodeID) {
+			continue
+		}
+		if query.ReviewState != "" && candidate.ReviewState != belief.NormalizeReviewState(query.ReviewState) {
+			continue
+		}
+		if query.ValidationStatus != "" && candidate.ValidationStatus != belief.NormalizeCandidateValidationStatus(query.ValidationStatus) {
+			continue
+		}
+		out = append(out, cloneBeliefCandidate(candidate))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
 func beliefScopeIndexKey(tenantID int64, kind belief.ScopeKind, path string) string {
 	return strings.Join([]string{fmt.Sprint(normalizeTenantID(tenantID)), string(normalizeScopeKind(kind)), strings.TrimSpace(path)}, "\x00")
 }
@@ -385,6 +460,12 @@ func cloneBeliefPromotion(promotion belief.Promotion) belief.Promotion {
 		promotion.ActorUserID = &actorUserID
 	}
 	return promotion
+}
+
+func cloneBeliefCandidate(candidate belief.CandidateRecord) belief.CandidateRecord {
+	candidate.NormalizedPayload = cloneAnyMap(candidate.NormalizedPayload)
+	candidate.Metadata = cloneAnyMap(candidate.Metadata)
+	return candidate
 }
 
 func cloneAnyMap(in map[string]any) map[string]any {

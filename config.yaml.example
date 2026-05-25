@@ -324,13 +324,41 @@ transit:
   maxBatchSize: 100
   enableVectorSearch: true
 
-# Shared belief memory foundations. Phase 0 keeps all runtime behavior disabled
-# while the store, schema, and interfaces are available for incremental rollout.
+# Shared belief memory. Beliefs are scoped, evidence-backed project truths with
+# candidate audit, retrieval, promotion, and optional Transit policy compilation.
+# The example keeps the master switch off; flip enabled to true to activate it.
 beliefMemory:
   enabled: false
-  enableDistillation: false
-  enableRetrieval: false
-  enableConstraintEnforcement: false
+  enableDistillation: true
+  enableRetrieval: true
+  enableConstraintEnforcement: true
+  llmClient:
+    provider: openai
+    openai:
+      api: responses
+      apiKey: ${OPENAI_API_KEY}
+      baseURL: https://api.openai.com/v1
+      model: gpt-5.4-mini
+  distillation:
+    mode: llm # simple | llm
+    maxCandidatesPerEpisode: 5
+    minCandidateConfidence: 0.55
+    autoApplyMinConfidence: 0.65
+  retrieval:
+    minConfidence: 0.35
+    maxTokensPerPrompt: 700
+    includeContradictions: true
+  lifecycle:
+    minEvidenceForPromotion: 2
+    maxEvidenceAgainstPromotion: 0
+    staleAfterDays: 30
+    staleConfidenceDecay: 0.90
+    allowOrgPromotion: false
+  enforcement:
+    autoEnable: true
+    softPolicyThreshold: 0.85
+    hardConstraintThreshold: 0.95
+    hardConstraintMinEvidenceFor: 3
   maxBeliefsPerPrompt: 5
   maxEvidencePerBelief: 3
   defaultConfidence: 0.5

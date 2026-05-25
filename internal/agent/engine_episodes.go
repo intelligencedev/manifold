@@ -12,7 +12,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-func (e *Engine) recordRunEpisode(ctx context.Context, startedAt time.Time, final string, runErr error, evolvingEntryID string) {
+func (e *Engine) recordRunEpisode(ctx context.Context, startedAt time.Time, userInput, final string, runErr error, evolvingEntryID string, reasoningTrace []string) {
 	if e == nil || e.BeliefStore == nil {
 		return
 	}
@@ -64,35 +64,121 @@ func (e *Engine) recordRunEpisode(ctx context.Context, startedAt time.Time, fina
 		observability.LoggerWithTrace(ctx).Warn().Err(err).Msg("belief_episode_store_failed")
 		return
 	}
-	e.distillBeliefs(ctx, episode, final)
+	e.distillBeliefs(ctx, episode, userInput, final, reasoningTrace)
 }
 
-func (e *Engine) distillBeliefs(ctx context.Context, episode belief.Episode, final string) {
+func (e *Engine) distillBeliefs(ctx context.Context, episode belief.Episode, userInput, final string, reasoningTrace []string) {
 	if e == nil || e.BeliefStore == nil || e.BeliefDistiller == nil {
 		return
 	}
-	candidates, err := e.BeliefDistiller.Distill(ctx, belief.DistillationInput{
-		Episode: episode,
-		Summary: final,
+	input := belief.DistillationInput{
+		Episode:        episode,
+		UserRequest:    userInput,
+		FinalAnswer:    final,
+		Summary:        final,
+		ReasoningTrace: append([]string(nil), reasoningTrace...),
 		Signals: map[string]any{
 			"outcome":       episode.Outcome,
 			"outcomeSignal": episode.OutcomeSignal,
 		},
-	})
-	if err != nil {
-		observability.LoggerWithTrace(ctx).Warn().Err(err).Str("episode_id", episode.ID).Msg("belief_distillation_failed")
-		return
+	}
+	var candidates []belief.Candidate
+	var audit []belief.CandidateRecord
+	if distiller, ok := e.BeliefDistiller.(belief.AuditDistiller); ok {
+		result, err := distiller.DistillWithAudit(ctx, input)
+		if err != nil {
+			observability.LoggerWithTrace(ctx).Warn().Err(err).Str("episode_id", episode.ID).Msg("belief_distillation_failed")
+			return
+		}
+		candidates = result.Candidates
+		audit = result.Audit
+	} else {
+		var err error
+		candidates, err = e.BeliefDistiller.Distill(ctx, input)
+		if err != nil {
+			observability.LoggerWithTrace(ctx).Warn().Err(err).Str("episode_id", episode.ID).Msg("belief_distillation_failed")
+			return
+		}
+		audit = auditCandidates(episode, candidates)
+	}
+	if len(audit) > 0 {
+		e.recordCandidateAudit(ctx, audit)
 	}
 	if len(candidates) == 0 {
 		return
 	}
-	applied, err := belief.ApplyCandidates(ctx, e.BeliefStore, episode, candidates)
-	if err != nil {
-		observability.LoggerWithTrace(ctx).Warn().Err(err).Str("episode_id", episode.ID).Msg("belief_candidate_apply_failed")
-		return
+	applied := make([]belief.Belief, 0, len(candidates))
+	for _, candidate := range candidates {
+		item, err := belief.ApplyCandidate(ctx, e.BeliefStore, episode, candidate)
+		if err != nil {
+			observability.LoggerWithTrace(ctx).Warn().Err(err).Str("episode_id", episode.ID).Msg("belief_candidate_apply_failed")
+			return
+		}
+		if strings.TrimSpace(item.ID) == "" {
+			continue
+		}
+		applied = append(applied, item)
+		e.linkCandidateAudit(ctx, episode, candidate, item)
 	}
 	e.promoteEligibleBeliefs(ctx, applied)
+	e.compileEnforceableBeliefs(ctx, applied, belief.Promotion{})
 	observability.LoggerWithTrace(ctx).Info().Int("candidate_count", len(candidates)).Str("episode_id", episode.ID).Msg("belief_distillation_applied")
+}
+
+func auditCandidates(episode belief.Episode, candidates []belief.Candidate) []belief.CandidateRecord {
+	out := make([]belief.CandidateRecord, 0, len(candidates))
+	for _, candidate := range candidates {
+		out = append(out, belief.CandidateRecord{
+			TenantID:         episode.TenantID,
+			EpisodeID:        episode.ID,
+			ScopeID:          episode.ScopeID,
+			Statement:        belief.NormalizeStatement(candidate.Statement),
+			StatementHash:    candidate.StatementHash,
+			Kind:             belief.NormalizeBeliefKind(candidate.Kind),
+			Enforcement:      belief.NormalizeEnforcement(candidate.Enforcement),
+			Polarity:         candidate.Polarity,
+			Confidence:       candidate.Confidence,
+			SourceQuality:    candidate.SourceQuality,
+			ReviewState:      belief.ReviewStateAutoActive,
+			EvidenceNote:     candidate.EvidenceNote,
+			ValidationStatus: belief.CandidateValidationAccepted,
+			Model:            "simple",
+			Metadata:         map[string]any{"distiller": "simple"},
+		})
+	}
+	return out
+}
+
+func (e *Engine) recordCandidateAudit(ctx context.Context, records []belief.CandidateRecord) {
+	for _, record := range records {
+		if _, err := e.BeliefStore.RecordCandidate(ctx, record); err != nil {
+			observability.LoggerWithTrace(ctx).Warn().Err(err).Str("episode_id", record.EpisodeID).Msg("belief_candidate_audit_failed")
+		}
+	}
+}
+
+func (e *Engine) linkCandidateAudit(ctx context.Context, episode belief.Episode, candidate belief.Candidate, item belief.Belief) {
+	records, err := e.BeliefStore.ListCandidates(ctx, belief.CandidateQuery{
+		TenantID:         episode.TenantID,
+		EpisodeID:        episode.ID,
+		ValidationStatus: belief.CandidateValidationAccepted,
+		Limit:            50,
+	})
+	if err != nil {
+		return
+	}
+	hash := strings.TrimSpace(candidate.StatementHash)
+	if hash == "" {
+		hash = belief.StatementHash(candidate.Statement)
+	}
+	for _, record := range records {
+		if record.StatementHash != hash || record.AcceptedBeliefID != "" {
+			continue
+		}
+		record.AcceptedBeliefID = item.ID
+		_, _ = e.BeliefStore.RecordCandidate(ctx, record)
+		return
+	}
 }
 
 func (e *Engine) promoteEligibleBeliefs(ctx context.Context, items []belief.Belief) {
@@ -118,18 +204,61 @@ func (e *Engine) promoteEligibleBeliefs(ctx context.Context, items []belief.Beli
 	if threshold <= 0 {
 		threshold = 0.80
 	}
-	service := belief.LifecycleService{Store: e.BeliefStore, Graph: e.BeliefGraph, Policy: belief.PromotionPolicy{ConfidenceThreshold: threshold, MinEvidenceFor: 2, ScopeWideningDecay: 0.85}}
+	policy := e.BeliefLifecyclePolicy
+	if policy.ConfidenceThreshold <= 0 {
+		policy.ConfidenceThreshold = threshold
+	}
+	service := belief.LifecycleService{Store: e.BeliefStore, Graph: e.BeliefGraph, Policy: policy}
 	promoted := 0
 	for _, item := range items {
 		if result, err := service.Promote(ctx, belief.PromotionRequest{TenantID: item.TenantID, BeliefID: item.ID, ToScope: projectScope, Reason: "automatic objective corroboration"}); err != nil {
 			observability.LoggerWithTrace(ctx).Debug().Err(err).Str("belief_id", item.ID).Msg("belief_promotion_skipped")
 		} else {
 			promoted++
+			e.compileEnforceableBeliefs(ctx, []belief.Belief{result.Belief}, result.Promotion)
 			observability.LoggerWithTrace(ctx).Info().Str("belief_id", item.ID).Str("promoted_belief_id", result.Belief.ID).Float64("confidence_after", result.Belief.Confidence).Msg("belief_promoted")
 		}
 	}
 	if promoted > 0 {
 		observability.LoggerWithTrace(ctx).Info().Int("promoted", promoted).Int("candidates", len(items)).Msg("belief_promotion_complete")
+	}
+}
+
+func (e *Engine) compileEnforceableBeliefs(ctx context.Context, items []belief.Belief, promotion belief.Promotion) {
+	if e == nil || e.BeliefPolicySink == nil || len(items) == 0 {
+		return
+	}
+	policy := e.BeliefEnforcementPolicy
+	if !policy.AutoEnable {
+		return
+	}
+	if policy.SoftPolicyThreshold <= 0 {
+		policy.SoftPolicyThreshold = 0.85
+	}
+	if policy.HardConstraintThreshold <= 0 {
+		policy.HardConstraintThreshold = 0.95
+	}
+	if policy.HardConstraintMinEvidenceFor <= 0 {
+		policy.HardConstraintMinEvidenceFor = 3
+	}
+	for _, item := range items {
+		if item.Kind != belief.BeliefKindConstraint {
+			continue
+		}
+		if item.Enforcement == belief.EnforcementSoftPolicy && item.Confidence < policy.SoftPolicyThreshold {
+			continue
+		}
+		if item.Enforcement == belief.EnforcementHardConstraint && (item.Confidence < policy.HardConstraintThreshold || item.EvidenceFor < policy.HardConstraintMinEvidenceFor) {
+			continue
+		}
+		if item.Enforcement != belief.EnforcementSoftPolicy && item.Enforcement != belief.EnforcementHardConstraint {
+			continue
+		}
+		if err := e.BeliefPolicySink.UpsertPolicyForBelief(ctx, item, promotion); err != nil {
+			observability.LoggerWithTrace(ctx).Warn().Err(err).Str("belief_id", item.ID).Msg("belief_policy_compile_failed")
+			continue
+		}
+		observability.LoggerWithTrace(ctx).Info().Str("belief_id", item.ID).Str("enforcement", string(item.Enforcement)).Msg("belief_policy_compiled")
 	}
 }
 

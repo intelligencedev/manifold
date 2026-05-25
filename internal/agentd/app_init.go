@@ -416,6 +416,20 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	}
 	app.engine.AttachTokenizer(llm, nil)
 
+	if cfg.BeliefMemory.Enabled && cfg.BeliefMemory.EnableDistillation && cfg.BeliefMemory.Distillation.Mode == "llm" {
+		beliefLLM, beliefModel, beliefProvider, err := resolveBeliefMemoryLLM(cfg, llm, httpClient)
+		if err != nil {
+			return nil, fmt.Errorf("build belief memory llm provider: %w", err)
+		}
+		app.beliefLLM = beliefLLM
+		app.beliefModel = beliefModel
+		log.Info().
+			Bool("enabled", true).
+			Str("provider", beliefProvider).
+			Str("model", beliefModel).
+			Msg("belief_memory_llm_initialized")
+	}
+
 	delegator := agenttools.NewDelegator(toolRegistry, specReg, wsMgr, cfg.MaxSteps)
 	delegator.SetDefaultTimeout(cfg.AgentRunTimeoutSeconds)
 	delegator.SetTeamDelegator(app)

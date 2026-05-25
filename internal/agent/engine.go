@@ -30,9 +30,14 @@ type Engine struct {
 	// BeliefMaxBeliefsPerPrompt bounds belief-memory prompt injection.
 	BeliefMaxBeliefsPerPrompt int
 	// BeliefPromptTokenBudget bounds the prompt section generated from belief memory.
-	BeliefPromptTokenBudget  int
-	BeliefPromotionThreshold float64
-	PolicyEnforcer           policy.Enforcer
+	BeliefPromptTokenBudget      int
+	BeliefRetrievalMinConfidence float64
+	BeliefIncludeContradictions  bool
+	BeliefPromotionThreshold     float64
+	BeliefLifecyclePolicy        belief.PromotionPolicy
+	BeliefPolicySink             belief.PolicySink
+	BeliefEnforcementPolicy      belief.EnforcementPolicy
+	PolicyEnforcer               policy.Enforcer
 	// MaxToolParallelism controls how many tool calls may run concurrently within a single step.
 	// <= 0 means unbounded (default to len(toolCalls)); 1 preserves sequential behavior.
 	MaxToolParallelism int

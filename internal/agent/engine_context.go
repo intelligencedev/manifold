@@ -110,14 +110,16 @@ func (e *Engine) augmentWithBeliefMemory(ctx context.Context, userInput string, 
 	log := observability.LoggerWithTrace(ctx)
 	startedAt := time.Now()
 	results, err := e.BeliefRetriever.Retrieve(ctx, belief.RetrievalRequest{
-		TenantID:    e.UserID,
-		UserID:      e.UserID,
-		ProjectID:   e.ProjectID,
-		ObjectiveID: objectiveID,
-		SessionID:   e.SessionID,
-		Role:        e.AgentRole,
-		Query:       userInput,
-		Limit:       e.BeliefMaxBeliefsPerPrompt,
+		TenantID:              e.UserID,
+		UserID:                e.UserID,
+		ProjectID:             e.ProjectID,
+		ObjectiveID:           objectiveID,
+		SessionID:             e.SessionID,
+		Role:                  e.AgentRole,
+		Query:                 userInput,
+		Limit:                 e.BeliefMaxBeliefsPerPrompt,
+		MinConfidence:         e.BeliefRetrievalMinConfidence,
+		IncludeContradictions: e.BeliefIncludeContradictions,
 	})
 	latency := time.Since(startedAt)
 	if err != nil {

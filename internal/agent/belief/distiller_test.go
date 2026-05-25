@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"manifold/internal/llm"
 )
 
 type testBeliefStore struct {
@@ -179,5 +181,73 @@ func TestApplyCandidatesStoresEmbedding(t *testing.T) {
 	}
 	if len(applied) != 1 || len(applied[0].Embedding) != 2 {
 		t.Fatalf("expected stored embedding, got %#v", applied)
+	}
+}
+
+type fakeBeliefLLM struct {
+	response string
+	messages []llm.Message
+}
+
+func (f *fakeBeliefLLM) Chat(_ context.Context, msgs []llm.Message, _ []llm.ToolSchema, _ string) (llm.Message, error) {
+	f.messages = append([]llm.Message(nil), msgs...)
+	return llm.Message{Role: "assistant", Content: f.response}, nil
+}
+
+func (f *fakeBeliefLLM) ChatStream(context.Context, []llm.Message, []llm.ToolSchema, string, llm.StreamHandler) error {
+	return nil
+}
+
+func TestLLMDistillerAuditsAcceptedAndQueuedCandidates(t *testing.T) {
+	t.Parallel()
+
+	provider := &fakeBeliefLLM{response: `{"candidates":[
+		{"statement":"Transit policy records must link back to source beliefs.","kind":"constraint","enforcement":"soft_policy","polarity":"for","confidence":0.70,"source_quality":0.80,"evidence_note":"The run described policy metadata linking."},
+		{"statement":"Operators prefer candidate review before applying weak claims.","kind":"preference","enforcement":"prompt","polarity":"for","confidence":0.60,"source_quality":0.60,"evidence_note":"The run requested operator-visible review."}
+	]}`}
+	distiller := LLMDistiller{Config: LLMDistillerConfig{
+		LLM:                    provider,
+		Model:                  "belief-test",
+		MinCandidateConfidence: 0.55,
+		AutoApplyMinConfidence: 0.65,
+	}}
+	result, err := distiller.DistillWithAudit(context.Background(), DistillationInput{
+		Episode:        Episode{ID: "episode-1", TenantID: 7, ScopeID: "scope-1", ProjectID: "project-1", ObjectiveID: "objective-1", EvolvingEntryID: "memory-1"},
+		UserRequest:    "implement belief memory",
+		FinalAnswer:    "done",
+		ReasoningTrace: []string{"used ReMem reasoning"},
+	})
+	if err != nil {
+		t.Fatalf("DistillWithAudit returned error: %v", err)
+	}
+	if len(result.Candidates) != 1 {
+		t.Fatalf("expected one auto-applied candidate, got %d", len(result.Candidates))
+	}
+	if len(result.Audit) != 2 {
+		t.Fatalf("expected two audit rows, got %d", len(result.Audit))
+	}
+	if result.Audit[0].ValidationStatus != CandidateValidationAccepted || result.Audit[1].ValidationStatus != CandidateValidationQueued {
+		t.Fatalf("unexpected audit statuses: %#v", result.Audit)
+	}
+	if !strings.Contains(provider.messages[1].Content, "memory-1") || !strings.Contains(provider.messages[1].Content, "used ReMem reasoning") {
+		t.Fatalf("expected evolving memory and ReMem evidence in distillation input: %s", provider.messages[1].Content)
+	}
+}
+
+func TestLLMDistillerMalformedJSONProducesRejectedAudit(t *testing.T) {
+	t.Parallel()
+
+	distiller := LLMDistiller{Config: LLMDistillerConfig{LLM: &fakeBeliefLLM{response: `not json`}, Model: "belief-test"}}
+	result, err := distiller.DistillWithAudit(context.Background(), DistillationInput{
+		Episode: Episode{ID: "episode-1", TenantID: 7, ScopeID: "scope-1"},
+	})
+	if err != nil {
+		t.Fatalf("DistillWithAudit returned error: %v", err)
+	}
+	if len(result.Candidates) != 0 || len(result.Audit) != 1 {
+		t.Fatalf("expected rejected audit only, got candidates=%d audit=%d", len(result.Candidates), len(result.Audit))
+	}
+	if result.Audit[0].ValidationStatus != CandidateValidationRejected {
+		t.Fatalf("expected rejected audit status, got %q", result.Audit[0].ValidationStatus)
 	}
 }

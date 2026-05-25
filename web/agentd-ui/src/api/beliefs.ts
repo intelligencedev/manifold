@@ -14,6 +14,15 @@ export interface BeliefRecord {
   tenantId: number;
   scopeId: string;
   statement: string;
+  statementHash?: string;
+  kind: "fact" | "preference" | "procedure" | "constraint" | "capability";
+  enforcement: "none" | "prompt" | "soft_policy" | "hard_constraint";
+  sourceQuality: number;
+  reviewState:
+    | "auto_active"
+    | "needs_review"
+    | "operator_approved"
+    | "operator_rejected";
   confidence: number;
   evidenceFor: number;
   evidenceAgainst: number;
@@ -59,6 +68,28 @@ export interface BeliefDetail {
   promotions?: BeliefPromotion[];
 }
 
+export interface BeliefCandidate {
+  id: string;
+  tenantId: number;
+  episodeId?: string;
+  scopeId?: string;
+  statement: string;
+  statementHash?: string;
+  kind: BeliefRecord["kind"];
+  enforcement: BeliefRecord["enforcement"];
+  polarity: "for" | "against";
+  confidence: number;
+  sourceQuality: number;
+  reviewState: BeliefRecord["reviewState"];
+  evidenceNote?: string;
+  validationStatus: "accepted" | "queued" | "rejected";
+  rejectionReason?: string;
+  acceptedBeliefId?: string;
+  model?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface BeliefPromptPreview {
   text: string;
   selected?: BeliefSearchResult[];
@@ -80,10 +111,12 @@ export interface PolicyRecord {
   id: string;
   name?: string;
   kind: string;
-  mode: string;
+  severity?: string;
+  mode?: string;
   statement: string;
   scope?: string;
   status?: string;
+  approvalState?: string;
 }
 
 export async function searchBeliefs(params: {
@@ -92,7 +125,7 @@ export async function searchBeliefs(params: {
   limit?: number;
 }): Promise<BeliefSearchResult[]> {
   const { data } = await apiClient.get<BeliefSearchResult[]>(
-    "/debug/beliefs/search",
+    "/beliefs/search",
     { params },
   );
   return data;
@@ -100,7 +133,7 @@ export async function searchBeliefs(params: {
 
 export async function fetchBeliefDetail(id: string): Promise<BeliefDetail> {
   const { data } = await apiClient.get<BeliefDetail>(
-    `/debug/beliefs/${encodeURIComponent(id)}`,
+    `/beliefs/${encodeURIComponent(id)}`,
   );
   return data;
 }
@@ -114,7 +147,7 @@ export async function fetchBeliefInfluence(params: {
   limit?: number;
 }): Promise<BeliefInfluenceTrace> {
   const { data } = await apiClient.get<BeliefInfluenceTrace>(
-    "/debug/beliefs/influence",
+    "/beliefs/influence",
     { params },
   );
   return data;
@@ -125,7 +158,7 @@ export async function fetchBeliefPolicies(params: {
   role?: string;
 }): Promise<PolicyRecord[]> {
   const { data } = await apiClient.get<PolicyRecord[]>(
-    "/debug/beliefs/policies",
+    "/beliefs/policies",
     { params },
   );
   return data;
@@ -136,8 +169,39 @@ export async function retractBelief(
   reason: string,
 ): Promise<BeliefRecord> {
   const { data } = await apiClient.post<BeliefRecord>(
-    `/debug/beliefs/${encodeURIComponent(id)}/retract`,
+    `/beliefs/${encodeURIComponent(id)}/retract`,
     { reason },
+  );
+  return data;
+}
+
+export async function fetchBeliefCandidates(params: {
+  review_state?: string;
+  validation_status?: string;
+  limit?: number;
+}): Promise<BeliefCandidate[]> {
+  const { data } = await apiClient.get<BeliefCandidate[]>("/beliefs/candidates", {
+    params,
+  });
+  return data;
+}
+
+export async function acceptBeliefCandidate(id: string): Promise<{
+  candidate: BeliefCandidate;
+  belief: BeliefRecord;
+}> {
+  const { data } = await apiClient.post<{
+    candidate: BeliefCandidate;
+    belief: BeliefRecord;
+  }>(`/beliefs/candidates/${encodeURIComponent(id)}/accept`);
+  return data;
+}
+
+export async function rejectBeliefCandidate(
+  id: string,
+): Promise<BeliefCandidate> {
+  const { data } = await apiClient.post<BeliefCandidate>(
+    `/beliefs/candidates/${encodeURIComponent(id)}/reject`,
   );
   return data;
 }

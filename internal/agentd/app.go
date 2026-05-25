@@ -65,6 +65,8 @@ type app struct {
 	evolvingCfg        memory.EvolvingMemoryConfig
 	evolvingSessionTTL time.Duration
 	rememMaxInnerSteps int
+	beliefLLM          llmpkg.Provider
+	beliefModel        string
 	engine             *agent.Engine
 	chatStore          persist.ChatStore
 	matrixMessageStore persist.MatrixMessageStore

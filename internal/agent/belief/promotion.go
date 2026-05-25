@@ -37,6 +37,17 @@ type PromotionPolicy struct {
 	StaleConfidenceDecay float64
 }
 
+type EnforcementPolicy struct {
+	AutoEnable                   bool
+	SoftPolicyThreshold          float64
+	HardConstraintThreshold      float64
+	HardConstraintMinEvidenceFor int
+}
+
+type PolicySink interface {
+	UpsertPolicyForBelief(ctx context.Context, item Belief, promotion Promotion) error
+}
+
 type PromotionRequest struct {
 	TenantID       int64
 	BeliefID       string

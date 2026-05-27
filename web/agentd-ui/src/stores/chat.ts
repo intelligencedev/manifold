@@ -28,6 +28,7 @@ import {
   type ChatStreamEvent,
 } from "@/api/chat";
 import { stripLeadingSpecialistMention } from "@/utils/chatMentions";
+import { createId } from "@/utils/uuid";
 
 type FilesByAttachment = Map<string, File>;
 
@@ -637,7 +638,7 @@ export const useChatStore = defineStore("chat", () => {
     if (options.echoUser !== false) {
       const attachmentsCopy = attachments.map((a) => ({ ...a }));
       appendMessage(sessionId, {
-        id: crypto.randomUUID(),
+        id: createId(),
         role: "user",
         content,
         createdAt: now,
@@ -645,8 +646,8 @@ export const useChatStore = defineStore("chat", () => {
       });
     }
 
-    const assistantId = crypto.randomUUID();
-    const streamId = crypto.randomUUID();
+    const assistantId = createId();
+    const streamId = createId();
     appendMessage(sessionId, {
       id: assistantId,
       role: "assistant",
@@ -889,7 +890,7 @@ export const useChatStore = defineStore("chat", () => {
         updateMessage(sessionId, assistantId, (m) => {
           const attachments = [...(m.attachments || [])];
           attachments.push({
-            id: crypto.randomUUID(),
+            id: createId(),
             kind: "image",
             name: name || savedPath || "image",
             mime,
@@ -913,7 +914,7 @@ export const useChatStore = defineStore("chat", () => {
           appendMessage(
             sessionId,
             {
-              id: crypto.randomUUID(),
+              id: createId(),
               role: "tool",
               title: event.title || "Audio response",
               content: "The agent produced an audio reply.",
@@ -1151,7 +1152,7 @@ export const useChatStore = defineStore("chat", () => {
     const callId =
       typeof event.call_id === "string" && event.call_id.trim()
         ? event.call_id.trim()
-        : crypto.randomUUID();
+        : createId();
     const depth =
       typeof event.depth === "number" && event.depth >= 0 ? event.depth : 1;
     const parentCallId =
@@ -1273,7 +1274,7 @@ export const useChatStore = defineStore("chat", () => {
             content: "",
             entries: [
               {
-                id: crypto.randomUUID(),
+                id: createId(),
                 type: "tool",
                 title: event.title || "Tool",
                 args,
@@ -1289,7 +1290,7 @@ export const useChatStore = defineStore("chat", () => {
             entries: [
               ...thread.entries,
               {
-                id: crypto.randomUUID(),
+                id: createId(),
                 type: "tool",
                 title: event.title || "Tool",
                 args,
@@ -1317,7 +1318,7 @@ export const useChatStore = defineStore("chat", () => {
             content: "",
             entries: [
               {
-                id: crypto.randomUUID(),
+                id: createId(),
                 type: "tool",
                 title: event.title || "Tool",
                 data,
@@ -1333,7 +1334,7 @@ export const useChatStore = defineStore("chat", () => {
             entries: [
               ...thread.entries,
               {
-                id: crypto.randomUUID(),
+                id: createId(),
                 type: "tool",
                 title: event.title || "Tool",
                 data,
@@ -1363,7 +1364,7 @@ export const useChatStore = defineStore("chat", () => {
             content: contentText || "",
             entries: [
               {
-                id: crypto.randomUUID(),
+                id: createId(),
                 type: "error",
                 content: errText,
                 createdAt: now,
@@ -1383,7 +1384,7 @@ export const useChatStore = defineStore("chat", () => {
             entries: [
               ...thread.entries,
               {
-                id: crypto.randomUUID(),
+                id: createId(),
                 type: "error",
                 content: errText,
                 createdAt: now,
@@ -1544,7 +1545,7 @@ export const useChatStore = defineStore("chat", () => {
         appendMessage(
           sessionId,
           {
-            id: crypto.randomUUID(),
+            id: createId(),
             role: "tool",
             title: "Thought summaries (interrupted)",
             content: summaries.join("\n"),

@@ -87,7 +87,7 @@
               </template>
               <template v-else-if="renamingSessionId === session.id">
                 <input
-                  ref="renameInput"
+                  :ref="setRenameInput"
                   v-model="renamingName"
                   type="text"
                   class="w-full rounded bg-surface px-2 py-1 text-xs text-foreground outline-none focus:ring-0 focus:border-accent focus-visible:shadow-outline"
@@ -2861,8 +2861,10 @@ watch(activeSessionId, (sessionId) => {
 watch(renamingSessionId, (value) => {
   if (!value) return;
   nextTick(() => {
-    renameInput.value?.focus();
-    renameInput.value?.select();
+    const input = renameInput.value;
+    if (!(input instanceof HTMLInputElement)) return;
+    input.focus();
+    input.select();
   });
 });
 
@@ -3140,11 +3142,14 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
   // New prompt: ensure any prior timer intervals are stopped before we start a new stream.
   stopAllResponseTimers();
 
+  const previousDraft = draft.value;
   try {
     const sessionId = activeSessionId.value;
     const projectId = selectedProjectId.value.trim();
     if (sessionId && projectId) {
-      await chat.updateSessionProject(sessionId, projectId);
+      void chat.updateSessionProject(sessionId, projectId).catch((error) => {
+        console.warn("Failed to persist chat session project:", error);
+      });
     }
 
     autoScrollEnabled.value = true;
@@ -3193,7 +3198,10 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
       },
     );
   } catch (error) {
-    // handled in store
+    if (options.echoUser !== false) {
+      draft.value = previousDraft;
+    }
+    console.warn("Failed to send chat prompt:", error);
   } finally {
     pendingAttachments.value = [];
     filesByAttachment.clear();

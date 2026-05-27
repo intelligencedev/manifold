@@ -60,6 +60,7 @@ import (
 	"manifold/internal/tools/patchtool"
 	pulsetool "manifold/internal/tools/pulse"
 	ragtool "manifold/internal/tools/rag"
+	terminaltool "manifold/internal/tools/terminal"
 	"manifold/internal/tools/textsplitter"
 	transittools "manifold/internal/tools/transit"
 	"manifold/internal/tools/tts"
@@ -107,6 +108,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	durableRegistry := durable.NewRegistry()
 
 	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir, cfg.OutputTruncateByte)
+	terminalManager := terminaltool.NewManager(cfg.Exec, cfg.Workdir)
 	codeQAOpts := appcodeqa.OptionsFromConfig(cfg.CodeQA, cfg.Workdir)
 	codeQAStore := codeqastore.CodeQAStore(codeqastore.NewMemoryStore())
 	if strings.TrimSpace(cfg.Databases.DefaultDSN) != "" {
@@ -125,6 +127,11 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	codeQARunner := appcodeqa.NewCLICommandRunner(exec, codeQAOpts.AllowedCommands)
 	codeQAService := codeqaservice.New(codeQAOpts, codeQARunner, llm, codeQAStore)
 	toolRegistry.Register(cli.NewTool(exec))
+	toolRegistry.Register(terminaltool.NewStartTool(terminalManager))
+	toolRegistry.Register(terminaltool.NewReadTool(terminalManager))
+	toolRegistry.Register(terminaltool.NewWriteTool(terminalManager))
+	toolRegistry.Register(terminaltool.NewStopTool(terminalManager))
+	toolRegistry.Register(terminaltool.NewListTool(terminalManager))
 	toolRegistry.Register(web.NewScreenshotTool())
 	toolRegistry.Register(web.NewFetchTool(mgr.Search))
 	toolRegistry.Register(patchtool.New(cfg.Workdir))
@@ -347,6 +354,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		flowV2:             newFlowV2Runtime(mgr.FlowV2, durableClient),
 		codeQARuntime:      newCodeQARuntime(),
 		codeQAService:      codeQAService,
+		terminalManager:    terminalManager,
 		evolvingSessionTTL: defaultEvolvingSessionTTL,
 		mcpStore:           mgr.MCP,
 		userPrefsStore:     mgr.UserPreferences,

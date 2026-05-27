@@ -458,6 +458,18 @@ llm_client:
 	if cfg.Exec.MaxCommandSeconds != 30 {
 		t.Fatalf("expected default command timeout, got %d", cfg.Exec.MaxCommandSeconds)
 	}
+	if cfg.Exec.MaxTerminalSessions != 8 {
+		t.Fatalf("expected default terminal session limit, got %d", cfg.Exec.MaxTerminalSessions)
+	}
+	if cfg.Exec.MaxTerminalRuntimeSeconds != cfg.Exec.MaxCommandSeconds {
+		t.Fatalf("expected default terminal runtime to match command timeout, got %d", cfg.Exec.MaxTerminalRuntimeSeconds)
+	}
+	if cfg.Exec.TerminalIdleTTLSeconds != 1800 {
+		t.Fatalf("expected default terminal idle TTL, got %d", cfg.Exec.TerminalIdleTTLSeconds)
+	}
+	if cfg.Exec.TerminalOutputBufferBytes != 256*1024 {
+		t.Fatalf("expected default terminal output buffer bytes, got %d", cfg.Exec.TerminalOutputBufferBytes)
+	}
 	if cfg.OutputTruncateByte != 64*1024 {
 		t.Fatalf("expected default output truncate bytes, got %d", cfg.OutputTruncateByte)
 	}

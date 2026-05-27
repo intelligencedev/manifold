@@ -36,6 +36,7 @@ classDiagram
 | Category | Tool names / prefix | Package |
 | --- | --- | --- |
 | CLI | `run_cli` | `internal/tools/cli` |
+| Terminal sessions | `terminal_start`, `terminal_read`, `terminal_write`, `terminal_stop`, `terminal_list` | `internal/tools/terminal` |
 | Web | `web_fetch`, `web_screenshot` | `internal/tools/web` |
 | Patch/file | `apply_patch`, `file_read`, `file_write`, `file_patch`, `file_delete` | `internal/tools/patchtool`, `internal/tools/filetool` |
 | Text utilities | `split_text`, `utility_textbox`, `agent_response` | `internal/tools/textsplitter`, `internal/tools/utility` |

@@ -54,6 +54,11 @@ maxDiscoveredTools: 12
 allowTools:
   - request_info
   - run_cli
+  - terminal_start
+  - terminal_read
+  - terminal_write
+  - terminal_stop
+  - terminal_list
   - apply_patch
   - llm_transform
   - describe_image
@@ -63,6 +68,10 @@ allowTools:
 
 exec:
   maxCommandSeconds: 1200
+  maxTerminalSessions: 8
+  maxTerminalRuntimeSeconds: 1200
+  terminalIdleTTLSeconds: 1800
+  terminalOutputBufferBytes: 262144
   blockBinaries:
     - rm
     - sudo

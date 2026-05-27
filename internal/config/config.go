@@ -281,8 +281,12 @@ type STTConfig struct {
 }
 
 type ExecConfig struct {
-	BlockBinaries     []string `yaml:"blockBinaries" json:"blockBinaries"`
-	MaxCommandSeconds int      `yaml:"maxCommandSeconds" json:"maxCommandSeconds"`
+	BlockBinaries             []string `yaml:"blockBinaries" json:"blockBinaries"`
+	MaxCommandSeconds         int      `yaml:"maxCommandSeconds" json:"maxCommandSeconds"`
+	MaxTerminalSessions       int      `yaml:"maxTerminalSessions" json:"maxTerminalSessions"`
+	MaxTerminalRuntimeSeconds int      `yaml:"maxTerminalRuntimeSeconds" json:"maxTerminalRuntimeSeconds"`
+	TerminalIdleTTLSeconds    int      `yaml:"terminalIdleTTLSeconds" json:"terminalIdleTTLSeconds"`
+	TerminalOutputBufferBytes int      `yaml:"terminalOutputBufferBytes" json:"terminalOutputBufferBytes"`
 }
 
 // SummaryConfig controls rolling chat summaries and their dedicated LLM client.

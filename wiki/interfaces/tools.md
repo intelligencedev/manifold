@@ -7,6 +7,11 @@ This page summarizes the tool surface exposed by the backend. Actual availabilit
 | Tool | Purpose |
 | --- | --- |
 | `run_cli` | Run allowed CLI commands inside configured workdir/project context. |
+| `terminal_start` | Start a long-running or interactive project-scoped terminal session. |
+| `terminal_read` | Read buffered output from a terminal session. |
+| `terminal_write` | Write stdin to a running terminal session. |
+| `terminal_stop` | Stop a running terminal session. |
+| `terminal_list` | List visible terminal sessions for the current project/chat scope. |
 | `web_fetch` | Fetch a webpage and optionally index content. |
 | `web_screenshot` | Capture web screenshots. |
 | `apply_patch` | Apply unified diffs under allowed workspace. |

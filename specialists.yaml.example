@@ -19,6 +19,11 @@ specialists:
     paused: false
     allowTools:
       - run_cli
+      - terminal_start
+      - terminal_read
+      - terminal_write
+      - terminal_stop
+      - terminal_list
       - apply_patch
       - web_fetch
     reasoningEffort: medium

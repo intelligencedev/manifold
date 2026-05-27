@@ -257,6 +257,18 @@ func applyDefaults(cfg *Config) {
 	if cfg.Exec.MaxCommandSeconds <= 0 {
 		cfg.Exec.MaxCommandSeconds = 30
 	}
+	if cfg.Exec.MaxTerminalSessions <= 0 {
+		cfg.Exec.MaxTerminalSessions = 8
+	}
+	if cfg.Exec.MaxTerminalRuntimeSeconds <= 0 {
+		cfg.Exec.MaxTerminalRuntimeSeconds = cfg.Exec.MaxCommandSeconds
+	}
+	if cfg.Exec.TerminalIdleTTLSeconds <= 0 {
+		cfg.Exec.TerminalIdleTTLSeconds = 1800
+	}
+	if cfg.Exec.TerminalOutputBufferBytes <= 0 {
+		cfg.Exec.TerminalOutputBufferBytes = 256 * 1024
+	}
 	if cfg.OutputTruncateByte <= 0 {
 		cfg.OutputTruncateByte = 64 * 1024
 	}

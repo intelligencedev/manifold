@@ -43,9 +43,13 @@ type agentdSettings struct {
 	StreamRunTimeoutSeconds int `json:"streamRunTimeoutSeconds"`
 	WorkflowTimeoutSeconds  int `json:"workflowTimeoutSeconds"`
 
-	BlockBinaries       string `json:"blockBinaries"`
-	MaxCommandSeconds   int    `json:"maxCommandSeconds"`
-	OutputTruncateBytes int    `json:"outputTruncateBytes"`
+	BlockBinaries             string `json:"blockBinaries"`
+	MaxCommandSeconds         int    `json:"maxCommandSeconds"`
+	OutputTruncateBytes       int    `json:"outputTruncateBytes"`
+	MaxTerminalSessions       int    `json:"maxTerminalSessions"`
+	MaxTerminalRuntimeSeconds int    `json:"maxTerminalRuntimeSeconds"`
+	TerminalIdleTTLSeconds    int    `json:"terminalIdleTTLSeconds"`
+	TerminalOutputBufferBytes int    `json:"terminalOutputBufferBytes"`
 
 	OTELServiceName string `json:"otelServiceName"`
 	ServiceVersion  string `json:"serviceVersion"`

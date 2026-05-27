@@ -27,6 +27,7 @@ import (
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
 	tooldiscovery "manifold/internal/tools/discovery"
+	terminaltool "manifold/internal/tools/terminal"
 	transitdomain "manifold/internal/transit"
 	"manifold/internal/trust"
 	"manifold/internal/workspaces"
@@ -59,6 +60,7 @@ type app struct {
 	flowV2             *flowV2Runtime
 	codeQARuntime      *codeQARuntime
 	codeQAService      *codeqaservice.Service
+	terminalManager    *terminaltool.Manager
 	evolvingMu         sync.RWMutex
 	userEvolving       map[int64]map[string]*memory.EvolvingMemory
 	evolvingLastUsed   map[int64]map[string]time.Time

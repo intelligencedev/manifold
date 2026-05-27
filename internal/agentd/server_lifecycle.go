@@ -35,6 +35,11 @@ func (a *app) close() {
 			log.Warn().Err(err).Msg("close durable worker")
 		}
 	}
+	if a.terminalManager != nil {
+		if err := a.terminalManager.Close(); err != nil {
+			log.Warn().Err(err).Msg("close terminal manager")
+		}
+	}
 	if a.mgr != nil {
 		a.mgr.Close()
 	}

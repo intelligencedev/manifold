@@ -47,9 +47,13 @@ func currentAgentdSettings(cfg *config.Config) agentdSettings {
 		StreamRunTimeoutSeconds: cfg.StreamRunTimeoutSeconds,
 		WorkflowTimeoutSeconds:  cfg.WorkflowTimeoutSeconds,
 
-		BlockBinaries:       strings.Join(cfg.Exec.BlockBinaries, ","),
-		MaxCommandSeconds:   cfg.Exec.MaxCommandSeconds,
-		OutputTruncateBytes: cfg.OutputTruncateByte,
+		BlockBinaries:             strings.Join(cfg.Exec.BlockBinaries, ","),
+		MaxCommandSeconds:         cfg.Exec.MaxCommandSeconds,
+		OutputTruncateBytes:       cfg.OutputTruncateByte,
+		MaxTerminalSessions:       cfg.Exec.MaxTerminalSessions,
+		MaxTerminalRuntimeSeconds: cfg.Exec.MaxTerminalRuntimeSeconds,
+		TerminalIdleTTLSeconds:    cfg.Exec.TerminalIdleTTLSeconds,
+		TerminalOutputBufferBytes: cfg.Exec.TerminalOutputBufferBytes,
 
 		OTELServiceName: cfg.Obs.ServiceName,
 		ServiceVersion:  cfg.Obs.ServiceVersion,
@@ -235,6 +239,18 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	}
 	if settings.OutputTruncateBytes != 0 {
 		cfg.OutputTruncateByte = settings.OutputTruncateBytes
+	}
+	if settings.MaxTerminalSessions != 0 {
+		cfg.Exec.MaxTerminalSessions = settings.MaxTerminalSessions
+	}
+	if settings.MaxTerminalRuntimeSeconds != 0 {
+		cfg.Exec.MaxTerminalRuntimeSeconds = settings.MaxTerminalRuntimeSeconds
+	}
+	if settings.TerminalIdleTTLSeconds != 0 {
+		cfg.Exec.TerminalIdleTTLSeconds = settings.TerminalIdleTTLSeconds
+	}
+	if settings.TerminalOutputBufferBytes != 0 {
+		cfg.Exec.TerminalOutputBufferBytes = settings.TerminalOutputBufferBytes
 	}
 
 	if settings.OTELServiceName != "" {
@@ -429,6 +445,18 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	}
 	if settings.OutputTruncateBytes != 0 {
 		setNestedMapValue(root, []string{"outputTruncateBytes"}, settings.OutputTruncateBytes)
+	}
+	if settings.MaxTerminalSessions != 0 {
+		setNestedMapValue(root, []string{"exec", "maxTerminalSessions"}, settings.MaxTerminalSessions)
+	}
+	if settings.MaxTerminalRuntimeSeconds != 0 {
+		setNestedMapValue(root, []string{"exec", "maxTerminalRuntimeSeconds"}, settings.MaxTerminalRuntimeSeconds)
+	}
+	if settings.TerminalIdleTTLSeconds != 0 {
+		setNestedMapValue(root, []string{"exec", "terminalIdleTTLSeconds"}, settings.TerminalIdleTTLSeconds)
+	}
+	if settings.TerminalOutputBufferBytes != 0 {
+		setNestedMapValue(root, []string{"exec", "terminalOutputBufferBytes"}, settings.TerminalOutputBufferBytes)
 	}
 
 	if settings.OTELServiceName != "" {

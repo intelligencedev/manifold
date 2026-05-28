@@ -31,6 +31,19 @@ type RetrieveOptions struct {
 	// Instruction, when non-empty, is prepended to the query text before embedding
 	// as "Instruct: {Instruction}\nQuery: {Query}" to align with model-specific guidance.
 	Instruction string
+	// Magma controls optional intent-aware multi-graph retrieval.
+	Magma MagmaRetrieveOptions
+}
+
+// MagmaRetrieveOptions controls optional MAGMA retrieval. When Enabled is
+// true, the RAG service uses MAGMA's structured context path instead of the
+// legacy hybrid path.
+type MagmaRetrieveOptions struct {
+	Enabled       bool
+	IntentHint    string
+	MaxHops       int
+	MaxNodes      int
+	ContextFormat string
 }
 
 // RetrievedItem represents a fused retrieval hit.

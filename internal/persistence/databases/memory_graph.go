@@ -42,6 +42,15 @@ func (m *memoryGraph) UpsertEdge(_ context.Context, srcID, rel, dstID string, pr
 	return nil
 }
 
+func (m *memoryGraph) TypedUpsertEdge(ctx context.Context, srcID, graphType, rel, dstID string, props map[string]any) error {
+	cp := make(map[string]any, len(props)+1)
+	for k, v := range props {
+		cp[k] = v
+	}
+	cp["graph_type"] = graphType
+	return m.UpsertEdge(ctx, srcID, typedRel(graphType, rel), dstID, cp)
+}
+
 func (m *memoryGraph) Neighbors(_ context.Context, id string, rel string) ([]string, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -54,6 +63,10 @@ func (m *memoryGraph) Neighbors(_ context.Context, id string, rel string) ([]str
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+func (m *memoryGraph) TypedNeighbors(ctx context.Context, id, graphType, rel string) ([]string, error) {
+	return m.Neighbors(ctx, id, typedRel(graphType, rel))
 }
 
 func (m *memoryGraph) GetNode(_ context.Context, id string) (Node, bool) {

@@ -338,6 +338,12 @@ func (noopGraph) UpsertEdge(context.Context, string, string, string, map[string]
 }
 func (noopGraph) Neighbors(context.Context, string, string) ([]string, error) { return nil, nil }
 func (noopGraph) GetNode(context.Context, string) (Node, bool)                { return Node{}, false }
+func (noopGraph) TypedUpsertEdge(context.Context, string, string, string, string, map[string]any) error {
+	return nil
+}
+func (noopGraph) TypedNeighbors(context.Context, string, string, string) ([]string, error) {
+	return nil, nil
+}
 
 // helpers
 func firstNonEmpty(vals ...string) string {

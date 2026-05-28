@@ -67,6 +67,22 @@ func TestMemoryGraph_Basics(t *testing.T) {
 	}
 }
 
+func TestMemoryGraph_TypedEdges(t *testing.T) {
+	t.Parallel()
+	g := NewMemoryGraph()
+	ctx := context.Background()
+	if err := TypedUpsertEdge(ctx, g, "event:1", "semantic", "SIMILAR_TO", "event:2", map[string]any{"weight": 0.9}); err != nil {
+		t.Fatalf("TypedUpsertEdge() error = %v", err)
+	}
+	got, err := TypedNeighbors(ctx, g, "event:1", "semantic", "SIMILAR_TO")
+	if err != nil {
+		t.Fatalf("TypedNeighbors() error = %v", err)
+	}
+	if len(got) != 1 || got[0] != "event:2" {
+		t.Fatalf("unexpected typed neighbors: %#v", got)
+	}
+}
+
 func TestFactory_DefaultsAndNone(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

@@ -7,6 +7,7 @@ import (
 
 	"manifold/internal/config"
 	"manifold/internal/embedding"
+	"manifold/internal/memory/magma"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/rag/chunker"
 	"manifold/internal/rag/embedder"
@@ -26,6 +27,7 @@ type Service struct {
 	emb     embedder.Embedder
 	embCfg  config.EmbeddingConfig
 	rerank  retrieve.Reranker
+	magma   *magma.Service
 }
 
 // New constructs a Service from a databases.Manager and optional observability.
@@ -41,6 +43,9 @@ func New(mgr databases.Manager, opts ...Option) *Service {
 	}
 	for _, o := range opts {
 		o(s)
+	}
+	if mgr.Graph != nil && s.magma == nil {
+		s.magma = magma.NewService(mgr.Graph, mgr.Vector, s.emb)
 	}
 	return s
 }
@@ -60,6 +65,12 @@ func WithEmbeddingConfig(cfg config.EmbeddingConfig) Option {
 // request enables reranking.
 func WithReranker(rr retrieve.Reranker) Option {
 	return func(s *Service) { s.rerank = rr }
+}
+
+// WithMagmaService overrides the optional MAGMA backend, primarily for tests
+// and custom deployments.
+func WithMagmaService(ms *magma.Service) Option {
+	return func(s *Service) { s.magma = ms }
 }
 
 // Ingest performs chunk-centric ingestion. Stubbed for Milestone 3.
@@ -151,10 +162,28 @@ func (s *Service) Ingest(ctx context.Context, in ingest.IngestRequest) (ingest.I
 
 	dur := s.clock.Now().Sub(start)
 	s.metrics.ObserveHistogram("ingestion_stage_ms", float64(ms(dur)), map[string]string{"stage": "total", "tenant": in.Tenant})
+	var magmaEventID string
+	if in.Options.Magma.Enabled && s.magma != nil {
+		t0 = s.clock.Now()
+		resp, err := s.magma.Ingest(ctx, magma.IngestRequest{
+			ID:        in.ID,
+			Tenant:    in.Tenant,
+			SessionID: in.Options.Magma.SessionID,
+			Text:      pre.Text,
+			Metadata:  in.Metadata,
+		})
+		if err != nil {
+			return ingest.IngestResponse{}, err
+		}
+		magmaEventID = resp.EventID
+		s.metrics.ObserveHistogram("ingestion_stage_ms", float64(ms(s.clock.Now().Sub(t0))), map[string]string{"stage": "magma_fast", "tenant": in.Tenant})
+		s.metrics.IncCounter("magma_events_total", map[string]string{"tenant": in.Tenant})
+	}
 	return ingest.IngestResponse{
-		DocID:    in.ID,
-		Version:  decision.Version,
-		ChunkIDs: chunkIDs,
+		DocID:        in.ID,
+		Version:      decision.Version,
+		ChunkIDs:     chunkIDs,
+		MagmaEventID: magmaEventID,
 		Stats: ingest.IngestStats{
 			NumChunks:     len(chunks),
 			TotalTokens:   approxTokens(pre.Text),
@@ -169,6 +198,9 @@ func (s *Service) Ingest(ctx context.Context, in ingest.IngestRequest) (ingest.I
 func (s *Service) Retrieve(ctx context.Context, q string, opt retrieve.RetrieveOptions) (retrieve.RetrieveResponse, error) {
 	rStart := s.clock.Now()
 	opt = s.normalizeRetrieveOptions(opt)
+	if opt.Magma.Enabled && s.magma != nil {
+		return s.retrieveMagma(ctx, q, opt, rStart)
+	}
 	// Plan query
 	plan := retrieve.BuildQueryPlan(ctx, q, opt)
 	// For now, we reuse deterministic embedder to get a query vector when vector store is present.

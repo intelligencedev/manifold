@@ -60,6 +60,15 @@ ON CONFLICT DO NOTHING
 	return err
 }
 
+func (g *pgGraph) TypedUpsertEdge(ctx context.Context, srcID, graphType, rel, dstID string, props map[string]any) error {
+	cp := make(map[string]any, len(props)+1)
+	for k, v := range props {
+		cp[k] = v
+	}
+	cp["graph_type"] = graphType
+	return g.UpsertEdge(ctx, srcID, typedRel(graphType, rel), dstID, cp)
+}
+
 func (g *pgGraph) Neighbors(ctx context.Context, id string, rel string) ([]string, error) {
 	rows, err := g.pool.Query(ctx, `SELECT target FROM edges WHERE source=$1 AND rel=$2 ORDER BY target`, id, rel)
 	if err != nil {
@@ -75,6 +84,10 @@ func (g *pgGraph) Neighbors(ctx context.Context, id string, rel string) ([]strin
 		out = append(out, d)
 	}
 	return out, rows.Err()
+}
+
+func (g *pgGraph) TypedNeighbors(ctx context.Context, id, graphType, rel string) ([]string, error) {
+	return g.Neighbors(ctx, id, typedRel(graphType, rel))
 }
 
 func (g *pgGraph) GetNode(ctx context.Context, id string) (Node, bool) {

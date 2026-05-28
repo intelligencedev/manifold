@@ -65,6 +65,16 @@ func (t *ingestTool) JSONSchema() map[string]any {
 								"external_refs":    map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
 							},
 						},
+						"magma": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"enabled":             map[string]any{"type": "boolean"},
+								"session_id":          map[string]any{"type": "string"},
+								"graphs":              map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []any{"semantic", "temporal", "causal", "entity"}}},
+								"consolidation_model": map[string]any{"type": "string"},
+								"top_semantic_k":      map[string]any{"type": "integer"},
+							},
+						},
 						"reingest_policy": map[string]any{"type": "string", "enum": []any{"skip_if_unchanged", "overwrite", "new_version"}},
 						"version":         map[string]any{"type": "integer"},
 						"idempotency_key": map[string]any{"type": "string"},
@@ -103,6 +113,13 @@ func (t *ingestTool) Call(ctx context.Context, raw json.RawMessage) (any, error)
 				ExtractEntities bool              `json:"extract_entities"`
 				ExternalRefs    map[string]string `json:"external_refs"`
 			} `json:"graph"`
+			Magma struct {
+				Enabled            bool     `json:"enabled"`
+				SessionID          string   `json:"session_id"`
+				Graphs             []string `json:"graphs"`
+				ConsolidationModel string   `json:"consolidation_model"`
+				TopSemanticK       int      `json:"top_semantic_k"`
+			} `json:"magma"`
 			ReingestPolicy string `json:"reingest_policy"`
 			Version        int    `json:"version"`
 			IdempotencyKey string `json:"idempotency_key"`
@@ -134,6 +151,7 @@ func (t *ingestTool) Call(ctx context.Context, raw json.RawMessage) (any, error)
 			Chunking:       ingest.ChunkingOptions{Strategy: args.Options.Chunking.Strategy, MaxTokens: args.Options.Chunking.MaxTokens, Overlap: args.Options.Chunking.Overlap},
 			Embedding:      ingest.EmbeddingOptions{Enabled: args.Options.Embedding.Enabled, Model: args.Options.Embedding.Model, Dimensions: args.Options.Embedding.Dimensions},
 			Graph:          ingest.GraphOptions{Enabled: args.Options.Graph.Enabled, ExtractEntities: args.Options.Graph.ExtractEntities, ExternalRefs: args.Options.Graph.ExternalRefs},
+			Magma:          ingest.MagmaOptions{Enabled: args.Options.Magma.Enabled, SessionID: args.Options.Magma.SessionID, Graphs: args.Options.Magma.Graphs, ConsolidationModel: args.Options.Magma.ConsolidationModel, TopSemanticK: args.Options.Magma.TopSemanticK},
 			ReingestPolicy: pol,
 			Version:        args.Options.Version,
 			IdempotencyKey: args.Options.IdempotencyKey,
@@ -144,7 +162,7 @@ func (t *ingestTool) Call(ctx context.Context, raw json.RawMessage) (any, error)
 	if err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}, nil
 	}
-	return map[string]any{"ok": true, "doc_id": resp.DocID, "version": resp.Version, "chunk_ids": resp.ChunkIDs, "stats": resp.Stats, "warnings": resp.Warnings}, nil
+	return map[string]any{"ok": true, "doc_id": resp.DocID, "version": resp.Version, "chunk_ids": resp.ChunkIDs, "magma_event_id": resp.MagmaEventID, "stats": resp.Stats, "warnings": resp.Warnings}, nil
 }
 
 // Retrieve tool
@@ -179,8 +197,18 @@ func (t *retrieveTool) JSONSchema() map[string]any {
 				"diversify":       map[string]any{"type": "boolean"},
 				"rerank":          map[string]any{"type": "boolean", "description": "When true, use the configured external reranking endpoint. Ignored when reranking.enabled is false."},
 				"graph_augment":   map[string]any{"type": "boolean"},
-				"tenant":          map[string]any{"type": "string"},
-				"filter":          map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
+				"magma": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"enabled":        map[string]any{"type": "boolean"},
+						"intent_hint":    map[string]any{"type": "string", "enum": []any{"auto", "temporal", "entity", "causal", "semantic"}},
+						"max_hops":       map[string]any{"type": "integer"},
+						"max_nodes":      map[string]any{"type": "integer"},
+						"context_format": map[string]any{"type": "string", "enum": []any{"structured", "text"}},
+					},
+				},
+				"tenant": map[string]any{"type": "string"},
+				"filter": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
 			},
 		},
 	}
@@ -188,21 +216,28 @@ func (t *retrieveTool) JSONSchema() map[string]any {
 
 func (t *retrieveTool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 	var args struct {
-		Query          string            `json:"query"`
-		Instruction    string            `json:"instruction"`
-		K              int               `json:"k"`
-		FtK            int               `json:"ft_k"`
-		VecK           int               `json:"vec_k"`
-		Alpha          float64           `json:"alpha"`
-		UseRRF         bool              `json:"use_rrf"`
-		RRFK           int               `json:"rrf_k"`
-		IncludeText    bool              `json:"include_text"`
-		IncludeSnippet bool              `json:"include_snippet"`
-		Diversify      bool              `json:"diversify"`
-		Rerank         bool              `json:"rerank"`
-		GraphAugment   bool              `json:"graph_augment"`
-		Tenant         string            `json:"tenant"`
-		Filter         map[string]string `json:"filter"`
+		Query          string  `json:"query"`
+		Instruction    string  `json:"instruction"`
+		K              int     `json:"k"`
+		FtK            int     `json:"ft_k"`
+		VecK           int     `json:"vec_k"`
+		Alpha          float64 `json:"alpha"`
+		UseRRF         bool    `json:"use_rrf"`
+		RRFK           int     `json:"rrf_k"`
+		IncludeText    bool    `json:"include_text"`
+		IncludeSnippet bool    `json:"include_snippet"`
+		Diversify      bool    `json:"diversify"`
+		Rerank         bool    `json:"rerank"`
+		GraphAugment   bool    `json:"graph_augment"`
+		Magma          struct {
+			Enabled       bool   `json:"enabled"`
+			IntentHint    string `json:"intent_hint"`
+			MaxHops       int    `json:"max_hops"`
+			MaxNodes      int    `json:"max_nodes"`
+			ContextFormat string `json:"context_format"`
+		} `json:"magma"`
+		Tenant string            `json:"tenant"`
+		Filter map[string]string `json:"filter"`
 	}
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return nil, err
@@ -213,6 +248,7 @@ func (t *retrieveTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 		IncludeText: args.IncludeText, IncludeSnippet: args.IncludeSnippet,
 		Diversify: args.Diversify, Rerank: args.Rerank, GraphAugment: args.GraphAugment,
 		Tenant: args.Tenant, Filter: args.Filter, Instruction: args.Instruction,
+		Magma: retrieve.MagmaRetrieveOptions{Enabled: args.Magma.Enabled, IntentHint: args.Magma.IntentHint, MaxHops: args.Magma.MaxHops, MaxNodes: args.Magma.MaxNodes, ContextFormat: args.Magma.ContextFormat},
 	}
 	resp, err := t.s.Retrieve(ctx, args.Query, opt)
 	if err != nil {

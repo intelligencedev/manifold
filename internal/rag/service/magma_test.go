@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"manifold/internal/persistence/databases"
 	"manifold/internal/rag/ingest"
@@ -17,6 +18,7 @@ func TestService_MagmaOptInIngestAndRetrieve(t *testing.T) {
 		Graph:  databases.NewMemoryGraph(),
 	}
 	svc := New(mgr)
+	t.Cleanup(svc.Close)
 	ctx := context.Background()
 
 	resp, err := svc.Ingest(ctx, ingest.IngestRequest{
@@ -33,8 +35,18 @@ func TestService_MagmaOptInIngestAndRetrieve(t *testing.T) {
 	if resp.MagmaEventID == "" {
 		t.Fatalf("expected MAGMA event ID")
 	}
-	if _, err := svc.magma.DrainConsolidation(ctx, 1); err != nil {
-		t.Fatalf("DrainConsolidation() error = %v", err)
+
+	deadline := time.After(2 * time.Second)
+	for {
+		event, ok := svc.magma.Event(ctx, resp.MagmaEventID)
+		if ok && event.TemporalAttrs.Date != "" {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for async MAGMA consolidation")
+		case <-time.After(10 * time.Millisecond):
+		}
 	}
 
 	got, err := svc.Retrieve(ctx, "When did Melanie practice?", retrieve.RetrieveOptions{

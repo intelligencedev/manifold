@@ -73,6 +73,13 @@ func WithMagmaService(ms *magma.Service) Option {
 	return func(s *Service) { s.magma = ms }
 }
 
+func (s *Service) Close() {
+	if s == nil || s.magma == nil {
+		return
+	}
+	s.magma.Close()
+}
+
 // Ingest performs chunk-centric ingestion. Stubbed for Milestone 3.
 func (s *Service) Ingest(ctx context.Context, in ingest.IngestRequest) (ingest.IngestResponse, error) {
 	start := s.clock.Now()
@@ -165,6 +172,7 @@ func (s *Service) Ingest(ctx context.Context, in ingest.IngestRequest) (ingest.I
 	var magmaEventID string
 	if in.Options.Magma.Enabled && s.magma != nil {
 		t0 = s.clock.Now()
+		s.magma.StartConsolidationWorkers(context.Background(), 1)
 		resp, err := s.magma.Ingest(ctx, magma.IngestRequest{
 			ID:        in.ID,
 			Tenant:    in.Tenant,

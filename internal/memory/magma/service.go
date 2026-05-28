@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"manifold/internal/persistence/databases"
@@ -15,6 +16,11 @@ type Service struct {
 	vector databases.VectorStore
 	emb    embedder.Embedder
 	queue  chan string
+
+	startOnce sync.Once
+	closeOnce sync.Once
+	workerWG  sync.WaitGroup
+	cancel    context.CancelFunc
 }
 
 func NewService(graph databases.GraphDB, vector databases.VectorStore, emb embedder.Embedder) *Service {
@@ -27,6 +33,35 @@ func NewService(graph databases.GraphDB, vector databases.VectorStore, emb embed
 		emb:    emb,
 		queue:  make(chan string, 1024),
 	}
+}
+
+func (s *Service) StartConsolidationWorkers(ctx context.Context, workers int) {
+	if s == nil {
+		return
+	}
+	if workers <= 0 {
+		workers = 1
+	}
+	s.startOnce.Do(func() {
+		workerCtx, cancel := context.WithCancel(ctx)
+		s.cancel = cancel
+		for range workers {
+			s.workerWG.Add(1)
+			go s.runConsolidationWorker(workerCtx)
+		}
+	})
+}
+
+func (s *Service) Close() {
+	if s == nil {
+		return
+	}
+	s.closeOnce.Do(func() {
+		if s.cancel != nil {
+			s.cancel()
+		}
+		s.workerWG.Wait()
+	})
 }
 
 func (s *Service) Ingest(ctx context.Context, in IngestRequest) (EventIngestResponse, error) {
@@ -88,7 +123,7 @@ func (s *Service) Consolidate(ctx context.Context, eventID string) error {
 	entities := ResolveEntities(event.Text)
 	edges := make([]Edge, 0, len(entities)+4)
 	edges = append(edges, s.semanticEdges(ctx, event)...)
-	edges = append(edges, temporalEdges(event)...)
+	edges = append(edges, s.temporalEdges(ctx, event, attrs)...)
 	edges = append(edges, ExtractCausalEdges(event)...)
 	return s.store.BatchUpsert(ctx, BatchUpsertRequest{
 		Event:         event,
@@ -115,6 +150,18 @@ func (s *Service) DrainConsolidation(ctx context.Context, limit int) (int, error
 		}
 	}
 	return processed, nil
+}
+
+func (s *Service) runConsolidationWorker(ctx context.Context) {
+	defer s.workerWG.Done()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case eventID := <-s.queue:
+			_ = s.Consolidate(ctx, eventID)
+		}
+	}
 }
 
 func (s *Service) Query(ctx context.Context, query string, opt QueryOptions) (StructuredContext, error) {

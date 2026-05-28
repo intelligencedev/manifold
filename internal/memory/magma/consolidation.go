@@ -87,15 +87,72 @@ func (s *Service) semanticEdges(ctx context.Context, event EventNode) []Edge {
 	return edges
 }
 
-func temporalEdges(event EventNode) []Edge {
+func (s *Service) temporalEdges(ctx context.Context, event EventNode, attrs TemporalAttrs) []Edge {
 	if event.ID == "" {
 		return nil
 	}
-	return []Edge{{
+	edges := []Edge{{
 		Source:    event.ID,
 		GraphType: GraphTemporal,
 		Rel:       "CONCURRENT",
 		Target:    event.ID,
-		Props:     map[string]any{"date": event.CreatedAt.Format(time.DateOnly)},
+		Props:     map[string]any{"date": firstNonEmpty(attrs.Date, event.CreatedAt.Format(time.DateOnly))},
 	}}
+	if s == nil || s.vector == nil || len(event.Embedding) == 0 {
+		return edges
+	}
+	results, err := s.vector.SimilaritySearch(ctx, event.Embedding, 50, map[string]string{"tenant": event.Tenant})
+	if err != nil {
+		return edges
+	}
+	sourceTime := eventTemporalTime(event, attrs)
+	for _, result := range results {
+		if result.ID == event.ID {
+			continue
+		}
+		other, ok := s.store.GetEvent(ctx, result.ID)
+		if !ok {
+			continue
+		}
+		targetTime := eventTemporalTime(other, other.TemporalAttrs)
+		switch {
+		case sourceTime.Before(targetTime):
+			edges = append(edges,
+				Edge{Source: event.ID, GraphType: GraphTemporal, Rel: "BEFORE", Target: other.ID},
+				Edge{Source: other.ID, GraphType: GraphTemporal, Rel: "AFTER", Target: event.ID},
+			)
+		case sourceTime.After(targetTime):
+			edges = append(edges,
+				Edge{Source: event.ID, GraphType: GraphTemporal, Rel: "AFTER", Target: other.ID},
+				Edge{Source: other.ID, GraphType: GraphTemporal, Rel: "BEFORE", Target: event.ID},
+			)
+		default:
+			edges = append(edges,
+				Edge{Source: event.ID, GraphType: GraphTemporal, Rel: "CONCURRENT", Target: other.ID},
+				Edge{Source: other.ID, GraphType: GraphTemporal, Rel: "CONCURRENT", Target: event.ID},
+			)
+		}
+	}
+	return edges
+}
+
+func eventTemporalTime(event EventNode, attrs TemporalAttrs) time.Time {
+	if attrs.Date != "" {
+		if t, err := time.Parse(time.DateOnly, attrs.Date); err == nil {
+			return t
+		}
+	}
+	if !event.CreatedAt.IsZero() {
+		return event.CreatedAt
+	}
+	return time.Time{}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

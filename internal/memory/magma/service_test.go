@@ -82,3 +82,84 @@ func TestClassifyIntent(t *testing.T) {
 		})
 	}
 }
+
+func TestService_ConsolidationBuildsTemporalAndEntityEdges(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := NewService(databases.NewMemoryGraph(), databases.NewMemoryVector(), embedder.NewDeterministic(32, true, 0))
+
+	first, err := svc.Ingest(ctx, IngestRequest{
+		ID:        "melanie-first",
+		Tenant:    "t1",
+		SessionID: "s1",
+		Text:      "Melanie practiced guitar.",
+		CreatedAt: time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("first Ingest() error = %v", err)
+	}
+	if _, err := svc.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("first DrainConsolidation() error = %v", err)
+	}
+
+	second, err := svc.Ingest(ctx, IngestRequest{
+		ID:        "melanie-second",
+		Tenant:    "t1",
+		SessionID: "s1",
+		Text:      "Melanie performed guitar.",
+		CreatedAt: time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("second Ingest() error = %v", err)
+	}
+	if _, err := svc.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("second DrainConsolidation() error = %v", err)
+	}
+
+	before, err := svc.store.Neighbors(ctx, first.EventID, GraphTemporal, "BEFORE")
+	if err != nil {
+		t.Fatalf("temporal BEFORE neighbors error = %v", err)
+	}
+	if len(before) != 1 || before[0] != second.EventID {
+		t.Fatalf("expected %s BEFORE %s, got %#v", first.EventID, second.EventID, before)
+	}
+	mentions, err := svc.store.Neighbors(ctx, first.EventID, GraphEntity, "MENTIONS")
+	if err != nil {
+		t.Fatalf("entity MENTIONS neighbors error = %v", err)
+	}
+	if len(mentions) != 1 || mentions[0] != "entity:melanie" {
+		t.Fatalf("expected event-to-entity mention, got %#v", mentions)
+	}
+}
+
+func TestService_StartConsolidationWorkersProcessesQueue(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := NewService(databases.NewMemoryGraph(), databases.NewMemoryVector(), embedder.NewDeterministic(32, true, 0))
+	t.Cleanup(svc.Close)
+	svc.StartConsolidationWorkers(ctx, 1)
+
+	resp, err := svc.Ingest(ctx, IngestRequest{
+		ID:        "melanie-practice",
+		Tenant:    "t1",
+		SessionID: "s1",
+		Text:      "Yesterday Melanie practiced guitar.",
+		CreatedAt: time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+
+	deadline := time.After(2 * time.Second)
+	for {
+		event, ok := svc.Event(ctx, resp.EventID)
+		if ok && event.TemporalAttrs.Date == "2026-05-27" {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for async consolidation")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}

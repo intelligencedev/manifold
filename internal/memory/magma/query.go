@@ -29,16 +29,31 @@ func ClassifyIntent(query string) (IntentCategory, float64) {
 }
 
 func SelectPolicy(intent IntentCategory) TraversalPolicy {
-	switch {
-	case intent&IntentCausal != 0:
-		return TraversalPolicy{Intent: intent, GraphViews: []GraphType{GraphCausal, GraphTemporal, GraphSemantic}, MaxHops: 3, MaxNodes: 10, AnchorStrategy: AnchorVector}
-	case intent&IntentTemporal != 0:
-		return TraversalPolicy{Intent: intent, GraphViews: []GraphType{GraphTemporal, GraphSemantic}, MaxHops: 2, MaxNodes: 10, AnchorStrategy: AnchorVector}
-	case intent&IntentEntity != 0:
-		return TraversalPolicy{Intent: intent, GraphViews: []GraphType{GraphEntity, GraphSemantic}, MaxHops: 1, MaxNodes: 5, AnchorStrategy: AnchorEntity}
-	default:
+	if intent == 0 || intent == IntentSemantic {
 		return TraversalPolicy{Intent: intent, GraphViews: []GraphType{GraphSemantic}, MaxHops: 2, MaxNodes: 10, AnchorStrategy: AnchorVector}
 	}
+
+	views := make([]GraphType, 0, 4)
+	maxHops := 2
+	maxNodes := 10
+	anchorStrategy := AnchorVector
+	if intent&IntentCausal != 0 {
+		views = appendGraphViews(views, GraphCausal, GraphTemporal, GraphSemantic)
+		maxHops = max(maxHops, 3)
+	}
+	if intent&IntentTemporal != 0 {
+		views = appendGraphViews(views, GraphTemporal, GraphSemantic)
+	}
+	if intent&IntentEntity != 0 {
+		views = appendGraphViews(views, GraphEntity, GraphSemantic)
+		maxHops = max(maxHops, 2)
+		maxNodes = max(maxNodes, 10)
+		anchorStrategy = AnchorEntity
+	}
+	if intent&IntentSemantic != 0 {
+		views = appendGraphViews(views, GraphSemantic)
+	}
+	return TraversalPolicy{Intent: intent, GraphViews: views, MaxHops: maxHops, MaxNodes: maxNodes, AnchorStrategy: anchorStrategy}
 }
 
 func (q QueryEngine) Query(ctx context.Context, query string, opt QueryOptions) (StructuredContext, error) {
@@ -56,7 +71,7 @@ func (q QueryEngine) Query(ctx context.Context, query string, opt QueryOptions) 
 	if opt.MaxNodes > 0 {
 		policy.MaxNodes = opt.MaxNodes
 	}
-	anchors, err := q.anchors(ctx, query, opt.Tenant, policy.MaxNodes)
+	anchors, err := q.anchors(ctx, query, opt.Tenant, policy)
 	if err != nil {
 		return StructuredContext{}, err
 	}
@@ -67,12 +82,32 @@ func (q QueryEngine) Query(ctx context.Context, query string, opt QueryOptions) 
 	return BuildContext(subgraphs), nil
 }
 
-func (q QueryEngine) anchors(ctx context.Context, query, tenant string, limit int) ([]string, error) {
+func (q QueryEngine) anchors(ctx context.Context, query, tenant string, policy TraversalPolicy) ([]string, error) {
+	limit := policy.MaxNodes
 	if limit <= 0 {
 		limit = 10
 	}
+	anchors := make([]string, 0, limit)
+	seen := map[string]bool{}
+	for _, entity := range ResolveEntities(query) {
+		neighbors, err := q.Service.store.Neighbors(ctx, entity.ID, GraphEntity, "MENTIONS")
+		if err != nil {
+			return nil, err
+		}
+		for _, neighbor := range neighbors {
+			if seen[neighbor] {
+				continue
+			}
+			seen[neighbor] = true
+			anchors = append(anchors, neighbor)
+			if len(anchors) >= limit {
+				return anchors, nil
+			}
+		}
+	}
+
 	if q.Service.vector == nil {
-		return nil, nil
+		return anchors, nil
 	}
 	vec, err := q.Service.embed(ctx, query)
 	if err != nil {
@@ -82,10 +117,14 @@ func (q QueryEngine) anchors(ctx context.Context, query, tenant string, limit in
 	if err != nil {
 		return nil, err
 	}
-	anchors := make([]string, 0, len(results))
 	for _, result := range results {
-		if result.Metadata["kind"] == "magma_event" {
-			anchors = append(anchors, result.ID)
+		if result.Metadata["kind"] != "magma_event" || seen[result.ID] {
+			continue
+		}
+		seen[result.ID] = true
+		anchors = append(anchors, result.ID)
+		if len(anchors) >= limit {
+			break
 		}
 	}
 	return anchors, nil
@@ -188,4 +227,19 @@ func relsForGraph(graphType GraphType) []string {
 	default:
 		return nil
 	}
+}
+
+func appendGraphViews(views []GraphType, add ...GraphType) []GraphType {
+	seen := make(map[GraphType]bool, len(views)+len(add))
+	for _, view := range views {
+		seen[view] = true
+	}
+	for _, view := range add {
+		if seen[view] {
+			continue
+		}
+		seen[view] = true
+		views = append(views, view)
+	}
+	return views
 }

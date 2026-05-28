@@ -2,6 +2,7 @@ package magma
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -129,6 +130,52 @@ func TestService_ConsolidationBuildsTemporalAndEntityEdges(t *testing.T) {
 	}
 	if len(mentions) != 1 || mentions[0] != "entity:melanie" {
 		t.Fatalf("expected event-to-entity mention, got %#v", mentions)
+	}
+}
+
+func TestService_QueryUsesEntityAnchorsWithoutVectorStore(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := NewService(databases.NewMemoryGraph(), nil, embedder.NewDeterministic(32, true, 0))
+
+	resp, err := svc.Ingest(ctx, IngestRequest{
+		ID:        "melanie-guitar",
+		Tenant:    "t1",
+		SessionID: "s1",
+		Text:      "Melanie practiced guitar.",
+		CreatedAt: time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+	if _, err := svc.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("DrainConsolidation() error = %v", err)
+	}
+
+	result, err := svc.Query(ctx, "What do you know about Melanie?", QueryOptions{Tenant: "t1", MaxNodes: 5})
+	if err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if len(result.RawEvents) != 1 || result.RawEvents[0].ID != resp.EventID {
+		t.Fatalf("expected entity-anchored event %s, got %#v", resp.EventID, result.RawEvents)
+	}
+	profile, ok := result.EntityProfile["entity:melanie"]
+	if !ok || len(profile.Events) != 1 {
+		t.Fatalf("expected Melanie entity profile, got %#v", result.EntityProfile)
+	}
+}
+
+func TestSelectPolicy_MixedIntentUsesUnionOfGraphViews(t *testing.T) {
+	t.Parallel()
+	policy := SelectPolicy(IntentTemporal | IntentEntity)
+	if !slices.Contains(policy.GraphViews, GraphTemporal) || !slices.Contains(policy.GraphViews, GraphEntity) || !slices.Contains(policy.GraphViews, GraphSemantic) {
+		t.Fatalf("expected temporal/entity/semantic graph views, got %#v", policy.GraphViews)
+	}
+	if policy.MaxHops < 2 {
+		t.Fatalf("expected mixed policy to allow entity traversal, got %d hops", policy.MaxHops)
+	}
+	if policy.AnchorStrategy != AnchorEntity {
+		t.Fatalf("expected entity anchor strategy, got %q", policy.AnchorStrategy)
 	}
 }
 

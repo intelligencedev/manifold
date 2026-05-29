@@ -139,7 +139,7 @@ func (s *Service) Consolidate(ctx context.Context, eventID string) error {
 	attrs := NormalizeTemporal(event.Text, event.CreatedAt)
 	var entities []EntityMention
 	if s.graphEnabled(GraphEntity) {
-		entities = ResolveEntities(event.Text)
+		entities = ResolveEntitiesForTenant(event.Text, event.Tenant)
 	}
 	edges := make([]Edge, 0, len(entities)+4)
 	if s.graphEnabled(GraphSemantic) {

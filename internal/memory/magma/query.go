@@ -90,7 +90,7 @@ func (q QueryEngine) anchors(ctx context.Context, query, tenant string, policy T
 	}
 	anchors := make([]string, 0, limit)
 	seen := map[string]bool{}
-	for _, entity := range ResolveEntities(query) {
+	for _, entity := range ResolveEntitiesForTenant(query, tenant) {
 		neighbors, err := q.Service.store.Neighbors(ctx, entity.ID, GraphEntity, "MENTIONS")
 		if err != nil {
 			return nil, err

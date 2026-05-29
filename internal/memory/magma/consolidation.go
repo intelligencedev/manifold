@@ -35,6 +35,10 @@ func NormalizeTemporal(text string, anchor time.Time) TemporalAttrs {
 }
 
 func ResolveEntities(text string) []EntityMention {
+	return ResolveEntitiesForTenant(text, "")
+}
+
+func ResolveEntitiesForTenant(text, tenant string) []EntityMention {
 	matches := entityTokenRE.FindAllString(text, -1)
 	seen := map[string]bool{}
 	entities := make([]EntityMention, 0, len(matches))
@@ -42,7 +46,7 @@ func ResolveEntities(text string) []EntityMention {
 		if slices.Contains([]string{"I", "The", "This", "That", "When", "What", "Who", "Why", "Yesterday", "Tomorrow"}, name) {
 			continue
 		}
-		id := "entity:" + strings.ToLower(name)
+		id := entityID(tenant, name)
 		if seen[id] {
 			continue
 		}
@@ -50,6 +54,15 @@ func ResolveEntities(text string) []EntityMention {
 		entities = append(entities, EntityMention{ID: id, Type: "Entity", Name: name})
 	}
 	return entities
+}
+
+func entityID(tenant, name string) string {
+	tenant = strings.ToLower(strings.TrimSpace(tenant))
+	if tenant == "" {
+		tenant = "default"
+	}
+	name = strings.ToLower(strings.TrimSpace(name))
+	return "entity:" + tenant + ":" + name
 }
 
 func ExtractCausalEdges(event EventNode) []Edge {

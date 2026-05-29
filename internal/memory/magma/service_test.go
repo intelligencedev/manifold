@@ -58,7 +58,7 @@ func TestService_IngestConsolidateAndQuery(t *testing.T) {
 	if event.TemporalAttrs.Date != "2026-05-27" {
 		t.Fatalf("expected normalized yesterday date, got %#v", event.TemporalAttrs)
 	}
-	if len(event.EntityMentions) != 1 || event.EntityMentions[0].ID != "entity:melanie" {
+	if len(event.EntityMentions) != 1 || event.EntityMentions[0].ID != "entity:t1:melanie" {
 		t.Fatalf("unexpected entities: %#v", event.EntityMentions)
 	}
 
@@ -176,7 +176,7 @@ func TestService_ConsolidationBuildsTemporalAndEntityEdges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("entity MENTIONS neighbors error = %v", err)
 	}
-	if len(mentions) != 1 || mentions[0] != "entity:melanie" {
+	if len(mentions) != 1 || mentions[0] != "entity:t1:melanie" {
 		t.Fatalf("expected event-to-entity mention, got %#v", mentions)
 	}
 }
@@ -329,9 +329,53 @@ func TestService_QueryUsesEntityAnchorsWithoutVectorStore(t *testing.T) {
 	if len(result.RawEvents) != 1 || result.RawEvents[0].ID != resp.EventID {
 		t.Fatalf("expected entity-anchored event %s, got %#v", resp.EventID, result.RawEvents)
 	}
-	profile, ok := result.EntityProfile["entity:melanie"]
+	profile, ok := result.EntityProfile["entity:t1:melanie"]
 	if !ok || len(profile.Events) != 1 {
 		t.Fatalf("expected Melanie entity profile, got %#v", result.EntityProfile)
+	}
+}
+
+func TestService_QueryEntityAnchorsAreTenantScoped(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := NewService(databases.NewMemoryGraph(), nil, embedder.NewDeterministic(32, true, 0))
+
+	t1, err := svc.Ingest(ctx, IngestRequest{
+		ID:        "melanie-t1",
+		Tenant:    "t1",
+		SessionID: "s1",
+		Text:      "Melanie practiced guitar.",
+		CreatedAt: time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("t1 Ingest() error = %v", err)
+	}
+	if _, err := svc.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("t1 DrainConsolidation() error = %v", err)
+	}
+	t2, err := svc.Ingest(ctx, IngestRequest{
+		ID:        "melanie-t2",
+		Tenant:    "t2",
+		SessionID: "s1",
+		Text:      "Melanie practiced piano.",
+		CreatedAt: time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("t2 Ingest() error = %v", err)
+	}
+	if _, err := svc.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("t2 DrainConsolidation() error = %v", err)
+	}
+
+	result, err := svc.Query(ctx, "What did Melanie practice?", QueryOptions{Tenant: "t1", MaxNodes: 5})
+	if err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if len(result.RawEvents) != 1 || result.RawEvents[0].ID != t1.EventID {
+		t.Fatalf("expected only tenant t1 event %s, got %#v; t2=%s", t1.EventID, result.RawEvents, t2.EventID)
+	}
+	if _, ok := result.EntityProfile["entity:t2:melanie"]; ok {
+		t.Fatalf("unexpected tenant t2 entity profile: %#v", result.EntityProfile)
 	}
 }
 

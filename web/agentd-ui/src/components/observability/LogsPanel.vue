@@ -1,6 +1,6 @@
 <template>
   <div
-    class="rounded-2xl border border-border/70 bg-surface p-6 shadow-lg flex h-full flex-col overflow-hidden"
+    class="rounded-lg border border-border/70 bg-surface p-6 flex h-full flex-col overflow-hidden"
   >
     <div class="flex flex-wrap items-start justify-between gap-4">
       <div>
@@ -31,7 +31,7 @@
           />
         </label>
         <span
-          class="rounded-full border border-border/70 bg-muted/20 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-subtle-foreground"
+          class="rounded-full border border-border/70 bg-muted/20 px-2 py-1 text-[11px] font-medium font-mono uppercase tracking-[0.12em] text-faint-foreground"
           :title="sourceTitle"
         >
           {{ sourceLabel }}
@@ -42,20 +42,20 @@
     <div class="mt-4 flex-1 overflow-hidden">
       <div
         v-if="logsLoading"
-        class="rounded-2xl border border-border/70 bg-surface p-4 text-sm text-faint-foreground"
+        class="rounded-lg border border-border/70 bg-surface p-4 text-sm text-faint-foreground"
       >
         Loading logs…
       </div>
       <div
         v-else-if="logsError"
-        class="rounded-2xl border border-danger/60 bg-danger/10 p-4 text-sm text-danger-foreground"
+        class="rounded-lg border border-danger/60 bg-danger/10 p-4 text-sm text-danger-foreground"
       >
         Failed to load logs.
       </div>
         <div v-else class="flex h-full flex-col">
         <div
           v-if="!filteredLogs.length"
-          class="rounded-2xl border border-border/70 bg-surface p-4 text-sm text-faint-foreground"
+          class="rounded-lg border border-border/70 bg-surface p-4 text-sm text-faint-foreground"
         >
           No logs recorded in the selected window.
         </div>
@@ -66,7 +66,7 @@
               :key="log.key || index"
               type="button"
               :class="[
-                'flex w-full items-start gap-3 rounded-xl px-2 py-2 text-left leading-relaxed transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 hover:bg-muted/10',
+                'flex w-full items-start gap-3 rounded-md px-2 py-2 text-left leading-relaxed transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 hover:bg-muted/10',
                 isSelected(log) ? 'bg-muted/20 ring-1 ring-border/80' : '',
                 getLogLevelClass(log.level),
               ]"
@@ -84,7 +84,7 @@
               <span class="min-w-0 flex-1 text-foreground break-all">{{ log.message }}</span>
               <span
                 v-if="log.service"
-                class="shrink-0 rounded-full border border-border/70 bg-muted/20 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-subtle-foreground"
+                class="shrink-0 rounded-full border border-border/70 bg-muted/20 px-2 py-0.5 text-[11px] font-medium font-mono uppercase tracking-[0.12em] text-faint-foreground"
               >
                 {{ log.service }}
               </span>

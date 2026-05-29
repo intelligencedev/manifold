@@ -256,7 +256,7 @@
               <article
                 v-for="result in runResults"
                 :key="result.id"
-                class="rounded-xl border border-border/60 bg-muted/20 p-4 space-y-3"
+                class="rounded-md border border-border/60 bg-muted/20 p-4 space-y-3"
               >
                 <header
                   class="flex flex-wrap items-center justify-between gap-2 text-sm"
@@ -394,7 +394,7 @@
         @click="closeExpandedText"
       ></div>
       <div
-        class="relative z-10 w-[min(95vw,1100px)] max-w-5xl h-[min(90vh,900px)] max-h-[90vh] rounded-2xl border border-border/70 bg-surface shadow-xl p-4 flex flex-col gap-3"
+        class="relative z-10 w-[min(95vw,1100px)] max-w-5xl h-[min(90vh,900px)] max-h-[90vh] rounded-lg border border-border/70 bg-surface p-4 flex flex-col gap-3"
         role="dialog"
         aria-modal="true"
       >

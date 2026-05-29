@@ -1,0 +1,80 @@
+/* Halo — structure from strokes, not glass.
+   No blur, no gradients on surfaces, no stacked shadows. */
+
+:root[data-theme="halo-dark"],
+:root[data-theme="halo-sodium"],
+:root[data-theme="halo-light"] {
+  color-scheme: dark;
+}
+
+:root[data-theme="halo-light"] {
+  color-scheme: light;
+  --bg-rail: 250 250 252;
+  --line-soft: 226 229 234;
+  --line-strong: 196 202 211;
+  --accent-hi: 90 94 220;
+  --accent-dim: 222 224 255;
+}
+
+:root[data-theme="halo-sodium"] {
+  --accent-hi: 246 204 107;
+  --accent-dim: 69 48 20;
+}
+
+::selection {
+  background: rgb(var(--color-accent) / 0.25);
+  color: rgb(var(--color-foreground));
+}
+
+.halo {
+  background: rgb(var(--color-background));
+}
+
+/* Surfaces */
+.halo-surface {
+  background: rgb(var(--color-surface));
+  border: 1px solid rgb(var(--color-border));
+  border-radius: var(--r-lg);
+}
+
+.halo-surface-2 {
+  background: rgb(var(--color-surface-muted));
+}
+
+.halo-rail {
+  background: rgb(var(--bg-rail));
+}
+
+/* Hairlines */
+.halo-hairline-b {
+  border-bottom: 1px solid rgb(var(--color-border));
+}
+
+.halo-hairline-r {
+  border-right: 1px solid rgb(var(--color-border));
+}
+
+.halo-hairline-l {
+  border-left: 1px solid rgb(var(--color-border));
+}
+
+.halo-hairline-soft {
+  border-color: rgb(var(--line-soft));
+}
+
+/* Focus */
+.halo-focus:focus-visible {
+  outline: none;
+  border-color: rgb(var(--color-accent));
+  box-shadow: 0 0 0 3px rgb(var(--accent-dim));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .halo-pulse {
+    box-shadow: 0 0 8px rgb(var(--color-accent));
+  }
+
+  .halo-caret {
+    animation: cursorBlink 0.8s steps(2, start) infinite;
+  }
+}

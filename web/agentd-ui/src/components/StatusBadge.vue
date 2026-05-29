@@ -1,11 +1,11 @@
 <template>
   <span
     :class="[
-      'inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide',
+      'inline-flex items-center gap-2 rounded-[5px] border px-2 py-[3px] font-mono text-[11px] uppercase tracking-[0.08em]',
       statusClasses,
     ]"
   >
-    <span :class="['h-2.5 w-2.5 rounded-full', dotClass]"></span>
+    <span :class="['h-[7px] w-[7px] rounded-full', dotClass]"></span>
     <slot />
   </span>
 </template>
@@ -30,7 +30,7 @@ const statusClasses = computed(() => {
     case "completed":
       return "border border-success/40 bg-success/10 text-success";
     case "running":
-      return "border border-info/40 bg-info/10 text-info";
+      return "border-[rgb(124_134_255_/_0.3)] bg-[rgb(124_134_255_/_0.08)] text-[rgb(var(--accent-hi))]";
     case "queued":
       return "border border-warning/40 bg-warning/10 text-warning";
     case "degraded":
@@ -48,7 +48,7 @@ const dotClass = computed(() => {
     case "completed":
       return "bg-success";
     case "running":
-      return "animate-pulse bg-info";
+      return "bg-accent halo-pulse";
     case "queued":
       return "animate-pulse bg-warning";
     case "degraded":

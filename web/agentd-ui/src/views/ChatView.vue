@@ -315,7 +315,7 @@
         >
           <div
             v-if="!chatMessages.length"
-            class="ap-card flex h-full flex-col items-center justify-center gap-2 rounded-5 border border-dashed border-border bg-surface p-8 text-center text-sm text-subtle-foreground"
+            class="flex h-full flex-col items-center justify-center gap-2 p-8 text-center text-sm text-muted-foreground"
           >
             <p class="text-xl font-medium text-foreground">
               Hello {{ displayUsername }}. Ready to dive in?
@@ -325,34 +325,44 @@
           <div
             v-for="message in chatMessages"
             :key="message.id"
-            class="group/msg relative flex w-full flex-col"
-            :class="message.role === 'user' ? 'items-end' : 'items-center'"
+            class="group/msg relative grid w-full grid-cols-[64px_minmax(0,1fr)] gap-4"
           >
+            <aside
+              :class="[
+                'pt-2 font-mono text-[11px] uppercase tracking-[0.12em]',
+                message.role === 'assistant'
+                  ? 'text-[rgb(var(--accent-hi))]'
+                  : message.role === 'tool'
+                    ? 'text-[rgb(var(--data))]'
+                    : 'text-faint-foreground',
+              ]"
+            >
+              {{ message.role === 'assistant' ? agentNameFor(message) : labelForRole(message.role) }}
+            </aside>
             <article
-              class="relative w-full max-w-[72ch] rounded-[var(--radius,18px)] p-5"
-              :class="message.role === 'user' ? 'glass-surface border border-white/12' : ''"
+              class="relative min-w-0 py-1 pr-6"
             >
               <header class="flex flex-wrap items-center gap-2">
                 <template v-if="message.role === 'assistant'">
                   <span
-                    class="rounded-full bg-accent/10 px-2 py-1 text-xs font-semibold text-accent"
+                    class="rounded-[5px] border border-[rgb(124_134_255_/_0.3)] bg-[rgb(124_134_255_/_0.08)] px-2 py-[3px] font-mono text-[11px] text-[rgb(var(--accent-hi))]"
                   >
                     {{ agentNameFor(message) }}
                   </span>
                 </template>
                 <span
                   v-else
-                  class="rounded-full bg-surface-muted px-2 py-1 text-xs font-semibold text-muted-foreground"
+                  class="rounded-[5px] border border-[rgb(var(--line-strong))] bg-surface-muted px-2 py-[3px] font-mono text-[11px] text-muted-foreground"
                 >
                   {{ labelForRole(message.role) }}
                 </span>
                 <span
                   v-if="shouldShowResponseTimer(message)"
-                  class="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold tabular-nums"
+                  class="inline-flex items-center gap-1 rounded-[5px] border px-2 py-[3px] font-mono text-[11px] tabular-nums"
                   :class="
                     message.streaming
-                      ? 'border-accent/30 bg-accent/10 text-accent'
-                      : 'border-border/60 bg-surface-muted/40 text-faint-foreground'
+                      ? 'border-[rgb(124_134_255_/_0.3)] bg-[rgb(124_134_255_/_0.08)] text-[rgb(var(--accent-hi))]'
+                      : 'border-border bg-surface-muted text-faint-foreground'
                   "
                   :title="
                     message.streaming
@@ -364,10 +374,10 @@
                 </span>
                 <span
                   v-if="message.streaming"
-                  class="flex items-center gap-1 text-xs text-accent"
+                  class="flex items-center gap-1 font-mono text-[11px] uppercase tracking-[0.08em] text-[rgb(var(--accent-hi))]"
                 >
                   <span
-                    class="h-1.5 w-1.5 animate-pulse rounded-full bg-accent"
+                    class="halo-pulse h-1.5 w-1.5 rounded-full bg-accent"
                   ></span>
                   Streaming
                 </span>
@@ -759,7 +769,7 @@
 
         <button
           type="button"
-          class="absolute bottom-28 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 rounded-full bg-surface px-3 py-2 text-xs font-semibold text-foreground shadow-2 ring-1 ring-border/50 transform transition-all duration-200"
+          class="absolute bottom-28 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 rounded-full bg-surface px-3 py-2 text-xs font-semibold text-foreground ring-1 ring-border/50 transform transition-all duration-200"
           :class="
             showScrollToBottom
               ? 'pointer-events-auto opacity-100 translate-y-0'
@@ -771,7 +781,7 @@
           <span>Scroll to latest</span>
         </button>
 
-        <footer class="ap-hairline-b px-4 pt-2 pb-4">
+        <footer class="px-4 pb-4 pt-2">
           <form
             class="space-y-3"
             @submit.prevent="sendCurrentPrompt"
@@ -786,11 +796,11 @@
               contact an administrator.
             </p>
             <div
-              class="ap-input chat-prompt-input relative rounded-4 bg-surface-muted/70 p-3 etched-dark"
+              class="halo-surface chat-prompt-input relative p-3"
             >
               <div
                 v-if="mentionMenuOpen"
-                class="absolute bottom-full left-3 mb-2 w-72 overflow-hidden rounded-4 border border-border bg-surface shadow-3 ring-1 ring-border/50 z-20"
+                class="absolute bottom-full left-3 mb-2 w-72 overflow-hidden rounded-4 border border-border bg-surface ring-1 ring-border/50 z-20"
               >
                 <div class="max-h-60 overflow-y-auto py-1">
                   <button
@@ -1012,7 +1022,7 @@
         @click.self="closeImageModal"
       >
         <div
-          class="relative max-h-[90vh] max-w-[90vw] rounded-5 bg-surface p-4 shadow-3 ring-1 ring-border/60"
+          class="relative max-h-[90vh] max-w-[90vw] rounded-5 bg-surface p-4 ring-1 ring-border/60"
         >
           <button
             type="button"
@@ -1045,7 +1055,7 @@
         @keydown.esc.prevent="closeDeleteSessionDialog"
       >
         <div
-          class="w-full max-w-md rounded-5 bg-surface p-5 shadow-3 ring-1 ring-border/60"
+          class="w-full max-w-md rounded-5 bg-surface p-5 ring-1 ring-border/60"
         >
           <h2
             id="delete-session-title"
@@ -1100,7 +1110,7 @@
         @click.self="closeBulkDeleteDialog"
         @keydown.esc.prevent="closeBulkDeleteDialog"
       >
-        <div class="w-full max-w-md rounded-5 bg-surface p-5 shadow-3 ring-1 ring-border/60">
+        <div class="w-full max-w-md rounded-5 bg-surface p-5 ring-1 ring-border/60">
           <h2 id="bulk-delete-title" class="text-base font-semibold text-danger">
             Delete {{ selectedSessionIds.length }} Conversation{{ selectedSessionIds.length === 1 ? '' : 's' }}
           </h2>
@@ -4358,7 +4368,6 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   justify-content: center;
   padding: 1.5rem;
   background: rgb(0 0 0 / 0.62);
-  backdrop-filter: blur(8px);
 }
 
 .activity-modal {
@@ -4620,12 +4629,12 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   font-size: 1.5rem;
 }
 
-.chat-modern .chat-prompt-input.ap-input {
+.chat-modern .chat-prompt-input.halo-surface {
   border: 1px solid rgb(255 255 255 / 0.12);
 }
 
-.chat-modern .chat-prompt-input.ap-input:focus-within,
-.chat-modern .chat-prompt-input.ap-input:focus {
+.chat-modern .chat-prompt-input.halo-surface:focus-within,
+.chat-modern .chat-prompt-input.halo-surface:focus {
   border-color: rgb(255 255 255 / 0.12);
 }
 

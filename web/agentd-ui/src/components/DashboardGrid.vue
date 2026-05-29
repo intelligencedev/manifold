@@ -127,7 +127,7 @@ defineExpose({
 }
 
 .dashboard-grid-item {
-  @apply rounded-2xl;
+  @apply rounded-lg;
   transition: all 0.2s ease;
   touch-action: none;
 }
@@ -137,7 +137,7 @@ defineExpose({
 }
 
 .grid-item-content {
-  @apply h-full w-full overflow-auto rounded-2xl bg-surface;
+  @apply h-full w-full overflow-auto rounded-lg bg-surface;
 }
 
 /* Override library styles for better appearance */
@@ -146,7 +146,7 @@ defineExpose({
 }
 
 :deep(.vue-grid-item.vue-grid-placeholder) {
-  @apply rounded-2xl bg-accent/20 backdrop-blur-sm;
+  @apply rounded-lg bg-accent/20 ;
   border: 2px dashed rgba(59, 130, 246, 0.5) !important;
 }
 
@@ -158,7 +158,7 @@ defineExpose({
   bottom: 2px !important;
   right: 2px !important;
   /* Clip the grip so it doesn't overlap the rounded card corner */
-  border-bottom-right-radius: 1rem !important; /* matches Tailwind rounded-2xl */
+  border-bottom-right-radius: 1rem !important; /* matches Tailwind rounded-lg */
   overflow: hidden !important;
   background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20"><path d="M 20 0 L 20 20 L 0 20 Z" fill="%23888" opacity="0.3"/><path d="M 14 20 L 20 14 L 20 20 Z M 8 20 L 20 8 L 20 12 L 12 20 Z" fill="%23fff" opacity="0.8"/></svg>') !important;
   background-position: bottom right !important;

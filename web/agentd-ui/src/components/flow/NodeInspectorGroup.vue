@@ -29,7 +29,7 @@
         >
           <svg
             v-if="groupColor === preset.value"
-            class="h-3 w-3 text-white drop-shadow"
+            class="h-3 w-3 text-white"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -56,7 +56,7 @@
         class="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition active:scale-95"
         :class="
           showAppliedFeedback
-            ? 'bg-emerald-500 text-white shadow-[0_0_0_1px_rgba(16,185,129,0.3)]'
+            ? 'bg-emerald-500 text-white'
             : 'bg-accent text-accent-foreground'
         "
         :disabled="(!isDirty && !showAppliedFeedback) || !isDesignMode"

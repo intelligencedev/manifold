@@ -10,13 +10,13 @@
       >
         <button
           type="button"
-          class="drawer-backdrop absolute inset-0 bg-black/35 backdrop-blur-[1px]"
+          class="drawer-backdrop absolute inset-0 bg-black/35 "
           aria-label="Close log detail"
           @click="closeDrawer"
         />
 
           <aside
-            class="drawer-panel absolute inset-y-0 right-0 flex w-full max-w-[720px] flex-col border-l border-border/70 bg-surface shadow-[0_18px_60px_rgba(0,0,0,0.28)]"
+            class="drawer-panel absolute inset-y-0 right-0 flex w-full max-w-[720px] flex-col border-l border-border/70 bg-surface"
           >
         <header class="flex items-start justify-between gap-4 border-b border-border/70 px-5 py-4 md:px-6">
           <div class="space-y-1">
@@ -43,21 +43,21 @@
         <div class="min-h-0 flex-1 overflow-y-auto px-5 py-5 md:px-6">
           <div
             v-if="isLoading"
-            class="rounded-2xl border border-border/70 bg-surface-muted/30 p-4 text-sm text-faint-foreground"
+            class="rounded-lg border border-border/70 bg-surface-muted/30 p-4 text-sm text-faint-foreground"
           >
             Loading log details…
           </div>
 
           <div
             v-else-if="isError"
-            class="rounded-2xl border border-danger/60 bg-danger/10 p-4 text-sm text-danger"
+            class="rounded-lg border border-danger/60 bg-danger/10 p-4 text-sm text-danger"
           >
             Failed to load log details.
           </div>
 
           <div
             v-else-if="!detail"
-            class="rounded-2xl border border-border/70 bg-surface-muted/30 p-4 text-sm text-faint-foreground"
+            class="rounded-lg border border-border/70 bg-surface-muted/30 p-4 text-sm text-faint-foreground"
           >
             No log detail is available for this selection.
           </div>
@@ -77,19 +77,19 @@
               </div>
 
               <dl class="grid gap-3 sm:grid-cols-2">
-                <div class="rounded-2xl border border-border/70 bg-surface-muted/20 p-3">
+                <div class="rounded-lg border border-border/70 bg-surface-muted/20 p-3">
                   <dt class="text-[10px] font-semibold uppercase tracking-[0.2em] text-subtle-foreground">Timestamp</dt>
                   <dd class="mt-1 text-sm text-foreground">{{ formattedTimestamp }}</dd>
                 </div>
-                <div class="rounded-2xl border border-border/70 bg-surface-muted/20 p-3">
+                <div class="rounded-lg border border-border/70 bg-surface-muted/20 p-3">
                   <dt class="text-[10px] font-semibold uppercase tracking-[0.2em] text-subtle-foreground">Log ID</dt>
                   <dd class="mt-1 break-all font-mono text-xs text-foreground">{{ detail.id }}</dd>
                 </div>
-                <div class="rounded-2xl border border-border/70 bg-surface-muted/20 p-3">
+                <div class="rounded-lg border border-border/70 bg-surface-muted/20 p-3">
                   <dt class="text-[10px] font-semibold uppercase tracking-[0.2em] text-subtle-foreground">Trace ID</dt>
                   <dd class="mt-1 break-all font-mono text-xs text-foreground">{{ detail.traceId || "—" }}</dd>
                 </div>
-                <div class="rounded-2xl border border-border/70 bg-surface-muted/20 p-3">
+                <div class="rounded-lg border border-border/70 bg-surface-muted/20 p-3">
                   <dt class="text-[10px] font-semibold uppercase tracking-[0.2em] text-subtle-foreground">Span ID</dt>
                   <dd class="mt-1 break-all font-mono text-xs text-foreground">{{ detail.spanId || "—" }}</dd>
                 </div>
@@ -98,7 +98,7 @@
 
             <section class="space-y-2">
               <h3 class="text-sm font-semibold text-foreground">Message</h3>
-              <div class="rounded-2xl border border-border/70 bg-surface-muted/20 p-4">
+              <div class="rounded-lg border border-border/70 bg-surface-muted/20 p-4">
                 <pre class="whitespace-pre-wrap break-words font-sans text-sm leading-6 text-foreground">{{ detail.message }}</pre>
               </div>
             </section>
@@ -120,7 +120,7 @@
               <div class="flex items-center justify-between gap-3">
                 <h3 class="text-sm font-semibold text-foreground">Prompt Payload</h3>
                 <span
-                  class="rounded-full border border-border/70 bg-muted/20 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-subtle-foreground"
+                  class="rounded-full border border-border/70 bg-muted/20 px-2 py-0.5 text-[11px] font-medium font-mono uppercase tracking-[0.12em] text-faint-foreground"
                 >
                   {{ promptPayloadLabel }}
                 </span>
@@ -130,7 +130,7 @@
                 <article
                   v-for="(message, index) in promptMessages"
                   :key="`${message.role}-${index}`"
-                  class="rounded-2xl border border-border/70 bg-surface-muted/20 p-4"
+                  class="rounded-lg border border-border/70 bg-surface-muted/20 p-4"
                 >
                   <div class="flex items-center justify-between gap-3">
                     <span class="text-[11px] font-semibold uppercase tracking-[0.2em] text-subtle-foreground">
@@ -141,7 +141,7 @@
                 </article>
               </div>
 
-              <div v-else class="rounded-2xl border border-border/70 bg-surface-muted/20 p-4">
+              <div v-else class="rounded-lg border border-border/70 bg-surface-muted/20 p-4">
                 <pre class="whitespace-pre-wrap break-words font-mono text-xs leading-6 text-foreground">{{ promptPayload }}</pre>
               </div>
             </section>
@@ -152,7 +152,7 @@
                 <div
                   v-for="entry in attributeEntries"
                   :key="entry.key"
-                  class="rounded-2xl border border-border/70 bg-surface-muted/20 p-4"
+                  class="rounded-lg border border-border/70 bg-surface-muted/20 p-4"
                 >
                   <div class="text-[11px] font-semibold uppercase tracking-[0.2em] text-subtle-foreground">
                     {{ entry.key }}
@@ -162,7 +162,7 @@
               </div>
               <div
                 v-else
-                class="rounded-2xl border border-border/70 bg-surface-muted/20 p-4 text-sm text-faint-foreground"
+                class="rounded-lg border border-border/70 bg-surface-muted/20 p-4 text-sm text-faint-foreground"
               >
                 No log attributes captured for this entry.
               </div>
@@ -174,7 +174,7 @@
                 <div
                   v-for="entry in resourceEntries"
                   :key="entry.key"
-                  class="rounded-2xl border border-border/70 bg-surface-muted/20 p-4"
+                  class="rounded-lg border border-border/70 bg-surface-muted/20 p-4"
                 >
                   <div class="text-[11px] font-semibold uppercase tracking-[0.2em] text-subtle-foreground">
                     {{ entry.key }}
@@ -184,7 +184,7 @@
               </div>
               <div
                 v-else
-                class="rounded-2xl border border-border/70 bg-surface-muted/20 p-4 text-sm text-faint-foreground"
+                class="rounded-lg border border-border/70 bg-surface-muted/20 p-4 text-sm text-faint-foreground"
               >
                 No resource attributes captured for this entry.
               </div>

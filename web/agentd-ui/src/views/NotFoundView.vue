@@ -3,7 +3,7 @@
     class="flex min-h-[60vh] flex-col items-center justify-center gap-6 text-center"
   >
     <div
-      class="rounded-full border border-border/70 bg-surface px-4 py-2 text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+      class="rounded-full border border-border/70 bg-surface px-4 py-2 font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
     >
       404
     </div>

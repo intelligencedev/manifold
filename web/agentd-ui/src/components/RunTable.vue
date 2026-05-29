@@ -1,39 +1,37 @@
 <template>
-  <div
-    class="overflow-hidden rounded-2xl border border-border/70 bg-surface shadow-lg"
-  >
-    <table class="min-w-full divide-y divide-border/60">
-      <thead class="bg-surface/80">
+  <div class="overflow-hidden rounded-lg border border-border bg-surface">
+    <table class="min-w-full">
+      <thead>
         <tr>
           <th
-            class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+            class="border-b border-border px-4 py-3 text-left font-mono text-[11px] font-medium uppercase tracking-[0.1em] text-faint-foreground"
           >
             Run ID
           </th>
           <th
-            class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+            class="border-b border-border px-4 py-3 text-left font-mono text-[11px] font-medium uppercase tracking-[0.1em] text-faint-foreground"
           >
             Prompt
           </th>
           <th
-            class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+            class="border-b border-border px-4 py-3 text-left font-mono text-[11px] font-medium uppercase tracking-[0.1em] text-faint-foreground"
           >
             Tokens
           </th>
           <th
-            class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+            class="border-b border-border px-4 py-3 text-left font-mono text-[11px] font-medium uppercase tracking-[0.1em] text-faint-foreground"
           >
             Started
           </th>
           <th
-            class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+            class="border-b border-border px-4 py-3 text-left font-mono text-[11px] font-medium uppercase tracking-[0.1em] text-faint-foreground"
           >
             Status
           </th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-border/60">
-        <tr v-for="run in runs" :key="run.id" class="hover:bg-surface-muted/60">
+      <tbody>
+        <tr v-for="run in runs" :key="run.id" class="border-b border-[rgb(var(--line-soft))] last:border-b-0 hover:bg-surface-muted">
           <td
             class="whitespace-nowrap px-4 py-3 text-sm font-mono text-muted-foreground"
           >

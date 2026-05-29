@@ -28,7 +28,7 @@
         <div
           v-for="stat in statusTotals"
           :key="stat.key"
-          class="glass-surface rounded-4 border border-border/70 p-4"
+          class="halo-surface rounded-4 border border-border/70 p-4"
         >
           <p
             class="text-[10px] font-semibold uppercase tracking-[0.18em] text-faint-foreground"
@@ -47,7 +47,7 @@
       </section>
 
       <section
-        class="glass-surface flex min-h-[220px] flex-col rounded-4 border border-border/70"
+        class="halo-surface flex min-h-[220px] flex-col rounded-4 border border-border/70"
       >
         <div
           class="flex items-center justify-between gap-4 border-b border-border/60 pb-3"
@@ -136,7 +136,7 @@
       </section>
 
       <section
-        class="glass-surface flex min-h-0 flex-1 flex-col rounded-4 border border-border/70"
+        class="halo-surface flex min-h-0 flex-1 flex-col rounded-4 border border-border/70"
       >
         <div
           class="flex flex-wrap items-end justify-between gap-3 border-b border-border/60 pb-3"

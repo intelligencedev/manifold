@@ -6,7 +6,7 @@ import router from "./router";
 import "./assets/tailwind.css";
 import "./assets/vueflow.css";
 import "@vue-flow/node-resizer/dist/style.css";
-import "./assets/aperture.css";
+import "./assets/halo.css";
 import { useThemeStore } from "@/stores/theme";
 
 const app = createApp(App);

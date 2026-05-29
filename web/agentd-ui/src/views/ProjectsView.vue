@@ -132,7 +132,7 @@ function initializeMermaid(mermaid: typeof import("mermaid").default) {
       noteTextColor: foreground,
       noteBorderColor: accent,
       fontFamily:
-        "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+        "Hanken Grotesk, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
     },
     flowchart: {
       htmlLabels: false,
@@ -545,7 +545,7 @@ function startPaneResize(event: PointerEvent) {
 
 <template>
   <section class="flex min-h-0 flex-1 flex-col space-y-3">
-    <Panel title="Projects" flat :padded="false" class="ap-hairline-b pb-3">
+    <Panel title="Projects" flat :padded="false" class="halo-hairline-b pb-3">
       <div class="flex flex-wrap items-center gap-3">
         <div class="flex flex-wrap items-center gap-2">
           <label class="sr-only" for="new-project">New project name</label>
@@ -553,10 +553,10 @@ function startPaneResize(event: PointerEvent) {
             id="new-project"
             v-model="newProjectName"
             placeholder="New project name"
-            class="h-9 w-48 rounded-full border border-white/10 bg-surface/70 px-3 text-sm text-foreground placeholder:text-subtle-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            class="h-9 w-48 rounded-full border border-border bg-surface px-3 text-sm text-foreground placeholder:text-subtle-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
           <button
-            class="inline-flex h-9 items-center justify-center gap-2 rounded-full border border-accent/60 bg-accent/90 px-3 text-sm font-semibold text-accent-foreground shadow-[0_8px_30px_rgba(0,0,0,0.25)] transition hover:bg-accent"
+            class="inline-flex h-9 items-center justify-center gap-2 rounded-full border border-accent/60 bg-accent/90 px-3 text-sm font-semibold text-accent-foreground transition hover:bg-accent"
             @click="createProject"
           >
             Create
@@ -619,7 +619,7 @@ function startPaneResize(event: PointerEvent) {
       >
         <div class="mb-4 flex items-center gap-3">
           <button
-            class="h-9 rounded-full border border-white/10 px-3 text-sm text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
+            class="h-9 rounded-full border border-border px-3 text-sm text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
             @click="() => openDir('.')"
           >
             Root
@@ -627,19 +627,19 @@ function startPaneResize(event: PointerEvent) {
           <div class="truncate text-sm text-faint-foreground">{{ cwd }}</div>
           <div class="ml-auto flex flex-wrap items-center gap-2">
             <button
-              class="h-9 rounded-full border border-white/10 bg-surface/70 px-3 text-sm text-foreground transition hover:border-accent/40 hover:text-accent"
+              class="h-9 rounded-full border border-border bg-surface px-3 text-sm text-foreground transition hover:border-accent/40 hover:text-accent"
               @click="mkdir"
             >
               New Folder
             </button>
             <button
-              class="h-9 rounded-full border border-white/10 bg-surface/70 px-3 text-sm text-foreground transition hover:border-accent/40 hover:text-accent"
+              class="h-9 rounded-full border border-border bg-surface px-3 text-sm text-foreground transition hover:border-accent/40 hover:text-accent"
               @click="createFile"
             >
               New File
             </button>
             <button
-              class="h-9 rounded-full border border-white/10 bg-surface/70 px-3 text-sm text-foreground transition hover:border-accent/40 hover:text-accent"
+              class="h-9 rounded-full border border-border bg-surface px-3 text-sm text-foreground transition hover:border-accent/40 hover:text-accent"
               @click="pickUpload"
             >
               Upload
@@ -704,13 +704,13 @@ function startPaneResize(event: PointerEvent) {
             <div class="uppercase tracking-wide">Preview</div>
             <div
               v-if="isMarkdownFile"
-              class="inline-flex items-center rounded-full border border-white/10 bg-surface/70 p-1"
+              class="inline-flex items-center rounded-full border border-border bg-surface p-1"
             >
               <button
                 class="rounded-full px-3 py-1 text-xs font-medium transition"
                 :class="
                   previewMode === 'raw'
-                    ? 'bg-accent/90 text-accent-foreground shadow-[0_6px_20px_rgba(0,0,0,0.2)]'
+                    ? 'bg-accent/90 text-accent-foreground'
                     : 'text-subtle-foreground hover:text-foreground'
                 "
                 @click="previewMode = 'raw'"
@@ -721,7 +721,7 @@ function startPaneResize(event: PointerEvent) {
                 class="rounded-full px-3 py-1 text-xs font-medium transition"
                 :class="
                   previewMode === 'markdown'
-                    ? 'bg-accent/90 text-accent-foreground shadow-[0_6px_20px_rgba(0,0,0,0.2)]'
+                    ? 'bg-accent/90 text-accent-foreground'
                     : 'text-subtle-foreground hover:text-foreground'
                 "
                 @click="previewMode = 'markdown'"
@@ -768,13 +768,13 @@ function startPaneResize(event: PointerEvent) {
               <textarea
                 v-if="!isMarkdownFile || previewMode === 'raw'"
                 v-model="editorContent"
-                class="min-h-[360px] flex-1 resize-none rounded-3 border border-border bg-surface/70 p-3 text-sm text-foreground shadow-inner focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                class="min-h-[360px] flex-1 resize-none rounded-3 border border-border bg-surface p-3 text-sm text-foreground shadow-inner focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 spellcheck="false"
                 @input="editorDirty = true"
               />
               <div
                 v-else
-                class="project-markdown-surface min-h-[360px] flex-1 rounded-3 border border-border bg-surface/70 shadow-inner"
+                class="project-markdown-surface min-h-[360px] flex-1 rounded-3 border border-border bg-surface shadow-inner"
               >
                 <div
                   ref="markdownPreviewRef"
@@ -817,7 +817,7 @@ function startPaneResize(event: PointerEvent) {
       @keydown.esc.prevent="closeDeleteProjectDialog"
     >
       <div
-        class="w-full max-w-md rounded-4 border border-danger/40 bg-surface p-5 shadow-[0_30px_60px_rgba(0,0,0,0.5)]"
+        class="w-full max-w-md rounded-4 border border-danger/40 bg-surface p-5"
       >
         <h2
           id="delete-project-title"
@@ -846,7 +846,7 @@ function startPaneResize(event: PointerEvent) {
               type="text"
               autocomplete="off"
               spellcheck="false"
-              class="h-9 w-full rounded-full border border-danger/50 bg-surface/70 px-3 text-sm text-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/70"
+              class="h-9 w-full rounded-full border border-danger/50 bg-surface px-3 text-sm text-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/70"
               placeholder="Project name"
             />
           </div>

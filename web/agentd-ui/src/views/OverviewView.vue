@@ -1,32 +1,90 @@
 <template>
-  <section class="flex h-full min-h-0 flex-col overflow-y-auto">
-    <header class="flex items-center gap-6 px-6 py-2">
-      <dl class="grid flex-1 grid-cols-4 gap-x-6 gap-y-1">
-        <div v-for="stat in overviewStats" :key="stat.label">
-          <dt
-            class="text-[10px] font-semibold uppercase tracking-[0.22em] text-subtle-foreground"
-          >
-            {{ stat.label }}
-          </dt>
-          <dd class="mt-0.5 text-2xl font-semibold leading-none text-foreground tabular-nums">
-            {{ stat.value }}
-          </dd>
-          <p class="mt-0.5 text-xs text-faint-foreground">
-            {{ stat.secondary }}
-          </p>
-        </div>
-      </dl>
-
-      <button
-        type="button"
-        class="shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:text-accent"
-        @click="resetLayout"
-      >
-        Reset layout
-      </button>
+  <section class="flex min-h-full flex-col gap-5">
+    <header class="flex items-start justify-between gap-4">
+      <div>
+        <h2 class="font-display text-2xl leading-tight text-foreground">
+          Situation Room
+        </h2>
+        <p class="mt-1 text-sm text-muted-foreground">
+          Live agents, today's throughput, and recent work.
+        </p>
+      </div>
+      <MSegmented
+        v-model="overviewMode"
+        :options="[
+          { value: 'live', label: 'Live' },
+          { value: 'customize', label: 'Customize' },
+        ]"
+      />
     </header>
 
-    <div class="min-h-0 flex-1 pb-6 pt-1">
+    <template v-if="overviewMode === 'live'">
+      <MReadouts>
+        <MReadout
+          v-for="stat in overviewStats"
+          :key="stat.label"
+          :k="stat.label"
+          :v="stat.value"
+          :data="stat.data"
+        />
+      </MReadouts>
+
+      <MSurface
+        title="Throughput"
+        eyebrow="Runs"
+        description="Runs started in rolling hourly buckets."
+      >
+        <div class="h-[220px]">
+          <svg class="h-full w-full overflow-visible" viewBox="0 0 720 180" role="img" aria-label="Run throughput">
+            <path
+              :d="sparkAreaPath"
+              fill="rgb(var(--data) / 0.10)"
+              stroke="none"
+            />
+            <path
+              :d="sparkPath"
+              fill="none"
+              stroke="rgb(var(--data))"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <g v-for="point in chartPoints" :key="point.label">
+              <circle
+                :cx="point.x"
+                :cy="point.y"
+                r="3"
+                fill="rgb(var(--data))"
+              />
+              <text
+                :x="point.x"
+                y="176"
+                text-anchor="middle"
+                class="fill-[rgb(var(--color-faint-foreground))] font-mono text-[9px]"
+              >
+                {{ point.label }}
+              </text>
+            </g>
+          </svg>
+        </div>
+      </MSurface>
+
+      <div class="grid min-h-[320px] grid-cols-2 gap-5">
+        <AgentsPanel :agents="agents" />
+        <RecentRunsPanel :runs="recentRuns" />
+      </div>
+    </template>
+
+    <div v-else class="min-h-0 flex-1 pb-6 pt-1">
+      <div class="mb-3 flex justify-end">
+        <button
+          type="button"
+          class="halo-focus rounded-md border border-[rgb(var(--line-strong))] px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.08em] text-muted-foreground transition hover:bg-surface-muted hover:text-foreground"
+          @click="resetLayout"
+        >
+          Reset layout
+        </button>
+      </div>
       <DashboardGrid
         ref="dashboardGridRef"
         :layout="dashboardLayout"
@@ -89,6 +147,10 @@ import LogsPanel from "@/components/observability/LogsPanel.vue";
 import LogDetailDrawer from "@/components/observability/LogDetailDrawer.vue";
 import AgentsPanel from "@/components/overview/AgentsPanel.vue";
 import RecentRunsPanel from "@/components/overview/RecentRunsPanel.vue";
+import MReadout from "@/components/ui/MReadout.vue";
+import MReadouts from "@/components/ui/MReadouts.vue";
+import MSegmented from "@/components/ui/MSegmented.vue";
+import MSurface from "@/components/ui/MSurface.vue";
 import {
   fetchAgentRuns,
   fetchAgentStatus,
@@ -99,6 +161,7 @@ import type { MetricsTimeRangeValue } from "@/composables/observability/useToken
 const dashboardGridRef = ref<InstanceType<typeof DashboardGrid>>();
 const selectedLogId = ref<string | null>(null);
 const selectedLogWindow = ref<MetricsTimeRangeValue>("1h");
+const overviewMode = ref("live");
 
 // Define default dashboard layout
 // 12 columns grid, row height = 80px + 16px margin = 96px per row
@@ -184,11 +247,13 @@ const overviewStats = computed(() => [
     label: "Runs Today",
     value: runsToday.value.toLocaleString(),
     secondary: runsSummary.value,
+    data: true,
   },
   {
     label: "Recent Runs",
     value: recentRuns.value.length.toLocaleString(),
     secondary: "Past 24 hours",
+    data: true,
   },
   {
     label: "Specialists",
@@ -196,6 +261,45 @@ const overviewStats = computed(() => [
     secondary: "Available roles",
   },
 ]);
+
+const chartPoints = computed(() => {
+  const now = new Date();
+  const buckets = Array.from({ length: 8 }, (_, index) => {
+    const bucketStart = new Date(now);
+    bucketStart.setMinutes(0, 0, 0);
+    bucketStart.setHours(bucketStart.getHours() - (7 - index));
+    const bucketEnd = new Date(bucketStart);
+    bucketEnd.setHours(bucketEnd.getHours() + 1);
+    const value = runs.value.filter((run) => {
+      const created = new Date(run.createdAt);
+      return created >= bucketStart && created < bucketEnd;
+    }).length;
+    return {
+      label: bucketStart.toLocaleTimeString([], {
+        hour: "numeric",
+      }),
+      value,
+    };
+  });
+  const max = Math.max(1, ...buckets.map((bucket) => bucket.value));
+  return buckets.map((bucket, index) => {
+    const x = 28 + index * (664 / Math.max(1, buckets.length - 1));
+    const y = 150 - (bucket.value / max) * 120;
+    return { ...bucket, x, y };
+  });
+});
+
+const sparkPath = computed(() =>
+  chartPoints.value
+    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
+    .join(" "),
+);
+
+const sparkAreaPath = computed(() => {
+  const points = chartPoints.value;
+  if (!points.length) return "";
+  return `${sparkPath.value} L ${points[points.length - 1].x} 150 L ${points[0].x} 150 Z`;
+});
 
 const recentRuns = computed(() =>
   runs.value

@@ -1,6 +1,6 @@
 <template>
   <div class="flex h-full min-h-0 flex-col gap-2">
-    <section class="glass-surface !px-3 !py-2 rounded-xl">
+    <section class="halo-surface !px-3 !py-2 rounded-md">
       <div class="flex flex-wrap items-center gap-2">
         <!-- Workflow selector -->
         <DropdownSelect
@@ -126,7 +126,7 @@
     <div class="flex min-h-0 flex-1 flex-row items-stretch gap-4 overflow-hidden">
       <aside class="w-72 min-w-0">
         <div
-          class="glass-surface ap-hover flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl !p-4"
+          class="halo-surface  flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-md !p-4"
         >
           <!-- Conditional: Node Configuration when a single node is selected, else show Tool Palette -->
           <template
@@ -240,7 +240,7 @@
                 <!-- Group Container and Sticky Note are utility items and appear first -->
                 <div
                   v-if="showGroupContainer"
-                  class="cursor-grab rounded ap-ring bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
+                  class="cursor-grab rounded border border-border bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
                   draggable="true"
                   title="Group nodes to keep steps organized"
                   @dragstart="onGroupDragStart"
@@ -250,7 +250,7 @@
                 </div>
                 <div
                   v-if="showStickyNote"
-                  class="cursor-grab rounded ap-ring bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
+                  class="cursor-grab rounded border border-border bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
                   draggable="true"
                   title="Sticky note (editor-only)"
                   @dragstart="onStickyDragStart"
@@ -262,7 +262,7 @@
                 <div
                   v-for="tool in filteredUtilityTools"
                   :key="tool.name"
-                  class="cursor-grab rounded ap-ring bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
+                  class="cursor-grab rounded border border-border bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
                   draggable="true"
                   :title="tool.description ?? tool.name"
                   @dragstart="
@@ -283,7 +283,7 @@
                   <div
                     v-for="tool in filteredWorkflowTools"
                     :key="tool.name"
-                    class="cursor-grab rounded ap-ring bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
+                    class="cursor-grab rounded border border-border bg-surface-muted px-3 py-2 text-sm font-medium text-foreground transition hover:bg-surface truncate"
                     draggable="true"
                     :title="tool.description ?? tool.name"
                     @dragstart="
@@ -315,7 +315,7 @@
       <div class="flex-1 min-h-0">
         <div
           ref="flowWrapper"
-          class="flex h-full min-h-0 w-full overflow-hidden rounded-xl border bg-surface"
+          class="flex h-full min-h-0 w-full overflow-hidden rounded-md border bg-surface"
           :class="
             isDraggingFromPalette ? 'border-accent/60' : 'border-border/70'
           "
@@ -337,7 +337,7 @@
 
             <!-- Themed Controls (replaces default Controls) -->
             <Panel position="bottom-left">
-              <div class="ap-chip flex items-center gap-1 rounded-md p-1">
+              <div class="rounded-md border border-border bg-surface flex items-center gap-1 rounded-md p-1">
                 <!-- Auto layout buttons -->
                 <button
                   type="button"
@@ -391,7 +391,7 @@
                 </button>
                 <button
                   type="button"
-                  class="inline-flex items-center gap-1 rounded px-2 py-2 text-[10px] font-semibold uppercase tracking-wide text-subtle-foreground hover:bg-surface-muted/80 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  class="inline-flex items-center gap-1 rounded px-2 py-2 text-[10px] font-mono uppercase tracking-[0.12em] text-faint-foreground hover:bg-surface-muted/80 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   :aria-label="edgeStyleAriaLabel"
                   :title="edgeStyleButtonTitle"
                   @click="cycleEdgeStyle"
@@ -447,7 +447,7 @@
             <!-- Themed MiniMap -->
             <MiniMap
               v-if="showMiniMap"
-              class="ap-chip flow-minimap rounded-md p-1"
+              class="rounded-md border border-border bg-surface flow-minimap rounded-md p-1"
               :position="'bottom-right'"
               :pannable="true"
               :zoomable="true"
@@ -473,7 +473,7 @@
             >
               <button
                 type="button"
-                class="ap-chip inline-flex h-6 w-6 items-center justify-center rounded text-subtle-foreground hover:text-foreground"
+                class="rounded-md border border-border bg-surface inline-flex h-6 w-6 items-center justify-center rounded text-subtle-foreground hover:text-foreground"
                 aria-label="Hide minimap"
                 title="Hide minimap"
                 @click="showMiniMap = false"
@@ -486,7 +486,7 @@
             <Panel v-if="!showMiniMap" position="bottom-right">
               <button
                 type="button"
-                class="ap-chip inline-flex items-center justify-center rounded-md p-1.5 text-subtle-foreground hover:text-foreground"
+                class="rounded-md border border-border bg-surface inline-flex items-center justify-center rounded-md p-1.5 text-subtle-foreground hover:text-foreground"
                 aria-label="Show minimap"
                 title="Show minimap"
                 @click="showMiniMap = true"
@@ -504,11 +504,11 @@
       class="fixed inset-0 z-50 flex items-center justify-center px-4 py-8"
     >
       <div
-        class="absolute inset-0 bg-surface/70 backdrop-blur-sm"
+        class="absolute inset-0 bg-surface "
         @click="closeResultModal"
       ></div>
       <div
-        class="relative z-10 flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-border/70 bg-surface shadow-2xl"
+        class="relative z-10 flex max-h-[85vh] w-full max-w-3xl flex-col overflow-hidden rounded-md border border-border/70 bg-surface"
       >
         <div
           class="flex items-start justify-between gap-4 border-b border-border/60 px-6 py-4"
@@ -543,7 +543,7 @@
                 aria-controls="modal-args"
               >
                 <h4
-                  class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >
                   Rendered Arguments
                 </h4>
@@ -576,7 +576,7 @@
                 aria-controls="modal-delta"
               >
                 <h4
-                  class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >
                   Delta
                 </h4>
@@ -609,7 +609,7 @@
                 aria-controls="modal-payload"
               >
                 <h4
-                  class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >
                   Payload
                 </h4>
@@ -653,11 +653,11 @@
       class="fixed inset-0 z-50 flex items-center justify-center px-4 py-8"
     >
       <div
-        class="absolute inset-0 bg-surface/70 backdrop-blur-sm"
+        class="absolute inset-0 bg-surface "
         @click="closeHelpModal"
       ></div>
       <div
-        class="relative z-10 w-full max-w-lg overflow-hidden rounded-xl border border-border/70 bg-surface shadow-2xl"
+        class="relative z-10 w-full max-w-lg overflow-hidden rounded-md border border-border/70 bg-surface"
         role="dialog"
         aria-modal="true"
         aria-labelledby="flow-help-title"
@@ -718,11 +718,11 @@
       class="fixed inset-0 z-50 flex items-center justify-center px-4 py-8"
     >
       <div
-        class="absolute inset-0 bg-surface/70 backdrop-blur-sm"
+        class="absolute inset-0 bg-surface "
         @click="closeMetaModal"
       ></div>
       <div
-        class="relative z-10 w-full max-w-xl overflow-hidden rounded-xl border border-border/70 bg-surface shadow-2xl"
+        class="relative z-10 w-full max-w-xl overflow-hidden rounded-md border border-border/70 bg-surface"
       >
         <div
           class="flex items-center justify-between border-b border-border/60 px-5 py-3"
@@ -3397,9 +3397,9 @@ async function onImportSelected(event: Event) {
   justify-content: center;
   gap: 0.4rem;
   min-height: 2rem;
-  border-radius: 0.75rem;
-  border: 1px solid rgb(var(--color-border) / 0.65);
-  background: rgb(var(--color-surface-muted) / 0.72);
+  border-radius: var(--r-md);
+  border: 1px solid rgb(var(--line-strong));
+  background: rgb(var(--color-surface-muted));
   padding: 0.35rem 0.8rem;
   font-size: 0.8rem;
   font-weight: 600;
@@ -3413,14 +3413,14 @@ async function onImportSelected(event: Event) {
 }
 
 .toolbar-btn:hover:enabled {
-  border-color: rgb(var(--color-accent) / 0.45);
-  background: rgb(var(--color-surface-muted) / 0.94);
-  transform: translateY(-1px);
+  border-color: rgb(var(--color-accent));
+  background: rgb(var(--color-input));
 }
 
 .toolbar-btn:focus-visible {
-  outline: 2px solid rgb(var(--color-ring));
-  outline-offset: 2px;
+  outline: none;
+  border-color: rgb(var(--color-accent));
+  box-shadow: 0 0 0 3px rgb(var(--accent-dim));
 }
 
 .toolbar-btn:disabled {
@@ -3429,13 +3429,13 @@ async function onImportSelected(event: Event) {
 }
 
 .toolbar-btn-accent {
-  border-color: rgb(var(--color-accent) / 0.42);
-  background: rgb(var(--color-accent) / 0.14);
-  color: rgb(var(--color-accent));
+  border-color: rgb(var(--color-accent));
+  background: rgb(var(--color-accent));
+  color: rgb(var(--color-accent-foreground));
 }
 
 .toolbar-btn-accent:hover:enabled {
-  background: rgb(var(--color-accent) / 0.2);
+  background: rgb(var(--accent-hi));
 }
 
 .toolbar-btn-danger {
@@ -3449,22 +3449,13 @@ async function onImportSelected(event: Event) {
 }
 
 .toolbar-btn-run {
-  border-color: rgb(var(--color-accent) / 0.48);
-  background: linear-gradient(
-    135deg,
-    rgb(var(--color-accent) / 0.96),
-    rgb(var(--color-accent) / 0.74)
-  );
+  border-color: rgb(var(--color-accent));
+  background: rgb(var(--color-accent));
   color: rgb(var(--color-accent-foreground));
-  box-shadow: 0 10px 24px -18px rgb(var(--color-accent) / 0.9);
 }
 
 .toolbar-btn-run:hover:enabled {
-  background: linear-gradient(
-    135deg,
-    rgb(var(--color-accent) / 1),
-    rgb(var(--color-accent) / 0.82)
-  );
+  background: rgb(var(--accent-hi));
 }
 
 .toolbar-btn-ghost {
@@ -3479,9 +3470,9 @@ async function onImportSelected(event: Event) {
   justify-content: center;
   width: 2rem;
   height: 2rem;
-  border-radius: 0.75rem;
-  border: 1px solid rgb(var(--color-border) / 0.65);
-  background: rgb(var(--color-surface-muted) / 0.72);
+  border-radius: var(--r-md);
+  border: 1px solid rgb(var(--line-strong));
+  background: rgb(var(--color-surface-muted));
   color: rgb(var(--color-subtle-foreground));
   transition:
     background-color 150ms ease,
@@ -3491,15 +3482,15 @@ async function onImportSelected(event: Event) {
 }
 
 .toolbar-icon-btn:hover {
-  border-color: rgb(var(--color-accent) / 0.45);
-  background: rgb(var(--color-surface-muted) / 0.94);
+  border-color: rgb(var(--color-accent));
+  background: rgb(var(--color-input));
   color: rgb(var(--color-foreground));
-  transform: translateY(-1px);
 }
 
 .toolbar-icon-btn:focus-visible {
-  outline: 2px solid rgb(var(--color-ring));
-  outline-offset: 2px;
+  outline: none;
+  border-color: rgb(var(--color-accent));
+  box-shadow: 0 0 0 3px rgb(var(--accent-dim));
 }
 
 .workflow-chip {
@@ -3522,6 +3513,11 @@ async function onImportSelected(event: Event) {
   height: 100%;
 }
 
+.vue-flow__pane {
+  background-image: radial-gradient(rgb(var(--color-border)) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
 .vue-flow__edge.flow-edge-active {
   z-index: 2;
 }
@@ -3529,28 +3525,18 @@ async function onImportSelected(event: Event) {
 .vue-flow__edge.flow-edge-active .vue-flow__edge-path {
   stroke: rgb(var(--color-accent));
   stroke-width: 2.5;
-  filter:
-    drop-shadow(0 0 8px rgb(var(--color-accent) / 0.72))
-    drop-shadow(0 0 3px rgb(var(--color-accent) / 0.96));
+  filter: none;
 }
 
 .flow-minimap.vue-flow__minimap {
-  background: rgb(var(--color-surface) / 0.82) !important;
-  border: 1px solid rgb(var(--color-border) / 0.7);
-  border-radius: 0.75rem;
-  box-shadow:
-    0 16px 32px -24px rgb(0 0 0 / 0.85),
-    inset 0 1px 0 rgb(255 255 255 / 0.04);
-  backdrop-filter: blur(16px);
+  background: rgb(var(--color-surface)) !important;
+  border: 1px solid rgb(var(--color-border));
+  border-radius: var(--r-md);
 }
 
 .flow-minimap.vue-flow__minimap svg {
-  background: linear-gradient(
-    180deg,
-    rgb(var(--color-surface-muted) / 0.92),
-    rgb(var(--color-surface) / 0.96)
-  );
-  border-radius: 0.65rem;
+  background: rgb(var(--color-surface-muted));
+  border-radius: var(--r-md);
 }
 
 .flow-minimap.vue-flow__minimap .vue-flow__minimap-mask {

@@ -159,7 +159,7 @@ describe("ChatView", () => {
     await waitFor(() => {
       expect(chatApiMocks.updateChatSessionMemorySettings).toHaveBeenCalledWith(
         "session-1",
-        { evolvingMemoryEnabled: false, beliefMemoryEnabled: undefined },
+        { evolvingMemoryEnabled: false, beliefMemoryEnabled: true },
       );
     });
 

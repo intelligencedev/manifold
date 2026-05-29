@@ -19,15 +19,12 @@ const props = defineProps<{
 
 const classes = computed(() => [
   "relative w-full text-foreground transition-all duration-200",
-  props.flat
-    ? ""
-    : "glass-surface rounded-[var(--radius-lg,26px)] border border-white/10",
-  props.flat ? "" : "supports-[backdrop-filter]:backdrop-blur-xl bg-surface/70",
+  props.flat ? "" : "halo-surface",
   props.interactive && !props.flat
-    ? "hover:border-accent/50 hover:shadow-[0_22px_60px_rgba(0,0,0,0.32)] hover:-translate-y-[1px]"
+    ? "hover:border-accent hover:bg-surface-muted"
     : "",
-  props.subtle && !props.flat ? "bg-surface/60" : "",
-  props.padded === false ? "p-0" : "p-4 md:p-6",
+  props.subtle && !props.flat ? "halo-surface-2" : "",
+  props.padded === false ? "p-0" : "p-5",
 ]);
 
 const as = computed(() => props.as || "div");

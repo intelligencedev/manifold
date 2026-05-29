@@ -2,7 +2,7 @@
   <div class="flex h-full min-h-0 flex-col overflow-hidden">
     <!-- Sticky header: title + subtitle + close + tabs -->
     <div
-      class="sticky top-0 z-10 border-b border-border/50 bg-surface/90 backdrop-blur-sm"
+      class="sticky top-0 z-10 border-b border-border/50 bg-surface "
     >
       <div class="flex items-start justify-between gap-3 px-4 pb-3 pt-4">
         <div class="min-w-0">
@@ -70,13 +70,13 @@
     >
       <div
         v-if="actionError"
-        class="mb-4 rounded-2xl border border-danger/60 bg-danger/10 p-3 text-danger-foreground text-sm"
+        class="mb-4 rounded-lg border border-danger/60 bg-danger/10 p-3 text-danger-foreground text-sm"
       >
         {{ actionError }}
       </div>
       <div
         v-if="successMsg"
-        class="mb-4 rounded-2xl border border-border/60 bg-surface-muted/30 p-3 text-sm text-foreground"
+        class="mb-4 rounded-lg border border-border/60 bg-surface-muted/30 p-3 text-sm text-foreground"
       >
         {{ successMsg }}
       </div>
@@ -92,7 +92,7 @@
       >
         <div
           v-if="submitAttempted && errorsByTab.basics.length"
-          class="rounded-2xl border border-danger/60 bg-danger/10 p-3 text-sm text-danger-foreground"
+          class="rounded-lg border border-danger/60 bg-danger/10 p-3 text-sm text-danger-foreground"
         >
           <p class="font-semibold">Fix the following to continue:</p>
           <ul class="mt-2 list-disc pl-5">
@@ -108,7 +108,7 @@
             <div class="flex flex-col gap-1">
               <label
                 for="sp-name"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Name</label
               >
               <input
@@ -129,7 +129,7 @@
             <div class="flex flex-col gap-1">
               <label
                 for="sp-description"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Description</label
               >
               <textarea
@@ -233,7 +233,7 @@
               <div class="flex flex-col gap-1">
                 <label
                   for="sp-provider"
-                  class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                   >Provider</label
                 >
                 <DropdownSelect
@@ -253,7 +253,7 @@
               <div class="flex flex-col gap-1">
                 <label
                   for="sp-model"
-                  class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                   >Model</label
                 >
                 <input
@@ -294,7 +294,7 @@
               >
                 <label
                   for="sp-baseurl"
-                  class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                   >Custom endpoint</label
                 >
                 <input
@@ -374,7 +374,7 @@
       >
         <div
           v-if="submitAttempted && errorsByTab.prompt.length"
-          class="rounded-2xl border border-danger/60 bg-danger/10 p-3 text-sm text-danger-foreground"
+          class="rounded-lg border border-danger/60 bg-danger/10 p-3 text-sm text-danger-foreground"
         >
           <p class="font-semibold">Fix the following to continue:</p>
           <ul class="mt-2 list-disc pl-5">
@@ -392,7 +392,7 @@
               <div class="flex flex-col gap-1">
                 <label
                   for="prompt-select"
-                  class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                   >Template</label
                 >
                 <DropdownSelect
@@ -406,7 +406,7 @@
               <div class="flex flex-col gap-1">
                 <label
                   for="prompt-version-select"
-                  class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                   >Version</label
                 >
                 <DropdownSelect
@@ -441,7 +441,7 @@
             <div class="flex min-h-0 flex-1 flex-col">
               <label
                 for="sp-system"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >System prompt</label
               >
               <div class="mt-2 flex min-h-0 flex-1 flex-col">
@@ -482,7 +482,7 @@
       >
         <div
           v-if="submitAttempted && errorsByTab.tools.length"
-          class="rounded-2xl border border-danger/60 bg-danger/10 p-3 text-sm text-danger-foreground"
+          class="rounded-lg border border-danger/60 bg-danger/10 p-3 text-sm text-danger-foreground"
         >
           <p class="font-semibold">Fix the following to continue:</p>
           <ul class="mt-2 list-disc pl-5">
@@ -574,7 +574,7 @@
           <div class="flex flex-col gap-1">
             <label
               for="sp-auto-discover"
-              class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+              class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
               >Auto-discovery mode</label
             >
             <select
@@ -607,7 +607,7 @@
             <div>
               <label
                 for="sp-tools-search"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Search tools</label
               >
               <input
@@ -720,7 +720,7 @@
                 <div class="flex flex-col gap-1">
                   <label
                     for="sp-harness-mode"
-                    class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                    class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                     >Mode</label
                   >
                   <DropdownSelect
@@ -741,7 +741,7 @@
                 <div class="flex flex-col gap-1">
                   <label
                     for="sp-harness-max-retries"
-                    class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                    class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                     >Validation retries</label
                   >
                   <input
@@ -764,7 +764,7 @@
                 <div class="flex flex-col gap-1">
                   <label
                     for="sp-harness-max-tool-errors"
-                    class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                    class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                     >Tool error limit</label
                   >
                   <input
@@ -807,7 +807,7 @@
                 <div class="flex flex-col gap-1">
                   <label
                     for="sp-harness-terminal-tools"
-                    class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                    class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                     >Terminal tools</label
                   >
                   <textarea
@@ -832,7 +832,7 @@
                 <div class="flex flex-col gap-1">
                   <label
                     for="sp-harness-required-steps"
-                    class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                    class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                     >Required steps</label
                   >
                   <textarea
@@ -908,7 +908,7 @@
                   <div class="flex flex-col gap-1">
                     <label
                       for="sp-harness-compact-keep"
-                      class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                      class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                       >Keep recent steps</label
                     >
                     <input
@@ -931,7 +931,7 @@
                   <div class="flex flex-col gap-1">
                     <label
                       for="sp-harness-phase-thresholds"
-                      class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                      class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                       >Phase thresholds</label
                     >
                     <input
@@ -967,7 +967,7 @@
       >
         <div
           v-if="submitAttempted && errorsByTab.advanced.length"
-          class="rounded-2xl border border-danger/60 bg-danger/10 p-3 text-sm text-danger-foreground"
+          class="rounded-lg border border-danger/60 bg-danger/10 p-3 text-sm text-danger-foreground"
         >
           <p class="font-semibold">Fix the following to continue:</p>
           <ul class="mt-2 list-disc pl-5">
@@ -982,7 +982,7 @@
           <div class="flex flex-col gap-1">
             <label
               for="sp-summary-context"
-              class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+              class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
               >Summary context window (tokens)</label
             >
             <input
@@ -1034,7 +1034,7 @@
 
     <!-- Sticky footer -->
     <div
-      class="sticky bottom-0 z-10 border-t border-border/50 bg-surface/90 backdrop-blur-sm"
+      class="sticky bottom-0 z-10 border-t border-border/50 bg-surface "
     >
       <div class="flex items-center justify-between gap-3 px-4 py-3">
         <div class="text-xs text-subtle-foreground">
@@ -1071,12 +1071,12 @@
       @keydown="onCredentialKeydown"
     >
       <div
-        class="absolute inset-0 bg-surface/70 backdrop-blur-sm"
+        class="absolute inset-0 bg-surface "
         @click="closeCredentialModal(false)"
       ></div>
       <div
         ref="credPanel"
-        class="relative z-10 w-full max-w-lg overflow-hidden rounded-xl border border-border/70 bg-surface shadow-2xl"
+        class="relative z-10 w-full max-w-lg overflow-hidden rounded-md border border-border/70 bg-surface"
       >
         <div
           class="flex items-center justify-between border-b border-border/60 px-5 py-4"
@@ -1101,7 +1101,7 @@
         <div class="px-5 py-4">
           <label
             for="sp-api-key"
-            class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+            class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
             >API key</label
           >
           <input

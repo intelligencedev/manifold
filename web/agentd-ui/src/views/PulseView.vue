@@ -479,7 +479,7 @@ async function doDelete(id: string) {
               <!-- bubble -->
               <div
                 :class="[
-                  'rounded-2xl px-3 py-2 text-sm leading-relaxed',
+                  'rounded-lg px-3 py-2 text-sm leading-relaxed',
                   msg.direction === 'outbound'
                     ? 'bg-accent/15 text-foreground border border-accent/20 rounded-tr-sm'
                     : 'bg-surface-muted/60 text-foreground border border-border/40 rounded-tl-sm',
@@ -507,7 +507,7 @@ async function doDelete(id: string) {
         <!-- error banner -->
         <div
           v-if="mutErr"
-          class="mb-4 rounded-xl border border-danger/50 bg-danger/10 px-4 py-2 text-xs text-danger-foreground"
+          class="mb-4 rounded-md border border-danger/50 bg-danger/10 px-4 py-2 text-xs text-danger-foreground"
         >
           {{ mutErr }}
         </div>
@@ -807,7 +807,7 @@ async function doDelete(id: string) {
                     :class="[
                       'h-2.5 w-2.5 rounded-full',
                       task.enabled
-                        ? 'bg-success shadow-[0_0_6px_currentColor] text-success'
+                        ? 'bg-success text-success'
                         : 'bg-subtle-foreground/30',
                     ]"
                     :title="task.enabled ? 'enabled' : 'disabled'"

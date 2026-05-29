@@ -1,6 +1,6 @@
 <template>
   <div class="flex h-full min-h-0 flex-col overflow-hidden">
-    <div class="sticky top-0 z-10 border-b border-border/50 bg-surface/90 backdrop-blur-sm">
+    <div class="sticky top-0 z-10 border-b border-border/50 bg-surface ">
       <div class="flex items-start justify-between gap-3 px-4 pb-3 pt-4">
         <div class="min-w-0">
           <h2 class="text-base font-semibold text-foreground">
@@ -52,13 +52,13 @@
     <div class="flex flex-1 min-h-0 flex-col overflow-auto px-4 pb-6 pt-4 scrollbar-inset">
       <div
         v-if="actionError"
-        class="mb-4 rounded-2xl border border-danger/60 bg-danger/10 p-3 text-danger-foreground text-sm"
+        class="mb-4 rounded-lg border border-danger/60 bg-danger/10 p-3 text-danger-foreground text-sm"
       >
         {{ actionError }}
       </div>
       <div
         v-if="successMsg"
-        class="mb-4 rounded-2xl border border-border/60 bg-surface-muted/30 p-3 text-sm text-foreground"
+        class="mb-4 rounded-lg border border-border/60 bg-surface-muted/30 p-3 text-sm text-foreground"
       >
         {{ successMsg }}
       </div>
@@ -79,7 +79,7 @@
             <div class="flex flex-col gap-1">
               <label
                 for="team-name"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Name</label
               >
               <input
@@ -92,7 +92,7 @@
             <div class="flex flex-col gap-1">
               <label
                 for="team-description"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Description</label
               >
               <textarea
@@ -126,7 +126,7 @@
               <div class="flex flex-col gap-1">
                 <label
                   for="team-orch-provider"
-                  class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                   >Provider</label
                 >
                 <DropdownSelect
@@ -140,7 +140,7 @@
               <div class="flex flex-col gap-1">
                 <label
                   for="team-orch-model"
-                  class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                   >Model</label
                 >
                 <input
@@ -153,7 +153,7 @@
             <div class="flex flex-col gap-1">
               <label
                 for="team-orch-baseurl"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Base URL</label
               >
               <input
@@ -170,7 +170,7 @@
             <div class="flex flex-col gap-1">
               <label
                 for="team-orch-allow"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Allowed tools (comma separated)</label
               >
               <input
@@ -183,7 +183,7 @@
             <div class="flex flex-col gap-1">
               <label
                 for="team-orch-system"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >System prompt</label
               >
               <textarea
@@ -196,7 +196,7 @@
             <div class="flex flex-col gap-1">
               <label
                 for="team-orch-apikey"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >API Key (optional)</label
               >
               <input
@@ -211,7 +211,7 @@
             <div class="flex flex-col gap-1">
               <label
                 for="team-orch-summary-ctx"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Summary context window (tokens)</label
               >
               <input
@@ -227,7 +227,7 @@
             <div class="flex flex-col gap-1">
               <label
                 for="team-orch-extra-headers"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Extra headers (JSON)</label
               >
               <textarea
@@ -241,7 +241,7 @@
             <div class="flex flex-col gap-1">
               <label
                 for="team-orch-extra-params"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Extra params (JSON)</label
               >
               <textarea
@@ -300,7 +300,7 @@
       </div>
     </div>
 
-    <div class="sticky bottom-0 z-10 border-t border-border/50 bg-surface/90 backdrop-blur-sm">
+    <div class="sticky bottom-0 z-10 border-t border-border/50 bg-surface ">
       <div class="flex items-center justify-between gap-3 px-4 py-3">
         <div class="text-xs text-subtle-foreground">
           <span v-if="saving">Saving…</span>

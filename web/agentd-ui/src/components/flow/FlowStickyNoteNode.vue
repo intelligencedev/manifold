@@ -52,7 +52,7 @@
           >
             <svg
               v-if="noteColor === preset.value"
-              class="h-3 w-3 text-white drop-shadow"
+              class="h-3 w-3 text-white"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"

@@ -42,7 +42,7 @@
     </header>
 
     <div class="grid min-h-0 flex-1 grid-cols-[minmax(360px,0.95fr)_minmax(520px,1.25fr)] gap-3 overflow-hidden">
-      <aside class="min-h-0 overflow-hidden rounded-lg border border-border/70 bg-surface/70">
+      <aside class="min-h-0 overflow-hidden rounded-lg border border-border/70 bg-surface">
         <div class="flex items-center justify-between border-b border-border/70 px-3 py-2">
           <h2 class="text-sm font-semibold">Results</h2>
           <span class="text-xs text-subtle-foreground">{{ results.length }}</span>
@@ -79,7 +79,7 @@
       </aside>
 
       <main class="grid min-h-0 grid-rows-[minmax(190px,auto)_1fr] gap-3 overflow-hidden">
-        <section class="rounded-lg border border-border/70 bg-surface/70 p-4">
+        <section class="rounded-lg border border-border/70 bg-surface p-4">
           <div v-if="selected" class="space-y-4">
             <div class="flex items-start justify-between gap-4">
               <div class="min-w-0">
@@ -140,7 +140,7 @@
         </section>
 
         <section class="grid min-h-0 grid-cols-2 gap-3 overflow-hidden">
-          <div class="min-h-0 overflow-hidden rounded-lg border border-border/70 bg-surface/70">
+          <div class="min-h-0 overflow-hidden rounded-lg border border-border/70 bg-surface">
             <div class="border-b border-border/70 px-3 py-2">
               <h3 class="text-sm font-semibold">Evidence</h3>
             </div>
@@ -156,7 +156,7 @@
             </div>
           </div>
 
-          <div class="min-h-0 overflow-hidden rounded-lg border border-border/70 bg-surface/70">
+          <div class="min-h-0 overflow-hidden rounded-lg border border-border/70 bg-surface">
             <div class="border-b border-border/70 px-3 py-2">
               <h3 class="text-sm font-semibold">Promotion history</h3>
             </div>

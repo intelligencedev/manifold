@@ -24,7 +24,7 @@
       <table class="w-full text-sm">
         <thead class="bg-surface-muted/30">
           <tr
-            class="text-left text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+            class="text-left font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
           >
             <th class="px-3 py-2">Key</th>
             <th class="px-3 py-2">Value</th>

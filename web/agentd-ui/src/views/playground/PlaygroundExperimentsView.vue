@@ -163,7 +163,7 @@
           <article
             v-for="experiment in store.experiments"
             :key="experiment.id"
-            class="rounded-xl border border-border/60 bg-surface-muted/60 p-4 space-y-2"
+            class="rounded-md border border-border/60 bg-surface-muted/60 p-4 space-y-2"
           >
             <div class="flex items-center justify-between gap-2">
               <div>

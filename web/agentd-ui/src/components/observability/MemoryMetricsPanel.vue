@@ -1,6 +1,6 @@
 <template>
   <section
-    class="flex h-full flex-col overflow-hidden rounded-2xl border border-border/70 bg-surface p-6 shadow-lg"
+    class="flex h-full flex-col overflow-hidden rounded-lg border border-border/70 bg-surface p-6"
   >
     <header class="flex flex-wrap items-start justify-between gap-4 shrink-0">
       <div>
@@ -20,7 +20,7 @@
           />
         </label>
         <span
-          class="rounded-full border border-border/70 bg-muted/20 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-subtle-foreground"
+          class="rounded-full border border-border/70 bg-muted/20 px-2 py-1 text-[11px] font-medium font-mono uppercase tracking-[0.12em] text-faint-foreground"
           :title="sourceTitle"
         >
           {{ sourceLabel }}
@@ -31,13 +31,13 @@
     <div class="mt-4 min-h-0 flex-1 overflow-hidden">
       <div
         v-if="isLoading"
-        class="rounded-2xl border border-border/70 bg-surface-muted/40 p-4 text-sm text-faint-foreground"
+        class="rounded-lg border border-border/70 bg-surface-muted/40 p-4 text-sm text-faint-foreground"
       >
         Loading memory metrics...
       </div>
       <div
         v-else-if="isError"
-        class="rounded-2xl border border-danger/60 bg-danger/10 p-4 text-sm text-danger-foreground"
+        class="rounded-lg border border-danger/60 bg-danger/10 p-4 text-sm text-danger-foreground"
       >
         Failed to load memory metrics.
       </div>
@@ -46,7 +46,7 @@
           <div
             v-for="metric in kpis"
             :key="metric.label"
-            class="rounded-2xl border border-border/60 bg-muted/10 px-3 py-2"
+            class="rounded-lg border border-border/60 bg-muted/10 px-3 py-2"
           >
             <p class="text-[10px] font-semibold uppercase tracking-wide text-faint-foreground">
               {{ metric.label }}
@@ -62,11 +62,11 @@
 
         <div
           v-if="data?.source === 'none'"
-          class="rounded-2xl border border-dashed border-border bg-surface-muted/40 p-4 text-sm text-faint-foreground"
+          class="rounded-lg border border-dashed border-border bg-surface-muted/40 p-4 text-sm text-faint-foreground"
         >
           Memory telemetry is not connected to a queryable metrics backend yet.
         </div>
-        <div v-else-if="hasNoData" class="rounded-2xl border border-dashed border-border bg-surface-muted/40 p-4 text-sm text-faint-foreground">
+        <div v-else-if="hasNoData" class="rounded-lg border border-dashed border-border bg-surface-muted/40 p-4 text-sm text-faint-foreground">
           No evolving memory telemetry was recorded in this window.
         </div>
 
@@ -84,10 +84,10 @@
             />
           </div>
 
-          <div class="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-border/60 bg-muted/10 p-4">
+          <div class="flex min-h-0 flex-col overflow-hidden rounded-lg border border-border/60 bg-muted/10 p-4">
             <div class="flex items-center justify-between gap-3">
               <div>
-                <h3 class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground">
+                <h3 class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground">
                   Largest Sessions
                 </h3>
                 <p class="text-[11px] text-faint-foreground">Latest reported memory size</p>
@@ -211,11 +211,11 @@ const MetricBreakdown = defineComponent({
     return () =>
       h(
         "div",
-        { class: "rounded-2xl border border-border/60 bg-muted/10 p-4" },
+        { class: "rounded-lg border border-border/60 bg-muted/10 p-4" },
         [
           h(
             "h3",
-            { class: "text-xs font-semibold uppercase tracking-wide text-subtle-foreground" },
+            { class: "font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground" },
             props.title,
           ),
           props.rows.length === 0

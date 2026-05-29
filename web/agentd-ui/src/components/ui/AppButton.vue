@@ -72,8 +72,8 @@ const forwardedAttrs = computed(() => {
 
 const classes = computed(() => {
   const base = [
-    "group relative inline-flex select-none items-center justify-center overflow-hidden rounded-lg border text-sm font-medium transition-[transform,background-color,border-color,color,box-shadow,opacity] duration-150 ease-out",
-    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+    "group relative inline-flex select-none items-center justify-center overflow-hidden rounded-md border font-sans text-[13.5px] font-semibold transition-[transform,background-color,border-color,color,box-shadow,opacity] duration-150 ease-out",
+    "focus-visible:outline-none focus-visible:border-accent focus-visible:shadow-[0_0_0_3px_rgb(var(--accent-dim))]",
     "active:translate-y-px active:scale-[0.985] disabled:translate-y-0 disabled:scale-100 disabled:cursor-not-allowed disabled:opacity-55",
   ];
 
@@ -85,13 +85,13 @@ const classes = computed(() => {
 
   const variants = {
     neutral:
-      "border-border/70 bg-surface-muted/55 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] hover:border-border hover:bg-surface-muted/80",
+      "border-[rgb(var(--line-strong))] bg-surface-muted text-foreground hover:bg-input",
     accent:
-      "border-accent/45 bg-accent/18 text-foreground shadow-[0_10px_30px_rgba(90,89,211,0.16)] hover:border-accent/60 hover:bg-accent/26",
+      "border-accent bg-accent text-[rgb(var(--accent-foreground))] hover:bg-[rgb(var(--accent-hi))]",
     danger:
-      "border-danger/45 bg-danger/8 text-danger-foreground hover:border-danger/60 hover:bg-danger/16",
+      "border-danger/50 bg-[rgb(var(--color-danger)_/_0.10)] text-danger hover:bg-[rgb(var(--color-danger)_/_0.18)]",
     ghost:
-      "border-transparent bg-transparent text-subtle-foreground hover:border-border/60 hover:bg-surface-muted/55 hover:text-foreground",
+      "border-transparent bg-transparent text-muted-foreground hover:bg-surface-muted hover:text-foreground",
   };
 
   return [
@@ -101,7 +101,7 @@ const classes = computed(() => {
     props.block ? "w-full" : "",
     props.loading ? "cursor-progress" : "",
     props.pressed
-      ? "border-accent/55 bg-accent/14 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_0_0_1px_rgba(90,89,211,0.18)]"
+      ? "border-accent bg-input text-foreground shadow-[inset_0_0_0_1px_rgb(var(--line-strong))]"
       : "",
     attrs.class,
   ];

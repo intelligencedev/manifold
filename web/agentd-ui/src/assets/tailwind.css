@@ -1,43 +1,49 @@
-@import url("https://rsms.me/inter/inter.css");
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    font-family:
-      "Inter",
-      system-ui,
-      -apple-system,
-      sans-serif;
-    --radius: 18px;
-    --radius-lg: 26px;
-    /* Default to system/store-driven tokens. These initial values are for SSR fallback only. */
+    font-family: "Hanken Grotesk", system-ui, -apple-system, sans-serif;
+    --radius: 9px;
+    --radius-lg: 13px;
+    --font-display: "Space Grotesk", system-ui, sans-serif;
+    --font-text: "Hanken Grotesk", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, monospace;
+    --r-sm: 6px;
+    --r-md: 9px;
+    --r-lg: 13px;
+    --pad: 20px;
+    --bg-rail: 11 13 17;
+    --line-soft: 22 26 34;
+    --line-strong: 42 49 60;
+    --accent-hi: 154 162 255;
+    --accent-dim: 39 43 71;
+    --data: 79 214 192;
     color-scheme: dark;
-    --color-background: 12 14 16; /* aperture-dark background */
-    --color-surface: 17 20 23;
-    --color-surface-muted: 22 26 30;
-    --color-border: 22 26 30; /* stroke-soft */
-    --color-input: 28 33 38;
-    --color-ring: 112 109 230; /* iris-8 */
-    --color-foreground: 231 235 239;
-    --color-muted-foreground: 138 151 163;
-    --color-subtle-foreground: 104 119 132;
-    --color-faint-foreground: 77 90 102;
-    --color-muted: 17 20 23;
-    --color-accent: 90 89 211; /* iris-9 */
-    --color-accent-foreground: 255 255 255;
-    --color-destructive: 227 93 77;
-    --color-destructive-foreground: 24 24 27;
-    --color-success: 34 201 166;
-    --color-success-foreground: 15 23 42;
-    --color-info: 69 148 234;
-    --color-info-foreground: 15 23 42;
-    --color-warning: 232 177 9;
-    --color-warning-foreground: 24 24 27;
-    --color-danger: 227 93 77;
-    --color-danger-foreground: 24 24 27;
+    --color-background: 8 9 12;
+    --color-surface: 14 17 22;
+    --color-surface-muted: 20 24 33;
+    --color-border: 30 35 44;
+    --color-input: 26 31 42;
+    --color-ring: 124 134 255;
+    --color-foreground: 236 239 243;
+    --color-muted-foreground: 154 164 176;
+    --color-subtle-foreground: 154 164 176;
+    --color-faint-foreground: 92 102 114;
+    --color-muted: 14 17 22;
+    --color-accent: 124 134 255;
+    --color-accent-foreground: 10 11 18;
+    --color-destructive: 240 112 95;
+    --color-destructive-foreground: 10 11 18;
+    --color-success: 70 211 154;
+    --color-success-foreground: 10 11 18;
+    --color-info: 79 214 192;
+    --color-info-foreground: 10 11 18;
+    --color-warning: 232 177 74;
+    --color-warning-foreground: 10 11 18;
+    --color-danger: 240 112 95;
+    --color-danger-foreground: 10 11 18;
   }
 
   body {
@@ -64,44 +70,60 @@
 
   code,
   pre {
-    font-family: "Inter", "Inter var", ui-monospace, SFMono-Regular, monospace;
+    font-family:
+      "JetBrains Mono",
+      ui-monospace,
+      SFMono-Regular,
+      monospace;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .mono {
+    font-family: var(--font-mono);
+    font-feature-settings: "tnum" 1;
   }
 
   /* Global scrollbar styling (thin, accent-colored, no visible rail) */
-  /* Firefox */
   * {
     scrollbar-width: thin;
-    scrollbar-color: rgba(90, 89, 211, 0.8) transparent;
+    scrollbar-color: rgba(124, 134, 255, 0.8) transparent;
   }
 
-  /* WebKit/Blink (Chrome, Edge, Safari) */
   html::-webkit-scrollbar,
   body::-webkit-scrollbar,
-  .aperture::-webkit-scrollbar,
-  .aperture *::-webkit-scrollbar {
+  .halo::-webkit-scrollbar,
+  .halo *::-webkit-scrollbar {
     width: 10px;
     height: 10px;
     background-color: transparent;
   }
   html::-webkit-scrollbar-track,
   body::-webkit-scrollbar-track,
-  .aperture::-webkit-scrollbar-track,
-  .aperture *::-webkit-scrollbar-track {
+  .halo::-webkit-scrollbar-track,
+  .halo *::-webkit-scrollbar-track {
     background-color: transparent !important;
     box-shadow: none !important;
   }
   html::-webkit-scrollbar-track-piece,
   body::-webkit-scrollbar-track-piece,
-  .aperture::-webkit-scrollbar-track-piece,
-  .aperture *::-webkit-scrollbar-track-piece {
+  .halo::-webkit-scrollbar-track-piece,
+  .halo *::-webkit-scrollbar-track-piece {
     background-color: transparent !important;
     box-shadow: none !important;
   }
   html::-webkit-scrollbar-thumb,
   body::-webkit-scrollbar-thumb,
-  .aperture::-webkit-scrollbar-thumb,
-  .aperture *::-webkit-scrollbar-thumb {
-    background-color: rgba(90, 89, 211, 0.8) !important;
+  .halo::-webkit-scrollbar-thumb,
+  .halo *::-webkit-scrollbar-thumb {
+    background-color: rgba(124, 134, 255, 0.8) !important;
     border-radius: 9999px;
     border: 2px solid transparent;
     background-clip: padding-box;
@@ -109,43 +131,36 @@
   }
   html::-webkit-scrollbar-thumb:hover,
   body::-webkit-scrollbar-thumb:hover,
-  .aperture::-webkit-scrollbar-thumb:hover,
-  .aperture *::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(90, 89, 211, 0.95) !important;
+  .halo::-webkit-scrollbar-thumb:hover,
+  .halo *::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(124, 134, 255, 0.95) !important;
   }
   html::-webkit-scrollbar-corner,
   body::-webkit-scrollbar-corner,
-  .aperture::-webkit-scrollbar-corner,
-  .aperture *::-webkit-scrollbar-corner {
+  .halo::-webkit-scrollbar-corner,
+  .halo *::-webkit-scrollbar-corner {
     background-color: transparent !important;
   }
 }
 
-/* Aperture utilities */
 @layer utilities {
   .focus-ring:focus-visible {
-    outline: 3px solid rgb(var(--color-ring));
-    outline-offset: 2px;
+    outline: none;
+    box-shadow: 0 0 0 3px rgb(var(--accent-dim));
   }
 
-  /* Inset scrollbars so they don't collide with rounded corners.
-     Apply to nested scroll containers inside rounded cards/panels. */
   .scrollbar-inset {
-    /* Reserve space where supported so overlay thumbs don't cover content */
     scrollbar-gutter: stable;
   }
 
-  /* WebKit/Blink (Chrome, Edge, Safari) */
   .scrollbar-inset::-webkit-scrollbar-track,
   .scrollbar-inset::-webkit-scrollbar-track-piece {
-    /* Push the track away from the rounded corners */
     margin: 4px;
     background-color: transparent !important;
     box-shadow: none !important;
     border-radius: 9999px;
   }
   .scrollbar-inset::-webkit-scrollbar-thumb {
-    /* Ensure the thumb stays visually inset */
     border: 2px solid transparent;
     background-clip: padding-box;
   }

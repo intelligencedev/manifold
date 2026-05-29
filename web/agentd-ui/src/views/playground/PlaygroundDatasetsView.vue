@@ -187,7 +187,7 @@
       >
         <!-- Sticky header row -->
         <header
-          class="ap-hairline-b sticky top-0 z-10 grid grid-cols-[1fr_auto] items-start gap-3 pb-3"
+          class="halo-hairline-b sticky top-0 z-10 grid grid-cols-[1fr_auto] items-start gap-3 pb-3"
         >
           <div class="flex items-start gap-3">
             <button
@@ -245,7 +245,7 @@
             <!-- Properties card (left) -->
             <div class="col-span-4 flex min-h-0 flex-col">
               <div
-                class="flex h-full min-h-0 flex-col rounded-xl border border-border/60 bg-surface-muted/30"
+                class="flex h-full min-h-0 flex-col rounded-md border border-border/60 bg-surface-muted/30"
               >
                 <div
                   class="border-b border-border/60 px-4 py-3 text-sm font-medium"
@@ -283,7 +283,7 @@
                 </div>
                 <!-- Sticky save bar for symmetry -->
                 <div
-                  class="sticky bottom-0 flex items-center gap-3 border-t border-border/60 bg-surface/90 p-3 backdrop-blur"
+                  class="sticky bottom-0 flex items-center gap-3 border-t border-border/60 bg-surface p-3 "
                 >
                   <button
                     type="button"
@@ -310,7 +310,7 @@
             <!-- Rows card (right) -->
             <div class="col-span-8 flex min-h-0 flex-col">
               <div
-                class="flex h-full min-h-0 flex-col rounded-xl border border-border/60 bg-surface-muted/30"
+                class="flex h-full min-h-0 flex-col rounded-md border border-border/60 bg-surface-muted/30"
               >
                 <!-- Toolbar -->
                 <div

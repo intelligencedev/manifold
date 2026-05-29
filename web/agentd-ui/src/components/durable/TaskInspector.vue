@@ -1,6 +1,6 @@
 <template>
   <aside
-    class="glass-surface flex h-full min-h-0 flex-col rounded-4 border border-border/70"
+    class="halo-surface flex h-full min-h-0 flex-col rounded-4 border border-border/70"
   >
     <!-- Full-width header -->
     <header
@@ -204,7 +204,7 @@
         <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
           <!-- Sticky timeline header -->
           <div
-            class="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border/60 bg-surface-muted/60 px-4 py-3 backdrop-blur-sm"
+            class="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border/60 bg-surface-muted/60 px-4 py-3 "
           >
             <p
               class="text-[10px] font-semibold uppercase tracking-[0.22em] text-subtle-foreground"

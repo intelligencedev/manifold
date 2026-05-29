@@ -2,7 +2,7 @@
   <section class="flex flex-col h-full min-h-0">
     <div
       v-if="actionError"
-      class="rounded-2xl border border-danger/60 bg-danger/10 p-3 text-danger-foreground text-sm"
+      class="rounded-lg border border-danger/60 bg-danger/10 p-3 text-danger-foreground text-sm"
     >
       {{ actionError }}
     </div>
@@ -24,7 +24,7 @@
             </button>
             <button
               @click="startCreate"
-              class="rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
+              class="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
             >
               New specialist
             </button>
@@ -120,7 +120,7 @@
                     {{ t.name }}
                   </h3>
                   <p
-                    class="mt-1 text-[11px] uppercase tracking-wide text-subtle-foreground"
+                    class="mt-1 text-[11px] font-mono uppercase tracking-[0.12em] text-faint-foreground"
                   >
                     Orchestrator
                   </p>
@@ -137,7 +137,7 @@
                 class="mt-3 flex items-center gap-2 text-xs text-subtle-foreground"
               >
                 <span
-                  class="inline-flex items-center rounded-full border border-white/10 bg-surface-muted/50 px-2 py-1 font-medium"
+                  class="inline-flex items-center rounded-full border border-border bg-surface-muted/50 px-2 py-1 font-medium"
                   >Members · {{ t.members?.length || 0 }}</span
                 >
               </div>
@@ -145,7 +145,7 @@
                 <button
                   type="button"
                   @click="editTeam(t)"
-                  class="rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
+                  class="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
                 >
                   Edit
                 </button>
@@ -239,7 +239,7 @@
                     {{ s.name }}
                   </h3>
                   <p
-                    class="mt-1 text-[11px] uppercase tracking-wide text-subtle-foreground"
+                    class="mt-1 text-[11px] font-mono uppercase tracking-[0.12em] text-faint-foreground"
                   >
                     Model
                   </p>
@@ -298,7 +298,7 @@
                 </Pill>
                 <span
                   v-if="typeof s.autoDiscover === 'boolean'"
-                  class="inline-flex items-center rounded-full border border-white/10 bg-surface-muted/50 px-2 py-1 font-medium text-subtle-foreground"
+                  class="inline-flex items-center rounded-full border border-border bg-surface-muted/50 px-2 py-1 font-medium text-subtle-foreground"
                 >
                   {{
                     s.autoDiscover ? "Auto-discover on" : "Auto-discover off"
@@ -306,7 +306,7 @@
                 </span>
                 <span
                   v-if="Array.isArray(s.allowTools) && s.allowTools.length > 0"
-                  class="inline-flex items-center rounded-full border border-white/10 bg-surface-muted/50 px-2 py-1 font-medium text-subtle-foreground"
+                  class="inline-flex items-center rounded-full border border-border bg-surface-muted/50 px-2 py-1 font-medium text-subtle-foreground"
                 >
                   Allow list · {{ s.allowTools.length }}
                 </span>
@@ -316,14 +316,14 @@
                 <button
                   type="button"
                   @click="edit(s)"
-                  class="rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
+                  class="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
                 >
                   Edit
                 </button>
                 <button
                   type="button"
                   @click="cloneSpecialist(s)"
-                  class="rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
+                  class="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
                   title="Duplicate this specialist"
                 >
                   Clone
@@ -331,7 +331,7 @@
                 <button
                   type="button"
                   @click="togglePause(s)"
-                  class="inline-flex items-center gap-1 rounded-full border border-white/12 px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
+                  class="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
                   :title="s.paused ? 'Resume specialist' : 'Pause specialist'"
                   :aria-label="
                     s.paused ? 'Resume specialist' : 'Pause specialist'

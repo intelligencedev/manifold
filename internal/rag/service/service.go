@@ -21,13 +21,14 @@ type Service struct {
 	vector databases.VectorStore
 	graph  databases.GraphDB
 
-	log     Logger
-	metrics Metrics
-	clock   Clock
-	emb     embedder.Embedder
-	embCfg  config.EmbeddingConfig
-	rerank  retrieve.Reranker
-	magma   *magma.Service
+	log      Logger
+	metrics  Metrics
+	clock    Clock
+	emb      embedder.Embedder
+	embCfg   config.EmbeddingConfig
+	rerank   retrieve.Reranker
+	magma    *magma.Service
+	magmaCfg config.MagmaConfig
 }
 
 // New constructs a Service from a databases.Manager and optional observability.
@@ -71,6 +72,12 @@ func WithReranker(rr retrieve.Reranker) Option {
 // and custom deployments.
 func WithMagmaService(ms *magma.Service) Option {
 	return func(s *Service) { s.magma = ms }
+}
+
+// WithMagmaConfig sets service-level defaults for opt-in MAGMA ingestion and
+// retrieval. Per-request options still override non-zero request fields.
+func WithMagmaConfig(cfg config.MagmaConfig) Option {
+	return func(s *Service) { s.magmaCfg = cfg }
 }
 
 func (s *Service) Close() {
@@ -169,14 +176,15 @@ func (s *Service) Ingest(ctx context.Context, in ingest.IngestRequest) (ingest.I
 
 	dur := s.clock.Now().Sub(start)
 	s.metrics.ObserveHistogram("ingestion_stage_ms", float64(ms(dur)), map[string]string{"stage": "total", "tenant": in.Tenant})
+	magmaOpt := s.normalizeMagmaIngestOptions(in.Options.Magma)
 	var magmaEventID string
-	if in.Options.Magma.Enabled && s.magma != nil {
+	if magmaOpt.Enabled && s.magma != nil {
 		t0 = s.clock.Now()
-		s.magma.StartConsolidationWorkers(context.Background(), 1)
+		s.magma.StartConsolidationWorkers(context.Background(), s.magmaCfg.Consolidation.WorkerCount)
 		resp, err := s.magma.Ingest(ctx, magma.IngestRequest{
 			ID:        in.ID,
 			Tenant:    in.Tenant,
-			SessionID: in.Options.Magma.SessionID,
+			SessionID: magmaOpt.SessionID,
 			Text:      pre.Text,
 			Metadata:  in.Metadata,
 		})
@@ -206,6 +214,7 @@ func (s *Service) Ingest(ctx context.Context, in ingest.IngestRequest) (ingest.I
 func (s *Service) Retrieve(ctx context.Context, q string, opt retrieve.RetrieveOptions) (retrieve.RetrieveResponse, error) {
 	rStart := s.clock.Now()
 	opt = s.normalizeRetrieveOptions(opt)
+	opt.Magma = s.normalizeMagmaRetrieveOptions(opt.Magma)
 	if opt.Magma.Enabled && s.magma != nil {
 		return s.retrieveMagma(ctx, q, opt, rStart)
 	}
@@ -376,6 +385,58 @@ func (s *Service) normalizeRetrieveOptions(opt retrieve.RetrieveOptions) retriev
 		opt.Alpha = 0.5
 	}
 	return opt
+}
+
+func (s *Service) normalizeMagmaIngestOptions(opt ingest.MagmaOptions) ingest.MagmaOptions {
+	if !opt.Enabled && s.magmaCfg.Enabled {
+		opt.Enabled = true
+	}
+	if opt.ConsolidationModel == "" {
+		opt.ConsolidationModel = s.magmaCfg.Consolidation.Model
+	}
+	if opt.TopSemanticK <= 0 {
+		opt.TopSemanticK = s.magmaCfg.Graphs.Semantic.TopK
+	}
+	if len(opt.Graphs) == 0 && s.magmaCfg.Enabled {
+		opt.Graphs = enabledMagmaGraphs(s.magmaCfg)
+	}
+	return opt
+}
+
+func (s *Service) normalizeMagmaRetrieveOptions(opt retrieve.MagmaRetrieveOptions) retrieve.MagmaRetrieveOptions {
+	if !opt.Enabled && s.magmaCfg.Enabled {
+		opt.Enabled = true
+	}
+	if opt.MaxHops <= 0 {
+		opt.MaxHops = s.magmaCfg.Retrieval.DefaultHops
+	}
+	if opt.MaxNodes <= 0 {
+		opt.MaxNodes = s.magmaCfg.Retrieval.DefaultMaxNodes
+	}
+	if opt.ContextFormat == "" {
+		opt.ContextFormat = s.magmaCfg.Retrieval.ContextFormat
+	}
+	return opt
+}
+
+func enabledMagmaGraphs(cfg config.MagmaConfig) []string {
+	graphs := []string{}
+	if cfg.Graphs.Semantic.Enabled {
+		graphs = append(graphs, "semantic")
+	}
+	if cfg.Graphs.Temporal.Enabled {
+		graphs = append(graphs, "temporal")
+	}
+	if cfg.Graphs.Causal.Enabled {
+		graphs = append(graphs, "causal")
+	}
+	if cfg.Graphs.Entity.Enabled {
+		graphs = append(graphs, "entity")
+	}
+	if len(graphs) == 0 {
+		return []string{"semantic", "temporal", "causal", "entity"}
+	}
+	return graphs
 }
 
 func (s *Service) hydrateRerankText(ctx context.Context, items []retrieve.RetrievedItem) []retrieve.RetrievedItem {

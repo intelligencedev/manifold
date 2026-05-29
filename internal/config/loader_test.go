@@ -187,6 +187,32 @@ reranking:
     X-Rerank-Trace: rerank123
   path: /v1/rerank
   timeoutSeconds: 15
+magma:
+  enabled: true
+  consolidation:
+    model: gpt-4o-mini
+    batchSize: 8
+    maxQueueSize: 500
+    workerCount: 3
+  graphs:
+    semantic:
+      enabled: true
+      topK: 12
+      similarityThreshold: 0.75
+    temporal:
+      enabled: true
+      dateResolution: auto
+    causal:
+      enabled: true
+      llmThreshold: 0.85
+    entity:
+      enabled: true
+      coReference: true
+  retrieval:
+    defaultHops: 3
+    defaultMaxNodes: 15
+    intentClassification: hybrid
+    contextFormat: structured
 imageTool:
   baseURL: http://localhost:11434/v1
   model: llava:latest
@@ -287,6 +313,12 @@ tokenization:
 	}
 	if cfg.Reranking.APIKey != "embed-secret" || cfg.Reranking.Headers["X-Rerank-Trace"] != "rerank123" || cfg.Reranking.Timeout != 15 {
 		t.Fatalf("unexpected reranking auth config: %+v", cfg.Reranking)
+	}
+	if !cfg.Magma.Enabled || cfg.Magma.Consolidation.WorkerCount != 3 || cfg.Magma.Graphs.Semantic.TopK != 12 {
+		t.Fatalf("unexpected magma config: %+v", cfg.Magma)
+	}
+	if cfg.Magma.Retrieval.DefaultHops != 3 || cfg.Magma.Retrieval.DefaultMaxNodes != 15 || cfg.Magma.Retrieval.ContextFormat != "structured" {
+		t.Fatalf("unexpected magma retrieval config: %+v", cfg.Magma.Retrieval)
 	}
 	if cfg.ImageTool.BaseURL != "http://localhost:11434/v1" || cfg.ImageTool.Model != "llava:latest" {
 		t.Fatalf("unexpected image tool config: %+v", cfg.ImageTool)

@@ -370,6 +370,7 @@ func applyDefaults(cfg *Config) {
 	if cfg.Embedding.Timeout <= 0 {
 		cfg.Embedding.Timeout = 30
 	}
+	applyMagmaDefaults(cfg)
 	if cfg.Embedding.Instructions.Mode == "" {
 		cfg.Embedding.Instructions.Mode = "auto"
 	} else {
@@ -433,6 +434,47 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.Transit.MaxBatchSize <= 0 {
 		cfg.Transit.MaxBatchSize = 100
+	}
+}
+
+func applyMagmaDefaults(cfg *Config) {
+	if cfg.Magma.Consolidation.Model == "" {
+		cfg.Magma.Consolidation.Model = "gpt-4o-mini"
+	}
+	if cfg.Magma.Consolidation.BatchSize <= 0 {
+		cfg.Magma.Consolidation.BatchSize = 10
+	}
+	if cfg.Magma.Consolidation.MaxQueueSize <= 0 {
+		cfg.Magma.Consolidation.MaxQueueSize = 1000
+	}
+	if cfg.Magma.Consolidation.WorkerCount <= 0 {
+		cfg.Magma.Consolidation.WorkerCount = 2
+	}
+	if cfg.Magma.Graphs.Semantic.TopK <= 0 {
+		cfg.Magma.Graphs.Semantic.TopK = 20
+	}
+	if cfg.Magma.Graphs.Semantic.SimilarityThreshold <= 0 {
+		cfg.Magma.Graphs.Semantic.SimilarityThreshold = 0.7
+	}
+	if cfg.Magma.Graphs.Temporal.DateResolution == "" {
+		cfg.Magma.Graphs.Temporal.DateResolution = "auto"
+	}
+	if cfg.Magma.Graphs.Causal.LLMThreshold <= 0 {
+		cfg.Magma.Graphs.Causal.LLMThreshold = 0.8
+	}
+	if cfg.Magma.Retrieval.DefaultHops <= 0 {
+		cfg.Magma.Retrieval.DefaultHops = 2
+	}
+	if cfg.Magma.Retrieval.DefaultMaxNodes <= 0 {
+		cfg.Magma.Retrieval.DefaultMaxNodes = 10
+	}
+	if cfg.Magma.Retrieval.IntentClassification == "" {
+		cfg.Magma.Retrieval.IntentClassification = "hybrid"
+	} else {
+		cfg.Magma.Retrieval.IntentClassification = strings.ToLower(strings.TrimSpace(cfg.Magma.Retrieval.IntentClassification))
+	}
+	if cfg.Magma.Retrieval.ContextFormat == "" {
+		cfg.Magma.Retrieval.ContextFormat = "structured"
 	}
 }
 

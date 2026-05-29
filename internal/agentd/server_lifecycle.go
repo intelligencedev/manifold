@@ -35,6 +35,9 @@ func (a *app) close() {
 			log.Warn().Err(err).Msg("close durable worker")
 		}
 	}
+	if a.ragService != nil {
+		a.ragService.Close()
+	}
 	if a.terminalManager != nil {
 		if err := a.terminalManager.Close(); err != nil {
 			log.Warn().Err(err).Msg("close terminal manager")

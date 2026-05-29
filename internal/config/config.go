@@ -88,6 +88,8 @@ type Config struct {
 	Embedding EmbeddingConfig `yaml:"embedding" json:"embedding"`
 	// Reranking configures the optional external reranking service for RAG retrieval.
 	Reranking RerankingConfig `yaml:"reranking" json:"reranking"`
+	// Magma configures optional multi-graph agentic memory support for RAG.
+	Magma MagmaConfig `yaml:"magma" json:"magma"`
 	// ImageTool configures defaults for the describe_image tool.
 	ImageTool ImageToolConfig `yaml:"imageTool" json:"imageTool"`
 	// EvolvingMemory configures the Search-Synthesis-Evolve memory system.
@@ -625,6 +627,56 @@ type RerankingConfig struct {
 	Headers     map[string]string `yaml:"headers" json:"headers"`     // optional additional headers
 	Path        string            `yaml:"path" json:"path"`           // default: /v1/rerank
 	Timeout     int               `yaml:"timeoutSeconds" json:"timeoutSeconds"`
+}
+
+// MagmaConfig configures optional multi-graph agentic memory.
+type MagmaConfig struct {
+	Enabled       bool                     `yaml:"enabled" json:"enabled"`
+	Consolidation MagmaConsolidationConfig `yaml:"consolidation" json:"consolidation"`
+	Graphs        MagmaGraphsConfig        `yaml:"graphs" json:"graphs"`
+	Retrieval     MagmaRetrievalConfig     `yaml:"retrieval" json:"retrieval"`
+}
+
+type MagmaConsolidationConfig struct {
+	Model        string `yaml:"model" json:"model"`
+	BatchSize    int    `yaml:"batchSize" json:"batchSize"`
+	MaxQueueSize int    `yaml:"maxQueueSize" json:"maxQueueSize"`
+	WorkerCount  int    `yaml:"workerCount" json:"workerCount"`
+}
+
+type MagmaGraphsConfig struct {
+	Semantic MagmaSemanticGraphConfig `yaml:"semantic" json:"semantic"`
+	Temporal MagmaTemporalGraphConfig `yaml:"temporal" json:"temporal"`
+	Causal   MagmaCausalGraphConfig   `yaml:"causal" json:"causal"`
+	Entity   MagmaEntityGraphConfig   `yaml:"entity" json:"entity"`
+}
+
+type MagmaSemanticGraphConfig struct {
+	Enabled             bool    `yaml:"enabled" json:"enabled"`
+	TopK                int     `yaml:"topK" json:"topK"`
+	SimilarityThreshold float64 `yaml:"similarityThreshold" json:"similarityThreshold"`
+}
+
+type MagmaTemporalGraphConfig struct {
+	Enabled        bool   `yaml:"enabled" json:"enabled"`
+	DateResolution string `yaml:"dateResolution" json:"dateResolution"`
+}
+
+type MagmaCausalGraphConfig struct {
+	Enabled      bool    `yaml:"enabled" json:"enabled"`
+	LLMThreshold float64 `yaml:"llmThreshold" json:"llmThreshold"`
+}
+
+type MagmaEntityGraphConfig struct {
+	Enabled     bool `yaml:"enabled" json:"enabled"`
+	CoReference bool `yaml:"coReference" json:"coReference"`
+}
+
+type MagmaRetrievalConfig struct {
+	DefaultHops          int    `yaml:"defaultHops" json:"defaultHops"`
+	DefaultMaxNodes      int    `yaml:"defaultMaxNodes" json:"defaultMaxNodes"`
+	IntentClassification string `yaml:"intentClassification" json:"intentClassification"`
+	ContextFormat        string `yaml:"contextFormat" json:"contextFormat"`
 }
 
 // EmbeddingInstructionConfig configures query-side embedding instructions.

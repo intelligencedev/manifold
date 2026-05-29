@@ -2,6 +2,7 @@ package magma
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 )
@@ -165,9 +166,13 @@ func (q QueryEngine) traverse(ctx context.Context, anchors []string, graphType G
 
 func BuildContext(subgraphs map[GraphType]Subgraph) StructuredContext {
 	eventsByID := map[string]EventNode{}
+	edgesByKey := map[string]Edge{}
 	for _, subgraph := range subgraphs {
 		for id, event := range subgraph.Nodes {
 			eventsByID[id] = event
+		}
+		for _, edge := range subgraph.Edges {
+			edgesByKey[edgeKey(edge)] = edge
 		}
 	}
 	events := make([]EventNode, 0, len(eventsByID))
@@ -177,22 +182,12 @@ func BuildContext(subgraphs map[GraphType]Subgraph) StructuredContext {
 	sort.Slice(events, func(i, j int) bool { return events[i].CreatedAt.Before(events[j].CreatedAt) })
 
 	ctx := StructuredContext{RawEvents: events, EntityProfile: map[string]EntityProfile{}}
-	var text strings.Builder
 	for _, event := range events {
 		date := event.TemporalAttrs.Date
 		if date == "" && !event.CreatedAt.IsZero() {
 			date = event.CreatedAt.Format("2006-01-02")
 		}
 		ctx.TemporalTimeline = append(ctx.TemporalTimeline, TimelineEntry{EventID: event.ID, Date: date, Text: event.Text})
-		if date != "" {
-			text.WriteString("- ")
-			text.WriteString(date)
-			text.WriteString(": ")
-		} else {
-			text.WriteString("- ")
-		}
-		text.WriteString(event.Text)
-		text.WriteByte('\n')
 		for _, entity := range event.EntityMentions {
 			profile := ctx.EntityProfile[entity.ID]
 			profile.Entity = entity
@@ -203,14 +198,13 @@ func BuildContext(subgraphs map[GraphType]Subgraph) StructuredContext {
 	if len(events) > 0 {
 		ctx.SemanticCluster = append(ctx.SemanticCluster, SemanticGroup{Topic: "related events", Events: events})
 	}
-	for _, subgraph := range subgraphs {
-		for _, edge := range subgraph.Edges {
-			if edge.GraphType == GraphCausal && edge.Rel == "CAUSES" {
-				ctx.CausalChain = append(ctx.CausalChain, CausalLink{Cause: edge.Source, Effect: edge.Target})
-			}
+	for _, edge := range edgesByKey {
+		if edge.GraphType == GraphCausal && edge.Rel == "CAUSES" {
+			ctx.CausalChain = append(ctx.CausalChain, causalLinkForEdge(edge, eventsByID))
 		}
 	}
-	ctx.Text = strings.TrimSpace(text.String())
+	sort.Slice(ctx.CausalChain, func(i, j int) bool { return ctx.CausalChain[i].Text < ctx.CausalChain[j].Text })
+	ctx.Text = formatStructuredContext(ctx)
 	return ctx
 }
 
@@ -242,4 +236,98 @@ func appendGraphViews(views []GraphType, add ...GraphType) []GraphType {
 		views = append(views, view)
 	}
 	return views
+}
+
+func causalLinkForEdge(edge Edge, events map[string]EventNode) CausalLink {
+	link := CausalLink{Cause: edge.Source, Effect: edge.Target}
+	if event, ok := events[edge.Source]; ok {
+		cause, effect, ok := ExtractCausalStatement(event.Text)
+		if ok {
+			link.Text = fmt.Sprintf("%s -> %s", cause, effect)
+			return link
+		}
+		link.Text = event.Text
+	}
+	return link
+}
+
+func edgeKey(edge Edge) string {
+	return string(edge.GraphType) + "\x00" + edge.Rel + "\x00" + edge.Source + "\x00" + edge.Target
+}
+
+func formatStructuredContext(ctx StructuredContext) string {
+	var text strings.Builder
+	if len(ctx.TemporalTimeline) > 0 {
+		text.WriteString("Temporal timeline:\n")
+		for _, entry := range ctx.TemporalTimeline {
+			text.WriteString("- ")
+			if entry.Date != "" {
+				text.WriteString(entry.Date)
+				text.WriteString(": ")
+			}
+			text.WriteString(entry.Text)
+			text.WriteByte('\n')
+		}
+	}
+	if len(ctx.EntityProfile) > 0 {
+		writeSectionBreak(&text)
+		text.WriteString("Entity profiles:\n")
+		keys := make([]string, 0, len(ctx.EntityProfile))
+		for key := range ctx.EntityProfile {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			profile := ctx.EntityProfile[key]
+			name := firstNonEmpty(profile.Entity.Name, profile.Entity.ID)
+			text.WriteString("- ")
+			text.WriteString(name)
+			text.WriteString(": ")
+			for i, event := range profile.Events {
+				if i > 0 {
+					text.WriteString("; ")
+				}
+				text.WriteString(event.Text)
+			}
+			text.WriteByte('\n')
+		}
+	}
+	if len(ctx.CausalChain) > 0 {
+		writeSectionBreak(&text)
+		text.WriteString("Causal chain:\n")
+		for _, link := range ctx.CausalChain {
+			text.WriteString("- ")
+			if link.Text != "" {
+				text.WriteString(link.Text)
+			} else {
+				text.WriteString(link.Cause)
+				text.WriteString(" -> ")
+				text.WriteString(link.Effect)
+			}
+			text.WriteByte('\n')
+		}
+	}
+	if len(ctx.SemanticCluster) > 0 {
+		writeSectionBreak(&text)
+		text.WriteString("Semantic clusters:\n")
+		for _, cluster := range ctx.SemanticCluster {
+			text.WriteString("- ")
+			text.WriteString(cluster.Topic)
+			text.WriteString(": ")
+			for i, event := range cluster.Events {
+				if i > 0 {
+					text.WriteString("; ")
+				}
+				text.WriteString(event.Text)
+			}
+			text.WriteByte('\n')
+		}
+	}
+	return strings.TrimSpace(text.String())
+}
+
+func writeSectionBreak(text *strings.Builder) {
+	if text.Len() > 0 {
+		text.WriteByte('\n')
+	}
 }

@@ -53,8 +53,8 @@ func ResolveEntities(text string) []EntityMention {
 }
 
 func ExtractCausalEdges(event EventNode) []Edge {
-	lower := strings.ToLower(event.Text)
-	if !strings.Contains(lower, "because") && !strings.Contains(lower, "caused") && !strings.Contains(lower, "so ") {
+	cause, effect, ok := ExtractCausalStatement(event.Text)
+	if !ok {
 		return nil
 	}
 	return []Edge{{
@@ -62,8 +62,29 @@ func ExtractCausalEdges(event EventNode) []Edge {
 		GraphType: GraphCausal,
 		Rel:       "CAUSES",
 		Target:    event.ID,
-		Props:     map[string]any{"confidence": 0.5, "extractor": "rule"},
+		Props:     map[string]any{"confidence": 0.5, "extractor": "rule", "cause_text": cause, "effect_text": effect},
 	}}
+}
+
+func ExtractCausalStatement(text string) (cause string, effect string, ok bool) {
+	trimmed := strings.TrimSpace(text)
+	lower := strings.ToLower(trimmed)
+	if i := strings.Index(lower, " because "); i >= 0 {
+		effect = strings.TrimSpace(trimmed[:i])
+		cause = strings.TrimSpace(trimmed[i+9:])
+		return cause, effect, cause != "" && effect != ""
+	}
+	if i := strings.Index(lower, " caused "); i >= 0 {
+		cause = strings.TrimSpace(trimmed[:i])
+		effect = strings.TrimSpace(trimmed[i+8:])
+		return cause, effect, cause != "" && effect != ""
+	}
+	if i := strings.Index(lower, " so "); i >= 0 {
+		cause = strings.TrimSpace(trimmed[:i])
+		effect = strings.TrimSpace(trimmed[i+4:])
+		return cause, effect, cause != "" && effect != ""
+	}
+	return "", "", false
 }
 
 func (s *Service) semanticEdges(ctx context.Context, event EventNode) []Edge {

@@ -3,6 +3,7 @@ package magma
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,6 +61,18 @@ func TestService_IngestConsolidateAndQuery(t *testing.T) {
 	if result.TemporalTimeline[0].Date != "2026-05-27" {
 		t.Fatalf("unexpected timeline: %#v", result.TemporalTimeline)
 	}
+	causal, err := svc.Query(ctx, "Why did Melanie hike?", QueryOptions{Tenant: "t1", MaxNodes: 5})
+	if err != nil {
+		t.Fatalf("causal Query() error = %v", err)
+	}
+	if len(causal.CausalChain) != 1 {
+		t.Fatalf("expected one causal chain entry, got %#v", causal.CausalChain)
+	}
+	for _, want := range []string{"Temporal timeline:", "Entity profiles:", "Causal chain:", "the weather improved"} {
+		if !strings.Contains(causal.Text, want) {
+			t.Fatalf("expected context to contain %q, got:\n%s", want, causal.Text)
+		}
+	}
 }
 
 func TestClassifyIntent(t *testing.T) {
@@ -79,6 +92,30 @@ func TestClassifyIntent(t *testing.T) {
 			got, _ := ClassifyIntent(tt.query)
 			if got&tt.want == 0 {
 				t.Fatalf("ClassifyIntent(%q) = %b, want bit %b", tt.query, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractCausalStatement(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		text       string
+		wantCause  string
+		wantEffect string
+		wantOK     bool
+	}{
+		{name: "because", text: "Melanie hiked because the weather improved", wantCause: "the weather improved", wantEffect: "Melanie hiked", wantOK: true},
+		{name: "caused", text: "Rain caused the delay", wantCause: "Rain", wantEffect: "the delay", wantOK: true},
+		{name: "so", text: "The guitar broke so Melanie switched instruments", wantCause: "The guitar broke", wantEffect: "Melanie switched instruments", wantOK: true},
+		{name: "none", text: "Melanie practiced guitar", wantOK: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotCause, gotEffect, gotOK := ExtractCausalStatement(tt.text)
+			if gotOK != tt.wantOK || gotCause != tt.wantCause || gotEffect != tt.wantEffect {
+				t.Fatalf("ExtractCausalStatement() = (%q, %q, %v), want (%q, %q, %v)", gotCause, gotEffect, gotOK, tt.wantCause, tt.wantEffect, tt.wantOK)
 			}
 		})
 	}

@@ -2,6 +2,7 @@ package databases
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -80,6 +81,90 @@ func TestMemoryGraph_TypedEdges(t *testing.T) {
 	}
 	if len(got) != 1 || got[0] != "event:2" {
 		t.Fatalf("unexpected typed neighbors: %#v", got)
+	}
+}
+
+func TestPostgresGraphJSONProp(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		props map[string]any
+		want  string
+	}{
+		{
+			name:  "missing uses fallback",
+			props: map[string]any{},
+			want:  "[]",
+		},
+		{
+			name:  "string json becomes raw json",
+			props: map[string]any{"graphs": `["semantic","entity"]`},
+			want:  `["semantic","entity"]`,
+		},
+		{
+			name:  "empty string uses fallback",
+			props: map[string]any{"graphs": "  "},
+			want:  "[]",
+		},
+		{
+			name:  "bytes json becomes raw json",
+			props: map[string]any{"graphs": []byte(`["temporal"]`)},
+			want:  `["temporal"]`,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok := jsonProp(tt.props, "graphs", "[]").(json.RawMessage)
+			if !ok {
+				t.Fatalf("jsonProp() type = %T, want json.RawMessage", got)
+			}
+			if string(got) != tt.want {
+				t.Fatalf("jsonProp() = %s, want %s", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestPostgresGraphFloatProp(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		props map[string]any
+		want  float64
+		ok    bool
+	}{
+		{name: "float64", props: map[string]any{"weight": 0.75}, want: 0.75, ok: true},
+		{name: "float32", props: map[string]any{"weight": float32(0.5)}, want: 0.5, ok: true},
+		{name: "int", props: map[string]any{"weight": 2}, want: 2, ok: true},
+		{name: "json number", props: map[string]any{"weight": json.Number("0.25")}, want: 0.25, ok: true},
+		{name: "missing", props: map[string]any{}, ok: false},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := floatProp(tt.props, "weight")
+			if !tt.ok {
+				if got != nil {
+					t.Fatalf("floatProp() = %v, want nil", *got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatal("floatProp() = nil, want value")
+			}
+			if *got != tt.want {
+				t.Fatalf("floatProp() = %v, want %v", *got, tt.want)
+			}
+		})
 	}
 }
 

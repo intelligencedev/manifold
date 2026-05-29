@@ -11,6 +11,7 @@ import (
 	"manifold/internal/memory/magma"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/rag/embedder"
+	"manifold/internal/transit"
 )
 
 func TestEvolvingMagmaSinkIngestsMemoryEntry(t *testing.T) {
@@ -104,5 +105,49 @@ func TestBeliefMagmaSinkIngestsBeliefEvent(t *testing.T) {
 	}
 	if got, ok := event.Metadata["confidence"].(float64); !ok || got != 0.87 {
 		t.Fatalf("unexpected confidence metadata: %#v", event.Metadata["confidence"])
+	}
+}
+
+func TestTransitMagmaSinkIngestsTransitEvent(t *testing.T) {
+	t.Parallel()
+
+	svc := magma.NewService(databases.NewMemoryGraph(), databases.NewMemoryVector(), embedder.NewDeterministic(32, true, 0))
+	defer svc.Close()
+	updatedAt := time.Date(2026, 5, 28, 12, 10, 0, 0, time.UTC)
+	sink := transitMagmaSink{service: svc, workerCount: 0}
+	record := transit.Record{
+		TenantID:    42,
+		KeyName:     "project/demo/brief",
+		Description: "Demo brief",
+		Value:       "Transit stores durable shared project notes",
+		Embed:       true,
+		EmbedSource: "value",
+		Version:     3,
+		CreatedBy:   7,
+		UpdatedBy:   8,
+		UpdatedAt:   updatedAt,
+	}
+
+	eventID, err := sink.IngestTransitRecord(context.Background(), record)
+	if err != nil {
+		t.Fatalf("IngestTransitRecord() error = %v", err)
+	}
+	event, ok := svc.Event(context.Background(), eventID)
+	if !ok {
+		t.Fatalf("expected MAGMA transit event %q", eventID)
+	}
+	if event.Tenant != "user:42" || event.Session != "transit" {
+		t.Fatalf("unexpected event scope: tenant=%q session=%q", event.Tenant, event.Session)
+	}
+	for _, want := range []string{"Transit key: project/demo/brief", "Description: Demo brief", "Value: Transit stores durable shared project notes"} {
+		if !strings.Contains(event.Text, want) {
+			t.Fatalf("event text missing %q:\n%s", want, event.Text)
+		}
+	}
+	if event.Metadata["source"] != "transit" || event.Metadata["key_name"] != "project/demo/brief" {
+		t.Fatalf("unexpected transit metadata: %#v", event.Metadata)
+	}
+	if got, ok := event.Metadata["version"].(float64); !ok || got != 3 {
+		t.Fatalf("unexpected version metadata: %#v", event.Metadata["version"])
 	}
 }

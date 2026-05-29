@@ -19,6 +19,7 @@ type ServiceConfig struct {
 	Store              Store
 	Search             SearchIndexer
 	Vector             VectorIndexer
+	MagmaSink          MagmaSink
 	EmbeddingConfig    config.EmbeddingConfig
 	EmbedFn            EmbedFunc
 	DefaultSearchLimit int
@@ -31,6 +32,7 @@ type Service struct {
 	store              Store
 	search             SearchIndexer
 	vector             VectorIndexer
+	magmaSink          MagmaSink
 	embeddingConfig    config.EmbeddingConfig
 	embedFn            EmbedFunc
 	defaultSearchLimit int
@@ -60,6 +62,7 @@ func NewService(cfg ServiceConfig) *Service {
 		store:              cfg.Store,
 		search:             cfg.Search,
 		vector:             cfg.Vector,
+		magmaSink:          cfg.MagmaSink,
 		embeddingConfig:    cfg.EmbeddingConfig,
 		embedFn:            embedFn,
 		defaultSearchLimit: searchLimit,
@@ -99,6 +102,7 @@ func (s *Service) CreateMemory(ctx context.Context, tenantID, actorID int64, ite
 	}
 	for _, record := range records {
 		_ = s.indexRecord(ctx, record)
+		_ = s.ingestMagma(ctx, record)
 	}
 	return records, nil
 }
@@ -136,6 +140,7 @@ func (s *Service) UpdateMemory(ctx context.Context, tenantID, actorID int64, req
 		return Record{}, err
 	}
 	_ = s.indexRecord(ctx, record)
+	_ = s.ingestMagma(ctx, record)
 	return record, nil
 }
 
@@ -336,6 +341,14 @@ func (s *Service) indexRecord(ctx context.Context, record Record) error {
 		}
 	}
 	return nil
+}
+
+func (s *Service) ingestMagma(ctx context.Context, record Record) error {
+	if s == nil || s.magmaSink == nil {
+		return nil
+	}
+	_, err := s.magmaSink.IngestTransitRecord(ctx, record)
+	return err
 }
 
 func (s *Service) removeIndex(ctx context.Context, tenantID int64, key string) error {

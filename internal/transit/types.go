@@ -1,6 +1,7 @@
 package transit
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -93,6 +94,10 @@ type SearchCandidate struct {
 	Record  Record
 	Score   float64
 	Snippet string
+}
+
+type MagmaSink interface {
+	IngestTransitRecord(ctx context.Context, record Record) (string, error)
 }
 
 func ValidateKey(key string) error {

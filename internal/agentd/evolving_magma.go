@@ -9,6 +9,7 @@ import (
 	"manifold/internal/agent/belief"
 	"manifold/internal/agent/memory"
 	"manifold/internal/memory/magma"
+	"manifold/internal/transit"
 )
 
 type evolvingMagmaSink struct {
@@ -139,4 +140,47 @@ func timeFromPointer(value *time.Time) time.Time {
 		return time.Time{}
 	}
 	return *value
+}
+
+type transitMagmaSink struct {
+	service     *magma.Service
+	workerCount int
+}
+
+func (s transitMagmaSink) IngestTransitRecord(ctx context.Context, record transit.Record) (string, error) {
+	if s.service == nil || strings.TrimSpace(record.KeyName) == "" {
+		return "", nil
+	}
+	s.service.StartConsolidationWorkers(context.Background(), s.workerCount)
+	resp, err := s.service.Ingest(ctx, magma.IngestRequest{
+		ID:        "transit:" + record.KeyName,
+		Tenant:    fmt.Sprintf("user:%d", record.TenantID),
+		SessionID: "transit",
+		Text:      transitMagmaText(record),
+		CreatedAt: firstNonZeroTime(record.UpdatedAt, record.CreatedAt),
+		Metadata: map[string]any{
+			"source":       "transit",
+			"key_name":     record.KeyName,
+			"description":  record.Description,
+			"version":      record.Version,
+			"base64":       record.Base64,
+			"embed":        record.Embed,
+			"embed_source": record.EmbedSource,
+			"created_by":   record.CreatedBy,
+			"updated_by":   record.UpdatedBy,
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	return resp.EventID, nil
+}
+
+func transitMagmaText(record transit.Record) string {
+	var text strings.Builder
+	writeEvolvingMagmaLine(&text, "Transit key", record.KeyName)
+	writeEvolvingMagmaLine(&text, "Description", record.Description)
+	writeEvolvingMagmaLine(&text, "Value", record.Value)
+	writeEvolvingMagmaLine(&text, "Version", fmt.Sprintf("%d", record.Version))
+	return strings.TrimSpace(text.String())
 }

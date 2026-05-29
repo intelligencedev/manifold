@@ -182,10 +182,15 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 
 	var transitSvc *transitdomain.Service
 	if cfg.Transit.Enabled && mgr.Transit != nil {
+		var transitMagma transitdomain.MagmaSink
+		if cfg.Magma.Enabled && runtimeRAGService != nil && runtimeRAGService.MagmaService() != nil {
+			transitMagma = transitMagmaSink{service: runtimeRAGService.MagmaService(), workerCount: cfg.Magma.Consolidation.WorkerCount}
+		}
 		transitSvc = transitdomain.NewService(transitdomain.ServiceConfig{
 			Store:              mgr.Transit,
 			Search:             searchIndexerAdapter{search: mgr.Search},
 			Vector:             vectorIndexerAdapter{vector: mgr.Vector},
+			MagmaSink:          transitMagma,
 			EmbeddingConfig:    cfg.Embedding,
 			DefaultSearchLimit: cfg.Transit.DefaultSearchLimit,
 			DefaultListLimit:   cfg.Transit.DefaultListLimit,

@@ -15,6 +15,10 @@ type recordingTransitEmbedder struct {
 	texts []string
 }
 
+type recordingTransitMagmaSink struct {
+	records []transit.Record
+}
+
 type memoryTransitVector struct {
 	inner databases.VectorStore
 }
@@ -26,6 +30,11 @@ func (r *recordingTransitEmbedder) embed(_ context.Context, _ config.EmbeddingCo
 		out[i] = []float32{1, 0}
 	}
 	return out, nil
+}
+
+func (s *recordingTransitMagmaSink) IngestTransitRecord(_ context.Context, record transit.Record) (string, error) {
+	s.records = append(s.records, record)
+	return "event:user:1:transit:" + record.KeyName, nil
 }
 
 func (m memoryTransitVector) Upsert(ctx context.Context, id string, vector []float32, metadata map[string]string) error {
@@ -46,6 +55,50 @@ func (m memoryTransitVector) SimilaritySearch(ctx context.Context, vector []floa
 		out = append(out, transit.VectorIndexResult{ID: result.ID, Score: result.Score, Metadata: result.Metadata})
 	}
 	return out, nil
+}
+
+func TestServiceMirrorsTransitRecordsToMagma(t *testing.T) {
+	t.Parallel()
+	store := databases.NewMemoryTransitStore()
+	if err := store.Init(context.Background()); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	sink := &recordingTransitMagmaSink{}
+	service := transit.NewService(transit.ServiceConfig{
+		Store:        store,
+		MagmaSink:    sink,
+		MaxBatchSize: 10,
+		EmbedFn: func(context.Context, config.EmbeddingConfig, []string) ([][]float32, error) {
+			return [][]float32{{1, 0, 0}}, nil
+		},
+	})
+
+	created, err := service.CreateMemory(context.Background(), 1, 1, []transit.CreateMemoryItem{{
+		KeyName:     "project/demo/brief",
+		Description: "Demo brief",
+		Value:       "Transit stores durable shared project notes",
+	}})
+	if err != nil {
+		t.Fatalf("CreateMemory() error = %v", err)
+	}
+	updated, err := service.UpdateMemory(context.Background(), 1, 2, transit.UpdateMemoryRequest{
+		KeyName:   "project/demo/brief",
+		Value:     "Transit stores updated shared project notes",
+		IfVersion: created[0].Version,
+	})
+	if err != nil {
+		t.Fatalf("UpdateMemory() error = %v", err)
+	}
+
+	if len(sink.records) != 2 {
+		t.Fatalf("expected create and update to mirror to MAGMA, got %#v", sink.records)
+	}
+	if sink.records[0].Value != "Transit stores durable shared project notes" || sink.records[0].Version != 1 {
+		t.Fatalf("unexpected created MAGMA mirror record: %#v", sink.records[0])
+	}
+	if sink.records[1].Value != updated.Value || sink.records[1].Version != 2 || sink.records[1].UpdatedBy != 2 {
+		t.Fatalf("unexpected updated MAGMA mirror record: %#v", sink.records[1])
+	}
 }
 
 func TestServiceCRUDAndSearch(t *testing.T) {

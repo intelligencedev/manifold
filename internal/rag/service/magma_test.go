@@ -151,6 +151,42 @@ func TestService_MagmaQueueFullWarning(t *testing.T) {
 	}
 }
 
+func TestService_MagmaIngestGraphsOptionRestrictsConsolidation(t *testing.T) {
+	t.Parallel()
+	mgr := databases.Manager{
+		Search: databases.NewMemorySearch(),
+		Vector: databases.NewMemoryVector(),
+		Graph:  databases.NewMemoryGraph(),
+	}
+	svc := New(mgr)
+	ctx := context.Background()
+
+	resp, err := svc.Ingest(ctx, ingest.IngestRequest{
+		ID:     "doc:temporal-only",
+		Text:   "Yesterday Melanie hiked because the weather improved.",
+		Tenant: "t1",
+		Options: ingest.IngestOptions{
+			Magma: ingest.MagmaOptions{Enabled: true, Graphs: []string{"temporal"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+	if resp.MagmaEventID == "" {
+		t.Fatalf("expected MAGMA event ID")
+	}
+	if _, err := svc.magma.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("DrainConsolidation() error = %v", err)
+	}
+	event, ok := svc.magma.Event(ctx, resp.MagmaEventID)
+	if !ok {
+		t.Fatalf("expected event")
+	}
+	if len(event.EntityMentions) != 0 {
+		t.Fatalf("expected per-request graph list to omit entity extraction, got %#v", event.EntityMentions)
+	}
+}
+
 func waitForMagmaEvent(t *testing.T, ctx context.Context, svc *Service, eventID string) {
 	t.Helper()
 	deadline := time.After(2 * time.Second)

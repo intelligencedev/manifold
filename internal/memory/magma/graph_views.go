@@ -29,6 +29,7 @@ func (s *Store) StoreEvent(ctx context.Context, event EventNode) error {
 		"tenant":          event.Tenant,
 		"session":         event.Session,
 		"text":            event.Text,
+		"graphs":          mustJSON(event.Graphs),
 		"created_at":      event.CreatedAt.Format(time.RFC3339Nano),
 		"temporal_attrs":  mustJSON(event.TemporalAttrs),
 		"entity_mentions": mustJSON(event.EntityMentions),
@@ -142,6 +143,7 @@ func eventFromNode(node databases.Node) EventNode {
 			event.CreatedAt = t
 		}
 	}
+	decodeJSON(node.Props["graphs"], &event.Graphs)
 	decodeJSON(node.Props["temporal_attrs"], &event.TemporalAttrs)
 	decodeJSON(node.Props["entity_mentions"], &event.EntityMentions)
 	return event

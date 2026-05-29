@@ -103,6 +103,7 @@ func (s *Service) Ingest(ctx context.Context, in IngestRequest) (EventIngestResp
 		Session:   in.SessionID,
 		Text:      text,
 		Embedding: embedding,
+		Graphs:    append([]GraphType(nil), in.Graphs...),
 		CreatedAt: createdAt,
 	}
 	if err := s.store.StoreEvent(ctx, event); err != nil {
@@ -138,17 +139,17 @@ func (s *Service) Consolidate(ctx context.Context, eventID string) error {
 	}
 	attrs := NormalizeTemporal(event.Text, event.CreatedAt)
 	var entities []EntityMention
-	if s.graphEnabled(GraphEntity) {
+	if s.graphEnabledForEvent(event, GraphEntity) {
 		entities = ResolveEntitiesForTenant(event.Text, event.Tenant)
 	}
 	edges := make([]Edge, 0, len(entities)+4)
-	if s.graphEnabled(GraphSemantic) {
+	if s.graphEnabledForEvent(event, GraphSemantic) {
 		edges = append(edges, s.semanticEdges(ctx, event)...)
 	}
-	if s.graphEnabled(GraphTemporal) {
+	if s.graphEnabledForEvent(event, GraphTemporal) {
 		edges = append(edges, s.temporalEdges(ctx, event, attrs)...)
 	}
-	if s.graphEnabled(GraphCausal) {
+	if s.graphEnabledForEvent(event, GraphCausal) {
 		edges = append(edges, ExtractCausalEdges(event)...)
 	}
 	return s.store.BatchUpsert(ctx, BatchUpsertRequest{
@@ -278,6 +279,18 @@ func (s *Service) graphEnabled(graphType GraphType) bool {
 	default:
 		return false
 	}
+}
+
+func (s *Service) graphEnabledForEvent(event EventNode, graphType GraphType) bool {
+	if len(event.Graphs) == 0 {
+		return s.graphEnabled(graphType)
+	}
+	for _, configured := range event.Graphs {
+		if configured == graphType {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeServiceConfig(cfg ServiceConfig) ServiceConfig {

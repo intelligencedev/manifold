@@ -39,6 +39,7 @@ type EventNode struct {
 	Session        string          `json:"session,omitempty"`
 	Text           string          `json:"text"`
 	Embedding      []float32       `json:"-"`
+	Graphs         []GraphType     `json:"graphs,omitempty"`
 	TemporalAttrs  TemporalAttrs   `json:"temporal_attrs,omitempty"`
 	EntityMentions []EntityMention `json:"entity_mentions,omitempty"`
 	CreatedAt      time.Time       `json:"created_at"`
@@ -127,6 +128,7 @@ type IngestRequest struct {
 	SessionID string
 	Text      string
 	Metadata  map[string]any
+	Graphs    []GraphType
 	CreatedAt time.Time
 }
 

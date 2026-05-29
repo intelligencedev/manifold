@@ -188,6 +188,7 @@ func (s *Service) Ingest(ctx context.Context, in ingest.IngestRequest) (ingest.I
 			SessionID: magmaOpt.SessionID,
 			Text:      pre.Text,
 			Metadata:  in.Metadata,
+			Graphs:    magmaGraphTypes(magmaOpt.Graphs),
 		})
 		if err != nil {
 			return ingest.IngestResponse{}, err
@@ -442,6 +443,32 @@ func enabledMagmaGraphs(cfg config.MagmaConfig) []string {
 		return []string{"semantic", "temporal", "causal", "entity"}
 	}
 	return graphs
+}
+
+func magmaGraphTypes(graphs []string) []magma.GraphType {
+	out := make([]magma.GraphType, 0, len(graphs))
+	seen := map[magma.GraphType]bool{}
+	for _, graph := range graphs {
+		var graphType magma.GraphType
+		switch graph {
+		case "semantic":
+			graphType = magma.GraphSemantic
+		case "temporal":
+			graphType = magma.GraphTemporal
+		case "causal":
+			graphType = magma.GraphCausal
+		case "entity":
+			graphType = magma.GraphEntity
+		default:
+			continue
+		}
+		if seen[graphType] {
+			continue
+		}
+		seen[graphType] = true
+		out = append(out, graphType)
+	}
+	return out
 }
 
 func magmaServiceConfig(cfg config.MagmaConfig) magma.ServiceConfig {

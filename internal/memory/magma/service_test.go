@@ -220,6 +220,51 @@ func TestService_ConfigDisablesGraphViews(t *testing.T) {
 	}
 }
 
+func TestService_IngestGraphsOverrideServiceDefaults(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := NewService(databases.NewMemoryGraph(), databases.NewMemoryVector(), embedder.NewDeterministic(32, true, 0))
+
+	resp, err := svc.Ingest(ctx, IngestRequest{
+		ID:        "melanie-temporal-request",
+		Tenant:    "t1",
+		SessionID: "s1",
+		Text:      "Yesterday Melanie hiked because the weather improved.",
+		Graphs:    []GraphType{GraphTemporal},
+		CreatedAt: time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+	if _, err := svc.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("DrainConsolidation() error = %v", err)
+	}
+	event, ok := svc.Event(ctx, resp.EventID)
+	if !ok {
+		t.Fatalf("expected event")
+	}
+	if !slices.Equal(event.Graphs, []GraphType{GraphTemporal}) {
+		t.Fatalf("expected stored graph override, got %#v", event.Graphs)
+	}
+	if len(event.EntityMentions) != 0 {
+		t.Fatalf("expected entity graph omitted by per-event override, got %#v", event.EntityMentions)
+	}
+	causal, err := svc.store.Neighbors(ctx, resp.EventID, GraphCausal, "CAUSES")
+	if err != nil {
+		t.Fatalf("causal neighbors error = %v", err)
+	}
+	if len(causal) != 0 {
+		t.Fatalf("expected causal graph omitted by per-event override, got %#v", causal)
+	}
+	temporal, err := svc.store.Neighbors(ctx, resp.EventID, GraphTemporal, "CONCURRENT")
+	if err != nil {
+		t.Fatalf("temporal neighbors error = %v", err)
+	}
+	if len(temporal) != 1 || temporal[0] != resp.EventID {
+		t.Fatalf("expected temporal graph retained, got %#v", temporal)
+	}
+}
+
 func TestService_ConfigControlsSemanticThreshold(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

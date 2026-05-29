@@ -46,7 +46,7 @@ func New(mgr databases.Manager, opts ...Option) *Service {
 		o(s)
 	}
 	if mgr.Graph != nil && s.magma == nil {
-		s.magma = magma.NewServiceWithConfig(mgr.Graph, mgr.Vector, s.emb, magmaServiceConfig(s.magmaCfg))
+		s.magma = magma.NewServiceWithConfig(mgr.Graph, mgr.Vector, s.emb, magmaServiceConfig(s.magmaCfg, s.metrics))
 	}
 	return s
 }
@@ -199,7 +199,9 @@ func (s *Service) Ingest(ctx context.Context, in ingest.IngestRequest) (ingest.I
 			warnings = append(warnings, "magma consolidation queue is full; event stored but not queued for consolidation")
 			s.metrics.IncCounter("magma_consolidation_queue_dropped_total", map[string]string{"tenant": in.Tenant})
 		}
-		s.metrics.ObserveHistogram("ingestion_stage_ms", float64(ms(s.clock.Now().Sub(t0))), map[string]string{"stage": "magma_fast", "tenant": in.Tenant})
+		magmaFastMS := float64(ms(s.clock.Now().Sub(t0)))
+		s.metrics.ObserveHistogram("ingestion_stage_ms", magmaFastMS, map[string]string{"stage": "magma_fast", "tenant": in.Tenant})
+		s.metrics.ObserveHistogram("magma_ingestion_fast_ms", magmaFastMS, map[string]string{"tenant": in.Tenant, "status": resp.Status})
 		s.metrics.IncCounter("magma_events_total", map[string]string{"tenant": in.Tenant})
 	}
 	return ingest.IngestResponse{
@@ -475,11 +477,12 @@ func magmaGraphTypes(graphs []string) []magma.GraphType {
 	return out
 }
 
-func magmaServiceConfig(cfg config.MagmaConfig) magma.ServiceConfig {
+func magmaServiceConfig(cfg config.MagmaConfig, observer magma.Observer) magma.ServiceConfig {
 	return magma.ServiceConfig{
 		QueueSize:           cfg.Consolidation.MaxQueueSize,
 		SemanticTopK:        cfg.Graphs.Semantic.TopK,
 		SimilarityThreshold: cfg.Graphs.Semantic.SimilarityThreshold,
+		Observer:            observer,
 		Graphs: magma.GraphConfig{
 			Semantic: cfg.Graphs.Semantic.Enabled,
 			Temporal: cfg.Graphs.Temporal.Enabled,

@@ -9,6 +9,7 @@ import (
 	"manifold/internal/config"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/rag/ingest"
+	"manifold/internal/rag/obs"
 	"manifold/internal/rag/retrieve"
 )
 
@@ -309,6 +310,74 @@ func TestService_MagmaRetrieveIntentClassificationFromConfig(t *testing.T) {
 	}
 	if len(got.Items) != 0 {
 		t.Fatalf("expected semantic config mode not to use entity anchors, got %#v", got.Items)
+	}
+}
+
+func TestService_MagmaEmitsSpecificMetrics(t *testing.T) {
+	t.Parallel()
+	mgr := databases.Manager{
+		Search: databases.NewMemorySearch(),
+		Vector: databases.NewMemoryVector(),
+		Graph:  databases.NewMemoryGraph(),
+	}
+	metrics := obs.NewMockMetrics()
+	svc := New(mgr, WithMagmaConfig(config.MagmaConfig{
+		Enabled: true,
+		Consolidation: config.MagmaConsolidationConfig{
+			WorkerCount: -1,
+		},
+		Graphs: config.MagmaGraphsConfig{
+			Semantic: config.MagmaSemanticGraphConfig{Enabled: true, TopK: 20},
+			Temporal: config.MagmaTemporalGraphConfig{Enabled: true},
+			Causal:   config.MagmaCausalGraphConfig{Enabled: true},
+			Entity:   config.MagmaEntityGraphConfig{Enabled: true},
+		},
+		Retrieval: config.MagmaRetrievalConfig{
+			DefaultHops:     2,
+			DefaultMaxNodes: 5,
+			ContextFormat:   "structured",
+		},
+	}), func(s *Service) { s.metrics = metrics })
+	ctx := context.Background()
+
+	resp, err := svc.Ingest(ctx, ingest.IngestRequest{
+		ID:     "doc:metrics",
+		Text:   "Yesterday Melanie practiced guitar.",
+		Tenant: "t1",
+	})
+	if err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+	if _, err := svc.magma.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("DrainConsolidation() error = %v", err)
+	}
+	got, err := svc.Retrieve(ctx, "When did Melanie practice?", retrieve.RetrieveOptions{Tenant: "t1"})
+	if err != nil {
+		t.Fatalf("Retrieve() error = %v", err)
+	}
+	if len(got.Items) == 0 || resp.MagmaEventID == "" {
+		t.Fatalf("expected MAGMA ingest and retrieve to produce results")
+	}
+	for _, name := range []string{
+		"magma_ingestion_fast_ms",
+		"magma_ingestion_consolidation_ms",
+		"magma_query_ms",
+		"magma_traversal_hops",
+		"magma_context_tokens",
+	} {
+		if _, ok := metrics.Hists[name]; !ok {
+			t.Fatalf("expected histogram %s", name)
+		}
+	}
+	if metrics.Counters["magma_events_total"] == 0 {
+		t.Fatalf("expected magma_events_total counter")
+	}
+	if metrics.Counters["magma_intent_distribution"] == 0 {
+		t.Fatalf("expected magma_intent_distribution counter")
+	}
+	magmaDebug, ok := got.Debug["magma"].(map[string]any)
+	if !ok || magmaDebug["intent"] == "" || magmaDebug["graphs"] == "" {
+		t.Fatalf("expected MAGMA debug policy metadata, got %#v", got.Debug["magma"])
 	}
 }
 

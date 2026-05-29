@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"manifold/internal/memory/magma"
@@ -42,7 +43,12 @@ func (s *Service) retrieveMagma(ctx context.Context, q string, opt retrieve.Retr
 		items = append(items, item)
 	}
 	totalMS := ms(s.clock.Now().Sub(start))
+	labels := map[string]string{"tenant": opt.Tenant, "intent": magmaCtx.Intent.String()}
 	s.metrics.ObserveHistogram("retrieval_stage_ms", float64(totalMS), map[string]string{"stage": "magma_total", "tenant": opt.Tenant})
+	s.metrics.ObserveHistogram("magma_query_ms", float64(totalMS), labels)
+	s.metrics.ObserveHistogram("magma_traversal_hops", float64(magmaCtx.MaxHops), labels)
+	s.metrics.ObserveHistogram("magma_context_tokens", float64(approxTokens(magmaCtx.Text)), labels)
+	s.metrics.IncCounter("magma_intent_distribution", labels)
 	return retrieve.RetrieveResponse{
 		Query: q,
 		Items: items,
@@ -52,6 +58,12 @@ func (s *Service) retrieveMagma(ctx context.Context, q string, opt retrieve.Retr
 				"context":        magmaCtx.Text,
 				"context_format": opt.Magma.ContextFormat,
 				"events":         len(magmaCtx.RawEvents),
+				"intent":         magmaCtx.Intent.String(),
+				"graphs":         graphViewLabels(magmaCtx.GraphViews),
+				"anchor":         string(magmaCtx.AnchorStrategy),
+				"anchors":        magmaCtx.AnchorCount,
+				"max_hops":       magmaCtx.MaxHops,
+				"max_nodes":      magmaCtx.MaxNodes,
 			},
 			"diagnostics": map[string]any{"total_ms": totalMS},
 		},
@@ -71,4 +83,15 @@ func parseIntentHint(hint string) magma.IntentCategory {
 	default:
 		return 0
 	}
+}
+
+func graphViewLabels(views []magma.GraphType) string {
+	if len(views) == 0 {
+		return ""
+	}
+	labels := make([]string, 0, len(views))
+	for _, view := range views {
+		labels = append(labels, string(view))
+	}
+	return strings.Join(labels, ",")
 }

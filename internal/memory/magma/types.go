@@ -1,6 +1,9 @@
 package magma
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 type GraphType string
 
@@ -19,6 +22,29 @@ const (
 	IntentSemantic
 	IntentCausal
 )
+
+func (i IntentCategory) String() string {
+	if i == 0 {
+		return "auto"
+	}
+	parts := make([]string, 0, 4)
+	if i&IntentTemporal != 0 {
+		parts = append(parts, "temporal")
+	}
+	if i&IntentEntity != 0 {
+		parts = append(parts, "entity")
+	}
+	if i&IntentSemantic != 0 {
+		parts = append(parts, "semantic")
+	}
+	if i&IntentCausal != 0 {
+		parts = append(parts, "causal")
+	}
+	if len(parts) == 0 {
+		return "unknown"
+	}
+	return strings.Join(parts, "+")
+}
 
 type TemporalAttrs struct {
 	Date       string `json:"date,omitempty"`
@@ -122,6 +148,12 @@ type StructuredContext struct {
 	SemanticCluster  []SemanticGroup
 	RawEvents        []EventNode
 	Text             string
+	Intent           IntentCategory
+	GraphViews       []GraphType
+	AnchorStrategy   AnchorType
+	MaxHops          int
+	MaxNodes         int
+	AnchorCount      int
 }
 
 type IngestRequest struct {
@@ -153,6 +185,7 @@ type ServiceConfig struct {
 	SemanticTopK        int
 	SimilarityThreshold float64
 	Graphs              GraphConfig
+	Observer            Observer
 }
 
 type GraphConfig struct {
@@ -160,4 +193,9 @@ type GraphConfig struct {
 	Temporal bool
 	Causal   bool
 	Entity   bool
+}
+
+type Observer interface {
+	IncCounter(name string, labels map[string]string)
+	ObserveHistogram(name string, value float64, labels map[string]string)
 }

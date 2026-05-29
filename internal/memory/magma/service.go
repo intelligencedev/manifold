@@ -123,7 +123,16 @@ func (s *Service) Ingest(ctx context.Context, in IngestRequest) (EventIngestResp
 	return EventIngestResponse{EventID: event.ID, Status: status}, nil
 }
 
-func (s *Service) Consolidate(ctx context.Context, eventID string) error {
+func (s *Service) Consolidate(ctx context.Context, eventID string) (err error) {
+	start := time.Now()
+	tenant := ""
+	defer func() {
+		status := "success"
+		if err != nil {
+			status = "error"
+		}
+		s.observeHistogram("magma_ingestion_consolidation_ms", float64(time.Since(start)/time.Millisecond), map[string]string{"tenant": tenant, "status": status})
+	}()
 	if s == nil || s.store == nil {
 		return errors.New("magma service is not configured")
 	}
@@ -131,6 +140,7 @@ func (s *Service) Consolidate(ctx context.Context, eventID string) error {
 	if !ok {
 		return errors.New("magma event not found")
 	}
+	tenant = event.Tenant
 	if len(event.Embedding) == 0 {
 		embedding, err := s.embed(ctx, event.Text)
 		if err != nil {
@@ -262,6 +272,13 @@ func (s *Service) setLastError(err error) {
 	s.errMu.Lock()
 	defer s.errMu.Unlock()
 	s.lastErr = err
+}
+
+func (s *Service) observeHistogram(name string, value float64, labels map[string]string) {
+	if s == nil || s.cfg.Observer == nil {
+		return
+	}
+	s.cfg.Observer.ObserveHistogram(name, value, labels)
 }
 
 func (s *Service) graphEnabled(graphType GraphType) bool {

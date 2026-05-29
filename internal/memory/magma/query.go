@@ -78,6 +78,12 @@ func (q QueryEngine) Query(ctx context.Context, query string, opt QueryOptions) 
 		subgraphs[view] = q.traverse(ctx, anchors, view, policy)
 	}
 	result := BuildContext(subgraphs)
+	result.Intent = intent
+	result.GraphViews = append([]GraphType(nil), policy.GraphViews...)
+	result.AnchorStrategy = policy.AnchorStrategy
+	result.MaxHops = policy.MaxHops
+	result.MaxNodes = policy.MaxNodes
+	result.AnchorCount = len(anchors)
 	if strings.EqualFold(opt.ContextFormat, "text") {
 		result.Text = formatPlainContext(result)
 	}

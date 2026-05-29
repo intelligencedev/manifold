@@ -101,6 +101,13 @@ func TestService_IngestConsolidateAndQuery(t *testing.T) {
 			t.Fatalf("expected context to contain %q, got:\n%s", want, causal.Text)
 		}
 	}
+	plain, err := svc.Query(ctx, "Why did Melanie hike?", QueryOptions{Tenant: "t1", MaxNodes: 5, ContextFormat: "text"})
+	if err != nil {
+		t.Fatalf("plain Query() error = %v", err)
+	}
+	if strings.Contains(plain.Text, "Temporal timeline:") || !strings.Contains(plain.Text, "Melanie hiked") {
+		t.Fatalf("expected plain context without structured headings, got:\n%s", plain.Text)
+	}
 }
 
 func TestClassifyIntent(t *testing.T) {

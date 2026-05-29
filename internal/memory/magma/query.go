@@ -80,7 +80,11 @@ func (q QueryEngine) Query(ctx context.Context, query string, opt QueryOptions) 
 	for _, view := range policy.GraphViews {
 		subgraphs[view] = q.traverse(ctx, anchors, view, policy)
 	}
-	return BuildContext(subgraphs), nil
+	result := BuildContext(subgraphs)
+	if strings.EqualFold(opt.ContextFormat, "text") {
+		result.Text = formatPlainContext(result)
+	}
+	return result, nil
 }
 
 func (q QueryEngine) anchors(ctx context.Context, query, tenant string, policy TraversalPolicy) ([]string, error) {
@@ -322,6 +326,16 @@ func formatStructuredContext(ctx StructuredContext) string {
 			}
 			text.WriteByte('\n')
 		}
+	}
+	return strings.TrimSpace(text.String())
+}
+
+func formatPlainContext(ctx StructuredContext) string {
+	var text strings.Builder
+	for _, event := range ctx.RawEvents {
+		text.WriteString("- ")
+		text.WriteString(event.Text)
+		text.WriteByte('\n')
 	}
 	return strings.TrimSpace(text.String())
 }

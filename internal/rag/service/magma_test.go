@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -217,6 +218,51 @@ func TestService_MagmaIngestTopSemanticKOptionPersists(t *testing.T) {
 	}
 	if event.SemanticTopK != 4 {
 		t.Fatalf("expected top semantic k from request, got %d", event.SemanticTopK)
+	}
+}
+
+func TestService_MagmaRetrieveContextFormatText(t *testing.T) {
+	t.Parallel()
+	mgr := databases.Manager{
+		Search: databases.NewMemorySearch(),
+		Vector: databases.NewMemoryVector(),
+		Graph:  databases.NewMemoryGraph(),
+	}
+	svc := New(mgr)
+	t.Cleanup(svc.Close)
+	ctx := context.Background()
+
+	resp, err := svc.Ingest(ctx, ingest.IngestRequest{
+		ID:     "doc:context-format",
+		Text:   "Yesterday Melanie practiced guitar.",
+		Tenant: "t1",
+		Options: ingest.IngestOptions{
+			Magma: ingest.MagmaOptions{Enabled: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+	if _, err := svc.magma.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("DrainConsolidation() error = %v", err)
+	}
+	got, err := svc.Retrieve(ctx, "When did Melanie practice?", retrieve.RetrieveOptions{
+		Tenant: "t1",
+		Magma:  retrieve.MagmaRetrieveOptions{Enabled: true, IntentHint: "temporal", ContextFormat: "text"},
+	})
+	if err != nil {
+		t.Fatalf("Retrieve() error = %v", err)
+	}
+	magmaDebug, ok := got.Debug["magma"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing MAGMA debug info: %#v", got.Debug)
+	}
+	contextText, _ := magmaDebug["context"].(string)
+	if strings.Contains(contextText, "Temporal timeline:") || !strings.Contains(contextText, "Melanie practiced guitar") {
+		t.Fatalf("expected plain MAGMA context, got:\n%s", contextText)
+	}
+	if resp.MagmaEventID == "" {
+		t.Fatalf("expected MAGMA event ID")
 	}
 }
 

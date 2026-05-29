@@ -7,6 +7,7 @@ import (
 
 	"manifold/internal/config"
 	"manifold/internal/embedding"
+	"manifold/internal/llm"
 	"manifold/internal/memory/magma"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/rag/chunker"
@@ -27,6 +28,7 @@ type Service struct {
 	emb      embedder.Embedder
 	embCfg   config.EmbeddingConfig
 	rerank   retrieve.Reranker
+	magmaLLM llm.Provider
 	magma    *magma.Service
 	magmaCfg config.MagmaConfig
 }
@@ -46,7 +48,7 @@ func New(mgr databases.Manager, opts ...Option) *Service {
 		o(s)
 	}
 	if mgr.Graph != nil && s.magma == nil {
-		s.magma = magma.NewServiceWithConfig(mgr.Graph, mgr.Vector, s.emb, magmaServiceConfig(s.magmaCfg, s.metrics))
+		s.magma = magma.NewServiceWithConfig(mgr.Graph, mgr.Vector, s.emb, magmaServiceConfig(s.magmaCfg, s.metrics, s.magmaLLM))
 	}
 	return s
 }
@@ -78,6 +80,10 @@ func WithMagmaService(ms *magma.Service) Option {
 // retrieval. Per-request options still override non-zero request fields.
 func WithMagmaConfig(cfg config.MagmaConfig) Option {
 	return func(s *Service) { s.magmaCfg = cfg }
+}
+
+func WithMagmaLLM(provider llm.Provider) Option {
+	return func(s *Service) { s.magmaLLM = provider }
 }
 
 func (s *Service) Close() {
@@ -477,11 +483,14 @@ func magmaGraphTypes(graphs []string) []magma.GraphType {
 	return out
 }
 
-func magmaServiceConfig(cfg config.MagmaConfig, observer magma.Observer) magma.ServiceConfig {
+func magmaServiceConfig(cfg config.MagmaConfig, observer magma.Observer, provider llm.Provider) magma.ServiceConfig {
 	return magma.ServiceConfig{
 		QueueSize:           cfg.Consolidation.MaxQueueSize,
 		SemanticTopK:        cfg.Graphs.Semantic.TopK,
 		SimilarityThreshold: cfg.Graphs.Semantic.SimilarityThreshold,
+		CausalThreshold:     cfg.Graphs.Causal.LLMThreshold,
+		LLM:                 provider,
+		Model:               cfg.Consolidation.Model,
 		Observer:            observer,
 		Graphs: magma.GraphConfig{
 			Semantic: cfg.Graphs.Semantic.Enabled,

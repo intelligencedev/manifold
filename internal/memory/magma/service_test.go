@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"manifold/internal/llm"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/rag/embedder"
 )
@@ -21,6 +22,20 @@ func (failingEmbedder) EmbedBatch(context.Context, []string) ([][]float32, error
 func (failingEmbedder) Name() string               { return "failing" }
 func (failingEmbedder) Dimension() int             { return 0 }
 func (failingEmbedder) Ping(context.Context) error { return nil }
+
+type fakeConsolidationLLM struct {
+	response string
+	model    string
+}
+
+func (f *fakeConsolidationLLM) Chat(_ context.Context, _ []llm.Message, _ []llm.ToolSchema, model string) (llm.Message, error) {
+	f.model = model
+	return llm.Message{Role: "assistant", Content: f.response}, nil
+}
+
+func (f *fakeConsolidationLLM) ChatStream(context.Context, []llm.Message, []llm.ToolSchema, string, llm.StreamHandler) error {
+	return nil
+}
 
 type recordingVector struct {
 	lastK int
@@ -462,6 +477,89 @@ func TestService_ConsolidationEmitsQualityMetrics(t *testing.T) {
 	}
 	if got := observer.histograms["magma_entity_resolution_accuracy"][0]; got != 1 {
 		t.Fatalf("expected entity resolution accuracy 1, got %f", got)
+	}
+}
+
+func TestService_ConsolidationUsesLLMExtractionWhenConfigured(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	provider := &fakeConsolidationLLM{response: `{
+		"temporal": {"date": "2026-05-20", "offset": "-192h"},
+		"entities": [{"name": "Melanie", "type": "Person", "role": "friend"}],
+		"causal": [{"cause": "rain", "effect": "Melanie stayed inside", "confidence": 0.91}]
+	}`}
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), databases.NewMemoryVector(), embedder.NewDeterministic(32, true, 0), ServiceConfig{
+		LLM:             provider,
+		Model:           "magma-test-model",
+		CausalThreshold: 0.8,
+		Graphs:          GraphConfig{Temporal: true, Entity: true, Causal: true},
+	})
+
+	resp, err := svc.Ingest(ctx, IngestRequest{
+		ID:        "llm-extraction",
+		Tenant:    "t1",
+		SessionID: "s1",
+		Text:      "Melanie stayed inside.",
+		CreatedAt: time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+	if _, err := svc.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("DrainConsolidation() error = %v", err)
+	}
+	if provider.model != "magma-test-model" {
+		t.Fatalf("expected configured model, got %q", provider.model)
+	}
+	event, ok := svc.Event(ctx, resp.EventID)
+	if !ok {
+		t.Fatalf("expected event")
+	}
+	if event.TemporalAttrs.Date != "2026-05-20" || event.TemporalAttrs.Offset != "-192h" {
+		t.Fatalf("expected LLM temporal attrs, got %#v", event.TemporalAttrs)
+	}
+	if len(event.EntityMentions) != 1 || event.EntityMentions[0].ID != "entity:t1:melanie" || event.EntityMentions[0].Type != "Person" || event.EntityMentions[0].Role != "friend" {
+		t.Fatalf("expected LLM entity mention, got %#v", event.EntityMentions)
+	}
+	causal, err := svc.store.Neighbors(ctx, resp.EventID, GraphCausal, "CAUSES")
+	if err != nil {
+		t.Fatalf("causal neighbors error = %v", err)
+	}
+	if len(causal) != 1 || causal[0] != resp.EventID {
+		t.Fatalf("expected LLM causal edge, got %#v", causal)
+	}
+}
+
+func TestService_ConsolidationFiltersLowConfidenceLLMCausalEdges(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	provider := &fakeConsolidationLLM{response: `{
+		"entities": [{"name": "Melanie"}],
+		"causal": [{"cause": "rain", "effect": "Melanie stayed inside", "confidence": 0.2}]
+	}`}
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), databases.NewMemoryVector(), embedder.NewDeterministic(32, true, 0), ServiceConfig{
+		LLM:             provider,
+		CausalThreshold: 0.8,
+		Graphs:          GraphConfig{Entity: true, Causal: true},
+	})
+
+	resp, err := svc.Ingest(ctx, IngestRequest{
+		ID:     "low-confidence-causal",
+		Tenant: "t1",
+		Text:   "Melanie stayed inside.",
+	})
+	if err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+	if _, err := svc.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("DrainConsolidation() error = %v", err)
+	}
+	causal, err := svc.store.Neighbors(ctx, resp.EventID, GraphCausal, "CAUSES")
+	if err != nil {
+		t.Fatalf("causal neighbors error = %v", err)
+	}
+	if len(causal) != 0 {
+		t.Fatalf("expected low-confidence LLM causal edge to be filtered, got %#v", causal)
 	}
 }
 

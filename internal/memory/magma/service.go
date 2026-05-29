@@ -151,10 +151,21 @@ func (s *Service) Consolidate(ctx context.Context, eventID string) (err error) {
 		}
 		event.Embedding = embedding
 	}
+	var extracted llmExtraction
+	extractedOK := false
+	if s.llmExtractionEnabled(event) {
+		extracted, extractedOK = s.extractWithLLM(ctx, event)
+	}
 	attrs := NormalizeTemporal(event.Text, event.CreatedAt)
+	if extractedOK && extracted.TemporalAttrs != (TemporalAttrs{}) {
+		attrs = extracted.TemporalAttrs
+	}
 	var entities []EntityMention
 	if s.graphEnabledForEvent(event, GraphEntity) {
 		entities = ResolveEntitiesForTenant(event.Text, event.Tenant)
+		if extractedOK && len(extracted.Entities) > 0 {
+			entities = extracted.Entities
+		}
 		s.observeHistogram("magma_entity_resolution_accuracy", entityResolutionAccuracy(entities), map[string]string{"tenant": event.Tenant})
 	}
 	edges := make([]Edge, 0, len(entities)+4)
@@ -165,7 +176,11 @@ func (s *Service) Consolidate(ctx context.Context, eventID string) (err error) {
 		edges = append(edges, s.temporalEdges(ctx, event, attrs)...)
 	}
 	if s.graphEnabledForEvent(event, GraphCausal) {
-		edges = append(edges, ExtractCausalEdges(event)...)
+		causalEdges := ExtractCausalEdges(event)
+		if extractedOK && len(extracted.CausalEdges) > 0 {
+			causalEdges = extracted.CausalEdges
+		}
+		edges = append(edges, causalEdges...)
 	}
 	return s.store.BatchUpsert(ctx, BatchUpsertRequest{
 		Event:         event,
@@ -313,6 +328,13 @@ func (s *Service) graphEnabledForEvent(event EventNode, graphType GraphType) boo
 		}
 	}
 	return false
+}
+
+func (s *Service) llmExtractionEnabled(event EventNode) bool {
+	if s == nil || s.cfg.LLM == nil {
+		return false
+	}
+	return s.graphEnabledForEvent(event, GraphTemporal) || s.graphEnabledForEvent(event, GraphEntity) || s.graphEnabledForEvent(event, GraphCausal)
 }
 
 func normalizeServiceConfig(cfg ServiceConfig) ServiceConfig {

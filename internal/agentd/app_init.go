@@ -160,6 +160,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		ragservice.WithEmbedder(emb),
 		ragservice.WithEmbeddingConfig(cfg.Embedding),
 		ragservice.WithMagmaConfig(cfg.Magma),
+		ragservice.WithMagmaLLM(llm),
 	}
 	if cfg.Reranking.Enabled {
 		rr := ragreranker.NewClient(cfg.Reranking)

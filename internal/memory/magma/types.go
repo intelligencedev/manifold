@@ -3,6 +3,8 @@ package magma
 import (
 	"strings"
 	"time"
+
+	"manifold/internal/llm"
 )
 
 type GraphType string
@@ -184,6 +186,9 @@ type ServiceConfig struct {
 	QueueSize           int
 	SemanticTopK        int
 	SimilarityThreshold float64
+	CausalThreshold     float64
+	LLM                 llm.Provider
+	Model               string
 	Graphs              GraphConfig
 	Observer            Observer
 }

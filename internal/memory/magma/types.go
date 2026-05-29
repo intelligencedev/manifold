@@ -134,3 +134,17 @@ type EventIngestResponse struct {
 	EventID string
 	Status  string
 }
+
+type ServiceConfig struct {
+	QueueSize           int
+	SemanticTopK        int
+	SimilarityThreshold float64
+	Graphs              GraphConfig
+}
+
+type GraphConfig struct {
+	Semantic bool
+	Temporal bool
+	Causal   bool
+	Entity   bool
+}

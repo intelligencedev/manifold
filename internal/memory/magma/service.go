@@ -16,6 +16,7 @@ type Service struct {
 	vector databases.VectorStore
 	emb    embedder.Embedder
 	queue  chan string
+	cfg    ServiceConfig
 
 	startOnce sync.Once
 	closeOnce sync.Once
@@ -24,14 +25,20 @@ type Service struct {
 }
 
 func NewService(graph databases.GraphDB, vector databases.VectorStore, emb embedder.Embedder) *Service {
+	return NewServiceWithConfig(graph, vector, emb, ServiceConfig{})
+}
+
+func NewServiceWithConfig(graph databases.GraphDB, vector databases.VectorStore, emb embedder.Embedder, cfg ServiceConfig) *Service {
 	if emb == nil {
 		emb = embedder.NewDeterministic(64, true, 0)
 	}
+	cfg = normalizeServiceConfig(cfg)
 	return &Service{
 		store:  NewStore(graph),
 		vector: vector,
 		emb:    emb,
-		queue:  make(chan string, 1024),
+		queue:  make(chan string, cfg.QueueSize),
+		cfg:    cfg,
 	}
 }
 
@@ -120,11 +127,20 @@ func (s *Service) Consolidate(ctx context.Context, eventID string) error {
 		event.Embedding = embedding
 	}
 	attrs := NormalizeTemporal(event.Text, event.CreatedAt)
-	entities := ResolveEntities(event.Text)
+	var entities []EntityMention
+	if s.graphEnabled(GraphEntity) {
+		entities = ResolveEntities(event.Text)
+	}
 	edges := make([]Edge, 0, len(entities)+4)
-	edges = append(edges, s.semanticEdges(ctx, event)...)
-	edges = append(edges, s.temporalEdges(ctx, event, attrs)...)
-	edges = append(edges, ExtractCausalEdges(event)...)
+	if s.graphEnabled(GraphSemantic) {
+		edges = append(edges, s.semanticEdges(ctx, event)...)
+	}
+	if s.graphEnabled(GraphTemporal) {
+		edges = append(edges, s.temporalEdges(ctx, event, attrs)...)
+	}
+	if s.graphEnabled(GraphCausal) {
+		edges = append(edges, ExtractCausalEdges(event)...)
+	}
 	return s.store.BatchUpsert(ctx, BatchUpsertRequest{
 		Event:         event,
 		TemporalAttrs: attrs,
@@ -188,4 +204,38 @@ func (s *Service) embed(ctx context.Context, text string) ([]float32, error) {
 		return nil, nil
 	}
 	return vectors[0], nil
+}
+
+func (s *Service) graphEnabled(graphType GraphType) bool {
+	if s == nil {
+		return false
+	}
+	switch graphType {
+	case GraphSemantic:
+		return s.cfg.Graphs.Semantic
+	case GraphTemporal:
+		return s.cfg.Graphs.Temporal
+	case GraphCausal:
+		return s.cfg.Graphs.Causal
+	case GraphEntity:
+		return s.cfg.Graphs.Entity
+	default:
+		return false
+	}
+}
+
+func normalizeServiceConfig(cfg ServiceConfig) ServiceConfig {
+	if cfg.QueueSize <= 0 {
+		cfg.QueueSize = 1024
+	}
+	if cfg.SemanticTopK <= 0 {
+		cfg.SemanticTopK = 20
+	}
+	if cfg.SimilarityThreshold <= 0 {
+		cfg.SimilarityThreshold = 0.7
+	}
+	if !cfg.Graphs.Semantic && !cfg.Graphs.Temporal && !cfg.Graphs.Causal && !cfg.Graphs.Entity {
+		cfg.Graphs = GraphConfig{Semantic: true, Temporal: true, Causal: true, Entity: true}
+	}
+	return cfg
 }

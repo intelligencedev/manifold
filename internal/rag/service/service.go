@@ -46,7 +46,7 @@ func New(mgr databases.Manager, opts ...Option) *Service {
 		o(s)
 	}
 	if mgr.Graph != nil && s.magma == nil {
-		s.magma = magma.NewService(mgr.Graph, mgr.Vector, s.emb)
+		s.magma = magma.NewServiceWithConfig(mgr.Graph, mgr.Vector, s.emb, magmaServiceConfig(s.magmaCfg))
 	}
 	return s
 }
@@ -437,6 +437,20 @@ func enabledMagmaGraphs(cfg config.MagmaConfig) []string {
 		return []string{"semantic", "temporal", "causal", "entity"}
 	}
 	return graphs
+}
+
+func magmaServiceConfig(cfg config.MagmaConfig) magma.ServiceConfig {
+	return magma.ServiceConfig{
+		QueueSize:           cfg.Consolidation.MaxQueueSize,
+		SemanticTopK:        cfg.Graphs.Semantic.TopK,
+		SimilarityThreshold: cfg.Graphs.Semantic.SimilarityThreshold,
+		Graphs: magma.GraphConfig{
+			Semantic: cfg.Graphs.Semantic.Enabled,
+			Temporal: cfg.Graphs.Temporal.Enabled,
+			Causal:   cfg.Graphs.Causal.Enabled,
+			Entity:   cfg.Graphs.Entity.Enabled,
+		},
+	}
 }
 
 func (s *Service) hydrateRerankText(ctx context.Context, items []retrieve.RetrievedItem) []retrieve.RetrievedItem {

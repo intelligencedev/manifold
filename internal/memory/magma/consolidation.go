@@ -91,13 +91,13 @@ func (s *Service) semanticEdges(ctx context.Context, event EventNode) []Edge {
 	if s == nil || s.vector == nil || len(event.Embedding) == 0 {
 		return nil
 	}
-	results, err := s.vector.SimilaritySearch(ctx, event.Embedding, 20, map[string]string{"tenant": event.Tenant})
+	results, err := s.vector.SimilaritySearch(ctx, event.Embedding, s.cfg.SemanticTopK, map[string]string{"tenant": event.Tenant})
 	if err != nil {
 		return nil
 	}
 	edges := make([]Edge, 0, len(results)*2)
 	for _, result := range results {
-		if result.ID == event.ID || result.Score < 0.7 {
+		if result.ID == event.ID || result.Score < s.cfg.SimilarityThreshold {
 			continue
 		}
 		edges = append(edges,

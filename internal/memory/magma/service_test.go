@@ -170,6 +170,78 @@ func TestService_ConsolidationBuildsTemporalAndEntityEdges(t *testing.T) {
 	}
 }
 
+func TestService_ConfigDisablesGraphViews(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), databases.NewMemoryVector(), embedder.NewDeterministic(32, true, 0), ServiceConfig{
+		Graphs: GraphConfig{Temporal: true},
+	})
+
+	resp, err := svc.Ingest(ctx, IngestRequest{
+		ID:        "melanie-temporal-only",
+		Tenant:    "t1",
+		SessionID: "s1",
+		Text:      "Yesterday Melanie hiked because the weather improved.",
+		CreatedAt: time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+	if _, err := svc.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("DrainConsolidation() error = %v", err)
+	}
+	event, ok := svc.Event(ctx, resp.EventID)
+	if !ok {
+		t.Fatalf("expected event")
+	}
+	if event.TemporalAttrs.Date != "2026-05-27" {
+		t.Fatalf("expected temporal normalization, got %#v", event.TemporalAttrs)
+	}
+	if len(event.EntityMentions) != 0 {
+		t.Fatalf("expected entity graph disabled, got entities %#v", event.EntityMentions)
+	}
+	causal, err := svc.store.Neighbors(ctx, resp.EventID, GraphCausal, "CAUSES")
+	if err != nil {
+		t.Fatalf("causal neighbors error = %v", err)
+	}
+	if len(causal) != 0 {
+		t.Fatalf("expected causal graph disabled, got %#v", causal)
+	}
+}
+
+func TestService_ConfigControlsSemanticThreshold(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	vector := databases.NewMemoryVector()
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), vector, embedder.NewDeterministic(32, true, 0), ServiceConfig{
+		SemanticTopK:        5,
+		SimilarityThreshold: 1.1,
+		Graphs:              GraphConfig{Semantic: true},
+	})
+
+	first, err := svc.Ingest(ctx, IngestRequest{ID: "first", Tenant: "t1", Text: "Melanie practiced guitar."})
+	if err != nil {
+		t.Fatalf("first Ingest() error = %v", err)
+	}
+	if _, err := svc.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("first DrainConsolidation() error = %v", err)
+	}
+	second, err := svc.Ingest(ctx, IngestRequest{ID: "second", Tenant: "t1", Text: "Melanie practiced guitar."})
+	if err != nil {
+		t.Fatalf("second Ingest() error = %v", err)
+	}
+	if _, err := svc.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("second DrainConsolidation() error = %v", err)
+	}
+	neighbors, err := svc.store.Neighbors(ctx, second.EventID, GraphSemantic, "SIMILAR_TO")
+	if err != nil {
+		t.Fatalf("semantic neighbors error = %v", err)
+	}
+	if len(neighbors) != 0 {
+		t.Fatalf("expected semantic threshold to prune links between %s and %s, got %#v", first.EventID, second.EventID, neighbors)
+	}
+}
+
 func TestService_QueryUsesEntityAnchorsWithoutVectorStore(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

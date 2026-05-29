@@ -26,9 +26,11 @@ func (failingEmbedder) Ping(context.Context) error { return nil }
 type fakeConsolidationLLM struct {
 	response string
 	model    string
+	calls    int
 }
 
 func (f *fakeConsolidationLLM) Chat(_ context.Context, _ []llm.Message, _ []llm.ToolSchema, model string) (llm.Message, error) {
+	f.calls++
 	f.model = model
 	return llm.Message{Role: "assistant", Content: f.response}, nil
 }
@@ -692,6 +694,78 @@ func TestQueryIntentClassificationSemanticMode(t *testing.T) {
 	}
 	if len(hintedResult.RawEvents) != 1 || hintedResult.RawEvents[0].ID != resp.EventID {
 		t.Fatalf("expected explicit hint to override semantic mode, got %#v", hintedResult.RawEvents)
+	}
+}
+
+func TestQueryIntentClassificationLLMMode(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	provider := &fakeConsolidationLLM{response: `{"intents":["causal"]}`}
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), nil, embedder.NewDeterministic(32, true, 0), ServiceConfig{
+		LLM:   provider,
+		Model: "intent-model",
+	})
+
+	result, err := svc.Query(ctx, "What led to the schedule change?", QueryOptions{IntentClassification: "llm"})
+	if err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if result.Intent != IntentCausal {
+		t.Fatalf("expected LLM causal intent, got %s", result.Intent)
+	}
+	if provider.model != "intent-model" || provider.calls != 1 {
+		t.Fatalf("expected one LLM intent call with model, got model=%q calls=%d", provider.model, provider.calls)
+	}
+}
+
+func TestQueryIntentClassificationHybridUsesLLMForSemanticOnlyRules(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	provider := &fakeConsolidationLLM{response: `{"intents":["causal","temporal"]}`}
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), nil, embedder.NewDeterministic(32, true, 0), ServiceConfig{LLM: provider})
+
+	result, err := svc.Query(ctx, "What led to the change?", QueryOptions{IntentClassification: "hybrid"})
+	if err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if result.Intent != IntentTemporal|IntentCausal {
+		t.Fatalf("expected hybrid LLM temporal+causal intent, got %s", result.Intent)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("expected one hybrid LLM call, got %d", provider.calls)
+	}
+}
+
+func TestQueryIntentClassificationHybridKeepsSpecificRules(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	provider := &fakeConsolidationLLM{response: `{"intents":["causal"]}`}
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), nil, embedder.NewDeterministic(32, true, 0), ServiceConfig{LLM: provider})
+
+	result, err := svc.Query(ctx, "When did Melanie practice?", QueryOptions{IntentClassification: "hybrid"})
+	if err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if result.Intent != IntentTemporal|IntentEntity {
+		t.Fatalf("expected rules temporal+entity intent, got %s", result.Intent)
+	}
+	if provider.calls != 0 {
+		t.Fatalf("expected hybrid to skip LLM for specific rules, got %d calls", provider.calls)
+	}
+}
+
+func TestQueryIntentClassificationLLMFallsBackToRules(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	provider := &fakeConsolidationLLM{response: `not json`}
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), nil, embedder.NewDeterministic(32, true, 0), ServiceConfig{LLM: provider})
+
+	result, err := svc.Query(ctx, "When did Melanie practice?", QueryOptions{IntentClassification: "llm"})
+	if err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if result.Intent != IntentTemporal|IntentEntity {
+		t.Fatalf("expected fallback rules temporal+entity intent, got %s", result.Intent)
 	}
 }
 

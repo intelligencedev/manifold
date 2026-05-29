@@ -61,7 +61,7 @@ func (q QueryEngine) Query(ctx context.Context, query string, opt QueryOptions) 
 	if q.Service == nil || q.Service.store == nil {
 		return StructuredContext{}, nil
 	}
-	intent := classifyIntentForOptions(query, opt)
+	intent := q.classifyIntent(ctx, query, opt)
 	policy := SelectPolicy(intent)
 	if opt.MaxHops > 0 {
 		policy.MaxHops = opt.MaxHops
@@ -90,17 +90,33 @@ func (q QueryEngine) Query(ctx context.Context, query string, opt QueryOptions) 
 	return result, nil
 }
 
-func classifyIntentForOptions(query string, opt QueryOptions) IntentCategory {
+func (q QueryEngine) classifyIntent(ctx context.Context, query string, opt QueryOptions) IntentCategory {
 	if opt.IntentHint != 0 {
 		return opt.IntentHint
 	}
 	switch strings.ToLower(strings.TrimSpace(opt.IntentClassification)) {
 	case "semantic":
 		return IntentSemantic
-	default:
+	case "llm":
+		if intent, ok := q.classifyIntentWithLLM(ctx, query); ok {
+			return intent
+		}
+	case "hybrid":
+		intent, _ := ClassifyIntent(query)
+		if intent != IntentSemantic {
+			return intent
+		}
+		if llmIntent, ok := q.classifyIntentWithLLM(ctx, query); ok {
+			return llmIntent
+		}
+		return intent
+	case "rules":
 		intent, _ := ClassifyIntent(query)
 		return intent
+	default:
 	}
+	intent, _ := ClassifyIntent(query)
+	return intent
 }
 
 func (q QueryEngine) anchors(ctx context.Context, query, tenant string, policy TraversalPolicy) ([]string, error) {

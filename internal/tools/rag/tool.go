@@ -205,7 +205,7 @@ func (t *retrieveTool) JSONSchema() map[string]any {
 						"max_hops":              map[string]any{"type": "integer"},
 						"max_nodes":             map[string]any{"type": "integer"},
 						"context_format":        map[string]any{"type": "string", "enum": []any{"structured", "text"}},
-						"intent_classification": map[string]any{"type": "string", "enum": []any{"rules", "semantic", "hybrid"}},
+						"intent_classification": map[string]any{"type": "string", "enum": []any{"rules", "llm", "semantic", "hybrid"}},
 					},
 				},
 				"tenant": map[string]any{"type": "string"},

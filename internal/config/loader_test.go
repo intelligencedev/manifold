@@ -194,6 +194,9 @@ magma:
     batchSize: 8
     maxQueueSize: 500
     workerCount: 3
+    prompts:
+      consolidationExtraction: " Custom MAGMA extraction prompt. "
+      intentClassification: " Custom MAGMA intent prompt. "
   graphs:
     semantic:
       enabled: true
@@ -316,6 +319,10 @@ tokenization:
 	}
 	if !cfg.Magma.Enabled || cfg.Magma.Consolidation.WorkerCount != 3 || cfg.Magma.Graphs.Semantic.TopK != 12 {
 		t.Fatalf("unexpected magma config: %+v", cfg.Magma)
+	}
+	if cfg.Magma.Consolidation.Prompts.ConsolidationExtraction != "Custom MAGMA extraction prompt." ||
+		cfg.Magma.Consolidation.Prompts.IntentClassification != "Custom MAGMA intent prompt." {
+		t.Fatalf("unexpected magma prompts: %+v", cfg.Magma.Consolidation.Prompts)
 	}
 	if cfg.Magma.Retrieval.DefaultHops != 3 || cfg.Magma.Retrieval.DefaultMaxNodes != 15 || cfg.Magma.Retrieval.ContextFormat != "structured" {
 		t.Fatalf("unexpected magma retrieval config: %+v", cfg.Magma.Retrieval)

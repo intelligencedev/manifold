@@ -491,7 +491,11 @@ func magmaServiceConfig(cfg config.MagmaConfig, observer magma.Observer, provide
 		CausalThreshold:     cfg.Graphs.Causal.LLMThreshold,
 		LLM:                 provider,
 		Model:               cfg.Consolidation.Model,
-		Observer:            observer,
+		Prompts: magma.PromptConfig{
+			ConsolidationExtraction: cfg.Consolidation.Prompts.ConsolidationExtraction,
+			IntentClassification:    cfg.Consolidation.Prompts.IntentClassification,
+		},
+		Observer: observer,
 		Graphs: magma.GraphConfig{
 			Semantic: cfg.Graphs.Semantic.Enabled,
 			Temporal: cfg.Graphs.Temporal.Enabled,

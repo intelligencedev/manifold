@@ -189,8 +189,14 @@ type ServiceConfig struct {
 	CausalThreshold     float64
 	LLM                 llm.Provider
 	Model               string
+	Prompts             PromptConfig
 	Graphs              GraphConfig
 	Observer            Observer
+}
+
+type PromptConfig struct {
+	ConsolidationExtraction string
+	IntentClassification    string
 }
 
 type GraphConfig struct {

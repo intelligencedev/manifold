@@ -24,14 +24,18 @@ func (failingEmbedder) Dimension() int             { return 0 }
 func (failingEmbedder) Ping(context.Context) error { return nil }
 
 type fakeConsolidationLLM struct {
-	response string
-	model    string
-	calls    int
+	response     string
+	model        string
+	calls        int
+	systemPrompt string
 }
 
-func (f *fakeConsolidationLLM) Chat(_ context.Context, _ []llm.Message, _ []llm.ToolSchema, model string) (llm.Message, error) {
+func (f *fakeConsolidationLLM) Chat(_ context.Context, msgs []llm.Message, _ []llm.ToolSchema, model string) (llm.Message, error) {
 	f.calls++
 	f.model = model
+	if len(msgs) > 0 {
+		f.systemPrompt = msgs[0].Content
+	}
 	return llm.Message{Role: "assistant", Content: f.response}, nil
 }
 
@@ -513,6 +517,9 @@ func TestService_ConsolidationUsesLLMExtractionWhenConfigured(t *testing.T) {
 	if provider.model != "magma-test-model" {
 		t.Fatalf("expected configured model, got %q", provider.model)
 	}
+	if !strings.Contains(provider.systemPrompt, "Extract MAGMA memory structure") {
+		t.Fatalf("expected default extraction prompt, got %q", provider.systemPrompt)
+	}
 	event, ok := svc.Event(ctx, resp.EventID)
 	if !ok {
 		t.Fatalf("expected event")
@@ -529,6 +536,29 @@ func TestService_ConsolidationUsesLLMExtractionWhenConfigured(t *testing.T) {
 	}
 	if len(causal) != 1 || causal[0] != resp.EventID {
 		t.Fatalf("expected LLM causal edge, got %#v", causal)
+	}
+}
+
+func TestService_ConsolidationUsesConfiguredExtractionPrompt(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	provider := &fakeConsolidationLLM{response: `{"entities":[{"name":"Melanie"}]}`}
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), databases.NewMemoryVector(), embedder.NewDeterministic(32, true, 0), ServiceConfig{
+		LLM: provider,
+		Prompts: PromptConfig{
+			ConsolidationExtraction: "custom extraction prompt",
+		},
+		Graphs: GraphConfig{Entity: true},
+	})
+
+	if _, err := svc.Ingest(ctx, IngestRequest{ID: "custom-prompt", Tenant: "t1", Text: "Melanie practiced guitar."}); err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+	if _, err := svc.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("DrainConsolidation() error = %v", err)
+	}
+	if provider.systemPrompt != "custom extraction prompt" {
+		t.Fatalf("expected custom extraction prompt, got %q", provider.systemPrompt)
 	}
 }
 
@@ -715,6 +745,28 @@ func TestQueryIntentClassificationLLMMode(t *testing.T) {
 	}
 	if provider.model != "intent-model" || provider.calls != 1 {
 		t.Fatalf("expected one LLM intent call with model, got model=%q calls=%d", provider.model, provider.calls)
+	}
+	if !strings.Contains(provider.systemPrompt, "Classify the memory retrieval query") {
+		t.Fatalf("expected default intent prompt, got %q", provider.systemPrompt)
+	}
+}
+
+func TestQueryIntentClassificationUsesConfiguredPrompt(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	provider := &fakeConsolidationLLM{response: `{"intents":["semantic"]}`}
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), nil, embedder.NewDeterministic(32, true, 0), ServiceConfig{
+		LLM: provider,
+		Prompts: PromptConfig{
+			IntentClassification: "custom intent prompt",
+		},
+	})
+
+	if _, err := svc.Query(ctx, "What were we discussing?", QueryOptions{IntentClassification: "llm"}); err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if provider.systemPrompt != "custom intent prompt" {
+		t.Fatalf("expected custom intent prompt, got %q", provider.systemPrompt)
 	}
 }
 

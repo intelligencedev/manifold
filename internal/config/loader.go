@@ -450,6 +450,8 @@ func applyMagmaDefaults(cfg *Config) {
 	if cfg.Magma.Consolidation.WorkerCount <= 0 {
 		cfg.Magma.Consolidation.WorkerCount = 2
 	}
+	cfg.Magma.Consolidation.Prompts.ConsolidationExtraction = strings.TrimSpace(cfg.Magma.Consolidation.Prompts.ConsolidationExtraction)
+	cfg.Magma.Consolidation.Prompts.IntentClassification = strings.TrimSpace(cfg.Magma.Consolidation.Prompts.IntentClassification)
 	if cfg.Magma.Graphs.Semantic.TopK <= 0 {
 		cfg.Magma.Graphs.Semantic.TopK = 20
 	}

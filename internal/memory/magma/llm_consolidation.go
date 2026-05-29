@@ -34,7 +34,7 @@ func (s *Service) extractWithLLM(ctx context.Context, event EventNode) (llmExtra
 		return llmExtraction{}, false
 	}
 	msg, err := s.cfg.LLM.Chat(ctx, []llm.Message{
-		{Role: "system", Content: magmaConsolidationSystemPrompt},
+		{Role: "system", Content: firstNonEmpty(s.cfg.Prompts.ConsolidationExtraction, magmaConsolidationSystemPrompt)},
 		{Role: "user", Content: magmaConsolidationUserPrompt(event)},
 	}, nil, s.cfg.Model)
 	if err != nil {

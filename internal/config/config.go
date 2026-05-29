@@ -638,10 +638,16 @@ type MagmaConfig struct {
 }
 
 type MagmaConsolidationConfig struct {
-	Model        string `yaml:"model" json:"model"`
-	BatchSize    int    `yaml:"batchSize" json:"batchSize"`
-	MaxQueueSize int    `yaml:"maxQueueSize" json:"maxQueueSize"`
-	WorkerCount  int    `yaml:"workerCount" json:"workerCount"`
+	Model        string             `yaml:"model" json:"model"`
+	BatchSize    int                `yaml:"batchSize" json:"batchSize"`
+	MaxQueueSize int                `yaml:"maxQueueSize" json:"maxQueueSize"`
+	WorkerCount  int                `yaml:"workerCount" json:"workerCount"`
+	Prompts      MagmaPromptsConfig `yaml:"prompts" json:"prompts"`
+}
+
+type MagmaPromptsConfig struct {
+	ConsolidationExtraction string `yaml:"consolidationExtraction" json:"consolidationExtraction"`
+	IntentClassification    string `yaml:"intentClassification" json:"intentClassification"`
 }
 
 type MagmaGraphsConfig struct {

@@ -17,7 +17,7 @@ func (q QueryEngine) classifyIntentWithLLM(ctx context.Context, query string) (I
 		return 0, false
 	}
 	msg, err := q.Service.cfg.LLM.Chat(ctx, []llm.Message{
-		{Role: "system", Content: magmaIntentSystemPrompt},
+		{Role: "system", Content: firstNonEmpty(q.Service.cfg.Prompts.IntentClassification, magmaIntentSystemPrompt)},
 		{Role: "user", Content: strings.TrimSpace(query)},
 	}, nil, q.Service.cfg.Model)
 	if err != nil {

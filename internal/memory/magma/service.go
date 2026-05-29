@@ -128,10 +128,13 @@ func (s *Service) Consolidate(ctx context.Context, eventID string) (err error) {
 	tenant := ""
 	defer func() {
 		status := "success"
+		success := 1.0
 		if err != nil {
 			status = "error"
+			success = 0
 		}
 		s.observeHistogram("magma_ingestion_consolidation_ms", float64(time.Since(start)/time.Millisecond), map[string]string{"tenant": tenant, "status": status})
+		s.observeHistogram("magma_consolidation_success_rate", success, map[string]string{"tenant": tenant, "status": status})
 	}()
 	if s == nil || s.store == nil {
 		return errors.New("magma service is not configured")
@@ -152,6 +155,7 @@ func (s *Service) Consolidate(ctx context.Context, eventID string) (err error) {
 	var entities []EntityMention
 	if s.graphEnabledForEvent(event, GraphEntity) {
 		entities = ResolveEntitiesForTenant(event.Text, event.Tenant)
+		s.observeHistogram("magma_entity_resolution_accuracy", entityResolutionAccuracy(entities), map[string]string{"tenant": event.Tenant})
 	}
 	edges := make([]Edge, 0, len(entities)+4)
 	if s.graphEnabledForEvent(event, GraphSemantic) {

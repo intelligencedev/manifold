@@ -194,3 +194,19 @@ func firstNonEmpty(values ...string) string {
 	}
 	return ""
 }
+
+func entityResolutionAccuracy(entities []EntityMention) float64 {
+	if len(entities) == 0 {
+		return 1
+	}
+	seen := map[string]bool{}
+	valid := 0
+	for _, entity := range entities {
+		if entity.ID == "" || entity.Name == "" || seen[entity.ID] {
+			continue
+		}
+		seen[entity.ID] = true
+		valid++
+	}
+	return float64(valid) / float64(len(entities))
+}

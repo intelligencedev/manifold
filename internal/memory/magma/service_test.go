@@ -26,6 +26,26 @@ type recordingVector struct {
 	lastK int
 }
 
+type recordingObserver struct {
+	counters   map[string]int
+	histograms map[string][]float64
+}
+
+func newRecordingObserver() *recordingObserver {
+	return &recordingObserver{
+		counters:   map[string]int{},
+		histograms: map[string][]float64{},
+	}
+}
+
+func (r *recordingObserver) IncCounter(name string, _ map[string]string) {
+	r.counters[name]++
+}
+
+func (r *recordingObserver) ObserveHistogram(name string, value float64, _ map[string]string) {
+	r.histograms[name] = append(r.histograms[name], value)
+}
+
 func (r *recordingVector) Upsert(context.Context, string, []float32, map[string]string) error {
 	return nil
 }
@@ -402,6 +422,46 @@ func TestService_StatsTrackConsolidationFailure(t *testing.T) {
 	stats := svc.Stats()
 	if stats.FailedTotal != 1 || stats.ProcessedTotal != 0 || !strings.Contains(stats.LastError, "embed failed") {
 		t.Fatalf("unexpected failure stats: %#v", stats)
+	}
+}
+
+func TestService_ConsolidationEmitsQualityMetrics(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	observer := newRecordingObserver()
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), databases.NewMemoryVector(), embedder.NewDeterministic(32, true, 0), ServiceConfig{
+		Observer: observer,
+		Graphs:   GraphConfig{Entity: true},
+	})
+
+	resp, err := svc.Ingest(ctx, IngestRequest{
+		ID:     "quality-metrics",
+		Tenant: "t1",
+		Text:   "Melanie practiced guitar.",
+	})
+	if err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+	if _, err := svc.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("DrainConsolidation() error = %v", err)
+	}
+	if resp.EventID == "" {
+		t.Fatalf("expected event ID")
+	}
+	for _, name := range []string{
+		"magma_ingestion_consolidation_ms",
+		"magma_consolidation_success_rate",
+		"magma_entity_resolution_accuracy",
+	} {
+		if len(observer.histograms[name]) == 0 {
+			t.Fatalf("expected histogram %s", name)
+		}
+	}
+	if got := observer.histograms["magma_consolidation_success_rate"][0]; got != 1 {
+		t.Fatalf("expected success sample 1, got %f", got)
+	}
+	if got := observer.histograms["magma_entity_resolution_accuracy"][0]; got != 1 {
+		t.Fatalf("expected entity resolution accuracy 1, got %f", got)
 	}
 }
 

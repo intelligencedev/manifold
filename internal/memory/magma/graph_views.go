@@ -30,6 +30,7 @@ func (s *Store) StoreEvent(ctx context.Context, event EventNode) error {
 		"tenant":          event.Tenant,
 		"session":         event.Session,
 		"text":            event.Text,
+		"metadata":        mustJSON(event.Metadata),
 		"graphs":          mustJSON(event.Graphs),
 		"semantic_top_k":  event.SemanticTopK,
 		"created_at":      event.CreatedAt.Format(time.RFC3339Nano),
@@ -149,6 +150,7 @@ func eventFromNode(node databases.Node) EventNode {
 		}
 	}
 	decodeJSON(node.Props["graphs"], &event.Graphs)
+	decodeJSON(node.Props["metadata"], &event.Metadata)
 	decodeJSON(node.Props["temporal_attrs"], &event.TemporalAttrs)
 	decodeJSON(node.Props["entity_mentions"], &event.EntityMentions)
 	return event
@@ -185,6 +187,17 @@ func intProp(raw any) int {
 	default:
 		return 0
 	}
+}
+
+func cloneAnyMap(in map[string]any) map[string]any {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 func eventID(tenant, sourceID string) string {

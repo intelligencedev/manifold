@@ -18,6 +18,17 @@ type recordingBeliefStore struct {
 	episode belief.Episode
 }
 
+type recordingBeliefMagmaSink struct {
+	episode belief.Episode
+	item    belief.Belief
+}
+
+func (s *recordingBeliefMagmaSink) IngestBelief(_ context.Context, episode belief.Episode, item belief.Belief) (string, error) {
+	s.episode = episode
+	s.item = item
+	return "event:user:7:belief:" + item.ID, nil
+}
+
 func TestRunStreamBeliefEpisodeLinksEvolvingEntry(t *testing.T) {
 	t.Parallel()
 
@@ -162,6 +173,39 @@ func TestRunStreamAppliesBeliefDistillation(t *testing.T) {
 	}
 	if results[0].Belief.EvidenceFor != 1 {
 		t.Fatalf("expected one evidence_for count, got %d", results[0].Belief.EvidenceFor)
+	}
+}
+
+func TestRunStreamMirrorsDistilledBeliefToMagma(t *testing.T) {
+	t.Parallel()
+
+	provider := &memoryTestProvider{streamResponse: "Transit is used for durable shared working memory in this project."}
+	store := databases.NewMemoryBeliefStore()
+	sink := &recordingBeliefMagmaSink{}
+	eng := &Engine{
+		LLM:             provider,
+		Tools:           tools.NewRegistry(),
+		MaxSteps:        1,
+		UserID:          7,
+		ProjectID:       "project-1",
+		ObjectiveID:     "objective-1",
+		SessionID:       "session-1",
+		BeliefStore:     store,
+		BeliefDistiller: belief.SimpleDistiller{},
+		BeliefMagmaSink: sink,
+	}
+
+	if _, err := eng.RunStream(context.Background(), "summarize memory", nil); err != nil {
+		t.Fatalf("RunStream failed: %v", err)
+	}
+	if sink.item.ID == "" {
+		t.Fatal("expected distilled belief to be mirrored into MAGMA")
+	}
+	if sink.item.Statement != "Transit is used for durable shared working memory in this project." {
+		t.Fatalf("unexpected mirrored belief: %#v", sink.item)
+	}
+	if sink.episode.SessionID != "session-1" || sink.episode.ID == "" {
+		t.Fatalf("unexpected mirrored episode: %#v", sink.episode)
 	}
 }
 

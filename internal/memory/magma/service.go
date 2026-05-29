@@ -103,6 +103,7 @@ func (s *Service) Ingest(ctx context.Context, in IngestRequest) (EventIngestResp
 		Session:      in.SessionID,
 		Text:         text,
 		Embedding:    embedding,
+		Metadata:     cloneAnyMap(in.Metadata),
 		Graphs:       append([]GraphType(nil), in.Graphs...),
 		SemanticTopK: in.SemanticTopK,
 		CreatedAt:    createdAt,

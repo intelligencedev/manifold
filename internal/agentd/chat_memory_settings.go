@@ -68,6 +68,7 @@ func applyChatMemorySettingsToEngine(eng *agent.Engine, settings chatMemoryRunSe
 		eng.BeliefIncludeContradictions = false
 		eng.BeliefPromotionThreshold = 0
 		eng.BeliefPolicySink = nil
+		eng.BeliefMagmaSink = nil
 		eng.PolicyEnforcer = nil
 	}
 }

@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"context"
+
 	"manifold/internal/agent/belief"
 	"manifold/internal/agent/harness"
 	"manifold/internal/agent/memory"
@@ -8,6 +10,10 @@ import (
 	"manifold/internal/policy"
 	"manifold/internal/tools"
 )
+
+type BeliefMagmaSink interface {
+	IngestBelief(ctx context.Context, episode belief.Episode, item belief.Belief) (string, error)
+}
 
 type Engine struct {
 	LLM      llm.Provider
@@ -36,6 +42,7 @@ type Engine struct {
 	BeliefPromotionThreshold     float64
 	BeliefLifecyclePolicy        belief.PromotionPolicy
 	BeliefPolicySink             belief.PolicySink
+	BeliefMagmaSink              BeliefMagmaSink
 	BeliefEnforcementPolicy      belief.EnforcementPolicy
 	PolicyEnforcer               policy.Enforcer
 	// MaxToolParallelism controls how many tool calls may run concurrently within a single step.

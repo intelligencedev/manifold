@@ -67,6 +67,7 @@ type EventNode struct {
 	Session        string          `json:"session,omitempty"`
 	Text           string          `json:"text"`
 	Embedding      []float32       `json:"-"`
+	Metadata       map[string]any  `json:"metadata,omitempty"`
 	Graphs         []GraphType     `json:"graphs,omitempty"`
 	SemanticTopK   int             `json:"semantic_top_k,omitempty"`
 	TemporalAttrs  TemporalAttrs   `json:"temporal_attrs,omitempty"`

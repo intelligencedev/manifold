@@ -186,6 +186,11 @@ func (a *app) configureBeliefRunState(eng *agent.Engine, userID int64, sessionID
 			eng.PolicyEnforcer = nil
 			eng.BeliefPolicySink = nil
 		}
+		if a.cfg.Magma.Enabled && a.ragService != nil && a.ragService.MagmaService() != nil {
+			eng.BeliefMagmaSink = beliefMagmaSink{service: a.ragService.MagmaService(), workerCount: a.cfg.Magma.Consolidation.WorkerCount}
+		} else {
+			eng.BeliefMagmaSink = nil
+		}
 	} else {
 		eng.BeliefStore = nil
 		eng.BeliefDistiller = nil
@@ -199,6 +204,7 @@ func (a *app) configureBeliefRunState(eng *agent.Engine, userID int64, sessionID
 		eng.BeliefLifecyclePolicy = belief.PromotionPolicy{}
 		eng.BeliefEnforcementPolicy = belief.EnforcementPolicy{}
 		eng.BeliefPolicySink = nil
+		eng.BeliefMagmaSink = nil
 		eng.PolicyEnforcer = nil
 	}
 }

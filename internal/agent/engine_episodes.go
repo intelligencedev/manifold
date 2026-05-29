@@ -122,6 +122,7 @@ func (e *Engine) distillBeliefs(ctx context.Context, episode belief.Episode, use
 	}
 	e.promoteEligibleBeliefs(ctx, applied)
 	e.compileEnforceableBeliefs(ctx, applied, belief.Promotion{})
+	e.ingestBeliefsMagma(ctx, episode, applied)
 	observability.LoggerWithTrace(ctx).Info().Int("candidate_count", len(candidates)).Str("episode_id", episode.ID).Msg("belief_distillation_applied")
 }
 
@@ -265,6 +266,20 @@ func (e *Engine) compileEnforceableBeliefs(ctx context.Context, items []belief.B
 			continue
 		}
 		observability.LoggerWithTrace(ctx).Info().Str("belief_id", item.ID).Str("enforcement", string(item.Enforcement)).Msg("belief_policy_compiled")
+	}
+}
+
+func (e *Engine) ingestBeliefsMagma(ctx context.Context, episode belief.Episode, items []belief.Belief) {
+	if e == nil || e.DisableBeliefMemory || e.BeliefMagmaSink == nil || len(items) == 0 {
+		return
+	}
+	for _, item := range items {
+		if strings.TrimSpace(item.ID) == "" {
+			continue
+		}
+		if _, err := e.BeliefMagmaSink.IngestBelief(ctx, episode, item); err != nil {
+			observability.LoggerWithTrace(ctx).Warn().Err(err).Str("belief_id", item.ID).Msg("belief_magma_ingest_failed")
+		}
 	}
 }
 

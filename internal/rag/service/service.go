@@ -302,6 +302,19 @@ func (s *Service) Retrieve(ctx context.Context, q string, opt retrieve.RetrieveO
 	if opt.Rerank && s.rerank != nil {
 		items = s.hydrateRerankText(ctx, items)
 	}
+	var magmaGraphDbg map[string]any
+	if opt.GraphAugment && !opt.Magma.Enabled && s.magma != nil {
+		t0 := s.clock.Now()
+		var augmentErr error
+		items, magmaGraphDbg, augmentErr = s.augmentWithMagmaGraph(ctx, q, opt, items)
+		if augmentErr != nil {
+			return retrieve.RetrieveResponse{}, augmentErr
+		}
+		if magmaGraphDbg != nil {
+			magmaGraphDbg["ms"] = ms(s.clock.Now().Sub(t0))
+			s.metrics.ObserveHistogram("retrieval_stage_ms", float64(magmaGraphDbg["ms"].(int64)), map[string]string{"stage": "magma_graph", "tenant": plan.Tenant})
+		}
+	}
 	items, addDbg, err := retrieve.AssembleResults(ctx, s.graph, s.rerank, plan, opt, items)
 	if err != nil {
 		return retrieve.RetrieveResponse{}, err
@@ -370,6 +383,11 @@ func (s *Service) Retrieve(ctx context.Context, q string, opt retrieve.RetrieveO
 	}
 	// Integrate addDbg stage timings into diagnostics when available
 	if dm, ok := debug["diagnostics"].(map[string]any); ok {
+		if magmaGraphDbg != nil {
+			if msVal, ok := magmaGraphDbg["ms"]; ok {
+				dm["magma_graph_ms"] = msVal
+			}
+		}
 		if gv, ok := addDbg["graph"]; ok {
 			if gmap, ok := gv.(map[string]any); ok {
 				if msVal, ok := gmap["ms"]; ok {
@@ -382,6 +400,9 @@ func (s *Service) Retrieve(ctx context.Context, q string, opt retrieve.RetrieveO
 		}
 	}
 	maps.Copy(debug, addDbg)
+	if magmaGraphDbg != nil {
+		debug["magma_graph"] = magmaGraphDbg
+	}
 	return retrieve.RetrieveResponse{Query: plan.Query, Items: items, Debug: debug}, nil
 }
 

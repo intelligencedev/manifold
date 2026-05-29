@@ -267,6 +267,66 @@ func TestService_MagmaRetrieveContextFormatText(t *testing.T) {
 	}
 }
 
+func TestService_GraphAugmentAddsMagmaContext(t *testing.T) {
+	t.Parallel()
+	mgr := databases.Manager{
+		Search: databases.NewMemorySearch(),
+		Vector: databases.NewMemoryVector(),
+		Graph:  databases.NewMemoryGraph(),
+	}
+	svc := New(mgr)
+	t.Cleanup(svc.Close)
+	ctx := context.Background()
+
+	resp, err := svc.Ingest(ctx, ingest.IngestRequest{
+		ID:     "doc:graph-augment",
+		Text:   "Yesterday Melanie practiced guitar.",
+		Tenant: "t1",
+		Options: ingest.IngestOptions{
+			Magma: ingest.MagmaOptions{Enabled: true, SessionID: "s1"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+	if _, err := svc.magma.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("DrainConsolidation() error = %v", err)
+	}
+
+	got, err := svc.Retrieve(ctx, "When did Melanie practice?", retrieve.RetrieveOptions{
+		Tenant:       "t1",
+		K:            5,
+		FtK:          5,
+		VecK:         0,
+		IncludeText:  true,
+		GraphAugment: true,
+		Magma: retrieve.MagmaRetrieveOptions{
+			IntentHint: "temporal",
+			MaxNodes:   5,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Retrieve() error = %v", err)
+	}
+	if resp.MagmaEventID == "" {
+		t.Fatal("expected MAGMA event ID")
+	}
+	foundMagma := false
+	for _, item := range got.Items {
+		if item.ID == resp.MagmaEventID && item.Metadata["source"] == "magma" {
+			foundMagma = true
+			break
+		}
+	}
+	if !foundMagma {
+		t.Fatalf("expected graph augmentation to append MAGMA event %q, got %#v", resp.MagmaEventID, got.Items)
+	}
+	magmaGraph, ok := got.Debug["magma_graph"].(map[string]any)
+	if !ok || magmaGraph["expanded"] == nil || magmaGraph["intent"] == "" {
+		t.Fatalf("expected MAGMA graph augmentation debug, got %#v", got.Debug)
+	}
+}
+
 func TestService_MagmaRetrieveIntentClassificationFromConfig(t *testing.T) {
 	t.Parallel()
 	mgr := databases.Manager{

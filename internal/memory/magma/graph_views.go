@@ -30,6 +30,7 @@ func (s *Store) StoreEvent(ctx context.Context, event EventNode) error {
 		"session":         event.Session,
 		"text":            event.Text,
 		"graphs":          mustJSON(event.Graphs),
+		"semantic_top_k":  event.SemanticTopK,
 		"created_at":      event.CreatedAt.Format(time.RFC3339Nano),
 		"temporal_attrs":  mustJSON(event.TemporalAttrs),
 		"entity_mentions": mustJSON(event.EntityMentions),
@@ -138,6 +139,7 @@ func eventFromNode(node databases.Node) EventNode {
 	if s, ok := node.Props["text"].(string); ok {
 		event.Text = s
 	}
+	event.SemanticTopK = intProp(node.Props["semantic_top_k"])
 	if s, ok := node.Props["created_at"].(string); ok {
 		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
 			event.CreatedAt = t
@@ -163,6 +165,22 @@ func decodeJSON(raw any, dst any) {
 		_ = json.Unmarshal([]byte(v), dst)
 	case []byte:
 		_ = json.Unmarshal(v, dst)
+	}
+}
+
+func intProp(raw any) int {
+	switch v := raw.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case json.Number:
+		i, _ := v.Int64()
+		return int(i)
+	default:
+		return 0
 	}
 }
 

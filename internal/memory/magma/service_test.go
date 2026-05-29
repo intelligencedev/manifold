@@ -22,6 +22,23 @@ func (failingEmbedder) Name() string               { return "failing" }
 func (failingEmbedder) Dimension() int             { return 0 }
 func (failingEmbedder) Ping(context.Context) error { return nil }
 
+type recordingVector struct {
+	lastK int
+}
+
+func (r *recordingVector) Upsert(context.Context, string, []float32, map[string]string) error {
+	return nil
+}
+
+func (r *recordingVector) Delete(context.Context, string) error {
+	return nil
+}
+
+func (r *recordingVector) SimilaritySearch(_ context.Context, _ []float32, k int, _ map[string]string) ([]databases.VectorResult, error) {
+	r.lastK = k
+	return nil, nil
+}
+
 func TestService_IngestConsolidateAndQuery(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -262,6 +279,39 @@ func TestService_IngestGraphsOverrideServiceDefaults(t *testing.T) {
 	}
 	if len(temporal) != 1 || temporal[0] != resp.EventID {
 		t.Fatalf("expected temporal graph retained, got %#v", temporal)
+	}
+}
+
+func TestService_IngestSemanticTopKOverridesServiceDefault(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	vector := &recordingVector{}
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), vector, embedder.NewDeterministic(32, true, 0), ServiceConfig{
+		SemanticTopK: 20,
+		Graphs:       GraphConfig{Semantic: true},
+	})
+
+	resp, err := svc.Ingest(ctx, IngestRequest{
+		ID:           "semantic-top-k",
+		Tenant:       "t1",
+		Text:         "Melanie practiced guitar.",
+		SemanticTopK: 3,
+	})
+	if err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+	if _, err := svc.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("DrainConsolidation() error = %v", err)
+	}
+	event, ok := svc.Event(ctx, resp.EventID)
+	if !ok {
+		t.Fatalf("expected event")
+	}
+	if event.SemanticTopK != 3 {
+		t.Fatalf("expected semantic top-k to persist, got %d", event.SemanticTopK)
+	}
+	if vector.lastK != 3 {
+		t.Fatalf("expected semantic search top-k override 3, got %d", vector.lastK)
 	}
 }
 

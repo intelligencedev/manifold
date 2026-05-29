@@ -104,7 +104,11 @@ func (s *Service) semanticEdges(ctx context.Context, event EventNode) []Edge {
 	if s == nil || s.vector == nil || len(event.Embedding) == 0 {
 		return nil
 	}
-	results, err := s.vector.SimilaritySearch(ctx, event.Embedding, s.cfg.SemanticTopK, map[string]string{"tenant": event.Tenant})
+	topK := event.SemanticTopK
+	if topK <= 0 {
+		topK = s.cfg.SemanticTopK
+	}
+	results, err := s.vector.SimilaritySearch(ctx, event.Embedding, topK, map[string]string{"tenant": event.Tenant})
 	if err != nil {
 		return nil
 	}

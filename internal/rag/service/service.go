@@ -183,12 +183,13 @@ func (s *Service) Ingest(ctx context.Context, in ingest.IngestRequest) (ingest.I
 		t0 = s.clock.Now()
 		s.magma.StartConsolidationWorkers(context.Background(), s.magmaCfg.Consolidation.WorkerCount)
 		resp, err := s.magma.Ingest(ctx, magma.IngestRequest{
-			ID:        in.ID,
-			Tenant:    in.Tenant,
-			SessionID: magmaOpt.SessionID,
-			Text:      pre.Text,
-			Metadata:  in.Metadata,
-			Graphs:    magmaGraphTypes(magmaOpt.Graphs),
+			ID:           in.ID,
+			Tenant:       in.Tenant,
+			SessionID:    magmaOpt.SessionID,
+			Text:         pre.Text,
+			Metadata:     in.Metadata,
+			Graphs:       magmaGraphTypes(magmaOpt.Graphs),
+			SemanticTopK: magmaOpt.TopSemanticK,
 		})
 		if err != nil {
 			return ingest.IngestResponse{}, err

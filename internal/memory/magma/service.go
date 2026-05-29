@@ -98,13 +98,14 @@ func (s *Service) Ingest(ctx context.Context, in IngestRequest) (EventIngestResp
 		return EventIngestResponse{}, err
 	}
 	event := EventNode{
-		ID:        eventID(in.Tenant, in.ID),
-		Tenant:    in.Tenant,
-		Session:   in.SessionID,
-		Text:      text,
-		Embedding: embedding,
-		Graphs:    append([]GraphType(nil), in.Graphs...),
-		CreatedAt: createdAt,
+		ID:           eventID(in.Tenant, in.ID),
+		Tenant:       in.Tenant,
+		Session:      in.SessionID,
+		Text:         text,
+		Embedding:    embedding,
+		Graphs:       append([]GraphType(nil), in.Graphs...),
+		SemanticTopK: in.SemanticTopK,
+		CreatedAt:    createdAt,
 	}
 	if err := s.store.StoreEvent(ctx, event); err != nil {
 		return EventIngestResponse{}, err

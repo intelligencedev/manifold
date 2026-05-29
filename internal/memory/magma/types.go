@@ -40,6 +40,7 @@ type EventNode struct {
 	Text           string          `json:"text"`
 	Embedding      []float32       `json:"-"`
 	Graphs         []GraphType     `json:"graphs,omitempty"`
+	SemanticTopK   int             `json:"semantic_top_k,omitempty"`
 	TemporalAttrs  TemporalAttrs   `json:"temporal_attrs,omitempty"`
 	EntityMentions []EntityMention `json:"entity_mentions,omitempty"`
 	CreatedAt      time.Time       `json:"created_at"`
@@ -123,13 +124,14 @@ type StructuredContext struct {
 }
 
 type IngestRequest struct {
-	ID        string
-	Tenant    string
-	SessionID string
-	Text      string
-	Metadata  map[string]any
-	Graphs    []GraphType
-	CreatedAt time.Time
+	ID           string
+	Tenant       string
+	SessionID    string
+	Text         string
+	Metadata     map[string]any
+	Graphs       []GraphType
+	SemanticTopK int
+	CreatedAt    time.Time
 }
 
 type EventIngestResponse struct {

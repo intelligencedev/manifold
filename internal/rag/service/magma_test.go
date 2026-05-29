@@ -187,6 +187,39 @@ func TestService_MagmaIngestGraphsOptionRestrictsConsolidation(t *testing.T) {
 	}
 }
 
+func TestService_MagmaIngestTopSemanticKOptionPersists(t *testing.T) {
+	t.Parallel()
+	mgr := databases.Manager{
+		Search: databases.NewMemorySearch(),
+		Vector: databases.NewMemoryVector(),
+		Graph:  databases.NewMemoryGraph(),
+	}
+	svc := New(mgr)
+	ctx := context.Background()
+
+	resp, err := svc.Ingest(ctx, ingest.IngestRequest{
+		ID:     "doc:top-k",
+		Text:   "Melanie practiced guitar.",
+		Tenant: "t1",
+		Options: ingest.IngestOptions{
+			Magma: ingest.MagmaOptions{Enabled: true, Graphs: []string{"semantic"}, TopSemanticK: 4},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+	if _, err := svc.magma.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("DrainConsolidation() error = %v", err)
+	}
+	event, ok := svc.magma.Event(ctx, resp.MagmaEventID)
+	if !ok {
+		t.Fatalf("expected MAGMA event")
+	}
+	if event.SemanticTopK != 4 {
+		t.Fatalf("expected top semantic k from request, got %d", event.SemanticTopK)
+	}
+}
+
 func waitForMagmaEvent(t *testing.T, ctx context.Context, svc *Service, eventID string) {
 	t.Helper()
 	deadline := time.After(2 * time.Second)

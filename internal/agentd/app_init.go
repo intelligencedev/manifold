@@ -171,6 +171,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 	}
 	toolRegistry.Register(ragtool.NewIngestTool(mgr, ragOpts...))
 	toolRegistry.Register(ragtool.NewRetrieveTool(mgr, ragOpts...))
+	toolRegistry.Register(ragtool.NewMagmaLifecycleTool(mgr, ragOpts...))
 	// Reuse a single shared RAG service for runtime use (belief router, etc.).
 	runtimeRAGService := ragservice.New(mgr, ragOpts...)
 

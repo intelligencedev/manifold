@@ -3,7 +3,9 @@ package ragtool
 import (
 	"context"
 	"encoding/json"
+	"time"
 
+	"manifold/internal/memory/magma"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/rag/ingest"
 	"manifold/internal/rag/retrieve"
@@ -17,6 +19,129 @@ type ingestTool struct{ s *ragservice.Service }
 func NewIngestTool(mgr databases.Manager, opts ...ragservice.Option) *ingestTool {
 	s := ragservice.New(mgr, opts...)
 	return &ingestTool{s: s}
+}
+
+// MAGMA lifecycle tool
+type magmaLifecycleTool struct{ s *ragservice.Service }
+
+// NewMagmaLifecycleTool constructs the magma_lifecycle tool backed by the RAG
+// service's MAGMA backend.
+func NewMagmaLifecycleTool(mgr databases.Manager, opts ...ragservice.Option) *magmaLifecycleTool {
+	s := ragservice.New(mgr, opts...)
+	return &magmaLifecycleTool{s: s}
+}
+
+func (t *magmaLifecycleTool) Name() string { return "magma_lifecycle" }
+
+func (t *magmaLifecycleTool) JSONSchema() map[string]any {
+	selector := map[string]any{
+		"type":     "object",
+		"required": []string{"source", "graph_type", "rel", "target"},
+		"properties": map[string]any{
+			"source":     map[string]any{"type": "string"},
+			"graph_type": map[string]any{"type": "string", "enum": []any{"semantic", "temporal", "causal", "entity"}},
+			"rel":        map[string]any{"type": "string"},
+			"target":     map[string]any{"type": "string"},
+		},
+	}
+	return map[string]any{
+		"name":        t.Name(),
+		"description": "Run MAGMA lifecycle maintenance and manually review, approve, or retract MAGMA graph edges.",
+		"parameters": map[string]any{
+			"type":     "object",
+			"required": []string{"action"},
+			"properties": map[string]any{
+				"action": map[string]any{"type": "string", "enum": []any{"prune", "review_edges", "approve_edge", "retract_edge"}},
+				"policy": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"event_ttl_hours":          map[string]any{"type": "integer"},
+						"max_edges_per_source_rel": map[string]any{"type": "integer"},
+						"min_semantic_weight":      map[string]any{"type": "number"},
+						"low_confidence_threshold": map[string]any{"type": "number"},
+						"require_review_approval":  map[string]any{"type": "boolean"},
+					},
+				},
+				"selector": selector,
+				"reviewer": map[string]any{"type": "string"},
+				"reason":   map[string]any{"type": "string"},
+			},
+		},
+	}
+}
+
+func (t *magmaLifecycleTool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
+	var args struct {
+		Action string `json:"action"`
+		Policy struct {
+			EventTTLHours          int     `json:"event_ttl_hours"`
+			MaxEdgesPerSourceRel   int     `json:"max_edges_per_source_rel"`
+			MinSemanticWeight      float64 `json:"min_semantic_weight"`
+			LowConfidenceThreshold float64 `json:"low_confidence_threshold"`
+			RequireReviewApproval  bool    `json:"require_review_approval"`
+		} `json:"policy"`
+		Selector struct {
+			Source    string `json:"source"`
+			GraphType string `json:"graph_type"`
+			Rel       string `json:"rel"`
+			Target    string `json:"target"`
+		} `json:"selector"`
+		Reviewer string `json:"reviewer"`
+		Reason   string `json:"reason"`
+	}
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return nil, err
+	}
+	ms := t.s.MagmaService()
+	if ms == nil {
+		return map[string]any{"ok": false, "error": "magma service is not configured"}, nil
+	}
+	switch args.Action {
+	case "prune":
+		stats, err := ms.Prune(ctx, magma.LifecyclePolicy{
+			EventTTL:               time.Duration(args.Policy.EventTTLHours) * time.Hour,
+			MaxEdgesPerSourceRel:   args.Policy.MaxEdgesPerSourceRel,
+			MinSemanticWeight:      args.Policy.MinSemanticWeight,
+			LowConfidenceThreshold: args.Policy.LowConfidenceThreshold,
+			RequireReviewApproval:  args.Policy.RequireReviewApproval,
+		})
+		if err != nil {
+			return map[string]any{"ok": false, "error": err.Error()}, nil
+		}
+		return map[string]any{"ok": true, "stats": stats}, nil
+	case "review_edges":
+		edges, err := ms.ReviewEdges(ctx)
+		if err != nil {
+			return map[string]any{"ok": false, "error": err.Error()}, nil
+		}
+		return map[string]any{"ok": true, "edges": edges}, nil
+	case "approve_edge":
+		if err := ms.ApproveEdge(ctx, lifecycleSelector(args.Selector), args.Reviewer); err != nil {
+			return map[string]any{"ok": false, "error": err.Error()}, nil
+		}
+		return map[string]any{"ok": true}, nil
+	case "retract_edge":
+		if err := ms.RetractEdge(ctx, lifecycleSelector(args.Selector), args.Reason); err != nil {
+			return map[string]any{"ok": false, "error": err.Error()}, nil
+		}
+		return map[string]any{"ok": true}, nil
+	default:
+		return map[string]any{"ok": false, "error": "unknown action"}, nil
+	}
+}
+
+func lifecycleSelector(in struct {
+	Source    string `json:"source"`
+	GraphType string `json:"graph_type"`
+	Rel       string `json:"rel"`
+	Target    string `json:"target"`
+}) magma.EdgeSelector {
+	return magma.EdgeSelector{
+		Source:    in.Source,
+		GraphType: magma.GraphType(in.GraphType),
+		Rel:       in.Rel,
+		Target:    in.Target,
+	}
 }
 
 func (t *ingestTool) Name() string { return "rag_ingest" }

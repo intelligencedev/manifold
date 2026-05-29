@@ -87,6 +87,15 @@ The MAGMA service exposes lifecycle hardening APIs:
 - `ApproveEdge(ctx, selector, reviewer)` marks an edge as approved and records review metadata.
 - `RetractEdge(ctx, selector, reason)` deletes an incorrect edge from the graph.
 
+Manual lifecycle testing is available through the `magma_lifecycle` tool:
+
+```json
+{"action":"prune","policy":{"low_confidence_threshold":0.6}}
+{"action":"review_edges"}
+{"action":"approve_edge","selector":{"source":"event:t1:example","graph_type":"causal","rel":"CAUSES","target":"event:t1:example"},"reviewer":"manual-test"}
+{"action":"retract_edge","selector":{"source":"event:t1:example","graph_type":"causal","rel":"CAUSES","target":"event:t1:example"},"reason":"manual-test"}
+```
+
 In-memory and Postgres graph backends implement the optional maintenance interface used by these APIs. Backends that do not implement it still support normal MAGMA ingest and retrieval, but lifecycle operations return `MaintenanceDisabled`.
 
 ## Observability

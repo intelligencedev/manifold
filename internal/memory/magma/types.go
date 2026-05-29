@@ -79,11 +79,12 @@ type TraversalPolicy struct {
 }
 
 type QueryOptions struct {
-	Tenant        string
-	IntentHint    IntentCategory
-	MaxHops       int
-	MaxNodes      int
-	ContextFormat string
+	Tenant               string
+	IntentHint           IntentCategory
+	MaxHops              int
+	MaxNodes             int
+	ContextFormat        string
+	IntentClassification string
 }
 
 type Subgraph struct {

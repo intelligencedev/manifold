@@ -423,6 +423,9 @@ func (s *Service) normalizeMagmaRetrieveOptions(opt retrieve.MagmaRetrieveOption
 	if opt.ContextFormat == "" {
 		opt.ContextFormat = s.magmaCfg.Retrieval.ContextFormat
 	}
+	if opt.IntentClassification == "" {
+		opt.IntentClassification = s.magmaCfg.Retrieval.IntentClassification
+	}
 	return opt
 }
 

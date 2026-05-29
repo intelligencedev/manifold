@@ -200,11 +200,12 @@ func (t *retrieveTool) JSONSchema() map[string]any {
 				"magma": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
-						"enabled":        map[string]any{"type": "boolean"},
-						"intent_hint":    map[string]any{"type": "string", "enum": []any{"auto", "temporal", "entity", "causal", "semantic"}},
-						"max_hops":       map[string]any{"type": "integer"},
-						"max_nodes":      map[string]any{"type": "integer"},
-						"context_format": map[string]any{"type": "string", "enum": []any{"structured", "text"}},
+						"enabled":               map[string]any{"type": "boolean"},
+						"intent_hint":           map[string]any{"type": "string", "enum": []any{"auto", "temporal", "entity", "causal", "semantic"}},
+						"max_hops":              map[string]any{"type": "integer"},
+						"max_nodes":             map[string]any{"type": "integer"},
+						"context_format":        map[string]any{"type": "string", "enum": []any{"structured", "text"}},
+						"intent_classification": map[string]any{"type": "string", "enum": []any{"rules", "semantic", "hybrid"}},
 					},
 				},
 				"tenant": map[string]any{"type": "string"},
@@ -230,11 +231,12 @@ func (t *retrieveTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 		Rerank         bool    `json:"rerank"`
 		GraphAugment   bool    `json:"graph_augment"`
 		Magma          struct {
-			Enabled       bool   `json:"enabled"`
-			IntentHint    string `json:"intent_hint"`
-			MaxHops       int    `json:"max_hops"`
-			MaxNodes      int    `json:"max_nodes"`
-			ContextFormat string `json:"context_format"`
+			Enabled              bool   `json:"enabled"`
+			IntentHint           string `json:"intent_hint"`
+			MaxHops              int    `json:"max_hops"`
+			MaxNodes             int    `json:"max_nodes"`
+			ContextFormat        string `json:"context_format"`
+			IntentClassification string `json:"intent_classification"`
 		} `json:"magma"`
 		Tenant string            `json:"tenant"`
 		Filter map[string]string `json:"filter"`
@@ -248,7 +250,7 @@ func (t *retrieveTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 		IncludeText: args.IncludeText, IncludeSnippet: args.IncludeSnippet,
 		Diversify: args.Diversify, Rerank: args.Rerank, GraphAugment: args.GraphAugment,
 		Tenant: args.Tenant, Filter: args.Filter, Instruction: args.Instruction,
-		Magma: retrieve.MagmaRetrieveOptions{Enabled: args.Magma.Enabled, IntentHint: args.Magma.IntentHint, MaxHops: args.Magma.MaxHops, MaxNodes: args.Magma.MaxNodes, ContextFormat: args.Magma.ContextFormat},
+		Magma: retrieve.MagmaRetrieveOptions{Enabled: args.Magma.Enabled, IntentHint: args.Magma.IntentHint, MaxHops: args.Magma.MaxHops, MaxNodes: args.Magma.MaxNodes, ContextFormat: args.Magma.ContextFormat, IntentClassification: args.Magma.IntentClassification},
 	}
 	resp, err := t.s.Retrieve(ctx, args.Query, opt)
 	if err != nil {

@@ -39,11 +39,12 @@ type RetrieveOptions struct {
 // true, the RAG service uses MAGMA's structured context path instead of the
 // legacy hybrid path.
 type MagmaRetrieveOptions struct {
-	Enabled       bool
-	IntentHint    string
-	MaxHops       int
-	MaxNodes      int
-	ContextFormat string
+	Enabled              bool
+	IntentHint           string
+	MaxHops              int
+	MaxNodes             int
+	ContextFormat        string
+	IntentClassification string
 }
 
 // RetrievedItem represents a fused retrieval hit.

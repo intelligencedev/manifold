@@ -10,11 +10,12 @@ import (
 
 func (s *Service) retrieveMagma(ctx context.Context, q string, opt retrieve.RetrieveOptions, start time.Time) (retrieve.RetrieveResponse, error) {
 	magmaCtx, err := s.magma.Query(ctx, q, magma.QueryOptions{
-		Tenant:        opt.Tenant,
-		IntentHint:    parseIntentHint(opt.Magma.IntentHint),
-		MaxHops:       opt.Magma.MaxHops,
-		MaxNodes:      opt.Magma.MaxNodes,
-		ContextFormat: opt.Magma.ContextFormat,
+		Tenant:               opt.Tenant,
+		IntentHint:           parseIntentHint(opt.Magma.IntentHint),
+		MaxHops:              opt.Magma.MaxHops,
+		MaxNodes:             opt.Magma.MaxNodes,
+		ContextFormat:        opt.Magma.ContextFormat,
+		IntentClassification: opt.Magma.IntentClassification,
 	})
 	if err != nil {
 		return retrieve.RetrieveResponse{}, err

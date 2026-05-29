@@ -266,6 +266,52 @@ func TestService_MagmaRetrieveContextFormatText(t *testing.T) {
 	}
 }
 
+func TestService_MagmaRetrieveIntentClassificationFromConfig(t *testing.T) {
+	t.Parallel()
+	mgr := databases.Manager{
+		Search: databases.NewMemorySearch(),
+		Graph:  databases.NewMemoryGraph(),
+	}
+	svc := New(mgr, WithMagmaConfig(config.MagmaConfig{
+		Enabled: true,
+		Consolidation: config.MagmaConsolidationConfig{
+			WorkerCount: -1,
+		},
+		Graphs: config.MagmaGraphsConfig{
+			Semantic: config.MagmaSemanticGraphConfig{Enabled: true, TopK: 20},
+			Temporal: config.MagmaTemporalGraphConfig{Enabled: true},
+			Causal:   config.MagmaCausalGraphConfig{Enabled: true},
+			Entity:   config.MagmaEntityGraphConfig{Enabled: true},
+		},
+		Retrieval: config.MagmaRetrievalConfig{
+			DefaultHops:          2,
+			DefaultMaxNodes:      5,
+			IntentClassification: "semantic",
+			ContextFormat:        "structured",
+		},
+	}))
+	ctx := context.Background()
+
+	resp, err := svc.Ingest(ctx, ingest.IngestRequest{ID: "doc:intent-mode", Text: "Melanie practiced guitar.", Tenant: "t1"})
+	if err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+	if _, err := svc.magma.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("DrainConsolidation() error = %v", err)
+	}
+	if resp.MagmaEventID == "" {
+		t.Fatalf("expected MAGMA event")
+	}
+
+	got, err := svc.Retrieve(ctx, "What do you know about Melanie?", retrieve.RetrieveOptions{Tenant: "t1"})
+	if err != nil {
+		t.Fatalf("Retrieve() error = %v", err)
+	}
+	if len(got.Items) != 0 {
+		t.Fatalf("expected semantic config mode not to use entity anchors, got %#v", got.Items)
+	}
+}
+
 func waitForMagmaEvent(t *testing.T, ctx context.Context, svc *Service, eventID string) {
 	t.Helper()
 	deadline := time.After(2 * time.Second)

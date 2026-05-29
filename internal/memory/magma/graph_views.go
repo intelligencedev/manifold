@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -43,7 +44,7 @@ func (s *Store) GetEvent(ctx context.Context, id string) (EventNode, bool) {
 		return EventNode{}, false
 	}
 	node, ok := s.graph.GetNode(ctx, id)
-	if !ok {
+	if !ok || !slices.Contains(node.Labels, "MagmaEvent") {
 		return EventNode{}, false
 	}
 	return eventFromNode(node), true

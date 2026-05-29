@@ -17,7 +17,7 @@ func ClassifyIntent(query string) (IntentCategory, float64) {
 	if strings.Contains(lower, "when") || strings.Contains(lower, "before") || strings.Contains(lower, "after") {
 		intent |= IntentTemporal
 	}
-	if strings.Contains(lower, "who") || strings.Contains(lower, "friend") || strings.Contains(lower, "instrument") || strings.Contains(lower, "person") {
+	if strings.Contains(lower, "who") || strings.Contains(lower, "friend") || strings.Contains(lower, "instrument") || strings.Contains(lower, "person") || len(ResolveEntities(query)) > 0 {
 		intent |= IntentEntity
 	}
 	if strings.Contains(lower, "why") || strings.Contains(lower, "caused") || strings.Contains(lower, "because") {
@@ -61,10 +61,7 @@ func (q QueryEngine) Query(ctx context.Context, query string, opt QueryOptions) 
 	if q.Service == nil || q.Service.store == nil {
 		return StructuredContext{}, nil
 	}
-	intent := opt.IntentHint
-	if intent == 0 {
-		intent, _ = ClassifyIntent(query)
-	}
+	intent := classifyIntentForOptions(query, opt)
 	policy := SelectPolicy(intent)
 	if opt.MaxHops > 0 {
 		policy.MaxHops = opt.MaxHops
@@ -87,6 +84,19 @@ func (q QueryEngine) Query(ctx context.Context, query string, opt QueryOptions) 
 	return result, nil
 }
 
+func classifyIntentForOptions(query string, opt QueryOptions) IntentCategory {
+	if opt.IntentHint != 0 {
+		return opt.IntentHint
+	}
+	switch strings.ToLower(strings.TrimSpace(opt.IntentClassification)) {
+	case "semantic":
+		return IntentSemantic
+	default:
+		intent, _ := ClassifyIntent(query)
+		return intent
+	}
+}
+
 func (q QueryEngine) anchors(ctx context.Context, query, tenant string, policy TraversalPolicy) ([]string, error) {
 	limit := policy.MaxNodes
 	if limit <= 0 {
@@ -94,19 +104,21 @@ func (q QueryEngine) anchors(ctx context.Context, query, tenant string, policy T
 	}
 	anchors := make([]string, 0, limit)
 	seen := map[string]bool{}
-	for _, entity := range ResolveEntitiesForTenant(query, tenant) {
-		neighbors, err := q.Service.store.Neighbors(ctx, entity.ID, GraphEntity, "MENTIONS")
-		if err != nil {
-			return nil, err
-		}
-		for _, neighbor := range neighbors {
-			if seen[neighbor] {
-				continue
+	if policy.AnchorStrategy == AnchorEntity {
+		for _, entity := range ResolveEntitiesForTenant(query, tenant) {
+			neighbors, err := q.Service.store.Neighbors(ctx, entity.ID, GraphEntity, "MENTIONS")
+			if err != nil {
+				return nil, err
 			}
-			seen[neighbor] = true
-			anchors = append(anchors, neighbor)
-			if len(anchors) >= limit {
-				return anchors, nil
+			for _, neighbor := range neighbors {
+				if seen[neighbor] {
+					continue
+				}
+				seen[neighbor] = true
+				anchors = append(anchors, neighbor)
+				if len(anchors) >= limit {
+					return anchors, nil
+				}
 			}
 		}
 	}

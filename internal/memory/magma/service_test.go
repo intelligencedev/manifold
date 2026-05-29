@@ -495,6 +495,48 @@ func TestSelectPolicy_MixedIntentUsesUnionOfGraphViews(t *testing.T) {
 	}
 }
 
+func TestQueryIntentClassificationSemanticMode(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := NewService(databases.NewMemoryGraph(), nil, embedder.NewDeterministic(32, true, 0))
+
+	resp, err := svc.Ingest(ctx, IngestRequest{
+		ID:        "melanie-entity-only",
+		Tenant:    "t1",
+		SessionID: "s1",
+		Text:      "Melanie practiced guitar.",
+		CreatedAt: time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+	if _, err := svc.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("DrainConsolidation() error = %v", err)
+	}
+
+	entityResult, err := svc.Query(ctx, "What do you know about Melanie?", QueryOptions{Tenant: "t1", MaxNodes: 5})
+	if err != nil {
+		t.Fatalf("entity Query() error = %v", err)
+	}
+	if len(entityResult.RawEvents) != 1 || entityResult.RawEvents[0].ID != resp.EventID {
+		t.Fatalf("expected rules mode to use entity anchors, got %#v", entityResult.RawEvents)
+	}
+	semanticResult, err := svc.Query(ctx, "What do you know about Melanie?", QueryOptions{Tenant: "t1", MaxNodes: 5, IntentClassification: "semantic"})
+	if err != nil {
+		t.Fatalf("semantic Query() error = %v", err)
+	}
+	if len(semanticResult.RawEvents) != 0 {
+		t.Fatalf("expected semantic mode without vector anchors to return no entity-only events, got %#v", semanticResult.RawEvents)
+	}
+	hintedResult, err := svc.Query(ctx, "What do you know about Melanie?", QueryOptions{Tenant: "t1", MaxNodes: 5, IntentClassification: "semantic", IntentHint: IntentEntity})
+	if err != nil {
+		t.Fatalf("hinted Query() error = %v", err)
+	}
+	if len(hintedResult.RawEvents) != 1 || hintedResult.RawEvents[0].ID != resp.EventID {
+		t.Fatalf("expected explicit hint to override semantic mode, got %#v", hintedResult.RawEvents)
+	}
+}
+
 func TestService_StartConsolidationWorkersProcessesQueue(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

@@ -478,6 +478,18 @@ func applyMagmaDefaults(cfg *Config) {
 	if cfg.Magma.Retrieval.ContextFormat == "" {
 		cfg.Magma.Retrieval.ContextFormat = "structured"
 	}
+	if cfg.Magma.Lifecycle.PruneIntervalMinutes < 0 {
+		cfg.Magma.Lifecycle.PruneIntervalMinutes = 0
+	}
+	if cfg.Magma.Lifecycle.MaxEdgesPerSourceRel < 0 {
+		cfg.Magma.Lifecycle.MaxEdgesPerSourceRel = 0
+	}
+	if cfg.Magma.Lifecycle.MinSemanticWeight < 0 {
+		cfg.Magma.Lifecycle.MinSemanticWeight = 0
+	}
+	if cfg.Magma.Lifecycle.LowConfidenceThreshold <= 0 {
+		cfg.Magma.Lifecycle.LowConfidenceThreshold = 0.6
+	}
 }
 
 func applyDerivedConfig(cfg *Config) {

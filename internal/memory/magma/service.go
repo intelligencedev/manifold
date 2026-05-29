@@ -10,6 +10,8 @@ import (
 
 	"manifold/internal/persistence/databases"
 	"manifold/internal/rag/embedder"
+
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type Service struct {
@@ -19,10 +21,12 @@ type Service struct {
 	queue  chan string
 	cfg    ServiceConfig
 
-	startOnce sync.Once
-	closeOnce sync.Once
-	workerWG  sync.WaitGroup
-	cancel    context.CancelFunc
+	startOnce  sync.Once
+	lifeOnce   sync.Once
+	closeOnce  sync.Once
+	workerWG   sync.WaitGroup
+	cancel     context.CancelFunc
+	lifeCancel context.CancelFunc
 
 	processedTotal atomic.Uint64
 	failedTotal    atomic.Uint64
@@ -77,11 +81,32 @@ func (s *Service) Close() {
 		if s.cancel != nil {
 			s.cancel()
 		}
+		if s.lifeCancel != nil {
+			s.lifeCancel()
+		}
 		s.workerWG.Wait()
 	})
 }
 
-func (s *Service) Ingest(ctx context.Context, in IngestRequest) (EventIngestResponse, error) {
+func (s *Service) StartLifecycleWorker(ctx context.Context, interval time.Duration) {
+	if s == nil || interval <= 0 {
+		return
+	}
+	s.lifeOnce.Do(func() {
+		workerCtx, cancel := context.WithCancel(ctx)
+		s.lifeCancel = cancel
+		s.workerWG.Add(1)
+		go s.runLifecycleWorker(workerCtx, interval)
+	})
+}
+
+func (s *Service) Ingest(ctx context.Context, in IngestRequest) (resp EventIngestResponse, err error) {
+	ctx, span := startSpan(ctx, "magma.ingest",
+		attribute.String("magma.tenant", in.Tenant),
+		attribute.String("magma.session", in.SessionID),
+		attribute.Int("magma.graphs", len(in.Graphs)),
+	)
+	defer endSpan(span, &err)
 	if s == nil || s.store == nil {
 		return EventIngestResponse{}, errors.New("magma service is not configured")
 	}
@@ -121,10 +146,13 @@ func (s *Service) Ingest(ctx context.Context, in IngestRequest) (EventIngestResp
 	if !s.enqueue(event.ID) {
 		status = "queue_full"
 	}
+	span.SetAttributes(attribute.String("magma.event_id", event.ID), attribute.String("magma.ingest.status", status))
 	return EventIngestResponse{EventID: event.ID, Status: status}, nil
 }
 
 func (s *Service) Consolidate(ctx context.Context, eventID string) (err error) {
+	ctx, span := startSpan(ctx, "magma.consolidate", attribute.String("magma.event_id", eventID))
+	defer endSpan(span, &err)
 	start := time.Now()
 	tenant := ""
 	defer func() {
@@ -145,6 +173,7 @@ func (s *Service) Consolidate(ctx context.Context, eventID string) (err error) {
 		return errors.New("magma event not found")
 	}
 	tenant = event.Tenant
+	span.SetAttributes(attribute.String("magma.tenant", tenant), attribute.String("magma.session", event.Session))
 	if len(event.Embedding) == 0 {
 		embedding, err := s.embed(ctx, event.Text)
 		if err != nil {
@@ -183,6 +212,11 @@ func (s *Service) Consolidate(ctx context.Context, eventID string) (err error) {
 		}
 		edges = append(edges, causalEdges...)
 	}
+	span.SetAttributes(
+		attribute.Int("magma.entities", len(entities)),
+		attribute.Int("magma.edges", len(edges)),
+		attribute.Bool("magma.llm_extracted", extractedOK),
+	)
 	return s.store.BatchUpsert(ctx, BatchUpsertRequest{
 		Event:           event,
 		TemporalAttrs:   attrs,
@@ -223,6 +257,22 @@ func (s *Service) runConsolidationWorker(ctx context.Context) {
 	}
 }
 
+func (s *Service) runLifecycleWorker(ctx context.Context, interval time.Duration) {
+	defer s.workerWG.Done()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if _, err := s.Prune(ctx, LifecyclePolicy{}); err != nil {
+				s.setLastError(err)
+			}
+		}
+	}
+}
+
 func (s *Service) Stats() ServiceStats {
 	if s == nil {
 		return ServiceStats{}
@@ -242,9 +292,21 @@ func (s *Service) Stats() ServiceStats {
 	}
 }
 
-func (s *Service) Query(ctx context.Context, query string, opt QueryOptions) (StructuredContext, error) {
+func (s *Service) Query(ctx context.Context, query string, opt QueryOptions) (ctxOut StructuredContext, err error) {
+	ctx, span := startSpan(ctx, "magma.query",
+		attribute.String("magma.tenant", opt.Tenant),
+		attribute.Int("magma.query.max_hops", opt.MaxHops),
+		attribute.Int("magma.query.max_nodes", opt.MaxNodes),
+	)
+	defer endSpan(span, &err)
 	engine := QueryEngine{Service: s}
-	return engine.Query(ctx, query, opt)
+	ctxOut, err = engine.Query(ctx, query, opt)
+	span.SetAttributes(
+		attribute.String("magma.intent", ctxOut.Intent.String()),
+		attribute.Int("magma.results", len(ctxOut.RawEvents)),
+		attribute.Int("magma.anchor_count", ctxOut.AnchorCount),
+	)
+	return ctxOut, err
 }
 
 func (s *Service) Event(ctx context.Context, id string) (EventNode, bool) {
@@ -341,6 +403,17 @@ func (s *Service) llmExtractionEnabled(event EventNode) bool {
 
 func (s *Service) entityCoReferenceEnabled(event EventNode) bool {
 	return s != nil && s.cfg.Graphs.CoReference && s.graphEnabledForEvent(event, GraphEntity)
+}
+
+func (s *Service) skipEdgeForRetrieval(edge Edge) bool {
+	if edgeReviewState(edge) == "retracted" {
+		return true
+	}
+	if s == nil || !s.cfg.Lifecycle.RequireReviewApproval {
+		return false
+	}
+	state := edgeReviewState(edge)
+	return state != "" && state != "approved"
 }
 
 func normalizeServiceConfig(cfg ServiceConfig) ServiceConfig {

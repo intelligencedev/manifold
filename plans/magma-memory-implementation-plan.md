@@ -1,7 +1,7 @@
 # MAGMA Implementation Plan for Manifold
 
 **Paper:** [MAGMA: A Multi-Graph based Agentic Memory Architecture for AI Agents](https://arxiv.org/abs/2601.03236)  
-**Status:** Draft implementation plan — no code changes made  
+**Status:** Implementation substantially complete; remaining work is benchmark/evaluation validation  
 **Date:** 2026-05-25
 
 ---
@@ -10,14 +10,14 @@
 
 MAGMA replaces monolithic memory retrieval with **four orthogonal relational graphs** (semantic, temporal, causal, entity) over shared event nodes, plus a policy-guided query-time traversal and a dual-stream write pipeline (fast ingestion + asynchronous consolidation).
 
-Manifold already has the foundations:
+Manifold already had the foundations:
 - `GraphDB` interface with `UpsertNode`, `UpsertEdge`, `Neighbors`, `GetNode`
 - In-memory (`memoryGraph`) and Postgres (`pgGraph`) backends
 - RAG service with ingest/retrieve, graph augmentation, and hybrid fusion
 - Evolving Memory with Search→Synthesis→Evolve loop
 - Belief memory with scope, confidence, and evidence
 
-The gap: Manifold's graph is a single flat label/edge store with no typed multi-graph semantics, no policy-guided traversal, no dual-stream consolidation, and no intent-aware query routing.
+Implemented status: Manifold now has typed MAGMA graph views, fast ingestion plus async consolidation, intent-aware retrieval, RAG/tool integration, observability metrics and tracing, lifecycle pruning, low-confidence review state, and manual edge retraction/approval APIs. Benchmark harnesses and formal performance validation remain outside this plan document.
 
 ---
 
@@ -464,17 +464,30 @@ func (c *ContextConstructor) Build(ctx context.Context, traversals map[GraphType
 
 ### Phase 7: Observability, Metrics & Testing (Week 11-12)
 
-**Metrics to instrument:**
+**Metrics instrumented:**
 - Ingestion: `magma_ingestion_fast_ms`, `magma_ingestion_consolidation_ms`, `magma_events_total`
 - Retrieval: `magma_query_ms`, `magma_traversal_hops`, `magma_context_tokens`, `magma_intent_distribution`
-- Quality: `magma_consolidation_success_rate`, `magma_entity_resolution_accuracy`
+- Quality/lifecycle: `magma_consolidation_success_rate`, `magma_entity_resolution_accuracy`, `magma_lifecycle_events_deleted`, `magma_lifecycle_edges_deleted`, `magma_lifecycle_edges_flagged_review`
+
+**Trace spans instrumented:**
+- `magma.ingest`
+- `magma.consolidate`
+- `magma.query`
+- `magma.query.classify_intent`
+- `magma.query.anchors`
+- `magma.query.traverse`
+- `magma.prune`
+- `magma.approve_edge`
+- `magma.retract_edge`
 
 **Test strategy:**
-1. Unit tests for temporal normalization (relative → absolute date resolution)
-2. Unit tests for entity resolution (co-reference across events)
-3. Integration tests for graph traversal (multi-hop paths)
-4. Evaluation against LoCoMo dataset (reproduce MAGMA benchmark results)
-5. Evaluation against LongMemEval (multi-session counting/aggregation)
+1. Unit tests for temporal normalization (relative → absolute date resolution) — implemented
+2. Unit tests for entity resolution (co-reference across events) — implemented
+3. Integration tests for graph traversal (multi-hop paths) — implemented
+4. Lifecycle tests for TTL pruning, semantic edge pruning, fanout simplification, review approval, and retraction — implemented
+5. Trace span tests for MAGMA ingest/consolidation/query/prune — implemented
+6. Evaluation against LoCoMo dataset (reproduce MAGMA benchmark results) — remaining
+7. Evaluation against LongMemEval (multi-session counting/aggregation) — remaining
 
 ---
 
@@ -490,30 +503,38 @@ magma:
   enabled: true
   consolidation:
     model: "gpt-4o-mini"
-    batch_size: 10
-    max_queue_size: 1000
-    worker_count: 2
+    batchSize: 10
+    maxQueueSize: 1000
+    workerCount: 2
     prompts:
-      entity_extraction: "Extract named entities..."
-      causal_extraction: "Identify causal relationships..."
+      consolidationExtraction: "Extract MAGMA memory structure..."
+      intentClassification: "Classify the memory retrieval query..."
   graphs:
     semantic:
       enabled: true
-      top_k: 20
-      similarity_threshold: 0.7
+      topK: 20
+      similarityThreshold: 0.7
     temporal:
       enabled: true
-      date_resolution: "auto"
+      dateResolution: "auto"
     causal:
       enabled: true
-      llm_threshold: 0.8
+      llmThreshold: 0.8
     entity:
       enabled: true
-      co_reference: true
+      coReference: true
   retrieval:
-    default_hops: 2
-    default_max_nodes: 10
-    intent_classification: "hybrid"  # "rules", "llm", or "hybrid"
+    defaultHops: 2
+    defaultMaxNodes: 10
+    intentClassification: "hybrid"  # "rules", "llm", or "hybrid"
+    contextFormat: "structured"
+  lifecycle:
+    pruneIntervalMinutes: 0
+    eventTTLHours: 0
+    maxEdgesPerSourceRel: 0
+    minSemanticWeight: 0
+    lowConfidenceThreshold: 0.6
+    requireReviewApproval: false
 ```
 
 ---
@@ -523,9 +544,9 @@ magma:
 | Risk | Impact | Mitigation |
 |---|---|---|
 | Consolidation latency (LLM calls) | Slow graph construction | Async workers, batching, cache consolidation results |
-| Entity resolution errors | Wrong entity linking | Confidence thresholds, manual review UI, retractable edges |
-| Graph size growth | Query performance degradation | Pruning strategies, TTL-based expiration, topological simplification |
-| Causal extraction hallucination | Incorrect reasoning | Require high LLM confidence, flag low-confidence edges |
+| Entity resolution errors | Wrong entity linking | Confidence thresholds, review-state APIs, retractable edges |
+| Graph size growth | Query performance degradation | TTL expiration, semantic edge weight pruning, per-source/relation fanout simplification |
+| Causal extraction hallucination | Incorrect reasoning | Require high LLM confidence, flag low-confidence edges, optionally gate retrieval on review approval |
 | Integration complexity | Breaking existing RAG flow | Opt-in via config, backward-compatible tool schemas |
 
 ---

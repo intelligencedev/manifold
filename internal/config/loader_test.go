@@ -216,6 +216,13 @@ magma:
     defaultMaxNodes: 15
     intentClassification: hybrid
     contextFormat: structured
+  lifecycle:
+    pruneIntervalMinutes: 60
+    eventTTLHours: 168
+    maxEdgesPerSourceRel: 25
+    minSemanticWeight: 0.45
+    lowConfidenceThreshold: 0.65
+    requireReviewApproval: true
 imageTool:
   baseURL: http://localhost:11434/v1
   model: llava:latest
@@ -326,6 +333,14 @@ tokenization:
 	}
 	if cfg.Magma.Retrieval.DefaultHops != 3 || cfg.Magma.Retrieval.DefaultMaxNodes != 15 || cfg.Magma.Retrieval.ContextFormat != "structured" {
 		t.Fatalf("unexpected magma retrieval config: %+v", cfg.Magma.Retrieval)
+	}
+	if cfg.Magma.Lifecycle.PruneIntervalMinutes != 60 ||
+		cfg.Magma.Lifecycle.EventTTLHours != 168 ||
+		cfg.Magma.Lifecycle.MaxEdgesPerSourceRel != 25 ||
+		cfg.Magma.Lifecycle.MinSemanticWeight != 0.45 ||
+		cfg.Magma.Lifecycle.LowConfidenceThreshold != 0.65 ||
+		!cfg.Magma.Lifecycle.RequireReviewApproval {
+		t.Fatalf("unexpected magma lifecycle config: %+v", cfg.Magma.Lifecycle)
 	}
 	if cfg.ImageTool.BaseURL != "http://localhost:11434/v1" || cfg.ImageTool.Model != "llava:latest" {
 		t.Fatalf("unexpected image tool config: %+v", cfg.ImageTool)

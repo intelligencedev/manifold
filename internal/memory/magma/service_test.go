@@ -11,6 +11,10 @@ import (
 	"manifold/internal/llm"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/rag/embedder"
+
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
 
 type failingEmbedder struct{}
@@ -799,7 +803,7 @@ func TestQueryIntentClassificationLLMMode(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	provider := &fakeConsolidationLLM{response: `{"intents":["causal"]}`}
-	svc := NewServiceWithConfig(databases.NewMemoryGraph(), nil, embedder.NewDeterministic(32, true, 0), ServiceConfig{
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), databases.NewMemoryVector(), embedder.NewDeterministic(32, true, 0), ServiceConfig{
 		LLM:   provider,
 		Model: "intent-model",
 	})
@@ -823,7 +827,7 @@ func TestQueryIntentClassificationUsesConfiguredPrompt(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	provider := &fakeConsolidationLLM{response: `{"intents":["semantic"]}`}
-	svc := NewServiceWithConfig(databases.NewMemoryGraph(), nil, embedder.NewDeterministic(32, true, 0), ServiceConfig{
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), databases.NewMemoryVector(), embedder.NewDeterministic(32, true, 0), ServiceConfig{
 		LLM: provider,
 		Prompts: PromptConfig{
 			IntentClassification: "custom intent prompt",
@@ -916,6 +920,231 @@ func TestService_StartConsolidationWorkersProcessesQueue(t *testing.T) {
 		select {
 		case <-deadline:
 			t.Fatalf("timed out waiting for async consolidation")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+}
+
+func TestService_PruneExpiresEventsAndDeletesVector(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	vector := databases.NewMemoryVector()
+	svc := NewService(databases.NewMemoryGraph(), vector, embedder.NewDeterministic(32, true, 0))
+
+	oldResp, err := svc.Ingest(ctx, IngestRequest{
+		ID:        "old",
+		Tenant:    "t1",
+		Text:      "Melanie practiced guitar.",
+		CreatedAt: time.Now().Add(-48 * time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("old Ingest() error = %v", err)
+	}
+	if _, err := svc.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("old DrainConsolidation() error = %v", err)
+	}
+	newResp, err := svc.Ingest(ctx, IngestRequest{
+		ID:        "new",
+		Tenant:    "t1",
+		Text:      "Melanie practiced piano.",
+		CreatedAt: time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("new Ingest() error = %v", err)
+	}
+	if _, err := svc.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("new DrainConsolidation() error = %v", err)
+	}
+
+	stats, err := svc.Prune(ctx, LifecyclePolicy{EventTTL: 24 * time.Hour})
+	if err != nil {
+		t.Fatalf("Prune() error = %v", err)
+	}
+	if stats.EventsDeleted != 1 {
+		t.Fatalf("expected one deleted event, got %#v", stats)
+	}
+	if _, ok := svc.Event(ctx, oldResp.EventID); ok {
+		t.Fatalf("expected old event to be deleted")
+	}
+	if _, ok := svc.Event(ctx, newResp.EventID); !ok {
+		t.Fatalf("expected new event to remain")
+	}
+	results, err := vector.SimilaritySearch(ctx, []float32{1, 0, 0}, 10, map[string]string{"tenant": "t1"})
+	if err != nil {
+		t.Fatalf("SimilaritySearch() error = %v", err)
+	}
+	for _, result := range results {
+		if result.ID == oldResp.EventID {
+			t.Fatalf("expected old vector to be deleted, got %#v", results)
+		}
+	}
+}
+
+func TestService_PruneEdgesByWeightAndFanout(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), nil, embedder.NewDeterministic(32, true, 0), ServiceConfig{
+		Graphs: GraphConfig{Semantic: true},
+	})
+	for _, id := range []string{"source", "keep", "drop_weight", "drop_fanout"} {
+		if err := svc.store.StoreEvent(ctx, EventNode{ID: "event:t1:" + id, Tenant: "t1", Text: id, CreatedAt: time.Now()}); err != nil {
+			t.Fatalf("StoreEvent(%s) error = %v", id, err)
+		}
+	}
+	edges := []Edge{
+		{Source: "event:t1:source", GraphType: GraphSemantic, Rel: "SIMILAR_TO", Target: "event:t1:keep", Weight: 0.95},
+		{Source: "event:t1:source", GraphType: GraphSemantic, Rel: "SIMILAR_TO", Target: "event:t1:drop_weight", Weight: 0.25},
+		{Source: "event:t1:source", GraphType: GraphSemantic, Rel: "SIMILAR_TO", Target: "event:t1:drop_fanout", Weight: 0.8},
+	}
+	for _, edge := range edges {
+		if err := svc.store.UpsertEdge(ctx, edge); err != nil {
+			t.Fatalf("UpsertEdge() error = %v", err)
+		}
+	}
+	stats, err := svc.Prune(ctx, LifecyclePolicy{MinSemanticWeight: 0.5, MaxEdgesPerSourceRel: 1})
+	if err != nil {
+		t.Fatalf("Prune() error = %v", err)
+	}
+	if stats.EdgesDeleted != 2 {
+		t.Fatalf("expected two deleted edges, got %#v", stats)
+	}
+	neighbors, err := svc.store.Neighbors(ctx, "event:t1:source", GraphSemantic, "SIMILAR_TO")
+	if err != nil {
+		t.Fatalf("Neighbors() error = %v", err)
+	}
+	if len(neighbors) != 1 || neighbors[0] != "event:t1:keep" {
+		t.Fatalf("expected only strongest edge to remain, got %#v", neighbors)
+	}
+}
+
+func TestService_ReviewWorkflowFlagsApprovesAndRetractsEdges(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), databases.NewMemoryVector(), embedder.NewDeterministic(32, true, 0), ServiceConfig{
+		Graphs: GraphConfig{Causal: true},
+		Lifecycle: LifecyclePolicy{
+			RequireReviewApproval: true,
+		},
+	})
+	resp, err := svc.Ingest(ctx, IngestRequest{
+		ID:     "causal-low-confidence",
+		Tenant: "t1",
+		Text:   "Melanie stayed inside because rain started.",
+	})
+	if err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+	if _, err := svc.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("DrainConsolidation() error = %v", err)
+	}
+	stats, err := svc.Prune(ctx, LifecyclePolicy{LowConfidenceThreshold: 0.6})
+	if err != nil {
+		t.Fatalf("Prune() error = %v", err)
+	}
+	if stats.EdgesFlaggedReview != 1 {
+		t.Fatalf("expected one flagged edge, got %#v", stats)
+	}
+	review, err := svc.ReviewEdges(ctx)
+	if err != nil {
+		t.Fatalf("ReviewEdges() error = %v", err)
+	}
+	if len(review) != 1 || review[0].ReviewState != "needs_review" {
+		t.Fatalf("expected one review edge, got %#v", review)
+	}
+	result, err := svc.Query(ctx, "Why did Melanie stay inside?", QueryOptions{Tenant: "t1", IntentHint: IntentCausal, MaxNodes: 5})
+	if err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if len(result.CausalChain) != 0 {
+		t.Fatalf("expected review-gated causal edge to be filtered, got %#v", result.CausalChain)
+	}
+	selector := selectorForEdge(review[0].Edge)
+	if err := svc.ApproveEdge(ctx, selector, "tester"); err != nil {
+		t.Fatalf("ApproveEdge() error = %v", err)
+	}
+	result, err = svc.Query(ctx, "Why did Melanie stay inside?", QueryOptions{Tenant: "t1", IntentHint: IntentCausal, MaxNodes: 5})
+	if err != nil {
+		t.Fatalf("approved Query() error = %v", err)
+	}
+	if len(result.CausalChain) != 1 {
+		t.Fatalf("expected approved causal edge to be used, got %#v", result.CausalChain)
+	}
+	if err := svc.RetractEdge(ctx, selector, "incorrect"); err != nil {
+		t.Fatalf("RetractEdge() error = %v", err)
+	}
+	neighbors, err := svc.store.Neighbors(ctx, resp.EventID, GraphCausal, "CAUSES")
+	if err != nil {
+		t.Fatalf("Neighbors() error = %v", err)
+	}
+	if len(neighbors) != 0 {
+		t.Fatalf("expected retracted edge deleted, got %#v", neighbors)
+	}
+}
+
+func TestService_EmitsMagmaTraceSpans(t *testing.T) {
+	ctx := context.Background()
+	recorder := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	previous := otel.GetTracerProvider()
+	otel.SetTracerProvider(provider)
+	t.Cleanup(func() {
+		otel.SetTracerProvider(previous)
+		_ = provider.Shutdown(context.Background())
+	})
+
+	svc := NewService(databases.NewMemoryGraph(), databases.NewMemoryVector(), embedder.NewDeterministic(32, true, 0))
+	resp, err := svc.Ingest(ctx, IngestRequest{ID: "trace", Tenant: "t1", Text: "Yesterday Melanie practiced guitar."})
+	if err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+	if _, err := svc.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("DrainConsolidation() error = %v", err)
+	}
+	if _, err := svc.Query(ctx, "When did Melanie practice?", QueryOptions{Tenant: "t1", MaxNodes: 5}); err != nil {
+		t.Fatalf("Query() error = %v", err)
+	}
+	if _, err := svc.Prune(ctx, LifecyclePolicy{LowConfidenceThreshold: 0.6}); err != nil {
+		t.Fatalf("Prune() error = %v", err)
+	}
+	if resp.EventID == "" {
+		t.Fatalf("expected event ID")
+	}
+	names := map[string]bool{}
+	for _, span := range recorder.Ended() {
+		names[span.Name()] = true
+	}
+	for _, want := range []string{"magma.ingest", "magma.consolidate", "magma.query", "magma.query.classify_intent", "magma.query.anchors", "magma.query.traverse", "magma.prune"} {
+		if !names[want] {
+			t.Fatalf("expected span %q in %#v", want, names)
+		}
+	}
+}
+
+func TestService_StartLifecycleWorkerPrunesWithConfiguredPolicy(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), databases.NewMemoryVector(), embedder.NewDeterministic(32, true, 0), ServiceConfig{
+		Lifecycle: LifecyclePolicy{EventTTL: time.Nanosecond},
+	})
+	t.Cleanup(svc.Close)
+	resp, err := svc.Ingest(ctx, IngestRequest{
+		ID:        "lifecycle-worker",
+		Tenant:    "t1",
+		Text:      "Melanie practiced guitar.",
+		CreatedAt: time.Now().Add(-time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+	svc.StartLifecycleWorker(ctx, time.Millisecond)
+	deadline := time.After(time.Second)
+	for {
+		if _, ok := svc.Event(ctx, resp.EventID); !ok {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("timed out waiting for lifecycle worker to prune event")
 		case <-time.After(10 * time.Millisecond):
 		}
 	}

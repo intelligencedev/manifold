@@ -148,6 +148,78 @@ func (g *pgGraph) GetNode(ctx context.Context, id string) (Node, bool) {
 	return Node{ID: id, Labels: labels, Props: props}, true
 }
 
+func (g *pgGraph) ListMagmaEvents(ctx context.Context) ([]MagmaEventSummary, error) {
+	rows, err := g.pool.Query(ctx, `SELECT id, tenant, session, created_at FROM magma_events ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []MagmaEventSummary{}
+	for rows.Next() {
+		var event MagmaEventSummary
+		if err := rows.Scan(&event.ID, &event.Tenant, &event.Session, &event.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, event)
+	}
+	return out, rows.Err()
+}
+
+func (g *pgGraph) ListMagmaEdges(ctx context.Context) ([]TypedEdge, error) {
+	rows, err := g.pool.Query(ctx, `
+SELECT source, graph_type, rel, target, COALESCE(weight, 0), props
+FROM magma_edges
+ORDER BY source, graph_type, rel, target`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []TypedEdge{}
+	for rows.Next() {
+		edge := TypedEdge{}
+		if err := rows.Scan(&edge.Source, &edge.GraphType, &edge.Rel, &edge.Target, &edge.Weight, &edge.Props); err != nil {
+			return nil, err
+		}
+		if edge.Props == nil {
+			edge.Props = map[string]any{}
+		}
+		out = append(out, edge)
+	}
+	return out, rows.Err()
+}
+
+func (g *pgGraph) UpsertMagmaEdgeProps(ctx context.Context, edge TypedEdge) error {
+	props := edge.Props
+	if props == nil {
+		props = map[string]any{}
+	}
+	if err := g.TypedUpsertEdge(ctx, edge.Source, edge.GraphType, edge.Rel, edge.Target, props); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (g *pgGraph) DeleteMagmaEdge(ctx context.Context, srcID, graphType, rel, dstID string) error {
+	_, err := g.pool.Exec(ctx, `
+DELETE FROM magma_edges WHERE source=$1 AND graph_type=$2 AND rel=$3 AND target=$4
+`, srcID, graphType, rel, dstID)
+	if err != nil {
+		return err
+	}
+	_, err = g.pool.Exec(ctx, `DELETE FROM edges WHERE source=$1 AND rel=$2 AND target=$3`, srcID, typedRel(graphType, rel), dstID)
+	return err
+}
+
+func (g *pgGraph) DeleteMagmaEvent(ctx context.Context, id string) error {
+	_, err := g.pool.Exec(ctx, `
+DELETE FROM magma_edges WHERE source=$1 OR target=$1;
+DELETE FROM edges WHERE source=$1 OR target=$1;
+DELETE FROM magma_events WHERE id=$1;
+DELETE FROM nodes WHERE id=$1;
+`, id)
+	return err
+}
+
 func (g *pgGraph) upsertMagmaNode(ctx context.Context, id string, labels []string, props map[string]any) error {
 	switch {
 	case slices.Contains(labels, "MagmaEvent"):

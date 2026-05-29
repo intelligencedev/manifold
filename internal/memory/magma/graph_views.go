@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -130,6 +131,118 @@ func (s *Store) Neighbors(ctx context.Context, id string, graphType GraphType, r
 		return nil, nil
 	}
 	return databases.TypedNeighbors(ctx, s.graph, id, string(graphType), rel)
+}
+
+func (s *Store) NeighborEdges(ctx context.Context, id string, graphType GraphType, rel string) ([]Edge, error) {
+	edges, err := s.ListEdges(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Edge, 0)
+	for _, edge := range edges {
+		if edge.Source == id && edge.GraphType == graphType && edge.Rel == rel {
+			out = append(out, edge)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Target < out[j].Target })
+	return out, nil
+}
+
+func (s *Store) ListEdges(ctx context.Context) ([]Edge, error) {
+	if s == nil || s.graph == nil {
+		return nil, nil
+	}
+	maintenance, ok := s.graph.(databases.MagmaGraphMaintenanceDB)
+	if !ok {
+		return nil, nil
+	}
+	stored, err := maintenance.ListMagmaEdges(ctx)
+	if err != nil {
+		return nil, err
+	}
+	edges := make([]Edge, 0, len(stored))
+	for _, edge := range stored {
+		edges = append(edges, Edge{
+			Source:    edge.Source,
+			GraphType: GraphType(edge.GraphType),
+			Rel:       edge.Rel,
+			Target:    edge.Target,
+			Weight:    edge.Weight,
+			Props:     cloneAnyMap(edge.Props),
+		})
+	}
+	return edges, nil
+}
+
+func (s *Store) DeleteEdge(ctx context.Context, selector EdgeSelector) error {
+	if s == nil || s.graph == nil {
+		return nil
+	}
+	maintenance, ok := s.graph.(databases.MagmaGraphMaintenanceDB)
+	if !ok {
+		return nil
+	}
+	return maintenance.DeleteMagmaEdge(ctx, selector.Source, string(selector.GraphType), selector.Rel, selector.Target)
+}
+
+func (s *Store) UpdateEdgeProps(ctx context.Context, edge Edge) error {
+	if s == nil || s.graph == nil {
+		return nil
+	}
+	maintenance, ok := s.graph.(databases.MagmaGraphMaintenanceDB)
+	if !ok {
+		return nil
+	}
+	return maintenance.UpsertMagmaEdgeProps(ctx, databases.TypedEdge{
+		Source:    edge.Source,
+		GraphType: string(edge.GraphType),
+		Rel:       edge.Rel,
+		Target:    edge.Target,
+		Weight:    edge.Weight,
+		Props:     cloneAnyMap(edge.Props),
+	})
+}
+
+func (s *Store) ListEvents(ctx context.Context) ([]EventNode, error) {
+	if s == nil || s.graph == nil {
+		return nil, nil
+	}
+	maintenance, ok := s.graph.(databases.MagmaGraphMaintenanceDB)
+	if !ok {
+		return nil, nil
+	}
+	summaries, err := maintenance.ListMagmaEvents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	events := make([]EventNode, 0, len(summaries))
+	for _, summary := range summaries {
+		event, ok := s.GetEvent(ctx, summary.ID)
+		if !ok {
+			event = EventNode{ID: summary.ID, Tenant: summary.Tenant, Session: summary.Session, CreatedAt: summary.CreatedAt}
+		}
+		events = append(events, event)
+	}
+	return events, nil
+}
+
+func (s *Store) DeleteEvent(ctx context.Context, id string) error {
+	if s == nil || s.graph == nil {
+		return nil
+	}
+	maintenance, ok := s.graph.(databases.MagmaGraphMaintenanceDB)
+	if !ok {
+		return nil
+	}
+	return maintenance.DeleteMagmaEvent(ctx, id)
+}
+
+func (s *Store) MaintenanceEnabled() bool {
+	if s == nil || s.graph == nil {
+		return false
+	}
+	_, ok := s.graph.(databases.MagmaGraphMaintenanceDB)
+	return ok
 }
 
 func eventFromNode(node databases.Node) EventNode {

@@ -84,6 +84,35 @@ type Edge struct {
 	Props     map[string]any
 }
 
+type EdgeSelector struct {
+	Source    string
+	GraphType GraphType
+	Rel       string
+	Target    string
+}
+
+type ReviewEdge struct {
+	Edge
+	ReviewState string
+	Reason      string
+}
+
+type LifecyclePolicy struct {
+	EventTTL               time.Duration
+	MaxEdgesPerSourceRel   int
+	MinSemanticWeight      float64
+	LowConfidenceThreshold float64
+	RequireReviewApproval  bool
+}
+
+type LifecycleStats struct {
+	EventsDeleted       int
+	EdgesDeleted        int
+	EdgesFlaggedReview  int
+	EdgesSkippedReview  int
+	MaintenanceDisabled bool
+}
+
 type BatchUpsertRequest struct {
 	Event           EventNode
 	TemporalAttrs   TemporalAttrs
@@ -193,6 +222,7 @@ type ServiceConfig struct {
 	Model               string
 	Prompts             PromptConfig
 	Graphs              GraphConfig
+	Lifecycle           LifecyclePolicy
 	Observer            Observer
 }
 

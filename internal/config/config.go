@@ -635,6 +635,7 @@ type MagmaConfig struct {
 	Consolidation MagmaConsolidationConfig `yaml:"consolidation" json:"consolidation"`
 	Graphs        MagmaGraphsConfig        `yaml:"graphs" json:"graphs"`
 	Retrieval     MagmaRetrievalConfig     `yaml:"retrieval" json:"retrieval"`
+	Lifecycle     MagmaLifecycleConfig     `yaml:"lifecycle" json:"lifecycle"`
 }
 
 type MagmaConsolidationConfig struct {
@@ -683,6 +684,15 @@ type MagmaRetrievalConfig struct {
 	DefaultMaxNodes      int    `yaml:"defaultMaxNodes" json:"defaultMaxNodes"`
 	IntentClassification string `yaml:"intentClassification" json:"intentClassification"`
 	ContextFormat        string `yaml:"contextFormat" json:"contextFormat"`
+}
+
+type MagmaLifecycleConfig struct {
+	PruneIntervalMinutes   int     `yaml:"pruneIntervalMinutes" json:"pruneIntervalMinutes"`
+	EventTTLHours          int     `yaml:"eventTTLHours" json:"eventTTLHours"`
+	MaxEdgesPerSourceRel   int     `yaml:"maxEdgesPerSourceRel" json:"maxEdgesPerSourceRel"`
+	MinSemanticWeight      float64 `yaml:"minSemanticWeight" json:"minSemanticWeight"`
+	LowConfidenceThreshold float64 `yaml:"lowConfidenceThreshold" json:"lowConfidenceThreshold"`
+	RequireReviewApproval  bool    `yaml:"requireReviewApproval" json:"requireReviewApproval"`
 }
 
 // EmbeddingInstructionConfig configures query-side embedding instructions.

@@ -195,6 +195,9 @@ func (s *Service) Ingest(ctx context.Context, in ingest.IngestRequest) (ingest.I
 	if magmaOpt.Enabled && s.magma != nil {
 		t0 = s.clock.Now()
 		s.magma.StartConsolidationWorkers(context.Background(), s.magmaCfg.Consolidation.WorkerCount)
+		if s.magmaCfg.Lifecycle.PruneIntervalMinutes > 0 {
+			s.magma.StartLifecycleWorker(context.Background(), time.Duration(s.magmaCfg.Lifecycle.PruneIntervalMinutes)*time.Minute)
+		}
 		resp, err := s.magma.Ingest(ctx, magma.IngestRequest{
 			ID:           in.ID,
 			Tenant:       in.Tenant,
@@ -524,6 +527,13 @@ func magmaServiceConfig(cfg config.MagmaConfig, observer magma.Observer, provide
 			IntentClassification:    cfg.Consolidation.Prompts.IntentClassification,
 		},
 		Observer: observer,
+		Lifecycle: magma.LifecyclePolicy{
+			EventTTL:               time.Duration(cfg.Lifecycle.EventTTLHours) * time.Hour,
+			MaxEdgesPerSourceRel:   cfg.Lifecycle.MaxEdgesPerSourceRel,
+			MinSemanticWeight:      cfg.Lifecycle.MinSemanticWeight,
+			LowConfidenceThreshold: cfg.Lifecycle.LowConfidenceThreshold,
+			RequireReviewApproval:  cfg.Lifecycle.RequireReviewApproval,
+		},
 		Graphs: magma.GraphConfig{
 			Semantic:    cfg.Graphs.Semantic.Enabled,
 			Temporal:    cfg.Graphs.Temporal.Enabled,

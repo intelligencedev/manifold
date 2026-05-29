@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type QueryEngine struct {
@@ -91,14 +93,19 @@ func (q QueryEngine) Query(ctx context.Context, query string, opt QueryOptions) 
 }
 
 func (q QueryEngine) classifyIntent(ctx context.Context, query string, opt QueryOptions) IntentCategory {
+	ctx, span := startSpan(ctx, "magma.query.classify_intent", attribute.String("magma.intent.mode", opt.IntentClassification))
+	defer span.End()
 	if opt.IntentHint != 0 {
+		span.SetAttributes(attribute.String("magma.intent", opt.IntentHint.String()), attribute.String("magma.intent.source", "hint"))
 		return opt.IntentHint
 	}
 	switch strings.ToLower(strings.TrimSpace(opt.IntentClassification)) {
 	case "semantic":
+		span.SetAttributes(attribute.String("magma.intent", IntentSemantic.String()), attribute.String("magma.intent.source", "config"))
 		return IntentSemantic
 	case "llm":
 		if intent, ok := q.classifyIntentWithLLM(ctx, query); ok {
+			span.SetAttributes(attribute.String("magma.intent", intent.String()), attribute.String("magma.intent.source", "llm"))
 			return intent
 		}
 	case "hybrid":
@@ -112,14 +119,22 @@ func (q QueryEngine) classifyIntent(ctx context.Context, query string, opt Query
 		return intent
 	case "rules":
 		intent, _ := ClassifyIntent(query)
+		span.SetAttributes(attribute.String("magma.intent", intent.String()), attribute.String("magma.intent.source", "rules"))
 		return intent
 	default:
 	}
 	intent, _ := ClassifyIntent(query)
+	span.SetAttributes(attribute.String("magma.intent", intent.String()), attribute.String("magma.intent.source", "rules"))
 	return intent
 }
 
 func (q QueryEngine) anchors(ctx context.Context, query, tenant string, policy TraversalPolicy) ([]string, error) {
+	ctx, span := startSpan(ctx, "magma.query.anchors",
+		attribute.String("magma.tenant", tenant),
+		attribute.String("magma.anchor_strategy", string(policy.AnchorStrategy)),
+	)
+	var err error
+	defer endSpan(span, &err)
 	limit := policy.MaxNodes
 	if limit <= 0 {
 		limit = 10
@@ -128,7 +143,8 @@ func (q QueryEngine) anchors(ctx context.Context, query, tenant string, policy T
 	seen := map[string]bool{}
 	if policy.AnchorStrategy == AnchorEntity {
 		for _, entity := range ResolveEntitiesForTenant(query, tenant) {
-			neighbors, err := q.Service.store.Neighbors(ctx, entity.ID, GraphEntity, "MENTIONS")
+			var neighbors []string
+			neighbors, err = q.Service.store.Neighbors(ctx, entity.ID, GraphEntity, "MENTIONS")
 			if err != nil {
 				return nil, err
 			}
@@ -166,10 +182,17 @@ func (q QueryEngine) anchors(ctx context.Context, query, tenant string, policy T
 			break
 		}
 	}
+	span.SetAttributes(attribute.Int("magma.anchor_count", len(anchors)))
 	return anchors, nil
 }
 
 func (q QueryEngine) traverse(ctx context.Context, anchors []string, graphType GraphType, policy TraversalPolicy) Subgraph {
+	ctx, span := startSpan(ctx, "magma.query.traverse",
+		attribute.String("magma.graph_type", string(graphType)),
+		attribute.Int("magma.max_hops", policy.MaxHops),
+		attribute.Int("magma.max_nodes", policy.MaxNodes),
+	)
+	defer span.End()
 	subgraph := Subgraph{GraphType: graphType, Nodes: map[string]EventNode{}}
 	frontier := append([]string(nil), anchors...)
 	seen := map[string]bool{}
@@ -185,12 +208,25 @@ func (q QueryEngine) traverse(ctx context.Context, anchors []string, graphType G
 				subgraph.Nodes[id] = event
 			}
 			for _, rel := range rels {
-				neighbors, err := q.Service.store.Neighbors(ctx, id, graphType, rel)
+				neighborEdges, err := q.Service.store.NeighborEdges(ctx, id, graphType, rel)
 				if err != nil {
 					continue
 				}
-				for _, neighbor := range neighbors {
-					subgraph.Edges = append(subgraph.Edges, Edge{Source: id, GraphType: graphType, Rel: rel, Target: neighbor})
+				if neighborEdges == nil {
+					neighbors, err := q.Service.store.Neighbors(ctx, id, graphType, rel)
+					if err != nil {
+						continue
+					}
+					for _, neighbor := range neighbors {
+						neighborEdges = append(neighborEdges, Edge{Source: id, GraphType: graphType, Rel: rel, Target: neighbor})
+					}
+				}
+				for _, edge := range neighborEdges {
+					if q.Service.skipEdgeForRetrieval(edge) {
+						continue
+					}
+					subgraph.Edges = append(subgraph.Edges, edge)
+					neighbor := edge.Target
 					if !seen[neighbor] {
 						next = append(next, neighbor)
 					}
@@ -199,6 +235,7 @@ func (q QueryEngine) traverse(ctx context.Context, anchors []string, graphType G
 		}
 		frontier = next
 	}
+	span.SetAttributes(attribute.Int("magma.nodes", len(subgraph.Nodes)), attribute.Int("magma.edges", len(subgraph.Edges)))
 	return subgraph
 }
 

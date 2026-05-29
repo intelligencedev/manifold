@@ -15,7 +15,6 @@ func extractThoughtSignature(raw string) string {
 	if err := json.Unmarshal([]byte(raw), &m); err != nil {
 		return ""
 	}
-	// Handle both snake_case and camelCase
 	if ec, ok := m["extra_content"].(map[string]any); ok {
 		if g, ok2 := ec["google"].(map[string]any); ok2 {
 			if sig, ok3 := g["thought_signature"].(string); ok3 {

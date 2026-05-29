@@ -287,20 +287,20 @@ func (s *memChatStore) DeleteMessage(ctx context.Context, userID *int64, session
 	return nil
 }
 
-func (s *memChatStore) DeleteMessagesAfterWithRelated(ctx context.Context, userID *int64, sessionID string, messageID string, inclusive bool, relatedMessageIDs []string, resetSummary bool) error {
-	if strings.TrimSpace(messageID) == "" {
+func (s *memChatStore) DeleteMessagesAfterWithRelated(ctx context.Context, req persistence.ChatDeleteAfterRequest) error {
+	if strings.TrimSpace(req.MessageID) == "" {
 		return persistence.ErrNotFound
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	sess, msgs, err := s.mustAccessSessionLocked(userID, sessionID)
+	sess, msgs, err := s.mustAccessSessionLocked(req.UserID, req.SessionID)
 	if err != nil {
 		return err
 	}
 	idx := -1
 	for i, msg := range msgs {
-		if msg.ID == messageID {
+		if msg.ID == req.MessageID {
 			idx = i
 			break
 		}
@@ -310,7 +310,7 @@ func (s *memChatStore) DeleteMessagesAfterWithRelated(ctx context.Context, userI
 	}
 
 	cut := idx + 1
-	if inclusive {
+	if req.Inclusive {
 		cut = idx
 	}
 	if cut < 0 {
@@ -320,9 +320,9 @@ func (s *memChatStore) DeleteMessagesAfterWithRelated(ctx context.Context, userI
 		cut = len(msgs)
 	}
 	filtered := append([]persistence.ChatMessage(nil), msgs[:cut]...)
-	if len(relatedMessageIDs) > 0 {
-		relatedSet := make(map[string]struct{}, len(relatedMessageIDs))
-		for _, id := range relatedMessageIDs {
+	if len(req.RelatedMessageIDs) > 0 {
+		relatedSet := make(map[string]struct{}, len(req.RelatedMessageIDs))
+		for _, id := range req.RelatedMessageIDs {
 			id = strings.TrimSpace(id)
 			if id != "" {
 				relatedSet[id] = struct{}{}
@@ -337,8 +337,8 @@ func (s *memChatStore) DeleteMessagesAfterWithRelated(ctx context.Context, userI
 		}
 		filtered = remaining
 	}
-	s.messages[sessionID] = filtered
-	s.finalizeDeleteLocked(sessionID, sess, filtered, resetSummary)
+	s.messages[req.SessionID] = filtered
+	s.finalizeDeleteLocked(req.SessionID, sess, filtered, req.ResetSummary)
 	return nil
 }
 

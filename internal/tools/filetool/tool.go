@@ -1,20 +1,14 @@
 package filetool
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
-
-	"manifold/internal/sandbox"
 )
 
 const (
@@ -23,178 +17,6 @@ const (
 	defaultMaxPatchBytes = 1 * 1024 * 1024
 	maxReadBytes         = 4 * 1024 * 1024
 )
-
-type rootGuard struct {
-	roots []string
-}
-
-func newRootGuard(roots []string) rootGuard {
-	seen := make(map[string]struct{}, len(roots))
-	cleaned := make([]string, 0, len(roots))
-	for _, root := range roots {
-		root = strings.TrimSpace(root)
-		if root == "" {
-			continue
-		}
-		abs, err := filepath.Abs(root)
-		if err != nil {
-			abs = filepath.Clean(root)
-		}
-		if _, ok := seen[abs]; ok {
-			continue
-		}
-		seen[abs] = struct{}{}
-		cleaned = append(cleaned, abs)
-	}
-	return rootGuard{roots: cleaned}
-}
-
-func (g rootGuard) baseDir(ctx context.Context) (string, error) {
-	base, ok := sandbox.BaseDirFromContext(ctx)
-	if !ok || strings.TrimSpace(base) == "" {
-		return "", errors.New("no project base directory in context; file tools must run inside a project")
-	}
-	absBase, err := filepath.Abs(base)
-	if err != nil {
-		return "", fmt.Errorf("resolve base directory: %w", err)
-	}
-	info, err := os.Stat(absBase)
-	if err != nil {
-		return "", fmt.Errorf("base directory unavailable: %w", err)
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("base directory is not a directory")
-	}
-	if len(g.roots) == 0 {
-		return absBase, nil
-	}
-	for _, root := range g.roots {
-		if isWithinRoot(root, absBase) {
-			return absBase, nil
-		}
-	}
-	return "", fmt.Errorf("base directory is outside allowed roots")
-}
-
-func isWithinRoot(root, candidate string) bool {
-	if root == "" {
-		return false
-	}
-	rel, err := filepath.Rel(root, candidate)
-	if err != nil {
-		return false
-	}
-	if rel == "." {
-		return true
-	}
-	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
-}
-
-func cleanInputPath(p string) string {
-	p = strings.TrimSpace(p)
-	for strings.HasPrefix(p, "/") || strings.HasPrefix(p, "\\") {
-		p = p[1:]
-	}
-	p = strings.TrimPrefix(p, "./")
-	p = strings.TrimPrefix(p, ".\\")
-	return p
-}
-
-func resolvePath(base, input string) (string, string, error) {
-	cleaned := cleanInputPath(input)
-	if cleaned == "" {
-		return "", "", fmt.Errorf("empty path")
-	}
-	candidate := cleaned
-	if !strings.HasPrefix(candidate, ".") && !strings.ContainsAny(candidate, `/\`) {
-		candidate = "./" + candidate
-	}
-	rel, err := sandbox.SanitizeArg(base, candidate)
-	if err != nil {
-		return "", "", err
-	}
-	if rel == "." || rel == "" {
-		return "", "", fmt.Errorf("invalid path")
-	}
-	full := filepath.Join(base, rel)
-	return rel, full, nil
-}
-
-func readLimited(path string, maxBytes int) ([]byte, bool, error) {
-	if maxBytes <= 0 {
-		return nil, false, fmt.Errorf("invalid max_bytes")
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, false, err
-	}
-	defer f.Close()
-	limit := int64(maxBytes) + 1
-	lr := &io.LimitedReader{R: f, N: limit}
-	data, err := io.ReadAll(lr)
-	if err != nil {
-		return nil, false, err
-	}
-	truncated := len(data) > maxBytes
-	if truncated {
-		data = data[:maxBytes]
-	}
-	return data, truncated, nil
-}
-
-func isText(data []byte) bool {
-	if len(data) == 0 {
-		return true
-	}
-	if !utf8.Valid(data) {
-		return false
-	}
-	return bytes.IndexByte(data, 0) == -1
-}
-
-func encodeContent(data []byte) (string, string) {
-	if isText(data) {
-		return string(data), "utf-8"
-	}
-	return base64.StdEncoding.EncodeToString(data), "base64"
-}
-
-func decodeContent(content, encoding string) ([]byte, error) {
-	switch strings.ToLower(strings.TrimSpace(encoding)) {
-	case "", "utf-8", "utf8", "text", "plain":
-		return []byte(content), nil
-	case "base64":
-		data, err := base64.StdEncoding.DecodeString(content)
-		if err != nil {
-			return nil, fmt.Errorf("invalid base64 content")
-		}
-		return data, nil
-	default:
-		return nil, fmt.Errorf("unsupported encoding %q", encoding)
-	}
-}
-
-func writeFileAtomic(path string, data []byte, perm fs.FileMode) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".manifold-write-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(perm); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
-}
 
 type readTool struct {
 	guard           rootGuard
@@ -267,13 +89,7 @@ func (t *readTool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return nil, err
 	}
-	paths := make([]string, 0, 1+len(args.Paths))
-	if args.Path != "" {
-		paths = append(paths, args.Path)
-	}
-	if len(args.Paths) > 0 {
-		paths = append(paths, args.Paths...)
-	}
+	paths := readArgPaths(args)
 	if len(paths) == 0 {
 		return readResult{OK: false, Error: "missing path(s)"}, nil
 	}
@@ -283,59 +99,14 @@ func (t *readTool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 		return readResult{OK: false, Error: err.Error()}, nil
 	}
 
-	maxBytes := t.defaultMaxBytes
-	if args.MaxBytes > 0 {
-		maxBytes = args.MaxBytes
-	}
-	if maxBytes > t.maxBytes {
-		maxBytes = t.maxBytes
-	}
-	if maxBytes <= 0 {
-		maxBytes = t.defaultMaxBytes
-	}
+	maxBytes := t.effectiveMaxBytes(args.MaxBytes)
 
 	results := make([]readFileEntry, 0, len(paths))
 	anyOK := false
 	for _, p := range paths {
-		entry := readFileEntry{Path: cleanInputPath(p)}
-		rel, full, err := resolvePath(base, p)
-		if err != nil {
-			entry.Error = fmt.Sprintf("invalid path: %v", err)
-			results = append(results, entry)
-			continue
-		}
-		info, err := os.Lstat(full)
-		if err != nil {
-			entry.Error = err.Error()
-			results = append(results, entry)
-			continue
-		}
-		if info.Mode()&fs.ModeSymlink != 0 {
-			entry.Error = "refusing to read symlink"
-			results = append(results, entry)
-			continue
-		}
-		if info.IsDir() {
-			entry.Error = "path is a directory"
-			results = append(results, entry)
-			continue
-		}
-		data, truncated, err := readLimited(full, maxBytes)
-		if err != nil {
-			entry.Error = err.Error()
-			results = append(results, entry)
-			continue
-		}
-		content, encoding := encodeContent(data)
-		entry.Path = filepath.ToSlash(rel)
-		entry.OK = true
-		entry.Content = content
-		entry.Encoding = encoding
-		entry.Bytes = info.Size()
-		entry.BytesRead = len(data)
-		entry.Truncated = truncated
+		entry := readOneFile(base, p, maxBytes)
 		results = append(results, entry)
-		anyOK = true
+		anyOK = anyOK || entry.OK
 	}
 
 	if len(paths) == 1 && args.Path != "" && len(args.Paths) == 0 {
@@ -356,6 +127,67 @@ func (t *readTool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 		return readResult{OK: false, Error: "no files could be read", Files: results}, nil
 	}
 	return readResult{OK: true, Files: results}, nil
+}
+
+func readArgPaths(args readArgs) []string {
+	paths := make([]string, 0, 1+len(args.Paths))
+	if args.Path != "" {
+		paths = append(paths, args.Path)
+	}
+	if len(args.Paths) > 0 {
+		paths = append(paths, args.Paths...)
+	}
+	return paths
+}
+
+func (t *readTool) effectiveMaxBytes(requested int) int {
+	maxBytes := t.defaultMaxBytes
+	if requested > 0 {
+		maxBytes = requested
+	}
+	if maxBytes > t.maxBytes {
+		maxBytes = t.maxBytes
+	}
+	if maxBytes <= 0 {
+		maxBytes = t.defaultMaxBytes
+	}
+	return maxBytes
+}
+
+func readOneFile(base, path string, maxBytes int) readFileEntry {
+	entry := readFileEntry{Path: cleanInputPath(path)}
+	rel, full, err := resolvePath(base, path)
+	if err != nil {
+		entry.Error = fmt.Sprintf("invalid path: %v", err)
+		return entry
+	}
+	info, err := os.Lstat(full)
+	if err != nil {
+		entry.Error = err.Error()
+		return entry
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		entry.Error = "refusing to read symlink"
+		return entry
+	}
+	if info.IsDir() {
+		entry.Error = "path is a directory"
+		return entry
+	}
+	data, truncated, err := readLimited(full, maxBytes)
+	if err != nil {
+		entry.Error = err.Error()
+		return entry
+	}
+	content, encoding := encodeContent(data)
+	entry.Path = filepath.ToSlash(rel)
+	entry.OK = true
+	entry.Content = content
+	entry.Encoding = encoding
+	entry.Bytes = info.Size()
+	entry.BytesRead = len(data)
+	entry.Truncated = truncated
+	return entry
 }
 
 type writeTool struct {

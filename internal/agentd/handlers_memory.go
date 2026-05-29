@@ -91,12 +91,6 @@ func (a *app) debugMemoryHandler() http.HandlerFunc {
 			return
 		}
 
-		// Normalize the path so that both /debug/memory and /api/debug/memory
-		// prefixes are supported. The router already wires both prefixes to this
-		// handler, but without this normalization a request like
-		//   /api/debug/memory/evolving
-		// would not match the /debug/memory prefix below, leading to a 404 even
-		// though the route is correctly registered.
 		basePath := "/debug/memory"
 		if strings.HasPrefix(r.URL.Path, "/api/debug/memory") {
 			basePath = "/api/debug/memory"
@@ -349,9 +343,18 @@ func (a *app) handleDebugMemoryPlan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) debugMemoryTargetProvider(ctx context.Context, owner int64, sessionID string, target chatDispatchTarget) (llm.Provider, string, int, int, error) {
-	descriptor, ok := a.describeChatTarget(target, sessionID, "", "", "", owner)
+	descriptor, ok := a.describeChatTarget(chatTargetDescribeRequest{
+		Target:         target,
+		SessionID:      sessionID,
+		Owner:          owner,
+		MemorySettings: defaultChatMemoryRunSettings(),
+	})
 	if !ok {
-		build := a.buildOrchestratorChatEngine(ctx, owner, sessionID, "", "", "", nil)
+		build := a.buildOrchestratorChatEngine(ctx, chatEngineBuildRequest{
+			SessionID:      sessionID,
+			Owner:          owner,
+			MemorySettings: defaultChatMemoryRunSettings(),
+		})
 		if build.Err != nil {
 			statusCode := build.StatusCode
 			if statusCode == 0 {
@@ -451,7 +454,6 @@ func (a *app) handleDebugMemoryEvolving(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Base snapshot
 	entries := em.ExportMemories()
 	resp := debugMemoryEvolvingResponse{
 		Enabled:      true,

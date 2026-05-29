@@ -56,10 +56,6 @@ func BuildInitialLLMMessages(system, user string, history []llm.Message) []llm.M
 	hasUser := strings.TrimSpace(user) != ""
 
 	if hasHistory {
-		// Clone history and annotate the first message with context marker.
-		// Synthetic system messages in history (conversation summaries, provider
-		// continuation rules, etc.) are moved into runtime context on the current
-		// request so provider prompt caches can reuse stable history.
 		annotatedHistory := make([]llm.Message, 0, len(history))
 		for _, msg := range history {
 			if msg.Role == "system" {

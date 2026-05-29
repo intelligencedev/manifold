@@ -55,17 +55,27 @@ func ConfigsOrDefaults(defaults []config.SpecialistConfig, list []persistence.Sp
 
 // NewRegistryFromStore builds a registry from persisted specialists when the
 // store query succeeds, or from the provided defaults otherwise.
-func NewRegistryFromStore(base config.LLMClientConfig, defaults []config.SpecialistConfig, list []persistence.Specialist, err error, httpClient *http.Client, toolsReg tools.Registry, workdir string) *Registry {
-	return NewRegistryWithWorkdir(base, ConfigsOrDefaults(defaults, list, err), httpClient, toolsReg, workdir)
+type StoreRegistryRequest struct {
+	Base       config.LLMClientConfig
+	Defaults   []config.SpecialistConfig
+	List       []persistence.Specialist
+	Err        error
+	HTTPClient *http.Client
+	Tools      tools.Registry
+	Workdir    string
+}
+
+func NewRegistryFromStore(req StoreRegistryRequest) *Registry {
+	return NewRegistryWithWorkdir(req.Base, ConfigsOrDefaults(req.Defaults, req.List, req.Err), req.HTTPClient, req.Tools, req.Workdir)
 }
 
 // ReplaceFromStore refreshes an existing registry from persisted specialists
 // when available, or from defaults otherwise.
-func ReplaceFromStore(reg *Registry, base config.LLMClientConfig, defaults []config.SpecialistConfig, list []persistence.Specialist, err error, httpClient *http.Client, toolsReg tools.Registry) {
+func ReplaceFromStore(reg *Registry, req StoreRegistryRequest) {
 	if reg == nil {
 		return
 	}
-	reg.ReplaceFromConfigs(base, ConfigsOrDefaults(defaults, list, err), httpClient, toolsReg)
+	reg.ReplaceFromConfigs(req.Base, ConfigsOrDefaults(req.Defaults, req.List, req.Err), req.HTTPClient, req.Tools)
 }
 
 // SeedStore persists default specialists that are missing from the store.

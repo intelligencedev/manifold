@@ -12,7 +12,6 @@ import (
 // userPreferencesHandler handles GET /api/me/preferences and PUT /api/me/preferences.
 func (a *app) userPreferencesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// CORS headers
 		if origin := r.Header.Get("Origin"); origin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
@@ -27,7 +26,6 @@ func (a *app) userPreferencesHandler() http.HandlerFunc {
 			return
 		}
 
-		// Require authentication
 		userID := systemUserID
 		if a.cfg.Auth.Enabled {
 			u, ok := auth.CurrentUser(r.Context())
@@ -94,7 +92,6 @@ func (a *app) handleSetPreferences(w http.ResponseWriter, r *http.Request, userI
 		}
 	}
 
-	// Return updated preferences
 	prefs, err := a.userPrefsStore.Get(r.Context(), userID)
 	if err != nil {
 		log.Error().Err(err).Int64("userId", userID).Msg("failed to get updated preferences")
@@ -110,7 +107,6 @@ func (a *app) handleSetPreferences(w http.ResponseWriter, r *http.Request, userI
 // This is a convenience endpoint for setting just the active project.
 func (a *app) setActiveProjectHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// CORS headers
 		if origin := r.Header.Get("Origin"); origin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
@@ -129,7 +125,6 @@ func (a *app) setActiveProjectHandler() http.HandlerFunc {
 			return
 		}
 
-		// Require authentication
 		userID := systemUserID
 		if a.cfg.Auth.Enabled {
 			u, ok := auth.CurrentUser(r.Context())

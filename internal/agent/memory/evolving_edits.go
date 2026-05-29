@@ -147,7 +147,6 @@ func (em *EvolvingMemory) mergeEntries(ctx context.Context, ids []string, newSum
 	}
 	merged.Metadata["has_embedding"] = len(merged.Embedding) > 0
 
-	// Remove old entries and add merged
 	em.pruneEntries(ids)
 	em.entries = append(em.entries, merged)
 	em.markDirtyLocked(merged.ID)

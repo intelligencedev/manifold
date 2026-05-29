@@ -233,36 +233,36 @@ func (s *memPulseStore) ClearRoomClaim(ctx context.Context, roomID, routeTarget 
 	return nil
 }
 
-func (s *memPulseStore) CompleteRoomPulse(ctx context.Context, roomID, routeTarget, token string, completedAt time.Time, summary, pulseErr string, dueTaskIDs []string) error {
+func (s *memPulseStore) CompleteRoomPulse(ctx context.Context, completion persistence.RoomPulseCompletion) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	scopeKey := pulseScopeKey(roomID, routeTarget)
+	scopeKey := pulseScopeKey(completion.RoomID, completion.RouteTarget)
 	room, ok := s.rooms[scopeKey]
 	if !ok {
 		return persistence.ErrNotFound
 	}
-	if room.ActiveClaimToken != token {
+	if room.ActiveClaimToken != completion.Token {
 		return persistence.ErrRevisionConflict
 	}
-	completedAt = completedAt.UTC()
+	completedAt := completion.CompletedAt.UTC()
 	room.ActiveClaimToken = ""
 	room.ActiveClaimUntil = time.Time{}
 	room.LastPulseCompletedAt = completedAt
-	room.LastPulseSummary = summary
-	room.LastPulseError = pulseErr
+	room.LastPulseSummary = completion.Summary
+	room.LastPulseError = completion.Error
 	room.UpdatedAt = completedAt
 	room.Revision++
 	s.rooms[scopeKey] = room
-	if len(dueTaskIDs) == 0 {
+	if len(completion.DueTaskIDs) == 0 {
 		return nil
 	}
-	for _, taskID := range dueTaskIDs {
+	for _, taskID := range completion.DueTaskIDs {
 		task, ok := s.tasks[scopeKey][taskID]
 		if !ok {
 			continue
 		}
 		task.LastRunAt = completedAt
-		task.LastResultSummary = summary
+		task.LastResultSummary = completion.Summary
 		task.UpdatedAt = completedAt
 		s.tasks[scopeKey][taskID] = task
 	}

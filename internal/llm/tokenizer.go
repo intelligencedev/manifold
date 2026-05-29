@@ -5,7 +5,6 @@ import "context"
 // Tokenizer provides accurate token counting for a specific provider.
 type Tokenizer interface {
 	// CountTokens returns the number of tokens in the given text.
-	// Returns an error if tokenization fails.
 	CountTokens(ctx context.Context, text string) (int, error)
 
 	// CountMessagesTokens returns token count for a conversation.

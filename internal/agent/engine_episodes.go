@@ -12,7 +12,16 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-func (e *Engine) recordRunEpisode(ctx context.Context, startedAt time.Time, userInput, final string, runErr error, evolvingEntryID string, reasoningTrace []string) {
+type runEpisodeRecord struct {
+	startedAt       time.Time
+	userInput       string
+	final           string
+	runErr          error
+	evolvingEntryID string
+	reasoningTrace  []string
+}
+
+func (e *Engine) recordRunEpisode(ctx context.Context, record runEpisodeRecord) {
 	if e == nil || e.DisableBeliefMemory || e.BeliefStore == nil {
 		return
 	}
@@ -24,11 +33,11 @@ func (e *Engine) recordRunEpisode(ctx context.Context, startedAt time.Time, user
 	now := time.Now().UTC()
 	outcome := "success"
 	outcomeSignal := "implicit_success"
-	metadata := map[string]any{"finalLength": len(final)}
-	if runErr != nil {
+	metadata := map[string]any{"finalLength": len(record.final)}
+	if record.runErr != nil {
 		outcome = "error"
 		outcomeSignal = "runtime_error"
-		metadata["error"] = runErr.Error()
+		metadata["error"] = record.runErr.Error()
 	}
 	agentRole := strings.TrimSpace(e.AgentRole)
 	if agentRole == "" {
@@ -53,18 +62,18 @@ func (e *Engine) recordRunEpisode(ctx context.Context, startedAt time.Time, user
 		SessionID:       strings.TrimSpace(e.SessionID),
 		AgentRole:       agentRole,
 		UserID:          e.UserID,
-		StartedAt:       startedAt,
+		StartedAt:       record.startedAt,
 		EndedAt:         &now,
 		Outcome:         outcome,
 		OutcomeSignal:   outcomeSignal,
-		EvolvingEntryID: strings.TrimSpace(evolvingEntryID),
+		EvolvingEntryID: strings.TrimSpace(record.evolvingEntryID),
 		Metadata:        metadata,
 	})
 	if err != nil {
 		observability.LoggerWithTrace(ctx).Warn().Err(err).Msg("belief_episode_store_failed")
 		return
 	}
-	e.distillBeliefs(ctx, episode, userInput, final, reasoningTrace)
+	e.distillBeliefs(ctx, episode, record.userInput, record.final, record.reasoningTrace)
 }
 
 func (e *Engine) distillBeliefs(ctx context.Context, episode belief.Episode, userInput, final string, reasoningTrace []string) {

@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"manifold/internal/codeqa"
+	codediff "manifold/internal/codeqa/diff"
 	"manifold/internal/codeqa/evolve"
 	"manifold/internal/codeqa/gates"
 	"manifold/internal/codeqa/lang"
@@ -78,7 +79,14 @@ func (s *Service) Run(ctx context.Context, userID int64, req codeqa.RunRequest, 
 		defer prepared.Cleanup()
 		runPath = prepared.Path
 	}
-	if err := s.evaluateRunPath(ctx, userID, &result, req, runPath, mode, onEvent, nil); err != nil {
+	if err := s.evaluateRunPath(ctx, evaluateRunRequest{
+		UserID:  userID,
+		Result:  &result,
+		Request: req,
+		RunPath: runPath,
+		Mode:    mode,
+		OnEvent: onEvent,
+	}); err != nil {
 		return s.failRun(ctx, userID, &result, err, onEvent)
 	}
 	result.Status = codeqa.StatusCompleted
@@ -131,7 +139,15 @@ func (s *Service) runOptimize(ctx context.Context, userID int64, result *codeqa.
 			candidateReq := req
 			candidateReq.BaseRef = "HEAD~1"
 			candidateReq.HeadRef = "HEAD"
-			if err := s.evaluateRunPath(ctx, userID, result, candidateReq, prepared.Path, codeqa.ModeOptimize, onEvent, map[string]any{"iteration": iteration + 1}); err != nil {
+			if err := s.evaluateRunPath(ctx, evaluateRunRequest{
+				UserID:  userID,
+				Result:  result,
+				Request: candidateReq,
+				RunPath: prepared.Path,
+				Mode:    codeqa.ModeOptimize,
+				OnEvent: onEvent,
+				Extra:   map[string]any{"iteration": iteration + 1},
+			}); err != nil {
 				return err
 			}
 			if _, err := s.emitEvent(ctx, userID, result.RunID, codeqa.RunEventIterationCompleted, map[string]any{
@@ -179,61 +195,78 @@ func (s *Service) runOptimize(ctx context.Context, userID int64, result *codeqa.
 	return *result, nil
 }
 
-func (s *Service) evaluateRunPath(ctx context.Context, userID int64, result *codeqa.RunResult, req codeqa.RunRequest, runPath string, mode codeqa.RunMode, onEvent func(codeqa.RunEvent), extra map[string]any) error {
-	bundle, err := s.packager.Build(ctx, runPath, req.BaseRef, req.HeadRef, req.IncludeRepoContext, req.MaxDiffBytes, req.MaxChangedFiles)
+type evaluateRunRequest struct {
+	UserID  int64
+	Result  *codeqa.RunResult
+	Request codeqa.RunRequest
+	RunPath string
+	Mode    codeqa.RunMode
+	OnEvent func(codeqa.RunEvent)
+	Extra   map[string]any
+}
+
+func (s *Service) evaluateRunPath(ctx context.Context, eval evaluateRunRequest) error {
+	bundle, err := s.packager.Build(ctx, codediff.BuildRequest{
+		RepoPath:           eval.RunPath,
+		BaseRef:            eval.Request.BaseRef,
+		HeadRef:            eval.Request.HeadRef,
+		IncludeRepoContext: eval.Request.IncludeRepoContext,
+		MaxDiffBytes:       eval.Request.MaxDiffBytes,
+		MaxChangedFiles:    eval.Request.MaxChangedFiles,
+	})
 	if err != nil {
 		return err
 	}
-	result.Diff = bundle
-	if err := s.store.Save(ctx, userID, *result); err != nil {
+	eval.Result.Diff = bundle
+	if err := s.store.Save(ctx, eval.UserID, *eval.Result); err != nil {
 		return fmt.Errorf("save bundled run: %w", err)
 	}
-	if _, err := s.emitEvent(ctx, userID, result.RunID, codeqa.RunEventDiffPackaged, mergePayload(extra, map[string]any{
+	if _, err := s.emitEvent(ctx, eval.UserID, eval.Result.RunID, codeqa.RunEventDiffPackaged, mergePayload(eval.Extra, map[string]any{
 		"changed_files": len(bundle.Files),
 		"truncated":     bundle.Truncated,
-	}), onEvent); err != nil {
+	}), eval.OnEvent); err != nil {
 		return err
 	}
 	changedPaths := make([]string, 0, len(bundle.Files))
 	for _, file := range bundle.Files {
 		changedPaths = append(changedPaths, file.Path)
 	}
-	detectedLanguages := lang.Detect(runPath, changedPaths)
+	detectedLanguages := lang.Detect(eval.RunPath, changedPaths)
 	gateRunner := gates.NewRunner(s.runner, s.opts.MaxGateParallelism, s.workspace, gates.GatesForLanguages(detectedLanguages)...)
-	gates, err := gateRunner.Evaluate(ctx, runPath, bundle.BaseRef, bundle.HeadRef)
+	gates, err := gateRunner.Evaluate(ctx, eval.RunPath, bundle.BaseRef, bundle.HeadRef)
 	if err != nil {
 		return err
 	}
-	result.Gates = gates
-	if err := s.store.Save(ctx, userID, *result); err != nil {
+	eval.Result.Gates = gates
+	if err := s.store.Save(ctx, eval.UserID, *eval.Result); err != nil {
 		return fmt.Errorf("save gated run: %w", err)
 	}
-	if _, err := s.emitEvent(ctx, userID, result.RunID, codeqa.RunEventGatesCompleted, mergePayload(extra, map[string]any{
+	if _, err := s.emitEvent(ctx, eval.UserID, eval.Result.RunID, codeqa.RunEventGatesCompleted, mergePayload(eval.Extra, map[string]any{
 		"gate_count": len(gates),
 		"languages":  detectedLanguages,
-	}), onEvent); err != nil {
+	}), eval.OnEvent); err != nil {
 		return err
 	}
 	judges, err := s.judge.Evaluate(ctx, bundle, gates)
 	if err != nil {
 		return err
 	}
-	result.Judges = judges
-	if err := s.store.Save(ctx, userID, *result); err != nil {
+	eval.Result.Judges = judges
+	if err := s.store.Save(ctx, eval.UserID, *eval.Result); err != nil {
 		return fmt.Errorf("save judged run: %w", err)
 	}
-	if _, err := s.emitEvent(ctx, userID, result.RunID, codeqa.RunEventJudgesCompleted, mergePayload(extra, map[string]any{
+	if _, err := s.emitEvent(ctx, eval.UserID, eval.Result.RunID, codeqa.RunEventJudgesCompleted, mergePayload(eval.Extra, map[string]any{
 		"judge_count": len(judges),
-	}), onEvent); err != nil {
+	}), eval.OnEvent); err != nil {
 		return err
 	}
-	result.Aggregate = codeqa.Decide(codeqa.DecisionInput{
-		Mode:            mode,
+	eval.Result.Aggregate = codeqa.Decide(codeqa.DecisionInput{
+		Mode:            eval.Mode,
 		Bundle:          bundle,
 		Gates:           gates,
 		Judges:          judges,
-		AcceptThreshold: s.opts.EffectiveAcceptThreshold(req.AcceptThreshold),
-		MinConfidence:   s.opts.EffectiveMinConfidence(req.MinConfidence),
+		AcceptThreshold: s.opts.EffectiveAcceptThreshold(eval.Request.AcceptThreshold),
+		MinConfidence:   s.opts.EffectiveMinConfidence(eval.Request.MinConfidence),
 		HighRiskGlobs:   s.opts.HighRiskGlobs,
 	})
 	return nil

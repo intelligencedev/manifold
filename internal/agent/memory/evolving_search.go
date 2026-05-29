@@ -47,50 +47,21 @@ func (em *EvolvingMemory) SearchWithDiagnostics(ctx context.Context, query strin
 
 func (em *EvolvingMemory) searchWithScores(ctx context.Context, query string, updateAccess bool) ([]ScoredMemoryEntry, SearchDiagnostics, error) {
 	start := time.Now()
-	em.mu.RLock()
-	entries := filterExpiredEntries(em.snapshotEntriesLocked(), time.Now())
-	cb := em.callbacks
-	ragEnabled := em.enableRAG
-	em.mu.RUnlock()
-
+	entries, cb, ragEnabled := em.searchSnapshot()
 	diag := SearchDiagnostics{
 		EnableRAG: ragEnabled,
 		Mode:      "none",
 	}
 	if !ragEnabled {
 		diag.Mode = "disabled"
-		if cb != nil && cb.OnSearch != nil {
-			cb.OnSearch(&MemoryEvent{
-				Phase:      PhaseSearch,
-				Timestamp:  start,
-				Input:      query,
-				MemorySize: len(entries),
-				DurationMs: time.Since(start).Milliseconds(),
-				Search:     diag,
-			})
-		}
-		if em.metrics != nil {
-			em.metrics.RecordSearch(ctx, time.Since(start), 0, len(entries), em.userID, em.sessionID)
-		}
+		em.finishSearch(ctx, searchReport{start: start, query: query, entries: entries, diag: diag, callbacks: cb})
 		return nil, diag, nil
 	}
 
 	_, hasServerSearch := em.store.(EvolvingMemorySearchStore)
 	_, hasKeywordSearch := em.store.(EvolvingMemoryKeywordStore)
 	if len(entries) == 0 && !hasServerSearch && !hasKeywordSearch {
-		if cb != nil && cb.OnSearch != nil {
-			cb.OnSearch(&MemoryEvent{
-				Phase:      PhaseSearch,
-				Timestamp:  start,
-				Input:      query,
-				MemorySize: 0,
-				DurationMs: time.Since(start).Milliseconds(),
-				Search:     diag,
-			})
-		}
-		if em.metrics != nil {
-			em.metrics.RecordSearch(ctx, time.Since(start), 0, 0, em.userID, em.sessionID)
-		}
+		em.finishSearch(ctx, searchReport{start: start, query: query, entries: entries, diag: diag, callbacks: cb})
 		return nil, diag, nil
 	}
 
@@ -100,6 +71,48 @@ func (em *EvolvingMemory) searchWithScores(ctx context.Context, query string, up
 	diag.KeywordCandidates = len(keywordCandidates)
 	_, diag.UsedKeywordStore = em.store.(EvolvingMemoryKeywordStore)
 
+	queryVec, err := em.queryVector(ctx, query, &diag)
+	if err != nil {
+		log.Warn().Err(err).Msg("evolving_memory_embed_query_failed")
+		if len(keywordCandidates) == 0 {
+			em.finishSearch(ctx, searchReport{start: start, query: query, entries: entries, diag: diag, callbacks: cb, err: err})
+			return nil, diag, fmt.Errorf("embed query: %w", err)
+		}
+	}
+	if err == nil && len(queryVec) == 0 {
+		err := fmt.Errorf("empty query embedding")
+		diag.EmbeddingError = err.Error()
+		if len(keywordCandidates) == 0 {
+			em.finishSearch(ctx, searchReport{start: start, query: query, entries: entries, diag: diag, callbacks: cb, err: err})
+			return nil, diag, err
+		}
+	}
+
+	denseCandidates := em.denseCandidates(ctx, queryVec, entries, fetchK, &diag, log)
+	diag.VectorCandidates = len(denseCandidates)
+	candidates := mergeMemoryCandidates(denseCandidates, keywordCandidates, fetchK, &diag)
+	if len(candidates) == 0 {
+		em.finishSearch(ctx, searchReport{start: start, query: query, entries: entries, diag: diag, callbacks: cb})
+		return nil, diag, nil
+	}
+
+	out := em.rankMemoryCandidates(candidates)
+	retrievedIDs := scoredMemoryIDs(out)
+	if updateAccess {
+		go em.updateAccessMetrics(retrievedIDs)
+	}
+	em.finishSearch(ctx, searchReport{start: start, query: query, entries: entries, out: out, retrievedIDs: retrievedIDs, diag: diag, callbacks: cb})
+	log.Debug().Int("candidates", len(entries)).Int("top_k", len(out)).Str("mode", diag.Mode).Msg("evolving_memory_search")
+	return out, diag, nil
+}
+
+func (em *EvolvingMemory) searchSnapshot() ([]*MemoryEntry, *MemoryCallbacks, bool) {
+	em.mu.RLock()
+	defer em.mu.RUnlock()
+	return filterExpiredEntries(em.snapshotEntriesLocked(), time.Now()), em.callbacks, em.enableRAG
+}
+
+func (em *EvolvingMemory) queryVector(ctx context.Context, query string, diag *SearchDiagnostics) ([]float32, error) {
 	queryVec, instruction, err := em.embedQuery(ctx, query)
 	diag.EmbeddingInstructionUsed = true
 	diag.EmbeddingInstructionApplied = instruction.Applied
@@ -109,153 +122,123 @@ func (em *EvolvingMemory) searchWithScores(ctx context.Context, query string, up
 	diag.EmbeddingInstructionSource = instruction.Source
 	if err != nil {
 		diag.EmbeddingError = err.Error()
-		log.Warn().Err(err).Msg("evolving_memory_embed_query_failed")
-		if len(keywordCandidates) == 0 {
-			if cb != nil && cb.OnSearch != nil {
-				cb.OnSearch(&MemoryEvent{
-					Phase:      PhaseSearch,
-					Timestamp:  start,
-					Input:      query,
-					Error:      err,
-					MemorySize: len(entries),
-					DurationMs: time.Since(start).Milliseconds(),
-					Search:     diag,
-				})
-			}
-			if em.metrics != nil {
-				em.metrics.RecordSearch(ctx, time.Since(start), 0, len(entries), em.userID, em.sessionID)
-			}
-			return nil, diag, fmt.Errorf("embed query: %w", err)
-		}
-	} else if len(queryVec) == 0 {
-		err = fmt.Errorf("empty query embedding")
-		diag.EmbeddingError = err.Error()
-		if len(keywordCandidates) == 0 {
-			if cb != nil && cb.OnSearch != nil {
-				cb.OnSearch(&MemoryEvent{
-					Phase:      PhaseSearch,
-					Timestamp:  start,
-					Input:      query,
-					Error:      err,
-					MemorySize: len(entries),
-					DurationMs: time.Since(start).Milliseconds(),
-					Search:     diag,
-				})
-			}
-			if em.metrics != nil {
-				em.metrics.RecordSearch(ctx, time.Since(start), 0, len(entries), em.userID, em.sessionID)
-			}
-			return nil, diag, err
-		}
 	}
+	return queryVec, err
+}
 
-	denseCandidates := make([]ScoredMemoryEntry, 0, len(entries))
-	if len(queryVec) > 0 {
-		if searchStore, ok := em.store.(EvolvingMemorySearchStore); ok {
-			storeCandidates, err := searchStore.SearchTopK(ctx, em.userID, em.sessionID, queryVec, fetchK)
-			if err != nil {
-				log.Warn().Err(err).Msg("evolving_memory_store_search_failed")
-			} else {
-				denseCandidates = storeCandidates
-				diag.UsedServerVector = true
-			}
-		}
-
-		if len(denseCandidates) == 0 {
-			denseCandidates = make([]ScoredMemoryEntry, 0, len(entries))
-			for _, e := range entries {
-				if len(e.Embedding) == 0 {
-					continue
-				}
-				sim := dotProduct(queryVec, e.Embedding)
-				denseCandidates = append(denseCandidates, ScoredMemoryEntry{Entry: e, Score: sim})
+func (em *EvolvingMemory) denseCandidates(ctx context.Context, queryVec []float32, entries []*MemoryEntry, fetchK int, diag *SearchDiagnostics, log *zerolog.Logger) []ScoredMemoryEntry {
+	if len(queryVec) == 0 {
+		return nil
+	}
+	if searchStore, ok := em.store.(EvolvingMemorySearchStore); ok {
+		storeCandidates, err := searchStore.SearchTopK(ctx, em.userID, em.sessionID, queryVec, fetchK)
+		if err != nil {
+			log.Warn().Err(err).Msg("evolving_memory_store_search_failed")
+		} else {
+			diag.UsedServerVector = true
+			if len(storeCandidates) > 0 {
+				return storeCandidates
 			}
 		}
 	}
-	diag.VectorCandidates = len(denseCandidates)
+	return localDenseCandidates(queryVec, entries)
+}
 
-	candidates := denseCandidates
-	switch {
-	case len(denseCandidates) > 0 && len(keywordCandidates) > 0:
-		candidates = rrfFuse([][]ScoredMemoryEntry{denseCandidates, keywordCandidates}, fetchK, 60)
-		diag.Mode = "hybrid"
-	case len(denseCandidates) > 0:
-		diag.Mode = "vector"
-	case len(keywordCandidates) > 0:
-		candidates = keywordCandidates
-		diag.Mode = "keyword"
-	}
-
-	if len(candidates) == 0 {
-		if cb != nil && cb.OnSearch != nil {
-			cb.OnSearch(&MemoryEvent{
-				Phase:      PhaseSearch,
-				Timestamp:  start,
-				Input:      query,
-				MemorySize: len(entries),
-				DurationMs: time.Since(start).Milliseconds(),
-				Search:     diag,
-			})
-		}
-		if em.metrics != nil {
-			em.metrics.RecordSearch(ctx, time.Since(start), 0, len(entries), em.userID, em.sessionID)
-		}
-		return nil, diag, nil
-	}
-
-	// Score all entries with dense similarity plus quality, recency, and access signals.
-	now := time.Now()
-	for i, candidate := range candidates {
-		if candidate.Entry == nil {
+func localDenseCandidates(queryVec []float32, entries []*MemoryEntry) []ScoredMemoryEntry {
+	candidates := make([]ScoredMemoryEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry == nil || len(entry.Embedding) == 0 {
 			continue
 		}
-		candidates[i].Score = em.compositeScore(candidate.Score, candidate.Entry, now)
+		candidates = append(candidates, ScoredMemoryEntry{Entry: entry, Score: dotProduct(queryVec, entry.Embedding)})
 	}
+	return candidates
+}
 
-	// Sort descending by score
+func mergeMemoryCandidates(denseCandidates, keywordCandidates []ScoredMemoryEntry, fetchK int, diag *SearchDiagnostics) []ScoredMemoryEntry {
+	switch {
+	case len(denseCandidates) > 0 && len(keywordCandidates) > 0:
+		diag.Mode = "hybrid"
+		return rrfFuse([][]ScoredMemoryEntry{denseCandidates, keywordCandidates}, fetchK, 60)
+	case len(denseCandidates) > 0:
+		diag.Mode = "vector"
+		return denseCandidates
+	case len(keywordCandidates) > 0:
+		diag.Mode = "keyword"
+		return keywordCandidates
+	default:
+		return nil
+	}
+}
+
+func (em *EvolvingMemory) rankMemoryCandidates(candidates []ScoredMemoryEntry) []ScoredMemoryEntry {
+	now := time.Now()
+	for i, candidate := range candidates {
+		if candidate.Entry != nil {
+			candidates[i].Score = em.compositeScore(candidate.Score, candidate.Entry, now)
+		}
+	}
 	sort.Slice(candidates, func(i, j int) bool {
 		return candidates[i].Score > candidates[j].Score
 	})
+	return applyMMR(candidates, min(em.topK, len(candidates)), em.mmrLambda)
+}
 
-	k := min(em.topK, len(candidates))
-	out := applyMMR(candidates, k, em.mmrLambda)
-
-	retrievedIDs := make([]string, 0, len(out))
-	for _, item := range out {
+func scoredMemoryIDs(scored []ScoredMemoryEntry) []string {
+	ids := make([]string, 0, len(scored))
+	for _, item := range scored {
 		if item.Entry != nil {
-			retrievedIDs = append(retrievedIDs, item.Entry.ID)
+			ids = append(ids, item.Entry.ID)
 		}
 	}
+	return ids
+}
 
-	// Update access metrics for retrieved entries (async to not block search)
-	if updateAccess {
-		go em.updateAccessMetrics(retrievedIDs)
-	}
+type searchReport struct {
+	start        time.Time
+	query        string
+	entries      []*MemoryEntry
+	out          []ScoredMemoryEntry
+	retrievedIDs []string
+	diag         SearchDiagnostics
+	callbacks    *MemoryCallbacks
+	err          error
+}
 
-	if cb != nil && cb.OnSearch != nil {
-		relevance := make(map[string]float64, len(out))
-		for _, o := range out {
-			if o.Entry != nil {
-				relevance[o.Entry.ID] = o.Score
-			}
-		}
-		cb.OnSearch(&MemoryEvent{
-			Phase:         PhaseSearch,
-			Timestamp:     start,
-			Input:         query,
-			RetrievedIDs:  retrievedIDs,
-			MemorySize:    len(entries),
-			DurationMs:    time.Since(start).Milliseconds(),
-			RelevanceInfo: relevance,
-			Search:        diag,
-		})
+func (em *EvolvingMemory) finishSearch(ctx context.Context, report searchReport) {
+	if report.callbacks != nil && report.callbacks.OnSearch != nil {
+		report.callbacks.OnSearch(searchEvent(report))
 	}
 	if em.metrics != nil {
-		em.metrics.RecordSearch(ctx, time.Since(start), len(out), len(entries), em.userID, em.sessionID)
+		em.metrics.RecordSearch(ctx, time.Since(report.start), len(report.out), len(report.entries), em.userID, em.sessionID)
 	}
+}
 
-	log.Debug().Int("candidates", len(entries)).Int("top_k", k).Str("mode", diag.Mode).Msg("evolving_memory_search")
-	return out, diag, nil
+func searchEvent(report searchReport) *MemoryEvent {
+	return &MemoryEvent{
+		Phase:         PhaseSearch,
+		Timestamp:     report.start,
+		Input:         report.query,
+		Error:         report.err,
+		RetrievedIDs:  report.retrievedIDs,
+		MemorySize:    len(report.entries),
+		DurationMs:    time.Since(report.start).Milliseconds(),
+		RelevanceInfo: relevanceInfo(report.out),
+		Search:        report.diag,
+	}
+}
+
+func relevanceInfo(scored []ScoredMemoryEntry) map[string]float64 {
+	if len(scored) == 0 {
+		return nil
+	}
+	relevance := make(map[string]float64, len(scored))
+	for _, item := range scored {
+		if item.Entry != nil {
+			relevance[item.Entry.ID] = item.Score
+		}
+	}
+	return relevance
 }
 
 // ExplainSearch returns the same high-level retrieval candidates as SearchWithScores,

@@ -19,6 +19,7 @@ import (
 	"manifold/internal/matrixgw"
 	persist "manifold/internal/persistence"
 	"manifold/internal/sandbox"
+	"manifold/internal/workspaces"
 )
 
 const defaultMatrixMessageRetention = 100
@@ -91,6 +92,38 @@ func (a *app) handlePulseRoom(ctx context.Context, roomID, target, projectID, pr
 }
 
 func (a *app) executeMatrixScopedRun(ctx context.Context, req chatRunRequest, targetName string, includeHistory bool) (string, []savedImage, []sandbox.MatrixMessage, error) {
+	request, err := a.prepareMatrixScopedRequest(ctx, req)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	httpReq, checkedOutWorkspace, err := a.prepareMatrixHTTPRun(ctx, request)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	owner := int64(systemUserID)
+	descriptor := a.describeMatrixChatTarget(httpReq.Context(), request, checkedOutWorkspace, targetName, owner)
+	build, history, err := a.buildMatrixChatEngine(httpReq.Context(), descriptor, request, includeHistory)
+	if err != nil {
+		return "", nil, nil, err
+	}
+
+	runID := a.runs.create(request.Prompt).ID
+	payload, err := a.executeInternalJSONChat(httpReq.Context(), chatExecutionRequest{
+		RunContext:          matrixRunContext(descriptor.RunContext, request, build),
+		Engine:              build.Engine,
+		RunRequest:          request,
+		History:             history,
+		RunID:               runID,
+		CheckedOutWorkspace: checkedOutWorkspace,
+	}, matrixJSONOptions(descriptor.JSON, build))
+	if err != nil {
+		return "", nil, nil, err
+	}
+	return matrixPayloadResult(payload)
+}
+
+func (a *app) prepareMatrixScopedRequest(ctx context.Context, req chatRunRequest) (chatRunRequest, error) {
 	request := chatRunRequest{
 		Prompt:           req.Prompt,
 		SessionID:        req.SessionID,
@@ -106,80 +139,107 @@ func (a *app) executeMatrixScopedRun(ctx context.Context, req chatRunRequest, ta
 	if request.ProjectID == "" && request.RoomID != "" {
 		projectID, err := a.ensureMatrixRoomProject(ctx, request.RoomID)
 		if err != nil {
-			return "", nil, nil, fmt.Errorf("ensure matrix room project: %w", err)
+			return request, fmt.Errorf("ensure matrix room project: %w", err)
 		}
 		request.ProjectID = projectID
 	}
+	return request, nil
+}
 
+func (a *app) prepareMatrixHTTPRun(ctx context.Context, request chatRunRequest) (*http.Request, *workspaces.Workspace, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "/matrix-gateway", nil)
 	if err != nil {
-		return "", nil, nil, err
+		return nil, nil, err
 	}
 	httpReq, checkedOutWorkspace, statusCode, err := a.prepareChatRunRequest(httpReq, nil, request)
 	if err != nil {
-		return "", nil, nil, fmt.Errorf("prepare matrix chat request (status=%d): %w", statusCode, err)
+		return nil, nil, fmt.Errorf("prepare matrix chat request (status=%d): %w", statusCode, err)
 	}
 	if _, err := ensureMatrixChatSession(httpReq.Context(), a.chatStore, request.RoomID, request.SessionID); err != nil {
-		return "", nil, nil, fmt.Errorf("ensure matrix chat session: %w", err)
+		return nil, nil, fmt.Errorf("ensure matrix chat session: %w", err)
 	}
-	if request.RoomID != "" {
-		gatewayOutbox := sandbox.NewMatrixOutbox(sandbox.WithMatrixDispatchHandler(func(runCtx context.Context, msg sandbox.MatrixMessage) error {
-			if a.matrixGateway == nil {
-				return nil
-			}
-			return a.matrixGateway.Send(runCtx, msg)
-		}))
-		httpReq = httpReq.WithContext(sandbox.WithMatrixOutbox(httpReq.Context(), gatewayOutbox))
-	}
+	return a.withMatrixGatewayOutbox(httpReq, request.RoomID), checkedOutWorkspace, nil
+}
 
-	owner := int64(systemUserID)
+func (a *app) withMatrixGatewayOutbox(r *http.Request, roomID string) *http.Request {
+	if roomID == "" {
+		return r
+	}
+	gatewayOutbox := sandbox.NewMatrixOutbox(sandbox.WithMatrixDispatchHandler(func(runCtx context.Context, msg sandbox.MatrixMessage) error {
+		if a.matrixGateway == nil {
+			return nil
+		}
+		return a.matrixGateway.Send(runCtx, msg)
+	}))
+	return r.WithContext(sandbox.WithMatrixOutbox(r.Context(), gatewayOutbox))
+}
+
+func (a *app) describeMatrixChatTarget(ctx context.Context, request chatRunRequest, workspace *workspaces.Workspace, targetName string, owner int64) chatTargetDescriptor {
 	target := chatDispatchTarget{}
 	if targetName != "" {
 		target.SpecialistName = targetName
 	}
-	descriptor, ok := a.describeChatTarget(target, request.SessionID, request.ProjectID, request.ObjectiveID, request.SystemPrompt, owner)
+	descriptor, ok := a.describeChatTarget(chatTargetDescribeRequest{
+		Target:               target,
+		SessionID:            request.SessionID,
+		ProjectID:            request.ProjectID,
+		ObjectiveID:          request.ObjectiveID,
+		SystemPromptOverride: request.SystemPrompt,
+		Owner:                owner,
+		MemorySettings:       chatMemorySettingsFromRunRequest(request),
+	})
 	if !ok {
-		descriptor = a.promptOrchestratorDescriptor(httpReq.Context(), owner, request, checkedOutWorkspace)
+		descriptor = a.promptOrchestratorDescriptor(ctx, owner, request, workspace)
 	}
 	if descriptor.RunContext == nil {
-		descriptor.RunContext = llm.WithUserID(httpReq.Context(), owner)
+		descriptor.RunContext = llm.WithUserID(ctx, owner)
 	}
+	return descriptor
+}
 
-	build := descriptor.Build(httpReq.Context())
+func (a *app) buildMatrixChatEngine(ctx context.Context, descriptor chatTargetDescriptor, request chatRunRequest, includeHistory bool) (chatEngineBuildResult, []llm.Message, error) {
+	build := descriptor.Build(ctx)
 	if build.Err != nil {
-		return "", nil, nil, build.Err
+		return build, nil, build.Err
 	}
 	build = sanitizeImageGenerationBuild(build)
-
-	var history []llm.Message
-	var summary *memory.SummaryResult
-	if includeHistory && !build.ImageGeneration {
-		var err error
-		history, summary, err = a.chatMemory.BuildContextForProvider(httpReq.Context(), nil, request.SessionID, build.Engine.LLM, build.Engine.Model, memory.SummaryPolicy{
-			TargetContextWindowTokens:    build.Engine.ContextWindowTokens,
-			PlainTextContextWindowTokens: a.cfg.Summary.PlainTextContextWindowTokens,
-		})
-		if err != nil {
-			return "", nil, nil, err
-		}
-		build.Engine.SkipInitialSummarization = summary != nil && summary.Triggered
+	history, err := a.matrixChatHistory(ctx, request, build, includeHistory)
+	if err != nil {
+		return build, nil, err
 	}
+	return build, history, nil
+}
 
-	runCtx := descriptor.RunContext
+func (a *app) matrixChatHistory(ctx context.Context, request chatRunRequest, build chatEngineBuildResult, includeHistory bool) ([]llm.Message, error) {
+	if !includeHistory || build.ImageGeneration {
+		return nil, nil
+	}
+	history, summary, err := a.chatMemory.BuildContextForProvider(ctx, nil, request.SessionID, build.Engine.LLM, build.Engine.Model, memory.SummaryPolicy{
+		TargetContextWindowTokens:    build.Engine.ContextWindowTokens,
+		PlainTextContextWindowTokens: a.cfg.Summary.PlainTextContextWindowTokens,
+	})
+	if err != nil {
+		return nil, err
+	}
+	build.Engine.SkipInitialSummarization = summary != nil && summary.Triggered
+	return history, nil
+}
+
+func matrixRunContext(runCtx context.Context, request chatRunRequest, build chatEngineBuildResult) context.Context {
 	if request.ObjectiveID != "" {
 		runCtx = sandbox.WithObjectiveID(runCtx, request.ObjectiveID)
 	}
-	runCtx = applyBuildImagePrompt(runCtx, build)
-	jsonOpts := descriptor.JSON
+	return applyBuildImagePrompt(runCtx, build)
+}
+
+func matrixJSONOptions(jsonOpts chatJSONOptions, build chatEngineBuildResult) chatJSONOptions {
 	if jsonOpts.StoreModel == "" {
 		jsonOpts.StoreModel = build.ModelLabel
 	}
-	runID := a.runs.create(request.Prompt).ID
-	payload, err := a.executeInternalJSONChat(httpReq.Context(), runCtx, build.Engine, request, history, runID, nil, checkedOutWorkspace, jsonOpts)
-	if err != nil {
-		return "", nil, nil, err
-	}
+	return jsonOpts
+}
 
+func matrixPayloadResult(payload map[string]any) (string, []savedImage, []sandbox.MatrixMessage, error) {
 	result, _ := payload["result"].(string)
 	var images []savedImage
 	if payloadImages, ok := payload["images"].([]savedImage); ok {

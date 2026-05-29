@@ -11,6 +11,8 @@ import (
 	"manifold/internal/observability"
 	"manifold/internal/tools"
 	"manifold/internal/tools/utility"
+
+	"github.com/rs/zerolog"
 )
 
 func (e *Engine) effectiveHarnessConfig() harness.RunConfig {
@@ -42,95 +44,27 @@ func (e *Engine) effectiveHarnessConfig() harness.RunConfig {
 }
 
 func (e *Engine) runHarnessLoop(ctx context.Context, msgs []llm.Message) (string, error) {
-	log := observability.LoggerWithTrace(ctx)
 	cfg := e.effectiveHarnessConfig()
 	restoreTools := e.withHarnessToolRegistry(cfg)
 	defer restoreTools()
-	history := harness.WrapMessages(msgs)
-	tracker := harness.NewStepTracker()
-	toolErrors := harness.NewToolErrorTracker(cfg.MaxToolErrors)
+	state := newHarnessLoopState(cfg, msgs)
 	var final string
 
 	for step := 0; step < e.MaxSteps; step++ {
-		log.Debug().Int("step", step).Int("history", len(history)).Msg("engine_harness_step_start")
-
-		schemas := e.Tools.Schemas()
-		toolNames := make([]string, len(schemas))
-		for i, schema := range schemas {
-			toolNames[i] = schema.Name
-		}
-		log.Info().Strs("tools_sent_to_llm", toolNames).Msg("engine_harness_tools_before_chat")
-
-		history = e.prepareHarnessHistory(ctx, history, cfg, tracker)
-		priorHistory := history
-		result, err := harness.RunInference(ctx, e.LLM, history, schemas, e.model(), cfg, tracker)
-		history = result.History
-		if len(history) >= len(priorHistory) {
-			markHarnessStep(history[len(priorHistory):], step)
-		}
-		if len(result.Message.ToolCalls) > 0 {
-			result.Message.ToolCalls = e.ensureToolCallIDs(harness.SerializeMessages(priorHistory), result.Message.ToolCalls)
-			updateLastAssistantMessage(history, result.Message)
-		}
-		if len(history) >= len(priorHistory) {
-			e.emitHarnessTurnMessages(history[len(priorHistory):])
-		}
+		msg, err := e.runHarnessStep(ctx, state, step, false)
 		if err != nil {
-			log.Error().Err(err).Int("step", step).Msg("engine_harness_step_error")
 			return "", err
 		}
-
-		msg := result.Message
 		if len(msg.ToolCalls) == 0 {
-			log.Info().Int("step", step).Int("final_len", len(msg.Content)).Msg("engine_harness_final")
 			final = msg.Content
 			break
 		}
 
-		log.Info().Int("step", step).Int("tool_calls", len(msg.ToolCalls)).Msg("engine_harness_tool_calls")
-		providerHistory := harness.SerializeMessages(history)
-		beforeTools := len(providerHistory)
-		providerHistory = e.dispatchTools(ctx, providerHistory, msg.ToolCalls)
-		toolMessages := providerHistory[beforeTools:]
-		var toolErrorNudges []harness.HarnessMessage
-		for i, toolMessage := range toolMessages {
-			if i >= len(msg.ToolCalls) {
-				break
-			}
-			call := msg.ToolCalls[i]
-			if toolErr, isToolErr := harness.DetectToolErrorPayload([]byte(toolMessage.Content)); isToolErr {
-				count, err := toolErrors.RecordFailure(call.Name, toolErr)
-				if err != nil {
-					log.Error().Err(err).Str("tool", call.Name).Int("consecutive_tool_errors", count).Msg("engine_harness_tool_error_budget_exhausted")
-					return "", err
-				}
-				toolErrorNudges = append(toolErrorNudges, harness.HarnessMessage{
-					Message: llm.Message{
-						Role:    "user",
-						Content: harness.ToolErrorNudge(call.Name, toolErr),
-					},
-					Meta: harness.MessageMeta{
-						Type:       harness.MessageTypeNudge,
-						StepIndex:  step,
-						ToolName:   call.Name,
-						ToolCallID: call.ID,
-					},
-				})
-				continue
-			}
-			toolErrors.RecordSuccess()
-			tracker.RecordSuccess(call)
-			if cfg.Workflow.IsTerminalTool(call.Name) {
-				final = terminalResultText(toolMessage.Content)
-			}
-		}
-		history = appendHarnessToolMessages(history, toolMessages, msg.ToolCalls, step)
-		if len(toolErrorNudges) > 0 {
-			history = append(history, toolErrorNudges...)
-			e.emitHarnessTurnMessages(toolErrorNudges)
+		final, err = e.handleHarnessTools(ctx, state, msg, step, false)
+		if err != nil {
+			return "", err
 		}
 		if final != "" {
-			log.Info().Int("step", step).Int("final_len", len(final)).Msg("engine_harness_terminal_final")
 			break
 		}
 	}
@@ -142,95 +76,27 @@ func (e *Engine) runHarnessLoop(ctx context.Context, msgs []llm.Message) (string
 }
 
 func (e *Engine) runHarnessStreamLoop(ctx context.Context, msgs []llm.Message) (string, error) {
-	log := observability.LoggerWithTrace(ctx)
 	cfg := e.effectiveHarnessConfig()
 	restoreTools := e.withHarnessToolRegistry(cfg)
 	defer restoreTools()
-	history := harness.WrapMessages(msgs)
-	tracker := harness.NewStepTracker()
-	toolErrors := harness.NewToolErrorTracker(cfg.MaxToolErrors)
+	state := newHarnessLoopState(cfg, msgs)
 	var final string
 
 	for step := 0; step < e.MaxSteps; step++ {
-		log.Debug().Int("step", step).Int("history", len(history)).Msg("engine_harness_stream_step_start")
-
-		schemas := e.Tools.Schemas()
-		toolNames := make([]string, len(schemas))
-		for i, schema := range schemas {
-			toolNames[i] = schema.Name
-		}
-		log.Info().Strs("tools_sent_to_llm_stream", toolNames).Msg("engine_harness_tools_before_stream")
-
-		history = e.prepareHarnessHistory(ctx, history, cfg, tracker)
-		priorHistory := history
-		result, err := harness.RunStreamInference(ctx, e.LLM, history, schemas, e.model(), cfg, tracker)
-		history = result.History
-		if len(history) >= len(priorHistory) {
-			markHarnessStep(history[len(priorHistory):], step)
-		}
-		if len(result.Message.ToolCalls) > 0 {
-			result.Message.ToolCalls = e.ensureToolCallIDs(harness.SerializeMessages(priorHistory), result.Message.ToolCalls)
-			updateLastAssistantMessage(history, result.Message)
-		}
-		if len(history) >= len(priorHistory) {
-			e.emitHarnessStreamTurnMessages(history[len(priorHistory):], result)
-		}
+		msg, err := e.runHarnessStep(ctx, state, step, true)
 		if err != nil {
-			log.Error().Err(err).Int("step", step).Msg("engine_harness_stream_step_error")
 			return "", err
 		}
-
-		msg := result.Message
 		if len(msg.ToolCalls) == 0 {
-			log.Info().Int("step", step).Int("final_len", len(msg.Content)).Msg("engine_harness_stream_final")
 			final = msg.Content
 			break
 		}
 
-		log.Info().Int("step", step).Int("tool_calls", len(msg.ToolCalls)).Msg("engine_harness_stream_tool_calls")
-		providerHistory := harness.SerializeMessages(history)
-		beforeTools := len(providerHistory)
-		providerHistory = e.dispatchTools(ctx, providerHistory, msg.ToolCalls)
-		toolMessages := providerHistory[beforeTools:]
-		var toolErrorNudges []harness.HarnessMessage
-		for i, toolMessage := range toolMessages {
-			if i >= len(msg.ToolCalls) {
-				break
-			}
-			call := msg.ToolCalls[i]
-			if toolErr, isToolErr := harness.DetectToolErrorPayload([]byte(toolMessage.Content)); isToolErr {
-				count, err := toolErrors.RecordFailure(call.Name, toolErr)
-				if err != nil {
-					log.Error().Err(err).Str("tool", call.Name).Int("consecutive_tool_errors", count).Msg("engine_harness_stream_tool_error_budget_exhausted")
-					return "", err
-				}
-				toolErrorNudges = append(toolErrorNudges, harness.HarnessMessage{
-					Message: llm.Message{
-						Role:    "user",
-						Content: harness.ToolErrorNudge(call.Name, toolErr),
-					},
-					Meta: harness.MessageMeta{
-						Type:       harness.MessageTypeNudge,
-						StepIndex:  step,
-						ToolName:   call.Name,
-						ToolCallID: call.ID,
-					},
-				})
-				continue
-			}
-			toolErrors.RecordSuccess()
-			tracker.RecordSuccess(call)
-			if cfg.Workflow.IsTerminalTool(call.Name) {
-				final = terminalResultText(toolMessage.Content)
-			}
-		}
-		history = appendHarnessToolMessages(history, toolMessages, msg.ToolCalls, step)
-		if len(toolErrorNudges) > 0 {
-			history = append(history, toolErrorNudges...)
-			e.emitHarnessTurnMessages(toolErrorNudges)
+		final, err = e.handleHarnessTools(ctx, state, msg, step, true)
+		if err != nil {
+			return "", err
 		}
 		if final != "" {
-			log.Info().Int("step", step).Int("final_len", len(final)).Msg("engine_harness_stream_terminal_final")
 			break
 		}
 	}
@@ -239,6 +105,194 @@ func (e *Engine) runHarnessStreamLoop(ctx context.Context, msgs []llm.Message) (
 		final = "(no final text — increase max steps or check logs)"
 	}
 	return final, nil
+}
+
+type harnessLoopState struct {
+	cfg        harness.RunConfig
+	history    []harness.HarnessMessage
+	tracker    *harness.StepTracker
+	toolErrors *harness.ToolErrorTracker
+}
+
+func newHarnessLoopState(cfg harness.RunConfig, msgs []llm.Message) *harnessLoopState {
+	return &harnessLoopState{
+		cfg:        cfg,
+		history:    harness.WrapMessages(msgs),
+		tracker:    harness.NewStepTracker(),
+		toolErrors: harness.NewToolErrorTracker(cfg.MaxToolErrors),
+	}
+}
+
+func (e *Engine) runHarnessStep(ctx context.Context, state *harnessLoopState, step int, stream bool) (llm.Message, error) {
+	log := observability.LoggerWithTrace(ctx)
+	log.Debug().Int("step", step).Int("history", len(state.history)).Msg(harnessStepStartEvent(stream))
+	schemas := e.Tools.Schemas()
+	log.Info().Strs(harnessToolsLogField(stream), toolSchemaNames(schemas)).Msg(harnessToolsLogEvent(stream))
+
+	state.history = e.prepareHarnessHistory(ctx, state.history, state.cfg, state.tracker)
+	priorHistory := state.history
+	result, err := e.runHarnessInference(ctx, state, schemas, stream)
+	state.history = result.History
+	msg := e.acceptHarnessResult(priorHistory, result, step, stream)
+	if err != nil {
+		log.Error().Err(err).Int("step", step).Msg(harnessStepErrorEvent(stream))
+		return llm.Message{}, err
+	}
+	if len(msg.ToolCalls) == 0 {
+		log.Info().Int("step", step).Int("final_len", len(msg.Content)).Msg(harnessFinalEvent(stream))
+	}
+	return msg, nil
+}
+
+func (e *Engine) runHarnessInference(ctx context.Context, state *harnessLoopState, schemas []llm.ToolSchema, stream bool) (harness.InferenceResult, error) {
+	req := harness.InferenceRequest{Provider: e.LLM, History: state.history, Schemas: schemas, Model: e.model(), Config: state.cfg, Tracker: state.tracker}
+	if stream {
+		return harness.RunStreamInference(ctx, req)
+	}
+	return harness.RunInference(ctx, req)
+}
+
+func (e *Engine) acceptHarnessResult(priorHistory []harness.HarnessMessage, result harness.InferenceResult, step int, stream bool) llm.Message {
+	msg := result.Message
+	if len(result.History) >= len(priorHistory) {
+		markHarnessStep(result.History[len(priorHistory):], step)
+	}
+	if len(msg.ToolCalls) > 0 {
+		msg.ToolCalls = e.ensureToolCallIDs(harness.SerializeMessages(priorHistory), msg.ToolCalls)
+		updateLastAssistantMessage(result.History, msg)
+	}
+	if len(result.History) < len(priorHistory) {
+		return msg
+	}
+	if stream {
+		e.emitHarnessStreamTurnMessages(result.History[len(priorHistory):], result)
+		return msg
+	}
+	e.emitHarnessTurnMessages(result.History[len(priorHistory):])
+	return msg
+}
+
+func (e *Engine) handleHarnessTools(ctx context.Context, state *harnessLoopState, msg llm.Message, step int, stream bool) (string, error) {
+	log := observability.LoggerWithTrace(ctx)
+	log.Info().Int("step", step).Int("tool_calls", len(msg.ToolCalls)).Msg(harnessToolCallsEvent(stream))
+	providerHistory := harness.SerializeMessages(state.history)
+	beforeTools := len(providerHistory)
+	providerHistory = e.dispatchTools(ctx, providerHistory, msg.ToolCalls)
+	toolMessages := providerHistory[beforeTools:]
+	final, nudges, err := processHarnessToolMessages(state, toolMessages, msg.ToolCalls, step, stream, log)
+	if err != nil {
+		return "", err
+	}
+	state.history = appendHarnessToolMessages(state.history, toolMessages, msg.ToolCalls, step)
+	if len(nudges) > 0 {
+		state.history = append(state.history, nudges...)
+		e.emitHarnessTurnMessages(nudges)
+	}
+	if final != "" {
+		log.Info().Int("step", step).Int("final_len", len(final)).Msg(harnessTerminalFinalEvent(stream))
+	}
+	return final, nil
+}
+
+func processHarnessToolMessages(state *harnessLoopState, toolMessages []llm.Message, calls []llm.ToolCall, step int, stream bool, log *zerolog.Logger) (string, []harness.HarnessMessage, error) {
+	var final string
+	var nudges []harness.HarnessMessage
+	for i, toolMessage := range toolMessages {
+		if i >= len(calls) {
+			break
+		}
+		call := calls[i]
+		if toolErr, isToolErr := harness.DetectToolErrorPayload([]byte(toolMessage.Content)); isToolErr {
+			nudge, err := recordHarnessToolError(state, call, toolErr, step, stream, log)
+			if err != nil {
+				return "", nil, err
+			}
+			nudges = append(nudges, nudge)
+			continue
+		}
+		state.toolErrors.RecordSuccess()
+		state.tracker.RecordSuccess(call)
+		if state.cfg.Workflow.IsTerminalTool(call.Name) {
+			final = terminalResultText(toolMessage.Content)
+		}
+	}
+	return final, nudges, nil
+}
+
+func recordHarnessToolError(state *harnessLoopState, call llm.ToolCall, toolErr harness.ToolError, step int, stream bool, log *zerolog.Logger) (harness.HarnessMessage, error) {
+	count, err := state.toolErrors.RecordFailure(call.Name, toolErr)
+	if err != nil {
+		log.Error().Err(err).Str("tool", call.Name).Int("consecutive_tool_errors", count).Msg(harnessToolBudgetEvent(stream))
+		return harness.HarnessMessage{}, err
+	}
+	return harness.HarnessMessage{
+		Message: llm.Message{
+			Role:    "user",
+			Content: harness.ToolErrorNudge(call.Name, toolErr),
+		},
+		Meta: harness.MessageMeta{
+			Type:       harness.MessageTypeNudge,
+			StepIndex:  step,
+			ToolName:   call.Name,
+			ToolCallID: call.ID,
+		},
+	}, nil
+}
+
+func harnessStepStartEvent(stream bool) string {
+	if stream {
+		return "engine_harness_stream_step_start"
+	}
+	return "engine_harness_step_start"
+}
+
+func harnessToolsLogField(stream bool) string {
+	if stream {
+		return "tools_sent_to_llm_stream"
+	}
+	return "tools_sent_to_llm"
+}
+
+func harnessToolsLogEvent(stream bool) string {
+	if stream {
+		return "engine_harness_tools_before_stream"
+	}
+	return "engine_harness_tools_before_chat"
+}
+
+func harnessStepErrorEvent(stream bool) string {
+	if stream {
+		return "engine_harness_stream_step_error"
+	}
+	return "engine_harness_step_error"
+}
+
+func harnessFinalEvent(stream bool) string {
+	if stream {
+		return "engine_harness_stream_final"
+	}
+	return "engine_harness_final"
+}
+
+func harnessToolCallsEvent(stream bool) string {
+	if stream {
+		return "engine_harness_stream_tool_calls"
+	}
+	return "engine_harness_tool_calls"
+}
+
+func harnessTerminalFinalEvent(stream bool) string {
+	if stream {
+		return "engine_harness_stream_terminal_final"
+	}
+	return "engine_harness_terminal_final"
+}
+
+func harnessToolBudgetEvent(stream bool) string {
+	if stream {
+		return "engine_harness_stream_tool_error_budget_exhausted"
+	}
+	return "engine_harness_tool_error_budget_exhausted"
 }
 
 func (e *Engine) withHarnessToolRegistry(cfg harness.RunConfig) func() {

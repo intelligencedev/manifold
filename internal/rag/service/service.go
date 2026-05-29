@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"manifold/internal/config"
-	"manifold/internal/embedding"
 	"manifold/internal/llm"
 	"manifold/internal/memory/magma"
 	"manifold/internal/persistence/databases"
@@ -103,136 +102,208 @@ func (s *Service) Close() {
 // Ingest performs chunk-centric ingestion. Stubbed for Milestone 3.
 func (s *Service) Ingest(ctx context.Context, in ingest.IngestRequest) (ingest.IngestResponse, error) {
 	start := s.clock.Now()
-	// Metrics: count documents
 	s.metrics.IncCounter("ingestion_docs_total", map[string]string{"tenant": in.Tenant})
-	// Step 1: preprocess (normalize, language, hash)
-	t0 := s.clock.Now()
-	pre, err := ingest.Preprocess(ctx, ingest.DefaultLanguageDetector{}, in)
+
+	pre, decision, err := s.prepareIngest(ctx, in)
 	if err != nil {
 		return ingest.IngestResponse{}, err
 	}
-	s.metrics.ObserveHistogram("ingestion_stage_ms", float64(ms(s.clock.Now().Sub(t0))), map[string]string{"stage": "preprocess", "tenant": in.Tenant})
-	// Step 2: idempotency resolution (using Search as lookup proxy when possible)
-	// We adapt the FullTextSearch interface to our DocumentLookup if it provides GetByID on doc hash key.
-	// For now, rely on a nil lookup path which returns create if unknown.
-	t0 = s.clock.Now()
-	decision, err := ingest.ResolveIdempotency(ctx, nil, in.Tenant, in, pre)
-	if err != nil {
-		return ingest.IngestResponse{}, err
-	}
-	s.metrics.ObserveHistogram("ingestion_stage_ms", float64(ms(s.clock.Now().Sub(t0))), map[string]string{"stage": "idempotency", "tenant": in.Tenant})
 	if decision.Action == "skip" {
-		return ingest.IngestResponse{
-			DocID:    decision.DocID,
-			Version:  decision.Version,
-			ChunkIDs: nil,
-			Stats: ingest.IngestStats{
-				NumChunks:     0,
-				TotalTokens:   0,
-				VectorUpserts: 0,
-				Duration:      s.clock.Now().Sub(start),
-			},
-		}, nil
+		return s.skippedIngestResponse(decision, start), nil
 	}
 
-	// Step 3: chunking
-	ch := chunker.SimpleChunker{}
-	t0 = s.clock.Now()
-	chunks, err := ch.Chunk(pre.Text, in.Options.Chunking)
+	state, err := s.indexIngest(ctx, in, pre, decision)
 	if err != nil {
 		return ingest.IngestResponse{}, err
 	}
-	s.metrics.ObserveHistogram("ingestion_stage_ms", float64(ms(s.clock.Now().Sub(t0))), map[string]string{"stage": "chunk", "tenant": in.Tenant})
-	// Metrics: count chunks
-	for range chunks {
-		s.metrics.IncCounter("ingestion_chunks_total", map[string]string{"tenant": in.Tenant})
-	}
-
-	// Step 4: index into Search (documents and chunks) with fallback path
-	t0 = s.clock.Now()
-	if err := ingest.UpsertDocumentToSearch(ctx, s.search, in.ID, in, pre, decision.Version); err != nil {
-		return ingest.IngestResponse{}, err
-	}
-	s.metrics.ObserveHistogram("ingestion_stage_ms", float64(ms(s.clock.Now().Sub(t0))), map[string]string{"stage": "search_document", "tenant": in.Tenant})
-	// adapt chunker.Chunk to ingest.ChunkRecord
-	crecs := make([]ingest.ChunkRecord, 0, len(chunks))
-	for _, c := range chunks {
-		crecs = append(crecs, ingest.ChunkRecord{Index: c.Index, Text: c.Text})
-	}
-	t0 = s.clock.Now()
-	chunkIDs, err := ingest.UpsertChunksToSearch(ctx, s.search, in.ID, pre.Language, crecs, in, decision.Version)
+	dur := s.recordIngestTotal(start, in.Tenant)
+	magmaEventID, warnings, err := s.ingestMagma(ctx, in, pre)
 	if err != nil {
 		return ingest.IngestResponse{}, err
 	}
-	s.metrics.ObserveHistogram("ingestion_stage_ms", float64(ms(s.clock.Now().Sub(t0))), map[string]string{"stage": "search_chunks", "tenant": in.Tenant})
 
-	// Step 5: embeddings (optional)
-	vecUpserts := 0
-	if in.Options.Embedding.Enabled && s.vector != nil {
-		t0 = s.clock.Now()
-		n, err := ingest.UpsertChunkEmbeddings(ctx, s.vector, s.emb, in.ID, pre.Language, crecs, in, decision.Version)
-		if err != nil {
-			return ingest.IngestResponse{}, err
-		}
-		vecUpserts = n
-		s.metrics.ObserveHistogram("ingestion_stage_ms", float64(ms(s.clock.Now().Sub(t0))), map[string]string{"stage": "embedding", "tenant": in.Tenant})
-	}
-
-	// Step 6: graph upserts (optional)
-	if in.Options.Graph.Enabled && s.graph != nil {
-		t0 = s.clock.Now()
-		if _, err := ingest.UpsertDocAndChunksGraph(ctx, s.graph, in.ID, pre, in, crecs, decision.Version); err != nil {
-			return ingest.IngestResponse{}, err
-		}
-		s.metrics.ObserveHistogram("ingestion_stage_ms", float64(ms(s.clock.Now().Sub(t0))), map[string]string{"stage": "graph", "tenant": in.Tenant})
-	}
-
-	dur := s.clock.Now().Sub(start)
-	s.metrics.ObserveHistogram("ingestion_stage_ms", float64(ms(dur)), map[string]string{"stage": "total", "tenant": in.Tenant})
-	magmaOpt := s.normalizeMagmaIngestOptions(in.Options.Magma)
-	var magmaEventID string
-	warnings := []string(nil)
-	if magmaOpt.Enabled && s.magma != nil {
-		t0 = s.clock.Now()
-		s.magma.StartConsolidationWorkers(context.Background(), s.magmaCfg.Consolidation.WorkerCount)
-		if s.magmaCfg.Lifecycle.PruneIntervalMinutes > 0 {
-			s.magma.StartLifecycleWorker(context.Background(), time.Duration(s.magmaCfg.Lifecycle.PruneIntervalMinutes)*time.Minute)
-		}
-		resp, err := s.magma.Ingest(ctx, magma.IngestRequest{
-			ID:           in.ID,
-			Tenant:       in.Tenant,
-			SessionID:    magmaOpt.SessionID,
-			Text:         pre.Text,
-			Metadata:     in.Metadata,
-			Graphs:       magmaGraphTypes(magmaOpt.Graphs),
-			SemanticTopK: magmaOpt.TopSemanticK,
-		})
-		if err != nil {
-			return ingest.IngestResponse{}, err
-		}
-		magmaEventID = resp.EventID
-		if resp.Status == "queue_full" {
-			warnings = append(warnings, "magma consolidation queue is full; event stored but not queued for consolidation")
-			s.metrics.IncCounter("magma_consolidation_queue_dropped_total", map[string]string{"tenant": in.Tenant})
-		}
-		magmaFastMS := float64(ms(s.clock.Now().Sub(t0)))
-		s.metrics.ObserveHistogram("ingestion_stage_ms", magmaFastMS, map[string]string{"stage": "magma_fast", "tenant": in.Tenant})
-		s.metrics.ObserveHistogram("magma_ingestion_fast_ms", magmaFastMS, map[string]string{"tenant": in.Tenant, "status": resp.Status})
-		s.metrics.IncCounter("magma_events_total", map[string]string{"tenant": in.Tenant})
-	}
 	return ingest.IngestResponse{
 		DocID:        in.ID,
 		Version:      decision.Version,
-		ChunkIDs:     chunkIDs,
+		ChunkIDs:     state.chunkIDs,
 		MagmaEventID: magmaEventID,
 		Stats: ingest.IngestStats{
-			NumChunks:     len(chunks),
+			NumChunks:     state.numChunks,
 			TotalTokens:   approxTokens(pre.Text),
-			VectorUpserts: vecUpserts,
+			VectorUpserts: state.vectorUpserts,
 			Duration:      dur,
 		},
 		Warnings: warnings,
 	}, nil
+}
+
+type ingestIndexState struct {
+	chunkIDs      []string
+	numChunks     int
+	vectorUpserts int
+}
+
+func (s *Service) prepareIngest(ctx context.Context, in ingest.IngestRequest) (ingest.PreprocessedDoc, ingest.IdempotencyDecision, error) {
+	t0 := s.clock.Now()
+	pre, err := ingest.Preprocess(ctx, ingest.DefaultLanguageDetector{}, in)
+	if err != nil {
+		return ingest.PreprocessedDoc{}, ingest.IdempotencyDecision{}, err
+	}
+	s.recordIngestStage("preprocess", in.Tenant, t0)
+
+	t0 = s.clock.Now()
+	decision, err := ingest.ResolveIdempotency(ctx, nil, in.Tenant, in, pre)
+	if err != nil {
+		return ingest.PreprocessedDoc{}, ingest.IdempotencyDecision{}, err
+	}
+	s.recordIngestStage("idempotency", in.Tenant, t0)
+	return pre, decision, nil
+}
+
+func (s *Service) skippedIngestResponse(decision ingest.IdempotencyDecision, start time.Time) ingest.IngestResponse {
+	return ingest.IngestResponse{
+		DocID:    decision.DocID,
+		Version:  decision.Version,
+		ChunkIDs: nil,
+		Stats: ingest.IngestStats{
+			Duration: s.clock.Now().Sub(start),
+		},
+	}
+}
+
+func (s *Service) indexIngest(ctx context.Context, in ingest.IngestRequest, pre ingest.PreprocessedDoc, decision ingest.IdempotencyDecision) (ingestIndexState, error) {
+	chunks, err := s.chunkIngest(pre.Text, in)
+	if err != nil {
+		return ingestIndexState{}, err
+	}
+	chunkReq, chunkIDs, err := s.indexSearch(ctx, in, pre, decision, chunks)
+	if err != nil {
+		return ingestIndexState{}, err
+	}
+	vecUpserts, err := s.indexEmbeddings(ctx, in, chunkReq)
+	if err != nil {
+		return ingestIndexState{}, err
+	}
+	if err := s.indexGraph(ctx, in, chunkReq, pre); err != nil {
+		return ingestIndexState{}, err
+	}
+	return ingestIndexState{chunkIDs: chunkIDs, numChunks: len(chunks), vectorUpserts: vecUpserts}, nil
+}
+
+func (s *Service) chunkIngest(text string, in ingest.IngestRequest) ([]chunker.Chunk, error) {
+	t0 := s.clock.Now()
+	chunks, err := (chunker.SimpleChunker{}).Chunk(text, in.Options.Chunking)
+	if err != nil {
+		return nil, err
+	}
+	s.recordIngestStage("chunk", in.Tenant, t0)
+	for range chunks {
+		s.metrics.IncCounter("ingestion_chunks_total", map[string]string{"tenant": in.Tenant})
+	}
+	return chunks, nil
+}
+
+func (s *Service) indexSearch(ctx context.Context, in ingest.IngestRequest, pre ingest.PreprocessedDoc, decision ingest.IdempotencyDecision, chunks []chunker.Chunk) (ingest.ChunkIndexRequest, []string, error) {
+	t0 := s.clock.Now()
+	if err := ingest.UpsertDocumentToSearch(ctx, s.search, in.ID, in, pre, decision.Version); err != nil {
+		return ingest.ChunkIndexRequest{}, nil, err
+	}
+	s.recordIngestStage("search_document", in.Tenant, t0)
+
+	chunkReq := ingest.ChunkIndexRequest{DocID: in.ID, Lang: pre.Language, Chunks: chunkRecords(chunks), Input: in, Version: decision.Version}
+	t0 = s.clock.Now()
+	chunkIDs, err := ingest.UpsertChunksToSearch(ctx, s.search, chunkReq)
+	if err != nil {
+		return ingest.ChunkIndexRequest{}, nil, err
+	}
+	s.recordIngestStage("search_chunks", in.Tenant, t0)
+	return chunkReq, chunkIDs, nil
+}
+
+func chunkRecords(chunks []chunker.Chunk) []ingest.ChunkRecord {
+	records := make([]ingest.ChunkRecord, 0, len(chunks))
+	for _, c := range chunks {
+		records = append(records, ingest.ChunkRecord{Index: c.Index, Text: c.Text})
+	}
+	return records
+}
+
+func (s *Service) indexEmbeddings(ctx context.Context, in ingest.IngestRequest, chunkReq ingest.ChunkIndexRequest) (int, error) {
+	if !in.Options.Embedding.Enabled || s.vector == nil {
+		return 0, nil
+	}
+	t0 := s.clock.Now()
+	n, err := ingest.UpsertChunkEmbeddings(ctx, s.vector, s.emb, chunkReq)
+	if err != nil {
+		return 0, err
+	}
+	s.recordIngestStage("embedding", in.Tenant, t0)
+	return n, nil
+}
+
+func (s *Service) indexGraph(ctx context.Context, in ingest.IngestRequest, chunkReq ingest.ChunkIndexRequest, pre ingest.PreprocessedDoc) error {
+	if !in.Options.Graph.Enabled || s.graph == nil {
+		return nil
+	}
+	t0 := s.clock.Now()
+	if _, err := ingest.UpsertDocAndChunksGraph(ctx, s.graph, chunkReq, pre); err != nil {
+		return err
+	}
+	s.recordIngestStage("graph", in.Tenant, t0)
+	return nil
+}
+
+func (s *Service) recordIngestTotal(start time.Time, tenant string) time.Duration {
+	dur := s.clock.Now().Sub(start)
+	s.metrics.ObserveHistogram("ingestion_stage_ms", float64(ms(dur)), map[string]string{"stage": "total", "tenant": tenant})
+	return dur
+}
+
+func (s *Service) ingestMagma(ctx context.Context, in ingest.IngestRequest, pre ingest.PreprocessedDoc) (string, []string, error) {
+	magmaOpt := s.normalizeMagmaIngestOptions(in.Options.Magma)
+	if !magmaOpt.Enabled || s.magma == nil {
+		return "", nil, nil
+	}
+	t0 := s.clock.Now()
+	s.startMagmaWorkers()
+	resp, err := s.magma.Ingest(ctx, magma.IngestRequest{
+		ID:           in.ID,
+		Tenant:       in.Tenant,
+		SessionID:    magmaOpt.SessionID,
+		Text:         pre.Text,
+		Metadata:     in.Metadata,
+		Graphs:       magmaGraphTypes(magmaOpt.Graphs),
+		SemanticTopK: magmaOpt.TopSemanticK,
+	})
+	if err != nil {
+		return "", nil, err
+	}
+	warnings := s.recordMagmaIngest(in.Tenant, resp.Status, t0)
+	return resp.EventID, warnings, nil
+}
+
+func (s *Service) startMagmaWorkers() {
+	s.magma.StartConsolidationWorkers(context.Background(), s.magmaCfg.Consolidation.WorkerCount)
+	if s.magmaCfg.Lifecycle.PruneIntervalMinutes > 0 {
+		s.magma.StartLifecycleWorker(context.Background(), time.Duration(s.magmaCfg.Lifecycle.PruneIntervalMinutes)*time.Minute)
+	}
+}
+
+func (s *Service) recordMagmaIngest(tenant string, status string, start time.Time) []string {
+	warnings := []string(nil)
+	if status == "queue_full" {
+		warnings = append(warnings, "magma consolidation queue is full; event stored but not queued for consolidation")
+		s.metrics.IncCounter("magma_consolidation_queue_dropped_total", map[string]string{"tenant": tenant})
+	}
+	magmaFastMS := float64(ms(s.clock.Now().Sub(start)))
+	s.metrics.ObserveHistogram("ingestion_stage_ms", magmaFastMS, map[string]string{"stage": "magma_fast", "tenant": tenant})
+	s.metrics.ObserveHistogram("magma_ingestion_fast_ms", magmaFastMS, map[string]string{"tenant": tenant, "status": status})
+	s.metrics.IncCounter("magma_events_total", map[string]string{"tenant": tenant})
+	return warnings
+}
+
+func (s *Service) recordIngestStage(stage string, tenant string, start time.Time) {
+	s.metrics.ObserveHistogram("ingestion_stage_ms", float64(ms(s.clock.Now().Sub(start))), map[string]string{"stage": stage, "tenant": tenant})
 }
 
 // Retrieve executes a hybrid retrieval query. Stubbed for Milestone 3.
@@ -243,169 +314,24 @@ func (s *Service) Retrieve(ctx context.Context, q string, opt retrieve.RetrieveO
 	if opt.Magma.Enabled && s.magma != nil {
 		return s.retrieveMagma(ctx, q, opt, rStart)
 	}
-	// Plan query
 	plan := retrieve.BuildQueryPlan(ctx, q, opt)
-	// For now, we reuse deterministic embedder to get a query vector when vector store is present.
-	var qvec []float32
-	instruction := embedding.FormatQueryInput(s.embCfg, embedding.UseCaseRAGQuery, plan.Query, opt.Instruction)
-	instructionUsed := false
-	if s.vector != nil && s.emb != nil && plan.VecK > 0 {
-		instructionUsed = true
-		emb, err := s.emb.EmbedBatch(ctx, []string{instruction.Input})
-		if err != nil {
-			return retrieve.RetrieveResponse{}, err
-		}
-		if len(emb) > 0 {
-			qvec = emb[0]
-		}
-	}
-
-	// Run parallel candidates
-	ftRes, vecRes, diag, err := retrieve.ParallelCandidates(ctx, s.search, s.vector, plan, qvec)
+	qvec, instruction, instructionUsed, err := s.retrieveQueryVector(ctx, plan, opt)
 	if err != nil {
 		return retrieve.RetrieveResponse{}, err
 	}
-	// Metrics: candidate timings and counts
-	s.metrics.ObserveHistogram("retrieval_stage_ms", float64(ms(diag.FtLatency)), map[string]string{"stage": "fts", "tenant": plan.Tenant})
-	s.metrics.ObserveHistogram("retrieval_stage_ms", float64(ms(diag.VecLatency)), map[string]string{"stage": "vec", "tenant": plan.Tenant})
-	for i := 0; i < diag.FtCount; i++ {
-		s.metrics.IncCounter("retrieval_candidates", map[string]string{"type": "fts", "tenant": plan.Tenant})
-	}
-	for i := 0; i < diag.VecCount; i++ {
-		s.metrics.IncCounter("retrieval_candidates", map[string]string{"type": "vec", "tenant": plan.Tenant})
-	}
-
-	// Fusion: use RRF (with optional diversification) when requested or when
-	// reranking is inactive, else simple concat for reranker candidate pools.
-	var items []retrieve.RetrievedItem
-	var fusionMS int64
-	if opt.UseRRF {
-		t0 := s.clock.Now()
-		items = retrieve.FuseAndDiversify(ftRes, vecRes, plan, opt)
-		fusionMS = ms(s.clock.Now().Sub(t0))
-		s.metrics.ObserveHistogram("retrieval_stage_ms", float64(fusionMS), map[string]string{"stage": "fusion", "tenant": plan.Tenant})
-	} else {
-		items = make([]retrieve.RetrievedItem, 0, len(ftRes)+len(vecRes))
-		for _, r := range ftRes {
-			items = append(items, retrieve.RetrievedItem{ID: r.ID, Score: r.Score, Snippet: r.Snippet, Text: r.Text, Metadata: r.Metadata})
-		}
-		for _, r := range vecRes {
-			items = append(items, retrieve.RetrievedItem{ID: r.ID, Score: r.Score, Metadata: r.Metadata})
-		}
-		// Cap to K
-		k := opt.K
-		if k <= 0 {
-			k = 10
-		}
-		if len(items) > k {
-			items = items[:k]
-		}
-	}
-	// Graph augment + optional rerank + final prune
-	if opt.Rerank && s.rerank != nil {
-		items = s.hydrateRerankText(ctx, items)
-	}
-	var magmaGraphDbg map[string]any
-	if opt.GraphAugment && !opt.Magma.Enabled && s.magma != nil {
-		t0 := s.clock.Now()
-		var augmentErr error
-		items, magmaGraphDbg, augmentErr = s.augmentWithMagmaGraph(ctx, q, opt, items)
-		if augmentErr != nil {
-			return retrieve.RetrieveResponse{}, augmentErr
-		}
-		if magmaGraphDbg != nil {
-			magmaGraphDbg["ms"] = ms(s.clock.Now().Sub(t0))
-			s.metrics.ObserveHistogram("retrieval_stage_ms", float64(magmaGraphDbg["ms"].(int64)), map[string]string{"stage": "magma_graph", "tenant": plan.Tenant})
-		}
-	}
-	items, addDbg, err := retrieve.AssembleResults(ctx, s.graph, s.rerank, plan, opt, items)
+	ftRes, vecRes, diag, err := s.retrieveCandidates(ctx, plan, qvec)
 	if err != nil {
 		return retrieve.RetrieveResponse{}, err
 	}
-	// Metrics: graph and rerank durations if present
-	if gv, ok := addDbg["graph"]; ok {
-		if gmap, ok := gv.(map[string]any); ok {
-			if msVal, ok := gmap["ms"].(int64); ok {
-				s.metrics.ObserveHistogram("retrieval_stage_ms", float64(msVal), map[string]string{"stage": "graph", "tenant": plan.Tenant})
-			}
-		}
+	items, fusionMS := s.fuseRetrieveItems(ftRes, vecRes, plan, opt)
+	items, magmaGraphDbg, addDbg, err := s.augmentAndAssembleRetrieve(ctx, q, opt, plan, items)
+	if err != nil {
+		return retrieve.RetrieveResponse{}, err
 	}
-	if rv, ok := addDbg["rerank_ms"].(int64); ok {
-		s.metrics.ObserveHistogram("retrieval_stage_ms", float64(rv), map[string]string{"stage": "rerank", "tenant": plan.Tenant})
-	}
-
-	// Package results: snippets, optional full text, doc metadata, and explanations
-	pkgStart := s.clock.Now()
-	if opt.IncludeSnippet {
-		items = retrieve.GenerateSnippets(ctx, s.search, items, retrieve.SnippetOptions{Lang: plan.Lang, Query: plan.Query})
-	}
-	if opt.IncludeText && s.search != nil {
-		// ensure Text present for items lacking it
-		for i := range items {
-			if items[i].Text != "" {
-				continue
-			}
-			if doc, ok, _ := s.search.GetByID(ctx, items[i].ID); ok {
-				items[i].Text = doc.Text
-			}
-		}
-	}
-	// Attach doc metadata (title, url)
-	items = retrieve.AttachDocMetadata(ctx, s.search, items)
-
-	// Add basic per-item explanations when available from fusion diagnostics in metadata
-	for i := range items {
-		if items[i].Explanation == nil {
-			items[i].Explanation = map[string]any{}
-		}
-		// Carry doc_id for transparency
-		if items[i].DocID == "" {
-			items[i].DocID = retrieve.DeriveDocIDPublic(items[i].ID, items[i].Metadata)
-		}
-	}
-
-	pkgMS := ms(s.clock.Now().Sub(pkgStart))
-	s.metrics.ObserveHistogram("retrieval_stage_ms", float64(pkgMS), map[string]string{"stage": "package", "tenant": plan.Tenant})
-	// Results counter
-	for i := 0; i < len(items); i++ {
-		s.metrics.IncCounter("retrieval_results_total", map[string]string{"tenant": plan.Tenant})
-	}
+	items, pkgMS := s.packageRetrieveItems(ctx, plan, opt, items)
 	totalMS := ms(s.clock.Now().Sub(rStart))
 	s.metrics.ObserveHistogram("retrieval_stage_ms", float64(totalMS), map[string]string{"stage": "total", "tenant": plan.Tenant})
-	debug := map[string]any{
-		"plan":        map[string]any{"lang": plan.Lang, "ftK": plan.FtK, "vecK": plan.VecK},
-		"diagnostics": map[string]any{"ft_ms": ms(diag.FtLatency), "vec_ms": ms(diag.VecLatency), "ft_n": diag.FtCount, "vec_n": diag.VecCount, "package_ms": pkgMS, "fusion_ms": fusionMS, "total_ms": totalMS},
-		"embedding_instruction": map[string]any{
-			"used":    instructionUsed,
-			"applied": instruction.Applied,
-			"useCase": instruction.UseCase,
-			"format":  instruction.Format,
-			"mode":    instruction.Mode,
-			"source":  instruction.Source,
-		},
-	}
-	// Integrate addDbg stage timings into diagnostics when available
-	if dm, ok := debug["diagnostics"].(map[string]any); ok {
-		if magmaGraphDbg != nil {
-			if msVal, ok := magmaGraphDbg["ms"]; ok {
-				dm["magma_graph_ms"] = msVal
-			}
-		}
-		if gv, ok := addDbg["graph"]; ok {
-			if gmap, ok := gv.(map[string]any); ok {
-				if msVal, ok := gmap["ms"]; ok {
-					dm["graph_ms"] = msVal
-				}
-			}
-		}
-		if rv, ok := addDbg["rerank_ms"]; ok {
-			dm["rerank_ms"] = rv
-		}
-	}
-	maps.Copy(debug, addDbg)
-	if magmaGraphDbg != nil {
-		debug["magma_graph"] = magmaGraphDbg
-	}
+	debug := retrieveDebug(plan, diag, pkgMS, fusionMS, totalMS, instruction, instructionUsed, addDbg, magmaGraphDbg)
 	return retrieve.RetrieveResponse{Query: plan.Query, Items: items, Debug: debug}, nil
 }
 

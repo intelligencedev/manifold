@@ -11,12 +11,12 @@ import (
 )
 
 type fleetStateResponse struct {
-	Runs                  []AgentRun                          `json:"runs"`
-	Specialists           []persist.Specialist                `json:"specialists"`
-	Teams                 []persist.SpecialistTeam            `json:"teams"`
-	OpenInputRequests     []pendingInputRequestSnapshot       `json:"open_input_requests"`
-	ActiveDelegationEdges []fleet.ActiveEdge                  `json:"active_delegation_edges"`
-	RecentEvents          []fleet.Event                       `json:"recent_events,omitempty"`
+	Runs                  []AgentRun                    `json:"runs"`
+	Specialists           []persist.Specialist          `json:"specialists"`
+	Teams                 []persist.SpecialistTeam      `json:"teams"`
+	OpenInputRequests     []pendingInputRequestSnapshot `json:"open_input_requests"`
+	ActiveDelegationEdges []fleet.ActiveEdge            `json:"active_delegation_edges"`
+	RecentEvents          []fleet.Event                 `json:"recent_events,omitempty"`
 }
 
 func (a *app) fleetStateHandler() http.HandlerFunc {
@@ -86,9 +86,9 @@ func writeFleetEvents(w http.ResponseWriter, fl http.Flusher, events []fleet.Eve
 }
 
 type runTimelineResponse struct {
-	RunID   string      `json:"run_id"`
-	Events  []any       `json:"events"`
-	Status  string      `json:"status,omitempty"`
+	RunID  string `json:"run_id"`
+	Events []any  `json:"events"`
+	Status string `json:"status,omitempty"`
 }
 
 func (a *app) runTimelineHandler() http.HandlerFunc {
@@ -149,4 +149,10 @@ func (a *app) runTimelineHandler() http.HandlerFunc {
 	}
 }
 
-func normalizeFlowEvents(events []flow.RunEvent) []any { out := make([]any, 0, len(events)); for _, ev := range events { out = append(out, ev) }; return out }
+func normalizeFlowEvents(events []flow.RunEvent) []any {
+	out := make([]any, 0, len(events))
+	for _, ev := range events {
+		out = append(out, ev)
+	}
+	return out
+}

@@ -156,7 +156,6 @@ func (s *Service) CreateProjectKind(_ context.Context, userID int64, name string
 	if err := ensureDir(root, 0o755); err != nil {
 		return Project{}, err
 	}
-	// Write metadata
 	if err := ensureDir(filepath.Join(root, ".meta"), 0o755); err != nil {
 		return Project{}, err
 	}

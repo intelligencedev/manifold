@@ -128,62 +128,80 @@ func previewSnippet(content string) string {
 	return string(runes[:limit]) + "..."
 }
 
-func storeChatTurn(ctx context.Context, store persist.ChatStore, userID *int64, sessionID, userContent, assistantContent, model string) error {
+type chatTurnRecord struct {
+	UserID           *int64
+	SessionID        string
+	UserContent      string
+	AssistantContent string
+	Model            string
+}
+
+func storeChatTurn(ctx context.Context, store persist.ChatStore, record chatTurnRecord) error {
 	messages := make([]persist.ChatMessage, 0, 2)
 	now := time.Now().UTC()
-	if strings.TrimSpace(userContent) != "" {
+	if strings.TrimSpace(record.UserContent) != "" {
 		messages = append(messages, persist.ChatMessage{
-			SessionID: sessionID,
+			SessionID: record.SessionID,
 			Role:      "user",
-			Content:   userContent,
+			Content:   record.UserContent,
 			CreatedAt: now,
 		})
 	}
-	if strings.TrimSpace(assistantContent) != "" {
+	if strings.TrimSpace(record.AssistantContent) != "" {
 		messages = append(messages, persist.ChatMessage{
-			SessionID: sessionID,
+			SessionID: record.SessionID,
 			Role:      "assistant",
-			Content:   assistantContent,
+			Content:   record.AssistantContent,
 			CreatedAt: now.Add(2 * time.Millisecond),
 		})
 	}
 	if len(messages) == 0 {
 		return nil
 	}
-	preview := previewSnippet(assistantContent)
+	preview := previewSnippet(record.AssistantContent)
 	if preview == "" {
-		preview = previewSnippet(userContent)
+		preview = previewSnippet(record.UserContent)
 	}
-	return store.AppendMessages(ctx, userID, sessionID, messages, preview, model)
+	return store.AppendMessages(ctx, record.UserID, record.SessionID, messages, preview, record.Model)
 }
 
 // storeChatTurnWithHistory stores a complete conversation turn including all intermediate
 // assistant messages (with tool calls) and tool response messages.
-func storeChatTurnWithHistory(ctx context.Context, store persist.ChatStore, userID *int64, sessionID, userContent string, turnMessages []llm.Message, finalContent, assistantMessageID, model string) error {
-	roles := make([]string, len(turnMessages))
+type chatTurnHistoryRecord struct {
+	UserID             *int64
+	SessionID          string
+	UserContent        string
+	TurnMessages       []llm.Message
+	FinalContent       string
+	AssistantMessageID string
+	Model              string
+}
+
+func storeChatTurnWithHistory(ctx context.Context, store persist.ChatStore, record chatTurnHistoryRecord) error {
+	roles := make([]string, len(record.TurnMessages))
 	lastAssistantIndex := -1
-	for i, m := range turnMessages {
+	for i, m := range record.TurnMessages {
 		roles[i] = m.Role
 		if m.Role == "assistant" {
 			lastAssistantIndex = i
 		}
 	}
-	log.Info().Str("session_id", sessionID).Str("user_content_len", fmt.Sprint(len(userContent))).Int("turn_messages", len(turnMessages)).Strs("roles", roles).Msg("store_chat_turn_start")
-	messages := make([]persist.ChatMessage, 0, 2+len(turnMessages))
+	log.Info().Str("session_id", record.SessionID).Str("user_content_len", fmt.Sprint(len(record.UserContent))).Int("turn_messages", len(record.TurnMessages)).Strs("roles", roles).Msg("store_chat_turn_start")
+	messages := make([]persist.ChatMessage, 0, 2+len(record.TurnMessages))
 	now := time.Now().UTC()
 
 	// Add user message
-	if strings.TrimSpace(userContent) != "" {
+	if strings.TrimSpace(record.UserContent) != "" {
 		messages = append(messages, persist.ChatMessage{
-			SessionID: sessionID,
+			SessionID: record.SessionID,
 			Role:      "user",
-			Content:   userContent,
+			Content:   record.UserContent,
 			CreatedAt: now,
 		})
 	}
 
 	// Add all intermediate turn messages (assistant with tool calls, tool responses)
-	for i, msg := range turnMessages {
+	for i, msg := range record.TurnMessages {
 		// Serialize the message to preserve tool calls and tool IDs
 		var content string
 		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
@@ -214,11 +232,11 @@ func storeChatTurnWithHistory(ctx context.Context, store persist.ChatStore, user
 
 		messageID := ""
 		if msg.Role == "assistant" && i == lastAssistantIndex {
-			messageID = strings.TrimSpace(assistantMessageID)
+			messageID = strings.TrimSpace(record.AssistantMessageID)
 		}
 		messages = append(messages, persist.ChatMessage{
 			ID:        messageID,
-			SessionID: sessionID,
+			SessionID: record.SessionID,
 			Role:      msg.Role,
 			Content:   content,
 			CreatedAt: now.Add(time.Duration(i+1) * 10 * time.Millisecond),
@@ -229,14 +247,14 @@ func storeChatTurnWithHistory(ctx context.Context, store persist.ChatStore, user
 		return nil
 	}
 
-	preview := previewSnippet(finalContent)
-	if preview == "" && len(turnMessages) > 0 {
-		preview = previewSnippet(turnMessages[len(turnMessages)-1].Content)
+	preview := previewSnippet(record.FinalContent)
+	if preview == "" && len(record.TurnMessages) > 0 {
+		preview = previewSnippet(record.TurnMessages[len(record.TurnMessages)-1].Content)
 	}
 	if preview == "" {
-		preview = previewSnippet(userContent)
+		preview = previewSnippet(record.UserContent)
 	}
-	return store.AppendMessages(ctx, userID, sessionID, messages, preview, model)
+	return store.AppendMessages(ctx, record.UserID, record.SessionID, messages, preview, record.Model)
 }
 
 func resolveChatAccess(_ context.Context, authStore *auth.Store, user *auth.User) (*int64, bool, error) {

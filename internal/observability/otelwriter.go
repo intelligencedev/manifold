@@ -50,7 +50,6 @@ func (w *OTelWriter) emitStructured(entry map[string]any) {
 	ctx := context.Background()
 	var rec log.Record
 
-	// Extract timestamp
 	if ts, ok := entry["time"].(string); ok {
 		if t, err := time.Parse(time.RFC3339Nano, ts); err == nil {
 			rec.SetTimestamp(t)

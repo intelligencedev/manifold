@@ -66,17 +66,27 @@ type Config struct {
 	SpecialistValidator SpecialistValidator
 }
 
+type Dependencies struct {
+	Registry    *registry.Registry
+	Datasets    *dataset.Service
+	Experiments *experiment.Repository
+	Planner     *experiment.Planner
+	Workers     worker.Executor
+	Evals       *eval.Runner
+	Store       RunStore
+}
+
 // NewService assembles the playground service.
-func NewService(cfg Config, reg *registry.Registry, datasets *dataset.Service, repo *experiment.Repository, planner *experiment.Planner, workers worker.Executor, evals *eval.Runner, store RunStore) *Service {
+func NewService(cfg Config, deps Dependencies) *Service {
 	return &Service{
 		cfg:         cfg,
-		registry:    reg,
-		datasets:    datasets,
-		experiments: repo,
-		planner:     planner,
-		workers:     workers,
-		evals:       evals,
-		store:       store,
+		registry:    deps.Registry,
+		datasets:    deps.Datasets,
+		experiments: deps.Experiments,
+		planner:     deps.Planner,
+		workers:     deps.Workers,
+		evals:       deps.Evals,
+		store:       deps.Store,
 	}
 }
 
@@ -194,12 +204,24 @@ func (s *Service) DeleteExperiment(ctx context.Context, id string) error {
 // StartRun plans and executes a run for an experiment. The execution happens
 // synchronously for now; orchestration integration can expand this later.
 func (s *Service) StartRun(ctx context.Context, experimentID string) (Run, error) {
-	spec, ok, err := s.store.GetExperiment(ctx, experimentID)
+	spec, run, err := s.prepareRun(ctx, experimentID)
 	if err != nil {
 		return Run{}, err
 	}
+	workerResults, err := s.executeRunPlan(ctx, spec, run)
+	if err != nil {
+		return s.failRun(ctx, run, err)
+	}
+	return s.completeRun(ctx, spec, run, workerResults)
+}
+
+func (s *Service) prepareRun(ctx context.Context, experimentID string) (experiment.ExperimentSpec, Run, error) {
+	spec, ok, err := s.store.GetExperiment(ctx, experimentID)
+	if err != nil {
+		return experiment.ExperimentSpec{}, Run{}, err
+	}
 	if !ok {
-		return Run{}, ErrUnknownExperiment
+		return experiment.ExperimentSpec{}, Run{}, ErrUnknownExperiment
 	}
 	spec.Execution = experiment.NormalizeExecution(spec.Execution)
 	ownerID := spec.OwnerID
@@ -207,25 +229,25 @@ func (s *Service) StartRun(ctx context.Context, experimentID string) (Run, error
 		ownerID = u.ID
 	}
 	if err := s.validateExecution(ctx, ownerID, spec.Execution); err != nil {
-		return Run{}, err
+		return experiment.ExperimentSpec{}, Run{}, err
 	}
 	spec.OwnerID = ownerID
 	s.experiments.Save(spec)
 
 	runs, err := s.store.ListRuns(ctx, experimentID)
 	if err != nil {
-		return Run{}, err
+		return experiment.ExperimentSpec{}, Run{}, err
 	}
 	for _, r := range runs {
 		if r.Status == RunStatusRunning || r.Status == RunStatusPending {
-			return Run{}, ErrActiveRun
+			return experiment.ExperimentSpec{}, Run{}, ErrActiveRun
 		}
 	}
 
 	runID := worker.NewRunID()
 	plan, enrichedSpec, err := s.planRun(ctx, spec)
 	if err != nil {
-		return Run{}, err
+		return experiment.ExperimentSpec{}, Run{}, err
 	}
 	spec = enrichedSpec
 
@@ -241,31 +263,36 @@ func (s *Service) StartRun(ctx context.Context, experimentID string) (Run, error
 
 	run, err = s.store.CreateRun(ctx, run)
 	if err != nil {
-		return Run{}, err
+		return experiment.ExperimentSpec{}, Run{}, err
 	}
 
-	// Execute synchronously shard by shard.
 	run.Status = RunStatusRunning
 	run.StartedAt = time.Now().UTC()
 	if err := s.store.UpdateRunStatus(ctx, run.ID, RunStatusRunning, time.Time{}, "", nil); err != nil {
-		return Run{}, err
+		return experiment.ExperimentSpec{}, Run{}, err
 	}
+	return spec, run, nil
+}
 
+func (s *Service) executeRunPlan(ctx context.Context, spec experiment.ExperimentSpec, run Run) ([]worker.Result, error) {
 	var workerResults []worker.Result
 	for _, shard := range run.Plan.Shards {
 		if err := ctx.Err(); err != nil {
-			return s.failRun(ctx, run, err)
+			return nil, err
 		}
 		tasks := worker.TasksFromShard(run.ID, spec, shard)
 		for _, task := range tasks {
 			res, execErr := s.workers.ExecuteTask(ctx, task)
 			if execErr != nil {
-				return s.failRun(ctx, run, execErr)
+				return nil, execErr
 			}
 			workerResults = append(workerResults, res)
 		}
 	}
+	return workerResults, nil
+}
 
+func (s *Service) completeRun(ctx context.Context, spec experiment.ExperimentSpec, run Run, workerResults []worker.Result) (Run, error) {
 	metrics, updatedResults, err := s.evals.Evaluate(ctx, spec, workerResults)
 	if err != nil {
 		return s.failRun(ctx, run, fmt.Errorf("evaluate run: %w", err))

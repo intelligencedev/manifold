@@ -8,6 +8,8 @@ import (
 	"manifold/internal/observability"
 	"manifold/internal/persistence"
 	"strings"
+
+	"github.com/rs/zerolog"
 )
 
 func (m *Manager) BuildContextForProvider(ctx context.Context, userID *int64, sessionID string, targetProvider llm.Provider, targetModel string, policy SummaryPolicy) ([]llm.Message, *SummaryResult, error) {
@@ -16,200 +18,255 @@ func (m *Manager) BuildContextForProvider(ctx context.Context, userID *int64, se
 		return nil, nil, nil
 	}
 	targetCompactor, targetSupportsCompaction := llm.ProviderCompactor(targetProvider)
-
-	messages, err := m.store.ListMessages(ctx, userID, sessionID, 0)
+	messages, err := m.listContextMessages(ctx, userID, sessionID)
 	if err != nil {
-		if errors.Is(err, persistence.ErrNotFound) {
-			messages = nil
-		} else {
-			return nil, nil, err
-		}
+		return nil, nil, err
 	}
 	log.Info().Str("session_id", sessionID).Int("messages_count", len(messages)).Msg("build_context_list_messages")
 
-	session, err := m.store.GetSession(ctx, userID, sessionID)
+	session, err := m.contextSession(ctx, userID, sessionID)
 	if err != nil {
-		if errors.Is(err, persistence.ErrNotFound) {
-			// Session is guaranteed to exist via ensureChatSession but guard anyway.
-			session = persistence.ChatSession{ID: sessionID}
-		} else {
-			return nil, nil, err
-		}
+		return nil, nil, err
 	}
-
-	summary := session.Summary
-	summarizedCount := session.SummarizedCount
-	var summaryResult *SummaryResult
-
-	if m.enabled {
-		updatedSummary, updatedCount, result := m.ensureSummary(ctx, userID, session, messages, targetCompactor, targetModel, policy)
-		if updatedSummary != "" || updatedCount != summarizedCount {
-			summary = updatedSummary
-			summarizedCount = updatedCount
-		}
-		if result != nil && result.Triggered {
-			summaryResult = result
-		}
-	}
-
+	summary, summarizedCount, summaryResult := m.contextSummary(ctx, contextSummaryRequest{
+		userID:          userID,
+		session:         session,
+		messages:        messages,
+		targetCompactor: targetCompactor,
+		targetModel:     targetModel,
+		policy:          policy,
+	})
 	total := len(messages)
-	tailStart := 0
-	if m.enabled {
-		// Token-based approach: choose the tail based on available token budget
-		// (context window minus reserve buffer).
-		ctxSize := m.resolveTargetContextWindowTokens(policy, targetModel)
-		reserveBuffer := m.reserveBufferTokens
-		if reserveBuffer <= 0 {
-			reserveBuffer = defaultReserveBuffer
-		}
-		budget := ctxSize - reserveBuffer
-		if budget <= 0 {
-			budget = ctxSize / 2
-		}
-
-		// Reserve roughly half the budget for the tail; the rest is for
-		// system prompts, tools, and the summary itself.
-		tailBudget := budget / 2
-		if tailBudget <= 0 {
-			tailBudget = budget
-		}
-
-		minTail := m.minKeepLastMessages
-		if minTail <= 0 {
-			minTail = 4
-		}
-
-		remaining := tailBudget
-		kept := 0
-		tailStart = total
-		for i := total - 1; i >= 0; i-- {
-			msgTokens := len([]rune(strings.TrimSpace(messages[i].Content)))/4 + 1
-			if kept >= minTail && remaining-msgTokens <= 0 {
-				break
-			}
-			remaining -= msgTokens
-			kept++
-			tailStart = i
-			if remaining <= 0 {
-				break
-			}
-		}
-		// Never include messages that have already been summarized.
-		if tailStart < summarizedCount {
-			tailStart = summarizedCount
-		}
-		// Cap the raw tail to avoid sending an excessively long transcript even
-		// when it fits within the model context budget.
-		maxTail := m.maxKeepLastMessages
-		if maxTail > 0 && total-tailStart > maxTail {
-			tailStart = max(total-maxTail, summarizedCount)
-		}
-
-		// If summarization failed we fall back to sending the full history.
-		if summary == "" && summarizedCount > 0 {
-			tailStart = 0
-		}
-	}
-
-	if tailStart < 0 {
-		tailStart = 0
-	}
-	if tailStart > total {
-		tailStart = total
-	}
-
-	// IMPORTANT: Never start the returned history on a tool response message.
-	// Many providers (notably Anthropic) require a tool_result block to have a
-	// corresponding tool_use block in a previous assistant message.
-	// Our tail selection is token/count based and can cut between these, so we
-	// adjust the tail start to include any required assistant tool call messages.
+	tailStart := m.contextTailStart(messages, summarizedCount, summary, targetModel, policy)
 	if total > 0 {
-		minIdx := max(summarizedCount, 0)
-		adjusted := adjustIndexForToolDeps(messages, 0, tailStart)
-		if adjusted < tailStart {
-			if adjusted < minIdx {
-				log.Warn().
-					Str("session_id", sessionID).
-					Int("summarized_count", summarizedCount).
-					Int("tail_start", tailStart).
-					Int("adjusted_tail_start", adjusted).
-					Msg("tail_start_crosses_tool_chain_including_pre_summarized_tool_calls")
-			}
-			tailStart = adjusted
-		}
+		tailStart = adjustedContextTailStart(log, sessionID, messages, summarizedCount, tailStart)
 	}
-
 	history := make([]llm.Message, 0, (total-tailStart)+1)
-	// Only add compaction continuation rule if target supports compaction
 	if targetSupportsCompaction {
 		history = append(history, llm.Message{Role: "system", Content: compactionContinuationRule})
 	}
-	if summary != "" {
-		// Decode the stored summary (handles both dual format and legacy formats)
-		ds := decodeDualSummary(summary)
-
-		if targetSupportsCompaction && ds.Compaction != "" {
-			// Target supports compaction and we have compaction data
-			if item, ok := decodeCompactionSummary(ds.Compaction); ok {
-				history = append(history, llm.Message{Role: "assistant", Compaction: &item})
-			} else {
-				// Compaction decode failed, fall back to plain if available
-				if ds.Plain != "" {
-					history = append(history, llm.Message{
-						Role:    "system",
-						Content: "Conversation summary (for context only):\n" + ds.Plain,
-					})
-				}
-			}
-		} else if ds.Plain != "" {
-			// Target doesn't support compaction or no compaction data - use plain text
-			history = append(history, llm.Message{
-				Role:    "system",
-				Content: "Conversation summary (for context only):\n" + ds.Plain,
-			})
-		} else if ds.Compaction != "" && !targetSupportsCompaction {
-			// We only have compaction data but target doesn't support it
-			// Log warning and reset tailStart to include more raw messages
-			log.Warn().
-				Str("session_id", sessionID).
-				Msg("compaction_summary_incompatible_with_target_provider_no_plain_fallback")
-			tailStart = 0
-		}
-	}
-	for i, msg := range messages[tailStart:] {
-		log.Debug().Int("index", i).Str("role", msg.Role).Int("content_len", len(msg.Content)).Str("content_preview", truncate(msg.Content, 100)).Msg("build_context_message")
-		// Deserialize JSON-encoded messages (assistant with tool calls, tool messages)
-		if msg.Role == "assistant" && strings.HasPrefix(strings.TrimSpace(msg.Content), "{") {
-			var data struct {
-				Content   string         `json:"content"`
-				ToolCalls []llm.ToolCall `json:"tool_calls"`
-			}
-			if err := json.Unmarshal([]byte(msg.Content), &data); err == nil && len(data.ToolCalls) > 0 {
-				history = append(history, llm.Message{
-					Role:      msg.Role,
-					Content:   data.Content,
-					ToolCalls: data.ToolCalls,
-				})
-				continue
-			}
-		} else if msg.Role == "tool" && strings.HasPrefix(strings.TrimSpace(msg.Content), "{") {
-			var data struct {
-				Content string `json:"content"`
-				ToolID  string `json:"tool_id"`
-			}
-			if err := json.Unmarshal([]byte(msg.Content), &data); err == nil && data.ToolID != "" {
-				history = append(history, llm.Message{
-					Role:    msg.Role,
-					Content: data.Content,
-					ToolID:  data.ToolID,
-				})
-				continue
-			}
-		}
-		// Fallback: plain message
-		history = append(history, llm.Message{Role: msg.Role, Content: msg.Content})
-	}
+	history, tailStart = appendContextSummary(log, sessionID, history, summary, targetSupportsCompaction, tailStart)
+	history = appendStoredContextMessages(log, history, messages[tailStart:])
 	return history, summaryResult, nil
+}
+
+func (m *Manager) listContextMessages(ctx context.Context, userID *int64, sessionID string) ([]persistence.ChatMessage, error) {
+	messages, err := m.store.ListMessages(ctx, userID, sessionID, 0)
+	if errors.Is(err, persistence.ErrNotFound) {
+		return nil, nil
+	}
+	return messages, err
+}
+
+func (m *Manager) contextSession(ctx context.Context, userID *int64, sessionID string) (persistence.ChatSession, error) {
+	session, err := m.store.GetSession(ctx, userID, sessionID)
+	if errors.Is(err, persistence.ErrNotFound) {
+		return persistence.ChatSession{ID: sessionID}, nil
+	}
+	return session, err
+}
+
+type contextSummaryRequest struct {
+	userID          *int64
+	session         persistence.ChatSession
+	messages        []persistence.ChatMessage
+	targetCompactor llm.CompactionProvider
+	targetModel     string
+	policy          SummaryPolicy
+}
+
+func (m *Manager) contextSummary(ctx context.Context, req contextSummaryRequest) (string, int, *SummaryResult) {
+	summary := req.session.Summary
+	summarizedCount := req.session.SummarizedCount
+	if !m.enabled {
+		return summary, summarizedCount, nil
+	}
+	updatedSummary, updatedCount, result := m.ensureSummary(ctx, summaryRequest{
+		UserID:          req.userID,
+		Session:         req.session,
+		Messages:        req.messages,
+		TargetCompactor: req.targetCompactor,
+		TargetModel:     req.targetModel,
+		Policy:          req.policy,
+	})
+	if updatedSummary != "" || updatedCount != summarizedCount {
+		summary = updatedSummary
+		summarizedCount = updatedCount
+	}
+	if result != nil && result.Triggered {
+		return summary, summarizedCount, result
+	}
+	return summary, summarizedCount, nil
+}
+
+func (m *Manager) contextTailStart(messages []persistence.ChatMessage, summarizedCount int, summary, targetModel string, policy SummaryPolicy) int {
+	total := len(messages)
+	if !m.enabled {
+		return clampTailStart(0, total)
+	}
+	tailStart := m.tokenBudgetTailStart(messages, targetModel, policy)
+	if tailStart < summarizedCount {
+		tailStart = summarizedCount
+	}
+	maxTail := m.maxKeepLastMessages
+	if maxTail > 0 && total-tailStart > maxTail {
+		tailStart = max(total-maxTail, summarizedCount)
+	}
+	if summary == "" && summarizedCount > 0 {
+		tailStart = 0
+	}
+	return clampTailStart(tailStart, total)
+}
+
+func (m *Manager) tokenBudgetTailStart(messages []persistence.ChatMessage, targetModel string, policy SummaryPolicy) int {
+	tailBudget := m.tailTokenBudget(targetModel, policy)
+	minTail := max(m.minKeepLastMessages, 4)
+	remaining := tailBudget
+	kept := 0
+	tailStart := len(messages)
+	for i := len(messages) - 1; i >= 0; i-- {
+		msgTokens := len([]rune(strings.TrimSpace(messages[i].Content)))/4 + 1
+		if kept >= minTail && remaining-msgTokens <= 0 {
+			break
+		}
+		remaining -= msgTokens
+		kept++
+		tailStart = i
+		if remaining <= 0 {
+			break
+		}
+	}
+	return tailStart
+}
+
+func (m *Manager) tailTokenBudget(targetModel string, policy SummaryPolicy) int {
+	ctxSize := m.resolveTargetContextWindowTokens(policy, targetModel)
+	reserveBuffer := m.reserveBufferTokens
+	if reserveBuffer <= 0 {
+		reserveBuffer = defaultReserveBuffer
+	}
+	budget := ctxSize - reserveBuffer
+	if budget <= 0 {
+		budget = ctxSize / 2
+	}
+	tailBudget := budget / 2
+	if tailBudget <= 0 {
+		return budget
+	}
+	return tailBudget
+}
+
+func clampTailStart(tailStart, total int) int {
+	if tailStart < 0 {
+		return 0
+	}
+	if tailStart > total {
+		return total
+	}
+	return tailStart
+}
+
+func adjustedContextTailStart(log interface {
+	Warn() *zerolog.Event
+}, sessionID string, messages []persistence.ChatMessage, summarizedCount, tailStart int) int {
+	adjusted := adjustIndexForToolDeps(messages, 0, tailStart)
+	if adjusted >= tailStart {
+		return tailStart
+	}
+	if adjusted < max(summarizedCount, 0) {
+		log.Warn().
+			Str("session_id", sessionID).
+			Int("summarized_count", summarizedCount).
+			Int("tail_start", tailStart).
+			Int("adjusted_tail_start", adjusted).
+			Msg("tail_start_crosses_tool_chain_including_pre_summarized_tool_calls")
+	}
+	return adjusted
+}
+
+func appendContextSummary(log interface {
+	Warn() *zerolog.Event
+}, sessionID string, history []llm.Message, summary string, targetSupportsCompaction bool, tailStart int) ([]llm.Message, int) {
+	if summary == "" {
+		return history, tailStart
+	}
+	ds := decodeDualSummary(summary)
+	switch {
+	case targetSupportsCompaction && ds.Compaction != "":
+		return appendCompactionSummary(history, ds), tailStart
+	case ds.Plain != "":
+		return appendPlainSummary(history, ds.Plain), tailStart
+	case ds.Compaction != "" && !targetSupportsCompaction:
+		log.Warn().Str("session_id", sessionID).Msg("compaction_summary_incompatible_with_target_provider_no_plain_fallback")
+		return history, 0
+	default:
+		return history, tailStart
+	}
+}
+
+func appendCompactionSummary(history []llm.Message, ds dualSummary) []llm.Message {
+	if item, ok := decodeCompactionSummary(ds.Compaction); ok {
+		return append(history, llm.Message{Role: "assistant", Compaction: &item})
+	}
+	if ds.Plain != "" {
+		return appendPlainSummary(history, ds.Plain)
+	}
+	return history
+}
+
+func appendPlainSummary(history []llm.Message, plain string) []llm.Message {
+	return append(history, llm.Message{
+		Role:    "system",
+		Content: "Conversation summary (for context only):\n" + plain,
+	})
+}
+
+func appendStoredContextMessages(log interface {
+	Debug() *zerolog.Event
+}, history []llm.Message, messages []persistence.ChatMessage) []llm.Message {
+	for i, msg := range messages {
+		log.Debug().Int("index", i).Str("role", msg.Role).Int("content_len", len(msg.Content)).Str("content_preview", truncate(msg.Content, 100)).Msg("build_context_message")
+		history = append(history, storedContextMessage(msg))
+	}
+	return history
+}
+
+func storedContextMessage(msg persistence.ChatMessage) llm.Message {
+	if decoded, ok := decodeAssistantContextMessage(msg); ok {
+		return decoded
+	}
+	if decoded, ok := decodeToolContextMessage(msg); ok {
+		return decoded
+	}
+	return llm.Message{Role: msg.Role, Content: msg.Content}
+}
+
+func decodeAssistantContextMessage(msg persistence.ChatMessage) (llm.Message, bool) {
+	if msg.Role != "assistant" || !strings.HasPrefix(strings.TrimSpace(msg.Content), "{") {
+		return llm.Message{}, false
+	}
+	var data struct {
+		Content   string         `json:"content"`
+		ToolCalls []llm.ToolCall `json:"tool_calls"`
+	}
+	if err := json.Unmarshal([]byte(msg.Content), &data); err != nil || len(data.ToolCalls) == 0 {
+		return llm.Message{}, false
+	}
+	return llm.Message{Role: msg.Role, Content: data.Content, ToolCalls: data.ToolCalls}, true
+}
+
+func decodeToolContextMessage(msg persistence.ChatMessage) (llm.Message, bool) {
+	if msg.Role != "tool" || !strings.HasPrefix(strings.TrimSpace(msg.Content), "{") {
+		return llm.Message{}, false
+	}
+	var data struct {
+		Content string `json:"content"`
+		ToolID  string `json:"tool_id"`
+	}
+	if err := json.Unmarshal([]byte(msg.Content), &data); err != nil || data.ToolID == "" {
+		return llm.Message{}, false
+	}
+	return llm.Message{Role: msg.Role, Content: data.Content, ToolID: data.ToolID}, true
 }
 
 // adjustIndexForToolDeps ensures that if the kept tail includes any tool response

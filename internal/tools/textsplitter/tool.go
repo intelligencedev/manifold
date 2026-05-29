@@ -59,7 +59,6 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) { //n
 		return nil, err
 	}
 
-	// Defaults
 	kind := textsplitters.Kind(args.Kind)
 	if kind == "" {
 		kind = textsplitters.KindFixed

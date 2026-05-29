@@ -20,7 +20,7 @@ PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 win
 GOLANGCI_LINT_VERSION := v2.12.2
 FORGE_BUILD_TAGS ?= forge
 
-.PHONY: all help fmt fmt-check imports-check vet lint test test-forge-harness modernize modernize-diff ci build build-forge cross checksums tools clean build-tui frontend frontend-cockpit build-cockpit build-cockpit-beta dev-cockpit openapi
+.PHONY: all help fmt fmt-check imports-check vet lint test test-forge-harness modernize modernize-diff ci build build-forge cross checksums tools clean build-tui frontend openapi
 .PHONY: sonar sonar-up sonar-down sonar-scan
 
 all: build
@@ -48,10 +48,6 @@ help:
 	@echo "  make build-manifold-beta # build agentd + embedded frontend with beta UI links"
 	@echo "  make build-agent        # build only the agent binary"
 	@echo "  make frontend           # install frontend deps, then build Vue.js assets"
-	@echo "  make frontend-cockpit   # install cockpit deps, generate types, and build cockpit assets"
-	@echo "  make build-cockpit      # build agentd-cockpit with embedded cockpit UI"
-	@echo "  make build-cockpit-beta # build cockpit binary with beta feature gate"
-	@echo "  make dev-cockpit        # run cockpit dev workflow instructions"
 	@echo "  make openapi            # generate docs/openapi/openapi.json"
 	@echo "  make cross              # build all platforms (tar/zip) into $(DIST)/"
 	@echo "  make checksums          # generate SHA256 checksums for artifacts in $(DIST)/"
@@ -244,10 +240,6 @@ FRONTEND_SRC_DIST := $(FRONTEND_DIR)/dist
 FRONTEND_EMBED_DIR := internal/webui/dist
 PNPM := pnpm
 FEATURE_GATE ?= stable
-COCKPIT_DIR := frontend
-COCKPIT_SRC_DIST := $(COCKPIT_DIR)/dist
-COCKPIT_EMBED_DIR := internal/cockpitui/dist
-COCKPIT_FEATURE_GATE ?= stable
 
 .PHONY: build-manifold build-manifold-beta
 build-manifold: frontend | $(DIST)
@@ -257,35 +249,6 @@ build-manifold: frontend | $(DIST)
 
 build-manifold-beta: FEATURE_GATE := beta
 build-manifold-beta: build-manifold
-
-.PHONY: frontend-cockpit
-frontend-cockpit:
-	@command -v $(PNPM) >/dev/null 2>&1 || { echo "pnpm not found"; exit 1; }
-	@echo "Installing cockpit deps in $(COCKPIT_DIR)"
-	cd $(COCKPIT_DIR) && $(PNPM) install
-	@echo "Generating cockpit API types from docs/openapi/openapi.json"
-	cd $(COCKPIT_DIR) && $(PNPM) run codegen
-	@echo "Building cockpit (feature gate: $(COCKPIT_FEATURE_GATE))"
-	cd $(COCKPIT_DIR) && VITE_MANIFOLD_FEATURE_GATE=$(COCKPIT_FEATURE_GATE) $(PNPM) run build
-	@[ -d "$(COCKPIT_SRC_DIST)" ] || { echo "cockpit build missing"; exit 1; }
-	rm -rf $(COCKPIT_EMBED_DIR) && mkdir -p $(COCKPIT_EMBED_DIR)
-	cp -R $(COCKPIT_SRC_DIST)/. $(COCKPIT_EMBED_DIR)/
-
-.PHONY: build-cockpit
-build-cockpit: frontend-cockpit | $(DIST)
-	@echo "Building agentd with embedded cockpit UI -> $(DIST)/agentd-cockpit"
-	go build -tags cockpit -o $(DIST)/agentd-cockpit ./cmd/agentd
-
-.PHONY: build-cockpit-beta
-build-cockpit-beta: COCKPIT_FEATURE_GATE := beta
-build-cockpit-beta: build-cockpit
-
-.PHONY: dev-cockpit
-dev-cockpit:
-	@echo "Run two terminals:"
-	@echo "  1) cd $(COCKPIT_DIR) && pnpm dev"
-	@echo "  2) FRONTEND_DEV_PROXY=http://localhost:32181 go run -tags cockpit ./cmd/agentd"
-
 
 # Build web UI server
 build-webui:

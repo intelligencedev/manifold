@@ -13,7 +13,6 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"manifold/internal/agent"
-	"manifold/internal/agent/inputrequest"
 	agentmemory "manifold/internal/agent/memory"
 	"manifold/internal/fleet"
 	"manifold/internal/llm"
@@ -219,13 +218,21 @@ func configureCommonStreamCallbacks(eng *agent.Engine, stream *chatSSEWriter, em
 	}
 }
 
-func configureFleetCallbacks(app *app, eng *agent.Engine, runID, sessionID, projectID, objectiveID string, userID *int64) {
+type fleetCallbackRequest struct {
+	RunID       string
+	SessionID   string
+	ProjectID   string
+	ObjectiveID string
+	UserID      *int64
+}
+
+func configureFleetCallbacks(app *app, eng *agent.Engine, req fleetCallbackRequest) {
 	if app == nil || app.fleetBus == nil || eng == nil {
 		return
 	}
 	uid := systemUserID
-	if userID != nil {
-		uid = *userID
+	if req.UserID != nil {
+		uid = *req.UserID
 	}
 	prevToolStart := eng.OnToolStart
 	prevTool := eng.OnTool
@@ -234,15 +241,15 @@ func configureFleetCallbacks(app *app, eng *agent.Engine, runID, sessionID, proj
 		if prevToolStart != nil {
 			prevToolStart(name, args, toolID)
 		}
-		app.fleetBus.Publish(fleet.Event{Kind: fleet.EventToolStart, RunID: runID, SessionID: sessionID, ProjectID: projectID, ObjectiveID: objectiveID, ToolID: toolID, UserID: uid, Title: name, Data: map[string]any{"args": string(args)}})
+		app.fleetBus.Publish(fleet.Event{Kind: fleet.EventToolStart, RunID: req.RunID, SessionID: req.SessionID, ProjectID: req.ProjectID, ObjectiveID: req.ObjectiveID, ToolID: toolID, UserID: uid, Title: name, Data: map[string]any{"args": string(args)}})
 	}
 	eng.OnTool = func(name string, args []byte, result []byte, toolID string) {
 		if prevTool != nil {
 			prevTool(name, args, result, toolID)
 		}
-		app.fleetBus.Publish(fleet.Event{Kind: fleet.EventToolResult, RunID: runID, SessionID: sessionID, ProjectID: projectID, ObjectiveID: objectiveID, ToolID: toolID, UserID: uid, Title: name, Data: map[string]any{"args": string(args), "result": string(result)}})
+		app.fleetBus.Publish(fleet.Event{Kind: fleet.EventToolResult, RunID: req.RunID, SessionID: req.SessionID, ProjectID: req.ProjectID, ObjectiveID: req.ObjectiveID, ToolID: toolID, UserID: uid, Title: name, Data: map[string]any{"args": string(args), "result": string(result)}})
 	}
-	eng.AgentTracer = fleetAgentTracer{bus: app.fleetBus, next: prevTracer, runID: runID, sessionID: sessionID, projectID: projectID, objectiveID: objectiveID, userID: uid}
+	eng.AgentTracer = fleetAgentTracer{bus: app.fleetBus, next: prevTracer, runID: req.RunID, sessionID: req.SessionID, projectID: req.ProjectID, objectiveID: req.ObjectiveID, userID: uid}
 }
 
 type fleetAgentTracer struct {
@@ -318,7 +325,24 @@ func chatStoreModel(eng *agent.Engine, override string) string {
 	return ""
 }
 
-func (a *app) executeStreamChat(w http.ResponseWriter, r *http.Request, runCtx context.Context, eng *agent.Engine, req chatRunRequest, history []llm.Message, runID string, userID *int64, checkedOutWorkspace *workspaces.Workspace, opts chatStreamOptions) {
+type chatExecutionRequest struct {
+	RunContext          context.Context
+	Engine              *agent.Engine
+	RunRequest          chatRunRequest
+	History             []llm.Message
+	RunID               string
+	UserID              *int64
+	CheckedOutWorkspace *workspaces.Workspace
+}
+
+func (a *app) executeStreamChat(w http.ResponseWriter, r *http.Request, exec chatExecutionRequest, opts chatStreamOptions) {
+	runCtx := exec.RunContext
+	eng := exec.Engine
+	req := exec.RunRequest
+	history := exec.History
+	runID := exec.RunID
+	userID := exec.UserID
+	checkedOutWorkspace := exec.CheckedOutWorkspace
 	if req.EphemeralSession {
 		defer cleanupEphemeralChatSession(a.chatStore, userID, req.SessionID)
 	}
@@ -327,125 +351,62 @@ func (a *app) executeStreamChat(w http.ResponseWriter, r *http.Request, runCtx c
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	var activityCollector *chatActivityCollector
-	if a.activityStore != nil && !req.EphemeralSession {
-		activityCollector = newChatActivityCollector(req.SessionID, runID, userID, req.AssistantMessageID)
-		defer func() {
-			if activityCollector == nil {
-				return
-			}
-			activities := activityCollector.Snapshot()
-			if len(activities) == 0 {
-				return
-			}
-			if err := a.activityStore.UpsertSessionActivities(r.Context(), userID, req.SessionID, activities); err != nil {
-				log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_activities")
-			}
-		}()
-	}
-	if opts.Tracer != nil {
-		if opts.Tracer.mu == nil {
-			opts.Tracer.mu = &stream.mu
-		}
-		if activityCollector != nil {
-			opts.Tracer.onTrace = activityCollector.Handle
-		}
-		eng.AgentTracer = opts.Tracer
-	}
-	configureCommonStreamCallbacks(eng, stream, opts.EmitThoughtSummary, opts.EmitSummaryEvents)
-	configureFleetCallbacks(a, eng, runID, req.SessionID, req.ProjectID, req.ObjectiveID, userID)
-	if a.fleetBus != nil {
-		a.fleetBus.Publish(fleet.Event{Kind: fleet.EventRunStarted, RunID: runID, SessionID: req.SessionID, ProjectID: req.ProjectID, ObjectiveID: req.ObjectiveID, UserID: derefInputUserID(userID), Message: req.Prompt})
-	}
-	if opts.InitialSummary != nil && opts.InitialSummary.Triggered {
-		stream.write(map[string]any{
-			"type":             "summary",
-			"input_tokens":     opts.InitialSummary.EstimatedTokens,
-			"token_budget":     opts.InitialSummary.TokenBudget,
-			"message_count":    opts.InitialSummary.MessageCount,
-			"summarized_count": opts.InitialSummary.SummarizedCount,
-		})
-	}
 
-	seconds := opts.TimeoutSeconds
-	if seconds <= 0 {
-		seconds = a.cfg.StreamRunTimeoutSeconds
-		if seconds <= 0 {
-			seconds = a.cfg.AgentRunTimeoutSeconds
-		}
-	}
-	ctx, cancel, dur := withMaybeTimeout(runCtx, seconds)
-	defer cancel()
-	ctx = applyChatImagePrompt(ctx, runCtx, req, opts.InheritImagePrompt)
-	agentName := eng.AgentRole
-	if agentName == "" {
-		agentName = "orchestrator"
-	}
-	ctx = inputRequestContext(ctx, newStreamInputRequester(a.activeInputRequestBroker(), stream, req.SessionID, runID, userID, a.fleetBus), inputrequest.RunMetadata{
-		Agent: agentName,
-		Model: eng.Model,
-		Depth: eng.AgentDepth,
+	activityCollector := a.newStreamActivityCollector(req, runID, userID)
+	defer a.flushStreamActivities(r.Context(), req, userID, activityCollector)
+	a.configureStreamExecutionCallbacks(eng, stream, opts, activityCollector, fleetCallbackRequest{
+		RunID:       runID,
+		SessionID:   req.SessionID,
+		ProjectID:   req.ProjectID,
+		ObjectiveID: req.ObjectiveID,
+		UserID:      userID,
 	})
+	a.publishChatRunEvent(fleet.EventRunStarted, runID, req, userID, req.Prompt)
+	writeInitialSummaryEvent(stream, opts.InitialSummary)
+
+	ctx, cancel, dur := a.streamExecutionContext(streamExecutionContextRequest{
+		RunContext: runCtx,
+		Request:    req,
+		Engine:     eng,
+		Stream:     stream,
+		Options:    opts,
+		RunID:      runID,
+		UserID:     userID,
+	})
+	defer cancel()
 	logChatRunTimeout(opts.Endpoint, true, dur)
 
-	if opts.KeepAlive {
-		stopKeepalive := make(chan struct{})
-		go func() {
-			ticker := time.NewTicker(15 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-stopKeepalive:
-					return
-				case <-ticker.C:
-					stream.writeText(": keepalive\n\n")
-				}
-			}
-		}()
-		defer close(stopKeepalive)
-	}
+	stopKeepalive := startStreamKeepalive(ctx, stream, opts.KeepAlive)
+	defer stopKeepalive()
 
 	collector := newChatTurnCollector(sandbox.ResolveBaseDir(ctx, a.cfg.Workdir), req.ProjectID, stream)
 	collector.attach(eng)
 
 	result, err := eng.RunStream(ctx, req.Prompt, history)
 	if err != nil {
-		logStreamContextDone(err, r, opts.Endpoint, req.SessionID, req.ProjectID, "")
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			log.Warn().Err(err).Msg("agent run cancelled")
-		} else {
-			log.Error().Err(err).Msg("agent run error")
-		}
-		if opts.StructuredErrors {
-			stream.write(map[string]string{"type": "error", "data": "(error) " + err.Error()})
-		} else if b, err2 := json.Marshal("(error) " + err.Error()); err2 == nil {
-			stream.writeText(fmt.Sprintf("data: %s\n\n", b))
-		} else {
-			stream.writeText(fmt.Sprintf("data: %q\n\n", "(error)"))
-		}
-		a.runs.updateStatus(runID, "failed", 0)
-		if a.fleetBus != nil {
-			a.fleetBus.Publish(fleet.Event{Kind: fleet.EventRunFailed, RunID: runID, SessionID: req.SessionID, ProjectID: req.ProjectID, ObjectiveID: req.ObjectiveID, UserID: derefInputUserID(userID), Message: err.Error()})
-		}
-		a.commitWorkspace(ctx, checkedOutWorkspace)
+		a.handleStreamChatError(ctx, r, stream, checkedOutWorkspace, streamChatErrorRequest{
+			RunID:   runID,
+			Request: req,
+			UserID:  userID,
+			Options: opts,
+			Err:     err,
+		})
 		return
 	}
-	result = collector.resultText(result)
-	stream.write(buildChatStreamFinalPayload(result, ctx, opts.IncludeMatrixMessages))
-	a.runs.updateStatus(runID, "completed", 0)
-	if a.fleetBus != nil {
-		a.fleetBus.Publish(fleet.Event{Kind: fleet.EventRunFinished, RunID: runID, SessionID: req.SessionID, ProjectID: req.ProjectID, ObjectiveID: req.ObjectiveID, UserID: derefInputUserID(userID), Message: result})
-	}
-	if err := storeChatTurnWithHistory(r.Context(), a.chatStore, userID, req.SessionID, req.Prompt, collector.turnMessages, result, req.AssistantMessageID, chatStoreModel(eng, opts.StoreModel)); err != nil {
-		log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn_stream")
-	}
-	a.commitWorkspace(ctx, checkedOutWorkspace)
+	a.finishStreamChatSuccess(stream, collector, eng, streamChatSuccessRequest{
+		Context:   ctx,
+		StoreCtx:  r.Context(),
+		RunID:     runID,
+		Request:   req,
+		UserID:    userID,
+		Options:   opts,
+		Result:    result,
+		Workspace: checkedOutWorkspace,
+	})
 }
 
-func (a *app) executeJSONChat(w http.ResponseWriter, r *http.Request, runCtx context.Context, eng *agent.Engine, req chatRunRequest, history []llm.Message, runID string, userID *int64, checkedOutWorkspace *workspaces.Workspace, opts chatJSONOptions) {
-	payload, err := a.executeInternalJSONChat(r.Context(), runCtx, eng, req, history, runID, userID, checkedOutWorkspace, opts)
+func (a *app) executeJSONChat(w http.ResponseWriter, r *http.Request, exec chatExecutionRequest, opts chatJSONOptions) {
+	payload, err := a.executeInternalJSONChat(r.Context(), exec, opts)
 	if err != nil {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
@@ -454,11 +415,24 @@ func (a *app) executeJSONChat(w http.ResponseWriter, r *http.Request, runCtx con
 	json.NewEncoder(w).Encode(payload)
 }
 
-func (a *app) executeInternalJSONChat(storeCtx, runCtx context.Context, eng *agent.Engine, req chatRunRequest, history []llm.Message, runID string, userID *int64, checkedOutWorkspace *workspaces.Workspace, opts chatJSONOptions) (map[string]any, error) {
+func (a *app) executeInternalJSONChat(storeCtx context.Context, exec chatExecutionRequest, opts chatJSONOptions) (map[string]any, error) {
+	runCtx := exec.RunContext
+	eng := exec.Engine
+	req := exec.RunRequest
+	history := exec.History
+	runID := exec.RunID
+	userID := exec.UserID
+	checkedOutWorkspace := exec.CheckedOutWorkspace
 	if req.EphemeralSession {
 		defer cleanupEphemeralChatSession(a.chatStore, userID, req.SessionID)
 	}
-	configureFleetCallbacks(a, eng, runID, req.SessionID, req.ProjectID, req.ObjectiveID, userID)
+	configureFleetCallbacks(a, eng, fleetCallbackRequest{
+		RunID:       runID,
+		SessionID:   req.SessionID,
+		ProjectID:   req.ProjectID,
+		ObjectiveID: req.ObjectiveID,
+		UserID:      userID,
+	})
 	if a.fleetBus != nil {
 		a.fleetBus.Publish(fleet.Event{Kind: fleet.EventRunStarted, RunID: runID, SessionID: req.SessionID, ProjectID: req.ProjectID, ObjectiveID: req.ObjectiveID, UserID: derefInputUserID(userID), Message: req.Prompt})
 	}
@@ -494,7 +468,15 @@ func (a *app) executeInternalJSONChat(storeCtx, runCtx context.Context, eng *age
 	if a.fleetBus != nil {
 		a.fleetBus.Publish(fleet.Event{Kind: fleet.EventRunFinished, RunID: runID, SessionID: req.SessionID, ProjectID: req.ProjectID, ObjectiveID: req.ObjectiveID, UserID: derefInputUserID(userID), Message: result})
 	}
-	if err := storeChatTurnWithHistory(storeCtx, a.chatStore, userID, req.SessionID, req.Prompt, collector.turnMessages, result, req.AssistantMessageID, chatStoreModel(eng, opts.StoreModel)); err != nil {
+	if err := storeChatTurnWithHistory(storeCtx, a.chatStore, chatTurnHistoryRecord{
+		UserID:             userID,
+		SessionID:          req.SessionID,
+		UserContent:        req.Prompt,
+		TurnMessages:       collector.turnMessages,
+		FinalContent:       result,
+		AssistantMessageID: req.AssistantMessageID,
+		Model:              chatStoreModel(eng, opts.StoreModel),
+	}); err != nil {
 		log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")
 	}
 	a.commitWorkspace(ctx, checkedOutWorkspace)

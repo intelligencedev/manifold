@@ -15,7 +15,7 @@ type chunkTableChecker interface {
 
 // chunkUpserter is an optional capability of a FullTextSearch backend.
 type chunkUpserter interface {
-	UpsertChunk(ctx context.Context, chunkID, docID string, idx int, text string, metadata map[string]string, lang string) error
+	UpsertChunk(ctx context.Context, chunk databases.ChunkSearchRow) error
 }
 
 // UpsertDocumentToSearch writes/overwrites the document row in the FTS backend.
@@ -54,11 +54,23 @@ type ChunkRecord struct {
 	Text  string
 }
 
+type ChunkIndexRequest struct {
+	DocID   string
+	Lang    string
+	Chunks  []ChunkRecord
+	Input   IngestRequest
+	Version int
+}
+
 // UpsertChunksToSearch persists chunks. When the backend exposes a real chunks
 // table, it is used; otherwise it falls back to separate documents with id prefix
 // "chunk:" and metadata.type="chunk".
-func UpsertChunksToSearch(ctx context.Context, s databases.FullTextSearch, docID string, lang string, chunks []ChunkRecord, in IngestRequest, version int) ([]string, error) {
-	// Determine capability
+func UpsertChunksToSearch(ctx context.Context, s databases.FullTextSearch, req ChunkIndexRequest) ([]string, error) {
+	docID := req.DocID
+	lang := req.Lang
+	chunks := req.Chunks
+	in := req.Input
+	version := req.Version
 	hasTable := false
 	if chk, ok := s.(chunkTableChecker); ok {
 		exists, err := chk.HasChunksTable(ctx)
@@ -78,7 +90,14 @@ func UpsertChunksToSearch(ctx context.Context, s databases.FullTextSearch, docID
 			md := baseChunkMetadata(in, version)
 			for _, c := range chunks {
 				chunkID := fmt.Sprintf("chunk:%s:%d", docID, c.Index)
-				if err := up.UpsertChunk(ctx, chunkID, docID, c.Index, c.Text, md, lang); err != nil {
+				if err := up.UpsertChunk(ctx, databases.ChunkSearchRow{
+					ID:       chunkID,
+					DocID:    docID,
+					Index:    c.Index,
+					Text:     c.Text,
+					Metadata: md,
+					Lang:     lang,
+				}); err != nil {
 					return nil, err
 				}
 				ids = append(ids, chunkID)

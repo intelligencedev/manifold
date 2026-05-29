@@ -18,7 +18,14 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 	var reasoningTrace []string
 	defer func() {
 		evolvingEntryID = e.storeExperience(ctx, userInput, final, err, reasoningTrace)
-		e.recordRunEpisode(ctx, startedAt, userInput, final, err, evolvingEntryID, reasoningTrace)
+		e.recordRunEpisode(ctx, runEpisodeRecord{
+			startedAt:       startedAt,
+			userInput:       userInput,
+			final:           final,
+			runErr:          err,
+			evolvingEntryID: evolvingEntryID,
+			reasoningTrace:  reasoningTrace,
+		})
 	}()
 
 	// If ReMem mode is enabled, use Think-Act-Refine controller
@@ -28,9 +35,6 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 	}
 
 	msgs := BuildInitialLLMMessages(e.System, userInput, history)
-	// Possibly summarize older history before adding volatile per-request
-	// context. Dynamic context is kept with the current request so stable
-	// history remains cache-friendly.
 	if e.SummaryEnabled && !e.consumeSkipInitialSummarization() {
 		msgs = e.maybeSummarize(ctx, msgs)
 	}
@@ -67,7 +71,14 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 	var reasoningTrace []string
 	defer func() {
 		evolvingEntryID = e.storeExperience(ctx, userInput, final, err, reasoningTrace)
-		e.recordRunEpisode(ctx, startedAt, userInput, final, err, evolvingEntryID, reasoningTrace)
+		e.recordRunEpisode(ctx, runEpisodeRecord{
+			startedAt:       startedAt,
+			userInput:       userInput,
+			final:           final,
+			runErr:          err,
+			evolvingEntryID: evolvingEntryID,
+			reasoningTrace:  reasoningTrace,
+		})
 	}()
 
 	// If ReMem mode is enabled, use Think-Act-Refine controller
@@ -78,9 +89,6 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 	}
 
 	msgs := BuildInitialLLMMessages(e.System, userInput, history)
-	// Possibly summarize older history before adding volatile per-request
-	// context. Dynamic context is kept with the current request so stable
-	// history remains cache-friendly.
 	if e.SummaryEnabled && !e.consumeSkipInitialSummarization() {
 		msgs = e.maybeSummarize(ctx, msgs)
 	}

@@ -193,103 +193,120 @@ interface CSVRecord {
 }
 
 function parseCSVRecords(text: string): CSVRecord[] {
-  const records: CSVRecord[] = [];
-  let values: string[] = [];
-  let field = "";
-  let inQuotes = false;
-  let fieldQuoted = false;
-  let line = 1;
-  let recordLine = 1;
+  return new CSVRecordParser(text).parse();
+}
 
-  function pushField() {
-    values.push(field);
-    field = "";
-    fieldQuoted = false;
+class CSVRecordParser {
+  private readonly records: CSVRecord[] = [];
+  private values: string[] = [];
+  private field = "";
+  private inQuotes = false;
+  private fieldQuoted = false;
+  private line = 1;
+  private recordLine = 1;
+
+  constructor(private readonly text: string) {}
+
+  parse(): CSVRecord[] {
+    for (let idx = 0; idx < this.text.length; idx += 1) {
+      const nextIdx = this.consumeChar(idx);
+      idx = nextIdx;
+    }
+    this.finish();
+    return this.records.filter((record) =>
+      record.values.some((value) => value.trim() !== ""),
+    );
   }
 
-  function pushRecord() {
-    pushField();
-    records.push({ values, line: recordLine });
-    values = [];
-    recordLine = line;
-  }
+  private consumeChar(idx: number): number {
+    const char = this.text[idx];
+    const next = this.text[idx + 1];
 
-  for (let idx = 0; idx < text.length; idx += 1) {
-    const char = text[idx];
-    const next = text[idx + 1];
-
-    if (inQuotes) {
+    if (this.inQuotes) {
       if (char === '"') {
         if (next === '"') {
-          field += '"';
-          idx += 1;
+          this.field += '"';
+          return idx + 1;
         } else {
-          inQuotes = false;
+          this.inQuotes = false;
         }
       } else {
-        field += char;
+        this.field += char;
         if (char === "\n") {
-          line += 1;
+          this.line += 1;
         }
       }
-      continue;
+      return idx;
     }
 
     if (char === '"') {
-      if (field.trim().length > 0) {
+      if (this.field.trim().length > 0) {
         throw new Error(
-          `CSV quote appears inside an unquoted field at line ${line}.`,
+          `CSV quote appears inside an unquoted field at line ${this.line}.`,
         );
       }
-      inQuotes = true;
-      fieldQuoted = true;
-      continue;
+      this.inQuotes = true;
+      this.fieldQuoted = true;
+      return idx;
     }
 
     if (char === ",") {
-      pushField();
-      continue;
+      this.pushField();
+      return idx;
     }
 
     if (char === "\n") {
-      pushRecord();
-      line += 1;
-      recordLine = line;
-      continue;
+      this.pushRecord();
+      this.line += 1;
+      this.recordLine = this.line;
+      return idx;
     }
 
     if (char === "\r") {
       if (next === "\n") {
-        continue;
+        return idx;
       }
-      pushRecord();
-      line += 1;
-      recordLine = line;
-      continue;
+      this.pushRecord();
+      this.line += 1;
+      this.recordLine = this.line;
+      return idx;
     }
 
-    if (fieldQuoted) {
+    if (this.fieldQuoted) {
       if (char.trim().length > 0) {
-        throw new Error(`CSV has text after a closing quote at line ${line}.`);
+        throw new Error(
+          `CSV has text after a closing quote at line ${this.line}.`,
+        );
       }
-      continue;
+      return idx;
     }
-    field += char;
+    this.field += char;
+    return idx;
   }
 
-  if (inQuotes) {
-    throw new Error(
-      `CSV has an unterminated quoted field starting near line ${recordLine}.`,
-    );
+  private finish() {
+    if (this.inQuotes) {
+      throw new Error(
+        `CSV has an unterminated quoted field starting near line ${this.recordLine}.`,
+      );
+    }
+    if (this.field.length > 0 || this.values.length > 0) {
+      this.pushRecord();
+    }
   }
 
-  if (field.length > 0 || values.length > 0) {
-    pushRecord();
+  private pushField() {
+    this.values.push(this.field);
+    this.field = "";
+    this.fieldQuoted = false;
   }
 
-  return records.filter((record) =>
-    record.values.some((value) => value.trim() !== ""),
-  );
+  private pushRecord() {
+    this.pushField();
+    this.records.push({ values: this.values, line: this.recordLine });
+    this.values = [];
+    this.recordLine = this.line;
+  }
 }
 
 function validateDatasetRows(rows: unknown[]): DatasetRow[] {

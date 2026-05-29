@@ -1,8 +1,7 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import type { FlowRunResult, FlowStepTrace } from "@/types/flowV2";
-import { runFlowWorkflow } from "@/api/flow";
-import type { FlowRunProgress } from "@/api/flow";
+import { runFlowWorkflow, type FlowRunProgress } from "@/api/flow";
 
 export const useFlowRunStore = defineStore("flow-run", () => {
   const running = ref(false);

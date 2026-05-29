@@ -19,6 +19,16 @@ type scriptedProvider struct {
 	streamCalls     [][]llm.Message
 }
 
+func inferenceRequest(provider llm.Provider, history []HarnessMessage, schemas []llm.ToolSchema, cfg RunConfig) InferenceRequest {
+	return InferenceRequest{
+		Provider: provider,
+		History:  history,
+		Schemas:  schemas,
+		Model:    "model",
+		Config:   cfg,
+	}
+}
+
 type streamResponse struct {
 	Deltas           []string
 	ToolCalls        []llm.ToolCall
@@ -115,7 +125,7 @@ func TestRunInferenceNudgesWorkflowTextThenAcceptsToolCall(t *testing.T) {
 		Workflow:          WorkflowConfig{TerminalTools: []string{"agent_response"}},
 	}
 
-	result, err := RunInference(context.Background(), provider, WrapMessages([]llm.Message{{Role: "user", Content: "go"}}), []llm.ToolSchema{{Name: "lookup"}}, "model", cfg, nil)
+	result, err := RunInference(context.Background(), inferenceRequest(provider, WrapMessages([]llm.Message{{Role: "user", Content: "go"}}), []llm.ToolSchema{{Name: "lookup"}}, cfg))
 
 	require.NoError(t, err)
 	require.Equal(t, 2, result.Attempts)
@@ -140,7 +150,7 @@ func TestRunInferencePairsRejectedToolCallWithOutputBeforeRetry(t *testing.T) {
 		},
 	}
 
-	result, err := RunInference(context.Background(), provider, WrapMessages([]llm.Message{{Role: "user", Content: "go"}}), []llm.ToolSchema{{Name: "lookup"}, {Name: "agent_response"}}, "model", cfg, nil)
+	result, err := RunInference(context.Background(), inferenceRequest(provider, WrapMessages([]llm.Message{{Role: "user", Content: "go"}}), []llm.ToolSchema{{Name: "lookup"}, {Name: "agent_response"}}, cfg))
 
 	require.NoError(t, err)
 	require.Equal(t, 2, result.Attempts)
@@ -166,7 +176,7 @@ func TestRunInferenceRescuesEmbeddedToolCallJSONWhenEnabled(t *testing.T) {
 		Workflow:      WorkflowConfig{TerminalTools: []string{"agent_response"}},
 	}
 
-	result, err := RunInference(context.Background(), provider, WrapMessages([]llm.Message{{Role: "user", Content: "go"}}), []llm.ToolSchema{{Name: "lookup"}}, "model", cfg, nil)
+	result, err := RunInference(context.Background(), inferenceRequest(provider, WrapMessages([]llm.Message{{Role: "user", Content: "go"}}), []llm.ToolSchema{{Name: "lookup"}}, cfg))
 
 	require.NoError(t, err)
 	require.Len(t, result.Message.ToolCalls, 1)
@@ -187,7 +197,7 @@ func TestRunInferenceDoesNotRescueEmbeddedToolCallJSONWhenDisabled(t *testing.T)
 		Workflow:          WorkflowConfig{TerminalTools: []string{"agent_response"}},
 	}
 
-	_, err := RunInference(context.Background(), provider, nil, []llm.ToolSchema{{Name: "lookup"}}, "model", cfg, nil)
+	_, err := RunInference(context.Background(), inferenceRequest(provider, nil, []llm.ToolSchema{{Name: "lookup"}}, cfg))
 
 	require.ErrorIs(t, err, ErrValidationRetriesExhausted)
 }
@@ -199,7 +209,7 @@ func TestRunInferenceReturnsRetryExhaustion(t *testing.T) {
 	}}
 	cfg := RunConfig{Mode: ModeWorkflow, MaxRetriesPerStep: 1}
 
-	_, err := RunInference(context.Background(), provider, nil, []llm.ToolSchema{{Name: "lookup"}}, "model", cfg, nil)
+	_, err := RunInference(context.Background(), inferenceRequest(provider, nil, []llm.ToolSchema{{Name: "lookup"}}, cfg))
 
 	require.ErrorIs(t, err, ErrValidationRetriesExhausted)
 	var exhausted RetryExhaustedError
@@ -219,7 +229,7 @@ func TestRunStreamInferenceNudgesThenReturnsAcceptedStream(t *testing.T) {
 	}}
 	cfg := RunConfig{Mode: ModeGuardedChat, MaxRetriesPerStep: 1}
 
-	result, err := RunStreamInference(context.Background(), provider, WrapMessages([]llm.Message{{Role: "user", Content: "go"}}), []llm.ToolSchema{{Name: "known_tool"}}, "model", cfg, nil)
+	result, err := RunStreamInference(context.Background(), inferenceRequest(provider, WrapMessages([]llm.Message{{Role: "user", Content: "go"}}), []llm.ToolSchema{{Name: "known_tool"}}, cfg))
 
 	require.NoError(t, err)
 	require.Equal(t, 2, result.Attempts)
@@ -245,7 +255,7 @@ func TestRunStreamInferencePairsRejectedToolCallWithOutputBeforeRetry(t *testing
 		},
 	}
 
-	result, err := RunStreamInference(context.Background(), provider, WrapMessages([]llm.Message{{Role: "user", Content: "go"}}), []llm.ToolSchema{{Name: "lookup"}, {Name: "agent_response"}}, "model", cfg, nil)
+	result, err := RunStreamInference(context.Background(), inferenceRequest(provider, WrapMessages([]llm.Message{{Role: "user", Content: "go"}}), []llm.ToolSchema{{Name: "lookup"}, {Name: "agent_response"}}, cfg))
 
 	require.NoError(t, err)
 	require.Equal(t, 2, result.Attempts)

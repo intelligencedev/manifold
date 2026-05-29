@@ -26,6 +26,35 @@ import (
 	"manifold/internal/workspaces"
 )
 
+func buildSpecialistTestRequest(name, systemPromptOverride, sessionID string, owner int64) chatEngineBuildRequest {
+	return chatEngineBuildRequest{
+		Name:                 name,
+		SystemPromptOverride: systemPromptOverride,
+		SessionID:            sessionID,
+		Owner:                owner,
+		MemorySettings:       defaultChatMemoryRunSettings(),
+	}
+}
+
+func buildTeamTestRequest(name, sessionID string, owner int64) chatEngineBuildRequest {
+	return chatEngineBuildRequest{
+		Name:           name,
+		SessionID:      sessionID,
+		Owner:          owner,
+		MemorySettings: defaultChatMemoryRunSettings(),
+	}
+}
+
+func buildOrchestratorTestRequest(sessionID, systemPromptOverride string, owner int64, workspace *workspaces.Workspace) chatEngineBuildRequest {
+	return chatEngineBuildRequest{
+		SystemPromptOverride: systemPromptOverride,
+		SessionID:            sessionID,
+		Owner:                owner,
+		CheckedOutWorkspace:  workspace,
+		MemorySettings:       defaultChatMemoryRunSettings(),
+	}
+}
+
 func TestBuildSpecialistChatEngineUsesOverrideAndSkills(t *testing.T) {
 	t.Parallel()
 
@@ -44,7 +73,7 @@ func TestBuildSpecialistChatEngineUsesOverrideAndSkills(t *testing.T) {
 	}
 	app.invalidateSpecialistsCache(ctx, 7)
 
-	result := app.buildSpecialistChatEngine(ctx, "alpha", "override system", "sess-1", "", "", 7)
+	result := app.buildSpecialistChatEngine(ctx, buildSpecialistTestRequest("alpha", "override system", "sess-1", 7))
 	if result.Err != nil {
 		t.Fatalf("buildSpecialistChatEngine: %v", result.Err)
 	}
@@ -111,7 +140,7 @@ func TestBuildTeamChatEngineBuildsDelegatorAndDefaultPrompt(t *testing.T) {
 		t.Fatalf("upsert team: %v", err)
 	}
 
-	result := app.buildTeamChatEngine(ctx, "ops", "sess-team", "", "", 9)
+	result := app.buildTeamChatEngine(ctx, buildTeamTestRequest("ops", "sess-team", 9))
 	if result.Err != nil {
 		t.Fatalf("buildTeamChatEngine: %v", result.Err)
 	}
@@ -136,7 +165,7 @@ func TestBuildOrchestratorChatEngineUsesOverride(t *testing.T) {
 	t.Parallel()
 
 	app := newChatEngineBuilderTestApp(t)
-	result := app.buildOrchestratorChatEngine(context.Background(), 7, "sess-1", "", "", "override system", nil)
+	result := app.buildOrchestratorChatEngine(context.Background(), buildOrchestratorTestRequest("sess-1", "override system", 7, nil))
 	if result.Err != nil {
 		t.Fatalf("buildOrchestratorChatEngine: %v", result.Err)
 	}
@@ -158,7 +187,7 @@ func TestBuildOrchestratorChatEngineDefaultsMaxSteps(t *testing.T) {
 	app.cfg.MaxSteps = 0
 	app.engine.MaxSteps = 0
 
-	result := app.buildOrchestratorChatEngine(context.Background(), 7, "sess-1", "", "", "", nil)
+	result := app.buildOrchestratorChatEngine(context.Background(), buildOrchestratorTestRequest("sess-1", "", 7, nil))
 	if result.Err != nil {
 		t.Fatalf("buildOrchestratorChatEngine: %v", result.Err)
 	}
@@ -211,9 +240,9 @@ func TestBuildChatEnginesCarryHarnessConfig(t *testing.T) {
 		t.Fatalf("upsert team: %v", err)
 	}
 
-	orchestrator := app.buildOrchestratorChatEngine(ctx, 7, "sess-1", "", "", "", nil)
-	specialist := app.buildSpecialistChatEngine(ctx, "alpha", "", "sess-2", "", "", 7)
-	team := app.buildTeamChatEngine(ctx, "ops", "sess-3", "", "", 9)
+	orchestrator := app.buildOrchestratorChatEngine(ctx, buildOrchestratorTestRequest("sess-1", "", 7, nil))
+	specialist := app.buildSpecialistChatEngine(ctx, buildSpecialistTestRequest("alpha", "", "sess-2", 7))
+	team := app.buildTeamChatEngine(ctx, buildTeamTestRequest("ops", "sess-3", 9))
 
 	for name, result := range map[string]chatEngineBuildResult{
 		"orchestrator": orchestrator,
@@ -300,9 +329,9 @@ func TestBuildChatEnginesApplyPerTargetHarnessOverrides(t *testing.T) {
 		t.Fatalf("upsert team: %v", err)
 	}
 
-	orchestrator := app.buildOrchestratorChatEngine(ctx, 7, "sess-1", "", "", "", nil)
-	specialist := app.buildSpecialistChatEngine(ctx, "alpha", "", "sess-2", "", "", 7)
-	team := app.buildTeamChatEngine(ctx, "ops", "sess-3", "", "", 9)
+	orchestrator := app.buildOrchestratorChatEngine(ctx, buildOrchestratorTestRequest("sess-1", "", 7, nil))
+	specialist := app.buildSpecialistChatEngine(ctx, buildSpecialistTestRequest("alpha", "", "sess-2", 7))
+	team := app.buildTeamChatEngine(ctx, buildTeamTestRequest("ops", "sess-3", 9))
 
 	for name, result := range map[string]chatEngineBuildResult{
 		"orchestrator": orchestrator,
@@ -347,7 +376,7 @@ func TestBuildSpecialistChatEngineUsesSkillSearchWhenAutoDiscoverEnabled(t *test
 	}
 	app.invalidateSpecialistsCache(ctx, 7)
 
-	result := app.buildSpecialistChatEngine(ctx, "alpha", "", "sess-1", "", "", 7)
+	result := app.buildSpecialistChatEngine(ctx, buildSpecialistTestRequest("alpha", "", "sess-1", 7))
 	if result.Err != nil {
 		t.Fatalf("buildSpecialistChatEngine: %v", result.Err)
 	}
@@ -372,7 +401,7 @@ func TestBuildOrchestratorChatEngineFallsBackToInlineSkillsWhenToolsDisabled(t *
 	app.cfg.AutoDiscover = true
 	app.cfg.EnableTools = false
 	projectDir := skillProjectDir(t, "deploy-runbook", "Deploy the application safely.")
-	result := app.buildOrchestratorChatEngine(context.Background(), 7, "sess-1", "", "", "", &workspaces.Workspace{BaseDir: projectDir})
+	result := app.buildOrchestratorChatEngine(context.Background(), buildOrchestratorTestRequest("sess-1", "", 7, &workspaces.Workspace{BaseDir: projectDir}))
 	if result.Err != nil {
 		t.Fatalf("buildOrchestratorChatEngine: %v", result.Err)
 	}
@@ -400,7 +429,7 @@ func TestBuildOrchestratorChatEngineUsesSkillSearchWhenAutoDiscoverEnabled(t *te
 	app.toolIndex = tooldiscovery.NewToolIndex(app.baseToolRegistry.Schemas())
 	projectDir := skillProjectDir(t, "incident-response", "Handle production incidents with a runbook.")
 
-	result := app.buildOrchestratorChatEngine(context.Background(), 7, "sess-1", "", "", "", &workspaces.Workspace{BaseDir: projectDir})
+	result := app.buildOrchestratorChatEngine(context.Background(), buildOrchestratorTestRequest("sess-1", "", 7, &workspaces.Workspace{BaseDir: projectDir}))
 	if result.Err != nil {
 		t.Fatalf("buildOrchestratorChatEngine: %v", result.Err)
 	}
@@ -426,7 +455,7 @@ func TestBuildOrchestratorChatEngineUsesInlineSkillsAndSkillReadWhenAutoDiscover
 	app.cfg.EnableTools = true
 	projectDir := skillProjectDir(t, "release-checklist", "Coordinate a production release checklist.")
 
-	result := app.buildOrchestratorChatEngine(context.Background(), 7, "sess-1", "", "", "", &workspaces.Workspace{BaseDir: projectDir})
+	result := app.buildOrchestratorChatEngine(context.Background(), buildOrchestratorTestRequest("sess-1", "", 7, &workspaces.Workspace{BaseDir: projectDir}))
 	if result.Err != nil {
 		t.Fatalf("buildOrchestratorChatEngine: %v", result.Err)
 	}
@@ -470,7 +499,7 @@ func TestBuildTeamChatEngineUsesSkillSearchWhenAutoDiscoverEnabled(t *testing.T)
 		t.Fatalf("upsert team: %v", err)
 	}
 
-	result := app.buildTeamChatEngine(ctx, "ops", "sess-team", "", "", 9)
+	result := app.buildTeamChatEngine(ctx, buildTeamTestRequest("ops", "sess-team", 9))
 	if result.Err != nil {
 		t.Fatalf("buildTeamChatEngine: %v", result.Err)
 	}
@@ -507,7 +536,7 @@ func TestBuildSpecialistChatEngineAttachesSessionEvolvingMemory(t *testing.T) {
 	}
 	app.invalidateSpecialistsCache(ctx, 7)
 
-	result := app.buildSpecialistChatEngine(ctx, "alpha", "", "sess-42", "", "", 7)
+	result := app.buildSpecialistChatEngine(ctx, buildSpecialistTestRequest("alpha", "", "sess-42", 7))
 	if result.Err != nil {
 		t.Fatalf("buildSpecialistChatEngine: %v", result.Err)
 	}
@@ -542,9 +571,14 @@ func TestBuildSpecialistChatEngineCanDisableSessionEvolvingMemory(t *testing.T) 
 	}
 	app.invalidateSpecialistsCache(ctx, 7)
 
-	result := app.buildSpecialistChatEngine(ctx, "alpha", "", "sess-42", "", "", 7, chatMemoryRunSettings{
-		EvolvingMemoryEnabled: false,
-		BeliefMemoryEnabled:   true,
+	result := app.buildSpecialistChatEngine(ctx, chatEngineBuildRequest{
+		Name:      "alpha",
+		SessionID: "sess-42",
+		Owner:     7,
+		MemorySettings: chatMemoryRunSettings{
+			EvolvingMemoryEnabled: false,
+			BeliefMemoryEnabled:   true,
+		},
 	})
 	if result.Err != nil {
 		t.Fatalf("buildSpecialistChatEngine: %v", result.Err)
@@ -602,7 +636,7 @@ func TestBuildTeamChatEngineAttachesSessionEvolvingMemory(t *testing.T) {
 		t.Fatalf("upsert team: %v", err)
 	}
 
-	result := app.buildTeamChatEngine(ctx, "ops", "sess-team", "", "", 9)
+	result := app.buildTeamChatEngine(ctx, buildTeamTestRequest("ops", "sess-team", 9))
 	if result.Err != nil {
 		t.Fatalf("buildTeamChatEngine: %v", result.Err)
 	}

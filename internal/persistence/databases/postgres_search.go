@@ -222,15 +222,24 @@ SELECT EXISTS (
 	return exists, nil
 }
 
+type ChunkSearchRow struct {
+	ID       string
+	DocID    string
+	Index    int
+	Text     string
+	Metadata map[string]string
+	Lang     string
+}
+
 // UpsertChunk inserts or updates a row in the chunks table. It assumes the
 // table has columns: id TEXT PK, doc_id TEXT, idx INT, text TEXT, metadata JSONB, lang regconfig.
-func (p *pgSearch) UpsertChunk(ctx context.Context, chunkID, docID string, idx int, text string, metadata map[string]string, lang string) error {
-	md := mapToJSON(metadata)
+func (p *pgSearch) UpsertChunk(ctx context.Context, chunk ChunkSearchRow) error {
+	md := mapToJSON(chunk.Metadata)
 	_, err := p.pool.Exec(ctx, `
 INSERT INTO chunks(id, doc_id, idx, text, metadata, lang)
 VALUES($1,$2,$3,$4,$5,$6)
 ON CONFLICT (id) DO UPDATE SET text=EXCLUDED.text, metadata=EXCLUDED.metadata, lang=EXCLUDED.lang
-`, chunkID, docID, idx, text, md, lang)
+`, chunk.ID, chunk.DocID, chunk.Index, chunk.Text, md, chunk.Lang)
 	return err
 }
 

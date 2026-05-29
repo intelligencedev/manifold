@@ -168,7 +168,6 @@ func (s *applyState) ensureEntry(path string) (*pendingFile, error) {
 }
 
 func (s *applyState) writeToDisk() error {
-	// Remove files first.
 	for _, entry := range s.files {
 		if entry.Exists {
 			continue

@@ -359,7 +359,6 @@ func (r *Registry) UserPromptContext() string {
 	return r.systemPromptAddendum
 }
 
-// Get returns the named specialist.
 func (r *Registry) Get(name string) (*Agent, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

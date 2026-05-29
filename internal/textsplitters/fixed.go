@@ -75,7 +75,6 @@ func (s *fixedSplitter) splitRunes(text string) []string {
 	}
 	// idxs[j] is byte index where rune j starts; idxs[len-1] == len(text).
 
-	// Iterate by rune positions.
 	for start := 0; start < len(idxs)-1; start += step {
 		end := min(start+size, len(idxs)-1)
 		if end <= start {

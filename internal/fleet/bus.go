@@ -22,24 +22,24 @@ const (
 )
 
 type Event struct {
-	Kind         EventKind       `json:"kind"`
-	RunID        string          `json:"run_id,omitempty"`
-	SessionID    string          `json:"session_id,omitempty"`
-	ProjectID    string          `json:"project_id,omitempty"`
-	ObjectiveID  string          `json:"objective_id,omitempty"`
-	WorkflowID   string          `json:"workflow_id,omitempty"`
-	Specialist   string          `json:"specialist,omitempty"`
-	Agent        string          `json:"agent,omitempty"`
-	CallID       string          `json:"call_id,omitempty"`
-	ParentCallID string          `json:"parent_call_id,omitempty"`
-	ToolID       string          `json:"tool_id,omitempty"`
-	Depth        int             `json:"depth,omitempty"`
-	Status       string          `json:"status,omitempty"`
-	Title        string          `json:"title,omitempty"`
-	Message      string          `json:"message,omitempty"`
-	At           time.Time       `json:"at"`
-	Data         map[string]any  `json:"data,omitempty"`
-	UserID       int64           `json:"-"`
+	Kind         EventKind      `json:"kind"`
+	RunID        string         `json:"run_id,omitempty"`
+	SessionID    string         `json:"session_id,omitempty"`
+	ProjectID    string         `json:"project_id,omitempty"`
+	ObjectiveID  string         `json:"objective_id,omitempty"`
+	WorkflowID   string         `json:"workflow_id,omitempty"`
+	Specialist   string         `json:"specialist,omitempty"`
+	Agent        string         `json:"agent,omitempty"`
+	CallID       string         `json:"call_id,omitempty"`
+	ParentCallID string         `json:"parent_call_id,omitempty"`
+	ToolID       string         `json:"tool_id,omitempty"`
+	Depth        int            `json:"depth,omitempty"`
+	Status       string         `json:"status,omitempty"`
+	Title        string         `json:"title,omitempty"`
+	Message      string         `json:"message,omitempty"`
+	At           time.Time      `json:"at"`
+	Data         map[string]any `json:"data,omitempty"`
+	UserID       int64          `json:"-"`
 }
 
 type Bus struct {

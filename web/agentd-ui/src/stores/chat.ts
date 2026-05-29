@@ -136,7 +136,7 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   function isSessionStreaming(sessionId: string) {
-    return Boolean(streamingStateBySession.value[sessionId]);
+    return streamingStateFor(sessionId) !== undefined;
   }
 
   function streamingStateFor(sessionId: string) {
@@ -251,6 +251,70 @@ export const useChatStore = defineStore("chat", () => {
     return thread;
   }
 
+  type AgentThreadBase = {
+    callId: string;
+    parentCallId?: string;
+    agentName?: string;
+    team?: string;
+    model?: string;
+    prompt?: string;
+    depth: number;
+    status?: AgentThread["status"];
+    content?: string;
+    entries?: AgentTraceEntry[];
+    thoughtSummaries?: string[];
+    startedAt: string;
+    finishedAt?: string;
+    error?: string;
+  };
+
+  function newAgentThread(base: AgentThreadBase): AgentThread {
+    return {
+      callId: base.callId,
+      parentCallId: base.parentCallId,
+      agent: base.agentName,
+      team: base.team,
+      model: base.model,
+      prompt: base.prompt,
+      depth: base.depth,
+      status: base.status ?? "running",
+      content: base.content ?? "",
+      entries: base.entries ?? [],
+      thoughtSummaries: base.thoughtSummaries ?? [],
+      startedAt: base.startedAt,
+      finishedAt: base.finishedAt,
+      error: base.error,
+    };
+  }
+
+  function withTeam(thread: AgentThread, team?: string): AgentThread {
+    return thread.team || !team ? thread : { ...thread, team };
+  }
+
+  function appendAgentEntry(
+    thread: AgentThread,
+    team: string | undefined,
+    entry: AgentTraceEntry,
+  ): AgentThread {
+    const baseThread = withTeam(thread, team);
+    return { ...baseThread, entries: [...baseThread.entries, entry] };
+  }
+
+  function agentToolEntry(
+    event: ChatStreamEvent,
+    field: "args" | "data",
+    value: string | undefined,
+    createdAt: string,
+  ): AgentTraceEntry {
+    return {
+      id: createId(),
+      type: "tool",
+      title: event.title || "Tool",
+      [field]: value,
+      createdAt,
+    };
+  }
+
   function syncSessionMessageCount(sessionId: string, count: number) {
     const idx = sessions.value.findIndex((s) => s.id === sessionId);
     if (idx === -1) return;
@@ -352,18 +416,24 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   function normalizeSessionMeta(meta: ChatSessionMeta): ChatSessionMeta {
-    const rawCount = (meta as any).messageCount ?? (meta as any).message_count;
+    type ChatSessionMetaWire = ChatSessionMeta & {
+      message_count?: unknown;
+      project_id?: unknown;
+      evolving_memory_enabled?: unknown;
+      belief_memory_enabled?: unknown;
+    };
+    const wire = meta as ChatSessionMetaWire;
+    const rawCount = wire.messageCount ?? wire.message_count;
     const messageCount =
       typeof rawCount === "number" && Number.isFinite(rawCount) && rawCount >= 0
         ? rawCount
         : 0;
-    const rawProjectID = (meta as any).projectId ?? (meta as any).project_id;
+    const rawProjectID = wire.projectId ?? wire.project_id;
     const projectId = typeof rawProjectID === "string" ? rawProjectID : "";
     const rawEvolvingMemoryEnabled =
-      (meta as any).evolvingMemoryEnabled ??
-      (meta as any).evolving_memory_enabled;
+      wire.evolvingMemoryEnabled ?? wire.evolving_memory_enabled;
     const rawBeliefMemoryEnabled =
-      (meta as any).beliefMemoryEnabled ?? (meta as any).belief_memory_enabled;
+      wire.beliefMemoryEnabled ?? wire.belief_memory_enabled;
     const evolvingMemoryEnabled =
       typeof rawEvolvingMemoryEnabled === "boolean"
         ? rawEvolvingMemoryEnabled
@@ -404,12 +474,14 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   function httpStatus(error: unknown): number | null {
-    // Best-effort Axios compatibility check
-    // @ts-ignore
-    const isAxios =
-      !!error && typeof error === "object" && "isAxiosError" in (error as any);
-    // @ts-ignore
-    return isAxios ? ((error as any).response?.status ?? null) : null;
+    if (!error || typeof error !== "object" || !("isAxiosError" in error)) {
+      return null;
+    }
+    const maybeResponse = (error as { response?: { status?: unknown } })
+      .response;
+    return typeof maybeResponse?.status === "number"
+      ? maybeResponse.status
+      : null;
   }
 
   async function init() {
@@ -519,7 +591,8 @@ export const useChatStore = defineStore("chat", () => {
     const nextSessions = sessions.value.filter((s) => s.id !== sessionId);
     const { [sessionId]: _removed, ...rest } = messagesBySession.value;
     messagesBySession.value = rest;
-    const { [sessionId]: _removedThreads, ...restThreads } = agentThreadsBySession.value;
+    const { [sessionId]: _removedThreads, ...restThreads } =
+      agentThreadsBySession.value;
     agentThreadsBySession.value = restThreads;
     agentThreadIndex.delete(sessionId);
     fetchedMessageSessions.delete(sessionId);
@@ -707,7 +780,8 @@ export const useChatStore = defineStore("chat", () => {
           assistantMessageId: assistantId,
           files: imageFiles,
           signal: controller.signal,
-          onEvent: (e) => handleStreamEvent(e, sessionId, assistantId, streamId),
+          onEvent: (e) =>
+            handleStreamEvent(e, sessionId, assistantId, streamId),
           specialist: options.specialist,
           teamName: options.teamName,
           projectId: options.projectId,
@@ -720,7 +794,8 @@ export const useChatStore = defineStore("chat", () => {
           sessionId,
           assistantMessageId: assistantId,
           signal: controller.signal,
-          onEvent: (e) => handleStreamEvent(e, sessionId, assistantId, streamId),
+          onEvent: (e) =>
+            handleStreamEvent(e, sessionId, assistantId, streamId),
           specialist: options.specialist,
           teamName: options.teamName,
           projectId: options.projectId,
@@ -786,7 +861,6 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
-  // --- Local title generation mirrors backend behavior ---
   const CHAT_TITLE_MAX_RUNES = 48;
   function collapseWhitespace(s: string): string {
     if (!s || !s.trim()) return "";
@@ -1051,8 +1125,7 @@ export const useChatStore = defineStore("chat", () => {
           ? event.call_id.trim()
           : undefined,
       parentCallId:
-        typeof event.parent_call_id === "string" &&
-        event.parent_call_id.trim()
+        typeof event.parent_call_id === "string" && event.parent_call_id.trim()
           ? event.parent_call_id.trim()
           : undefined,
       depth:
@@ -1135,9 +1208,7 @@ export const useChatStore = defineStore("chat", () => {
         ...request,
         status: "error",
         error:
-          error instanceof Error
-            ? error.message
-            : "Failed to submit response",
+          error instanceof Error ? error.message : "Failed to submit response",
       }));
       throw error;
     }
@@ -1166,6 +1237,21 @@ export const useChatStore = defineStore("chat", () => {
       typeof event.content === "string" ? event.content : undefined;
     const args = typeof event.args === "string" ? event.args : undefined;
     const data = typeof event.data === "string" ? event.data : undefined;
+    const threadBase = {
+      callId,
+      parentCallId,
+      agentName,
+      team,
+      model,
+      depth,
+      startedAt: now,
+    };
+    const saveThread = (
+      factory: () => AgentThread,
+      updater?: (thread: AgentThread) => AgentThread,
+    ) => {
+      upsertAgentThread(sessionId, callId, factory, updater, assistantId);
+    };
 
     if (!parentCallId?.trim()) {
       handleDirectAgentTraceEvent(event, sessionId, assistantId, {
@@ -1179,219 +1265,88 @@ export const useChatStore = defineStore("chat", () => {
 
     switch (event.type) {
       case "agent_start": {
-        upsertAgentThread(
-          sessionId,
-          callId,
-          () => ({
-            callId,
-            parentCallId,
-            agent: agentName,
-            team,
-            model,
-            prompt: contentText,
-            depth,
-            status: "running",
-            content: "",
-            entries: [],
-            thoughtSummaries: [],
-            startedAt: now,
-          }),
+        saveThread(
+          () => newAgentThread({ ...threadBase, prompt: contentText }),
           undefined,
-          assistantId,
         );
         break;
       }
       case "agent_delta": {
-        upsertAgentThread(
-          sessionId,
-          callId,
-          () => ({
-            callId,
-            parentCallId,
-            agent: agentName,
-            team,
-            model,
-            prompt: contentText,
-            depth,
-            status: "running",
-            content: contentText || "",
-            entries: [],
-            thoughtSummaries: [],
-            startedAt: now,
-          }),
+        saveThread(
+          () =>
+            newAgentThread({
+              ...threadBase,
+              prompt: contentText,
+              content: contentText || "",
+            }),
           (thread) => ({
-            ...thread,
-            team: thread.team || team,
+            ...withTeam(thread, team),
             content: (thread.content || "") + (contentText || ""),
           }),
-          assistantId,
         );
         break;
       }
       case "agent_final": {
-        upsertAgentThread(
-          sessionId,
-          callId,
-          () => ({
-            callId,
-            parentCallId,
-            agent: agentName,
-            team,
-            model,
-            prompt: contentText,
-            depth,
-            status: "done",
-            content: contentText || "",
-            entries: [],
-            thoughtSummaries: [],
-            startedAt: now,
-            finishedAt: now,
-          }),
+        saveThread(
+          () =>
+            newAgentThread({
+              ...threadBase,
+              prompt: contentText,
+              status: "done",
+              content: contentText || "",
+              finishedAt: now,
+            }),
           (thread) => ({
-            ...thread,
-            team: thread.team || team,
+            ...withTeam(thread, team),
             status: "done",
             finishedAt: thread.finishedAt || now,
             content: contentText || thread.content,
           }),
-          assistantId,
         );
         break;
       }
       case "agent_tool_start": {
-        upsertAgentThread(
-          sessionId,
-          callId,
-          () => ({
-            callId,
-            parentCallId,
-            agent: agentName,
-            team,
-            model,
-            prompt: "",
-            depth,
-            status: "running",
-            content: "",
-            entries: [
-              {
-                id: createId(),
-                type: "tool",
-                title: event.title || "Tool",
-                args,
-                createdAt: now,
-              },
-            ],
-            thoughtSummaries: [],
-            startedAt: now,
-          }),
-          (thread) => ({
-            ...thread,
-            team: thread.team || team,
-            entries: [
-              ...thread.entries,
-              {
-                id: createId(),
-                type: "tool",
-                title: event.title || "Tool",
-                args,
-                createdAt: now,
-              },
-            ],
-          }),
-          assistantId,
+        const entry = agentToolEntry(event, "args", args, now);
+        saveThread(
+          () => newAgentThread({ ...threadBase, entries: [entry] }),
+          (thread) => appendAgentEntry(thread, team, entry),
         );
         break;
       }
       case "agent_tool_result": {
-        upsertAgentThread(
-          sessionId,
-          callId,
-          () => ({
-            callId,
-            parentCallId,
-            agent: agentName,
-            team,
-            model,
-            prompt: "",
-            depth,
-            status: "running",
-            content: "",
-            entries: [
-              {
-                id: createId(),
-                type: "tool",
-                title: event.title || "Tool",
-                data,
-                createdAt: now,
-              },
-            ],
-            thoughtSummaries: [],
-            startedAt: now,
-          }),
-          (thread) => ({
-            ...thread,
-            team: thread.team || team,
-            entries: [
-              ...thread.entries,
-              {
-                id: createId(),
-                type: "tool",
-                title: event.title || "Tool",
-                data,
-                createdAt: now,
-              },
-            ],
-          }),
-          assistantId,
+        const entry = agentToolEntry(event, "data", data, now);
+        saveThread(
+          () => newAgentThread({ ...threadBase, entries: [entry] }),
+          (thread) => appendAgentEntry(thread, team, entry),
         );
         break;
       }
       case "agent_error": {
         const errText =
           typeof event.error === "string" ? event.error : data || "Agent error";
-        upsertAgentThread(
-          sessionId,
-          callId,
-          () => ({
-            callId,
-            parentCallId,
-            agent: agentName,
-            team,
-            model,
-            prompt: contentText,
-            depth,
-            status: "error",
-            content: contentText || "",
-            entries: [
-              {
-                id: createId(),
-                type: "error",
-                content: errText,
-                createdAt: now,
-              },
-            ],
-            thoughtSummaries: [],
-            startedAt: now,
-            finishedAt: now,
-            error: errText,
-          }),
+        const entry: AgentTraceEntry = {
+          id: createId(),
+          type: "error",
+          content: errText,
+          createdAt: now,
+        };
+        saveThread(
+          () =>
+            newAgentThread({
+              ...threadBase,
+              prompt: contentText,
+              status: "error",
+              content: contentText || "",
+              entries: [entry],
+              finishedAt: now,
+              error: errText,
+            }),
           (thread) => ({
-            ...thread,
-            team: thread.team || team,
+            ...appendAgentEntry(thread, team, entry),
             status: "error",
             finishedAt: thread.finishedAt || now,
             error: errText,
-            entries: [
-              ...thread.entries,
-              {
-                id: createId(),
-                type: "error",
-                content: errText,
-                createdAt: now,
-              },
-            ],
           }),
-          assistantId,
         );
         break;
       }
@@ -1401,27 +1356,10 @@ export const useChatStore = defineStore("chat", () => {
             ? event.thought_summary.trim()
             : "";
         if (!summary) break;
-        upsertAgentThread(
-          sessionId,
-          callId,
-          () => ({
-            callId,
-            parentCallId,
-            agent: agentName,
-            team,
-            model,
-            prompt: "",
-            depth,
-            status: "running",
-            content: "",
-            entries: [],
-            thoughtSummaries: [summary],
-            startedAt: now,
-          }),
+        saveThread(
+          () => newAgentThread({ ...threadBase, thoughtSummaries: [summary] }),
           (thread) => {
-            // Append or extend the last summary if it's a prefix
-            const baseThread =
-              thread.team || !team ? thread : { ...thread, team };
+            const baseThread = withTeam(thread, team);
             const existing = baseThread.thoughtSummaries || [];
             const last = existing[existing.length - 1];
             if (last) {
@@ -1437,7 +1375,6 @@ export const useChatStore = defineStore("chat", () => {
               thoughtSummaries: [...existing, summary],
             };
           },
-          assistantId,
         );
         break;
       }

@@ -109,7 +109,8 @@ func (q QueryEngine) classifyIntent(ctx context.Context, query string, opt Query
 			return intent
 		}
 	case "hybrid":
-		intent, _ := ClassifyIntent(query)
+		intent, confidence := ClassifyIntent(query)
+		span.SetAttributes(attribute.Float64("magma.intent.confidence", confidence))
 		if intent != IntentSemantic {
 			return intent
 		}
@@ -118,12 +119,14 @@ func (q QueryEngine) classifyIntent(ctx context.Context, query string, opt Query
 		}
 		return intent
 	case "rules":
-		intent, _ := ClassifyIntent(query)
+		intent, confidence := ClassifyIntent(query)
+		span.SetAttributes(attribute.Float64("magma.intent.confidence", confidence))
 		span.SetAttributes(attribute.String("magma.intent", intent.String()), attribute.String("magma.intent.source", "rules"))
 		return intent
 	default:
 	}
-	intent, _ := ClassifyIntent(query)
+	intent, confidence := ClassifyIntent(query)
+	span.SetAttributes(attribute.Float64("magma.intent.confidence", confidence))
 	span.SetAttributes(attribute.String("magma.intent", intent.String()), attribute.String("magma.intent.source", "rules"))
 	return intent
 }

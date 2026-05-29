@@ -77,7 +77,6 @@ func (m *Manager) RegisterOne(ctx context.Context, reg tools.Registry, srv confi
 	// If already exists, close it first (implicit update/replace)
 	m.RemoveOne(srv.Name, reg)
 
-	// Create client
 	opts := &mcppkg.ClientOptions{}
 	if srv.KeepAliveSeconds > 0 {
 		opts.KeepAlive = time.Duration(srv.KeepAliveSeconds) * time.Second
@@ -112,9 +111,6 @@ func (m *Manager) RegisterOne(ctx context.Context, reg tools.Registry, srv confi
 	} else if strings.TrimSpace(srv.URL) != "" {
 		// Connect via Streamable HTTP transport to remote server
 		httpClient := buildMCPHTTPClient(srv)
-		// Some remote MCP servers, including Recorded Future, hang the standalone
-		// session-bound SSE GET stream. Disabling it keeps the standard POST-based
-		// handshake and request/response flow working reliably.
 		transport := &mcppkg.StreamableClientTransport{Endpoint: srv.URL, HTTPClient: httpClient, DisableStandaloneSSE: true}
 		session, err = client.Connect(ctx, transport, nil)
 	} else {
@@ -234,7 +230,6 @@ func sanitizeSchema(s map[string]any, prop string) {
 			s["items"] = map[string]any{"type": "string"}
 		}
 	}
-	// Recurse into properties
 	if props, ok := s["properties"].(map[string]any); ok {
 		for k, v := range props {
 			if m, ok := v.(map[string]any); ok {
@@ -242,11 +237,9 @@ func sanitizeSchema(s map[string]any, prop string) {
 			}
 		}
 	}
-	// Recurse into items
 	if it, ok := s["items"].(map[string]any); ok {
 		sanitizeSchema(it, prop+"[]")
 	}
-	// Handle composition keywords
 	for _, key := range []string{"oneOf", "anyOf", "allOf"} {
 		if arr, ok := s[key].([]any); ok {
 			for _, v := range arr {

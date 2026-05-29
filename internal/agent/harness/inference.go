@@ -19,8 +19,23 @@ type InferenceResult struct {
 	ThoughtSummaries []string
 }
 
+type InferenceRequest struct {
+	Provider llm.Provider
+	History  []HarnessMessage
+	Schemas  []llm.ToolSchema
+	Model    string
+	Config   RunConfig
+	Tracker  *StepTracker
+}
+
 // RunInference performs one guarded model step with validation nudges.
-func RunInference(ctx context.Context, provider llm.Provider, history []HarnessMessage, schemas []llm.ToolSchema, model string, cfg RunConfig, tracker *StepTracker) (InferenceResult, error) {
+func RunInference(ctx context.Context, req InferenceRequest) (InferenceResult, error) {
+	provider := req.Provider
+	history := req.History
+	schemas := req.Schemas
+	model := req.Model
+	cfg := req.Config
+	tracker := req.Tracker
 	if provider == nil {
 		return InferenceResult{}, ErrNilProvider
 	}
@@ -32,7 +47,10 @@ func RunInference(ctx context.Context, provider llm.Provider, history []HarnessM
 		if err != nil {
 			return InferenceResult{Attempts: attempt + 1, History: history}, err
 		}
-		msg, _ = RescueEmbeddedToolCalls(msg, cfg.RescueEnabled)
+		msg, rescued := RescueEmbeddedToolCalls(msg, cfg.RescueEnabled)
+		if rescued {
+			msg.ToolCalls = llm.NormalizeToolCalls(msg.ToolCalls)
+		}
 		msg.ToolCalls = llm.NormalizeToolCalls(msg.ToolCalls)
 		msg = ensureRetryableToolCallIDs(msg, len(history), attempt)
 
@@ -80,7 +98,13 @@ func RunInference(ctx context.Context, provider llm.Provider, history []HarnessM
 
 // RunStreamInference performs one guarded streaming model step with validation nudges.
 // Stream chunks are captured and returned only for the accepted response.
-func RunStreamInference(ctx context.Context, provider llm.Provider, history []HarnessMessage, schemas []llm.ToolSchema, model string, cfg RunConfig, tracker *StepTracker) (InferenceResult, error) {
+func RunStreamInference(ctx context.Context, req InferenceRequest) (InferenceResult, error) {
+	provider := req.Provider
+	history := req.History
+	schemas := req.Schemas
+	model := req.Model
+	cfg := req.Config
+	tracker := req.Tracker
 	if provider == nil {
 		return InferenceResult{}, ErrNilProvider
 	}
@@ -93,7 +117,10 @@ func RunStreamInference(ctx context.Context, provider llm.Provider, history []Ha
 			return InferenceResult{Attempts: attempt + 1, History: history}, err
 		}
 		msg := capture.message()
-		msg, _ = RescueEmbeddedToolCalls(msg, cfg.RescueEnabled)
+		msg, rescued := RescueEmbeddedToolCalls(msg, cfg.RescueEnabled)
+		if rescued {
+			msg.ToolCalls = llm.NormalizeToolCalls(msg.ToolCalls)
+		}
 		msg.ToolCalls = llm.NormalizeToolCalls(msg.ToolCalls)
 		msg = ensureRetryableToolCallIDs(msg, len(history), attempt)
 

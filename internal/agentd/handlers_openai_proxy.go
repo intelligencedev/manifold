@@ -119,7 +119,7 @@ func (a *app) openAIChatCompletionsProxyHandler() http.HandlerFunc {
 		runCfg := openAIProxyHarnessConfig(a.cfg)
 
 		if req.Stream {
-			result, err := harness.RunStreamInference(r.Context(), a.llm, harness.WrapMessages(messages), schemas, model, runCfg, harness.NewStepTracker())
+			result, err := harness.RunStreamInference(r.Context(), harness.InferenceRequest{Provider: a.llm, History: harness.WrapMessages(messages), Schemas: schemas, Model: model, Config: runCfg, Tracker: harness.NewStepTracker()})
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadGateway)
 				return
@@ -128,7 +128,7 @@ func (a *app) openAIChatCompletionsProxyHandler() http.HandlerFunc {
 			return
 		}
 
-		result, err := harness.RunInference(r.Context(), a.llm, harness.WrapMessages(messages), schemas, model, runCfg, harness.NewStepTracker())
+		result, err := harness.RunInference(r.Context(), harness.InferenceRequest{Provider: a.llm, History: harness.WrapMessages(messages), Schemas: schemas, Model: model, Config: runCfg, Tracker: harness.NewStepTracker()})
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return

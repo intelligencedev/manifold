@@ -72,7 +72,13 @@ func TestMemoryGraph_TypedEdges(t *testing.T) {
 	t.Parallel()
 	g := NewMemoryGraph()
 	ctx := context.Background()
-	if err := TypedUpsertEdge(ctx, g, "event:1", "semantic", "SIMILAR_TO", "event:2", map[string]any{"weight": 0.9}); err != nil {
+	if err := TypedUpsertEdge(ctx, g, TypedEdgeInput{
+		Source:    "event:1",
+		GraphType: "semantic",
+		Rel:       "SIMILAR_TO",
+		Target:    "event:2",
+		Props:     map[string]any{"weight": 0.9},
+	}); err != nil {
 		t.Fatalf("TypedUpsertEdge() error = %v", err)
 	}
 	got, err := TypedNeighbors(ctx, g, "event:1", "semantic", "SIMILAR_TO")

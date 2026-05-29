@@ -1,6 +1,6 @@
 import { computed, type Ref } from "vue";
 import { keepPreviousData, useQuery } from "@tanstack/vue-query";
-import { fetchTraceMetrics, type TraceMetricRow } from "@/api/client";
+import { fetchTraceMetrics } from "@/api/client";
 import { type MetricsTimeRangeValue } from "@/composables/observability/useTokenMetrics";
 
 export interface TraceDisplayRow {

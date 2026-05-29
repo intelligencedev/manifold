@@ -40,7 +40,6 @@ func ExpandWithGraph(ctx context.Context, g GraphFacade, fused []RetrievedItem, 
 		byID[it.ID] = it
 	}
 
-	// Collect expansions
 	maxPer := opt.MaxPerSeed
 	if maxPer <= 0 {
 		maxPer = 3

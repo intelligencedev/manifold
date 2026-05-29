@@ -16,7 +16,10 @@ func newRecursiveSplitter(cfg RecursiveConfig) (Splitter, error) {
 
 func (r *recursiveSplitter) Split(text string) []string {
 	// stage 1: markdown sections
-	md, _ := newMarkdownSplitter(r.cfg.Markdown)
+	md, err := newMarkdownSplitter(r.cfg.Markdown)
+	if err != nil {
+		return nil
+	}
 	mdChunks := md.Split(text)
 	if len(mdChunks) == 0 {
 		mdChunks = []string{text}
@@ -27,14 +30,22 @@ func (r *recursiveSplitter) Split(text string) []string {
 			continue
 		}
 		// stage 2: paragraphs
-		p, _ := newParagraphSplitter(r.cfg.Paragraphs)
+		p, err := newParagraphSplitter(r.cfg.Paragraphs)
+		if err != nil {
+			out = append(out, sec)
+			continue
+		}
 		pChunks := p.Split(sec)
 		if len(pChunks) == 0 {
 			pChunks = []string{sec}
 		}
 		for _, pc := range pChunks {
 			// stage 3: sentences
-			s, _ := newSentenceSplitter(r.cfg.Sentences)
+			s, err := newSentenceSplitter(r.cfg.Sentences)
+			if err != nil {
+				out = append(out, pc)
+				continue
+			}
 			sChunks := s.Split(pc)
 			if len(sChunks) == 0 {
 				sChunks = []string{pc}
@@ -42,7 +53,11 @@ func (r *recursiveSplitter) Split(text string) []string {
 			for _, sc := range sChunks {
 				// final: ensure max via fixed if needed
 				if r.cfg.Fallback.Size > 0 {
-					fx, _ := newFixedSplitter(r.cfg.Fallback)
+					fx, err := newFixedSplitter(r.cfg.Fallback)
+					if err != nil {
+						out = append(out, sc)
+						continue
+					}
 					out = append(out, fx.Split(sc)...)
 				} else {
 					out = append(out, sc)

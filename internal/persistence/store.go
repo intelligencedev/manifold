@@ -82,6 +82,16 @@ type ReactiveClaim struct {
 	ExpiresAt      time.Time `json:"expiresAt"`
 }
 
+type RoomPulseCompletion struct {
+	RoomID      string
+	RouteTarget string
+	Token       string
+	CompletedAt time.Time
+	Summary     string
+	Error       string
+	DueTaskIDs  []string
+}
+
 // PulseStore persists room-scoped automation tasks used by the Matrix pulse loop.
 type PulseStore interface {
 	Init(ctx context.Context) error
@@ -94,7 +104,7 @@ type PulseStore interface {
 	DeleteTask(ctx context.Context, roomID, routeTarget, taskID string) error
 	ClaimRoom(ctx context.Context, roomID, routeTarget, token string, leaseUntil time.Time) (bool, error)
 	ClearRoomClaim(ctx context.Context, roomID, routeTarget string) error
-	CompleteRoomPulse(ctx context.Context, roomID, routeTarget, token string, completedAt time.Time, summary, pulseErr string, dueTaskIDs []string) error
+	CompleteRoomPulse(ctx context.Context, completion RoomPulseCompletion) error
 }
 
 type MatrixMessage struct {
@@ -256,6 +266,15 @@ type ChatMessage struct {
 	ToolID   string `json:"toolId,omitempty"`
 }
 
+type ChatDeleteAfterRequest struct {
+	UserID            *int64
+	SessionID         string
+	MessageID         string
+	Inclusive         bool
+	RelatedMessageIDs []string
+	ResetSummary      bool
+}
+
 // ChatStore persists chat sessions and messages.
 type ChatStore interface {
 	Init(ctx context.Context) error
@@ -355,7 +374,6 @@ type MCPServer struct {
 	KeepAliveSeconds int               `json:"keepAliveSeconds"`
 	Disabled         bool              `json:"disabled"`
 
-	// OAuth fields
 	OAuthProvider     string    `json:"oauthProvider"`
 	OAuthClientID     string    `json:"oauthClientId"`
 	OAuthClientSecret string    `json:"oauthClientSecret"`
@@ -433,8 +451,6 @@ type ProjectsStore interface {
 	// Delete removes a project and all associated file index entries.
 	Delete(ctx context.Context, userID int64, projectID string) error
 
-	// --- File Index Operations (optional, for fast directory listing) ---
-
 	// IndexFile upserts a file entry in the project file index.
 	IndexFile(ctx context.Context, f ProjectFile) error
 
@@ -444,9 +460,6 @@ type ProjectsStore interface {
 	// RemoveFileIndexPrefix removes all file entries under a path prefix (for directory deletes).
 	RemoveFileIndexPrefix(ctx context.Context, projectID, pathPrefix string) error
 
-	// ListFiles returns file entries directly under the given path (non-recursive).
-	// If path is "." or "", returns root directory entries.
-	// Results are sorted: directories first, then by name.
 	ListFiles(ctx context.Context, projectID, path string) ([]ProjectFile, error)
 
 	// GetFile retrieves a single file index entry by exact path.

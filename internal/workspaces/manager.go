@@ -1,5 +1,3 @@
-// Package workspaces manages local workspace lifecycles for agent runs.
-// It abstracts the mapping between project IDs and filesystem paths used by tools.
 package workspaces
 
 import (
@@ -100,7 +98,6 @@ type WorkspaceManager interface {
 	// For legacy mode, this is a no-op since changes are already on disk.
 	Commit(ctx context.Context, ws Workspace) error
 
-	// Cleanup removes ephemeral workspace resources.
 	// For legacy mode, this is a no-op.
 	Cleanup(ctx context.Context, ws Workspace) error
 
@@ -109,7 +106,6 @@ type WorkspaceManager interface {
 }
 
 // NewManager creates a WorkspaceManager based on configuration.
-// Returns LegacyWorkspaceManager for local filesystem usage.
 func NewManager(cfg *config.Config) WorkspaceManager {
 	return &LegacyWorkspaceManager{
 		workdir: cfg.Workdir,
@@ -149,11 +145,9 @@ func (m *LegacyWorkspaceManager) Checkout(ctx context.Context, userID int64, pro
 		return Workspace{}, err
 	}
 
-	// Build and validate the project path
 	baseRoot := filepath.Join(m.workdir, "users", fmt.Sprint(userID), "projects")
 	base := filepath.Join(baseRoot, cleanPID)
 
-	// Get absolute paths for comparison
 	absBaseRoot, err := filepath.Abs(baseRoot)
 	if err != nil {
 		return Workspace{}, fmt.Errorf("resolve base root: %w", err)
@@ -189,13 +183,11 @@ func (m *LegacyWorkspaceManager) Commit(ctx context.Context, ws Workspace) error
 	return nil
 }
 
-// Cleanup is a no-op for legacy workspaces.
 func (m *LegacyWorkspaceManager) Cleanup(ctx context.Context, ws Workspace) error {
 	return nil
 }
 
 // ValidateProjectID checks if a project ID is safe for use in filesystem paths.
-// Returns cleaned project ID and error if validation fails.
 // Deprecated: Use validation.ProjectID directly for new code.
 func ValidateProjectID(projectID string) (string, error) {
 	return validation.ProjectID(projectID)

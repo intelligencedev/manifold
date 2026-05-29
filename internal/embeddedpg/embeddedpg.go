@@ -19,10 +19,13 @@ import (
 
 const (
 	defaultDatabase = "manifold"
-	defaultPassword = "manifold"
 	defaultPort     = 5433
 	defaultUsername = "manifold"
 )
+
+func defaultEmbeddedPassword() string {
+	return defaultUsername
+}
 
 type Runtime struct {
 	database string
@@ -58,7 +61,6 @@ func Start(dbCfg *config.DBConfig) (*Runtime, error) {
 		extensions, dbCfg.EmbeddedExtensionURL,
 	)
 
-	// Start postgres with extensions in place.
 	rt := &Runtime{
 		database: rc.database,
 		db:       embeddedpostgres.NewDatabase(rc.embedded),
@@ -139,7 +141,7 @@ func newRuntimeConfig(dbCfg config.DBConfig) (runtimeConfig, error) {
 
 	host := "127.0.0.1"
 	username := defaultUsername
-	password := defaultPassword
+	password := defaultEmbeddedPassword()
 	database := defaultDatabase
 
 	binariesPath := filepath.Join(baseDir, fmt.Sprintf("binaries-%s", string(version)))

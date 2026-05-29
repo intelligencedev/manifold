@@ -170,7 +170,6 @@ func (p *MCPServerPool) RegisterPathDependentToolsForDiscovery(ctx context.Conte
 
 	log.Info().Int("servers", len(p.pathDependentServers)).Msg("mcp_tool_discovery_start")
 
-	// Create a temp directory for tool discovery
 	// NOTE: On macOS, Docker Desktop only shares certain paths by default (/Users, /tmp, /private/tmp).
 	// The default os.TempDir() returns /var/folders/... which is NOT shared.
 	// We explicitly use /tmp which Docker can access.
@@ -240,7 +239,6 @@ func (p *MCPServerPool) EnsureUserSession(
 		p.cleanupUserStateLocked(reg, userID, state)
 	}
 
-	// Create new manager with resolved paths
 	mgr := NewManager()
 	var registeredTools []string
 
@@ -278,7 +276,6 @@ func (p *MCPServerPool) EnsureUserSession(
 func (p *MCPServerPool) resolveServerConfig(srv config.MCPServerConfig, projectDir string) config.MCPServerConfig {
 	resolved := srv
 
-	// Expand args
 	if len(srv.Args) > 0 {
 		resolved.Args = make([]string, len(srv.Args))
 		for i, arg := range srv.Args {
@@ -286,7 +283,6 @@ func (p *MCPServerPool) resolveServerConfig(srv config.MCPServerConfig, projectD
 		}
 	}
 
-	// Expand env
 	if len(srv.Env) > 0 {
 		resolved.Env = make(map[string]string, len(srv.Env))
 		for k, v := range srv.Env {

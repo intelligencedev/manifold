@@ -37,7 +37,14 @@ func (a *app) RunTeam(ctx context.Context, req agent.TeamDelegateRequest, tracer
 		EvolvingMemoryEnabled: !req.DisableEvolvingMemory,
 		BeliefMemoryEnabled:   !req.DisableBeliefMemory,
 	}
-	build := a.buildTeamChatEngine(ctx, teamName, req.SessionID, req.ProjectID, req.ObjectiveID, req.UserID, settings)
+	build := a.buildTeamChatEngine(ctx, chatEngineBuildRequest{
+		Name:           teamName,
+		SessionID:      req.SessionID,
+		ProjectID:      req.ProjectID,
+		ObjectiveID:    req.ObjectiveID,
+		Owner:          req.UserID,
+		MemorySettings: settings,
+	})
 	if build.Err != nil {
 		return "", build.Err
 	}

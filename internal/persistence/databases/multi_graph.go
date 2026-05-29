@@ -23,6 +23,14 @@ type TypedEdge struct {
 	Props     map[string]any
 }
 
+type TypedEdgeInput struct {
+	Source    string
+	GraphType string
+	Rel       string
+	Target    string
+	Props     map[string]any
+}
+
 // MagmaEventSummary is the minimal durable event shape needed for lifecycle
 // operations without depending on the memory/magma package.
 type MagmaEventSummary struct {
@@ -45,19 +53,19 @@ type MagmaGraphMaintenanceDB interface {
 
 // TypedUpsertEdge writes a graph-view-specific edge. Backends that do not
 // implement TypedGraphDB are supported by prefixing the relation name.
-func TypedUpsertEdge(ctx context.Context, graph GraphDB, srcID, graphType, rel, dstID string, props map[string]any) error {
+func TypedUpsertEdge(ctx context.Context, graph GraphDB, edge TypedEdgeInput) error {
 	if graph == nil {
 		return nil
 	}
 	if typed, ok := graph.(TypedGraphDB); ok {
-		return typed.TypedUpsertEdge(ctx, srcID, graphType, rel, dstID, props)
+		return typed.TypedUpsertEdge(ctx, edge.Source, edge.GraphType, edge.Rel, edge.Target, edge.Props)
 	}
-	cp := make(map[string]any, len(props)+1)
-	for k, v := range props {
+	cp := make(map[string]any, len(edge.Props)+1)
+	for k, v := range edge.Props {
 		cp[k] = v
 	}
-	cp["graph_type"] = graphType
-	return graph.UpsertEdge(ctx, srcID, typedRel(graphType, rel), dstID, cp)
+	cp["graph_type"] = edge.GraphType
+	return graph.UpsertEdge(ctx, edge.Source, typedRel(edge.GraphType, edge.Rel), edge.Target, cp)
 }
 
 // TypedNeighbors reads graph-view-specific neighbors with the same fallback

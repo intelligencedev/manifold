@@ -16,7 +16,6 @@ const (
 	RunStatusCompleted RunStatus = "completed"
 )
 
-// Run captures a single execution of an ExperimentSpec.
 type Run struct {
 	ID           string                      `json:"id"`
 	ExperimentID string                      `json:"experimentId"`

@@ -82,7 +82,6 @@ func RecordTokenMetricsFromContext(ctx context.Context, model string, promptToke
 	}
 }
 
-// --- Token metrics aggregation (exposed to web UI) ---------------------------
 var (
 	tokenOnce         sync.Once
 	promptCounter     otelmetric.Int64Counter
@@ -429,11 +428,6 @@ func RecordTokenAttributes(span trace.Span, promptTokens, completionTokens, tota
 	span.SetAttributes(attribute.Int("llm.prompt_tokens", promptTokens), attribute.Int("llm.completion_tokens", completionTokens), attribute.Int("llm.total_tokens", totalTokens))
 	// Also record as metrics / aggregate for UI
 	if modelAttr := span.SpanContext().TraceID(); modelAttr.IsValid() {
-		// We don't actually have the model stored here; model is an attribute on span
-		// so attempt to fetch it via span attributes isn't available post-hoc. Caller
-		// should record metrics directly if they want model breakdown. This function
-		// only updates OTel attributes; metric aggregation done at call-sites where
-		// model string is available. (No-op here.)
 	}
 }
 

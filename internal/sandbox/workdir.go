@@ -6,7 +6,6 @@ import (
 	"sync"
 )
 
-// Context key for dynamic base directory used by tools at runtime.
 type baseDirCtxKey struct{}
 
 // Context keys for session and project identifiers.

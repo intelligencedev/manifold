@@ -6,9 +6,8 @@ import path from "node:path";
 import { webcrypto as nodeCrypto } from "node:crypto";
 // In Node 20+, globalThis.crypto is a getter-only on some runtimes; avoid direct assignment
 try {
-  const g: any = globalThis as any;
+  const g = globalThis as typeof globalThis & { crypto?: Crypto };
   if (!g.crypto) {
-    // Define a non-configurable property only if not present
     Object.defineProperty(g, "crypto", {
       value: nodeCrypto,
       writable: false,
@@ -42,6 +41,9 @@ export default defineConfig(({ mode }) => {
     plugins: [vue(), vueJsx()],
     resolve: {
       alias,
+    },
+    build: {
+      chunkSizeWarningLimit: 650,
     },
     server: proxyTarget
       ? {

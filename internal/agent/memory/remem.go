@@ -72,7 +72,6 @@ func NewReMemController(cfg ReMemConfig) *ReMemController {
 	}
 }
 
-// Execute runs the Think-Act-Refine loop for the given task.
 // Returns the final action content and any accumulated reasoning trace.
 //
 // ReMem is a memory-preparation step. It reasons about retrieved memories and
@@ -96,7 +95,6 @@ func (rc *ReMemController) Execute(ctx context.Context, task string, _ []llm.Too
 	for step := 0; step < rc.maxInnerSteps; step++ {
 		log.Debug().Int("inner_step", step).Msg("remem_inner_step")
 
-		// Build prompt with task, memories, and reasoning trace
 		prompt := rc.buildPrompt(task, retrieved, reasoningTrace)
 
 		// Call LLM. ReMem responses are pure JSON, never tool calls, so we
@@ -354,7 +352,6 @@ Outcome: %s
 Output: %s
 Reasoning trace:
 %s
-
 
 Produce the strategy card.`,
 		truncate(task, 200), feedback, truncate(output, 300), traceText.String())

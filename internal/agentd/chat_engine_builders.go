@@ -30,6 +30,17 @@ type chatEngineBuildResult struct {
 	Err             error
 }
 
+type chatEngineBuildRequest struct {
+	Name                 string
+	SystemPromptOverride string
+	SessionID            string
+	ProjectID            string
+	ObjectiveID          string
+	Owner                int64
+	CheckedOutWorkspace  *workspaces.Workspace
+	MemorySettings       chatMemoryRunSettings
+}
+
 func sanitizeImageGenerationBuild(build chatEngineBuildResult) chatEngineBuildResult {
 	if !build.ImageGeneration || build.Engine == nil {
 		return build
@@ -64,40 +75,38 @@ func (a *app) chatMaxSteps() int {
 	return 8
 }
 
-func (a *app) buildOrchestratorChatEngine(ctx context.Context, owner int64, sessionID, projectID, objectiveID, systemPromptOverride string, checkedOutWorkspace *workspaces.Workspace, settingsOpt ...chatMemoryRunSettings) chatEngineBuildResult {
-	settings := withChatMemorySettings(settingsOpt)
-	eng := a.cloneEngineForUser(ctx, owner, sessionID, projectID, objectiveID, settings)
+func (a *app) buildOrchestratorChatEngine(ctx context.Context, req chatEngineBuildRequest) chatEngineBuildResult {
+	eng := a.cloneEngineForUser(ctx, req.Owner, req.SessionID, req.ProjectID, req.ObjectiveID, req.MemorySettings)
 	if eng == nil {
 		return chatEngineBuildResult{StatusCode: http.StatusServiceUnavailable, Err: fmt.Errorf("agent unavailable")}
 	}
 	if eng.MaxSteps <= 0 {
 		eng.MaxSteps = a.chatMaxSteps()
 	}
-	if override := strings.TrimSpace(systemPromptOverride); override != "" {
-		eng.System = a.composeSystemPromptForUserWithOverride(ctx, owner, override)
+	if override := strings.TrimSpace(req.SystemPromptOverride); override != "" {
+		eng.System = a.composeSystemPromptForUserWithOverride(ctx, req.Owner, override)
 	}
-	enableTools, autoDiscover := a.chatOrchestratorToolConfig(ctx, owner)
+	enableTools, autoDiscover := a.chatOrchestratorToolConfig(ctx, req.Owner)
 	eng.System = a.ensureChatDiscoveryInstructions(eng.System, enableTools, autoDiscover)
 	var skillsContext string
-	eng.Tools, eng.System, skillsContext = a.applyChatSkillsMode(eng.Tools, eng.System, a.chatProjectDir(ctx, checkedOutWorkspace), enableTools, autoDiscover)
+	eng.Tools, eng.System, skillsContext = a.applyChatSkillsMode(eng.Tools, eng.System, a.chatProjectDir(ctx, req.CheckedOutWorkspace), enableTools, autoDiscover)
 	eng.Tools = withChatInputRequestTool(eng.Tools, enableTools)
 	eng.UserPromptContext = combineUserPromptContext(eng.UserPromptContext, skillsContext)
 	return chatEngineBuildResult{Engine: eng, ModelLabel: eng.Model}
 }
 
-func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptOverride, sessionID, projectID, objectiveID string, owner int64, settingsOpt ...chatMemoryRunSettings) chatEngineBuildResult {
-	settings := withChatMemorySettings(settingsOpt)
-	reg, err := a.specialistsRegistryForUser(ctx, owner)
+func (a *app) buildSpecialistChatEngine(ctx context.Context, req chatEngineBuildRequest) chatEngineBuildResult {
+	reg, err := a.specialistsRegistryForUser(ctx, req.Owner)
 	if err != nil {
 		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: fmt.Errorf("specialist registry unavailable: %w", err)}
 	}
-	sp, ok := reg.Get(name)
+	sp, ok := reg.Get(req.Name)
 	if !ok || sp == nil {
-		return chatEngineBuildResult{StatusCode: http.StatusNotFound, Err: fmt.Errorf("specialist not found: %s", name)}
+		return chatEngineBuildResult{StatusCode: http.StatusNotFound, Err: fmt.Errorf("specialist not found: %s", req.Name)}
 	}
 	prov := sp.Provider()
 	if prov == nil {
-		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: fmt.Errorf("specialist not configured: %s", name)}
+		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: fmt.Errorf("specialist not configured: %s", req.Name)}
 	}
 
 	toolReg := sp.ToolsRegistry()
@@ -106,7 +115,7 @@ func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptO
 	}
 
 	systemPrompt := prompts.EnsureMemoryInstructions(sp.System)
-	if override := strings.TrimSpace(systemPromptOverride); override != "" {
+	if override := strings.TrimSpace(req.SystemPromptOverride); override != "" {
 		systemPrompt = prompts.EnsureMemoryInstructions(override)
 	}
 	systemPrompt = a.ensureChatDiscoveryInstructions(systemPrompt, sp.EnableTools, sp.AutoDiscover)
@@ -130,9 +139,9 @@ func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptO
 		HarnessEnabled:               harnessCfg.Enabled,
 		HarnessConfig:                harnessRunConfig(harnessCfg),
 	}
-	a.configureBeliefRunState(eng, owner, sessionID, projectID, objectiveID, name)
-	em := a.attachSessionEvolvingMemory(eng, owner, sessionID, settings.EvolvingMemoryEnabled)
-	applyChatMemorySettingsToEngine(eng, settings)
+	a.configureBeliefRunState(eng, req.Owner, req.SessionID, req.ProjectID, req.ObjectiveID, req.Name)
+	em := a.attachSessionEvolvingMemory(eng, req.Owner, req.SessionID, req.MemorySettings.EvolvingMemoryEnabled)
+	applyChatMemorySettingsToEngine(eng, req.MemorySettings)
 	if eng.DisableEvolvingMemory {
 		em = nil
 	}
@@ -153,22 +162,21 @@ func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptO
 
 	return chatEngineBuildResult{
 		Engine:          eng,
-		ModelLabel:      chatModelLabel(name, sp.Model),
+		ModelLabel:      chatModelLabel(req.Name, sp.Model),
 		ImageGeneration: sp.ImageGeneration,
 	}
 }
 
-func (a *app) buildTeamChatEngine(ctx context.Context, name, sessionID, projectID, objectiveID string, owner int64, settingsOpt ...chatMemoryRunSettings) chatEngineBuildResult {
-	settings := withChatMemorySettings(settingsOpt)
+func (a *app) buildTeamChatEngine(ctx context.Context, req chatEngineBuildRequest) chatEngineBuildResult {
 	if a.teamStore == nil {
 		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: fmt.Errorf("teams unavailable")}
 	}
-	team, ok, err := a.teamStore.GetByName(ctx, owner, name)
+	team, ok, err := a.teamStore.GetByName(ctx, req.Owner, req.Name)
 	if err != nil {
 		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: fmt.Errorf("failed to load team: %w", err)}
 	}
 	if !ok {
-		return chatEngineBuildResult{StatusCode: http.StatusNotFound, Err: fmt.Errorf("team not found: %s", name)}
+		return chatEngineBuildResult{StatusCode: http.StatusNotFound, Err: fmt.Errorf("team not found: %s", req.Name)}
 	}
 
 	sp := team.Orchestrator
@@ -176,7 +184,7 @@ func (a *app) buildTeamChatEngine(ctx context.Context, name, sessionID, projectI
 		sp.Name = specialists.OrchestratorName
 	}
 
-	teamReg, err := a.buildTeamRegistry(ctx, owner, team)
+	teamReg, err := a.buildTeamRegistry(ctx, req.Owner, team)
 	if err != nil {
 		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: err}
 	}
@@ -220,9 +228,9 @@ func (a *app) buildTeamChatEngine(ctx context.Context, name, sessionID, projectI
 		HarnessEnabled:               harnessCfg.Enabled,
 		HarnessConfig:                harnessRunConfig(harnessCfg),
 	}
-	a.configureBeliefRunState(eng, owner, sessionID, projectID, objectiveID, name)
-	em := a.attachSessionEvolvingMemory(eng, owner, sessionID, settings.EvolvingMemoryEnabled)
-	applyChatMemorySettingsToEngine(eng, settings)
+	a.configureBeliefRunState(eng, req.Owner, req.SessionID, req.ProjectID, req.ObjectiveID, req.Name)
+	em := a.attachSessionEvolvingMemory(eng, req.Owner, req.SessionID, req.MemorySettings.EvolvingMemoryEnabled)
+	applyChatMemorySettingsToEngine(eng, req.MemorySettings)
 	if eng.DisableEvolvingMemory {
 		em = nil
 	}
@@ -244,7 +252,7 @@ func (a *app) buildTeamChatEngine(ctx context.Context, name, sessionID, projectI
 
 	return chatEngineBuildResult{
 		Engine:     eng,
-		ModelLabel: chatModelLabel(name, currentModel),
+		ModelLabel: chatModelLabel(req.Name, currentModel),
 	}
 }
 

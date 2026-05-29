@@ -256,7 +256,11 @@ func TestMemChatStoreDeleteMessagesAfterWithRelated(t *testing.T) {
 		t.Fatalf("UpdateSummary: %v", err)
 	}
 
-	if err := store.DeleteMessagesAfterWithRelated(ctx, nil, "session-tail", "assistant-1", false, nil, true); err != nil {
+	if err := store.DeleteMessagesAfterWithRelated(ctx, persistence.ChatDeleteAfterRequest{
+		SessionID:    "session-tail",
+		MessageID:    "assistant-1",
+		ResetSummary: true,
+	}); err != nil {
 		t.Fatalf("DeleteMessagesAfterWithRelated: %v", err)
 	}
 

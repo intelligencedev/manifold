@@ -27,9 +27,6 @@ func (e *Engine) runWithReMem(ctx context.Context, userInput string, history []l
 		return final, nil, err
 	}
 
-	// Execute ReMem controller (internal memory reasoning/refinement).
-	// ReMem does not dispatch tools; the tool schema argument is preserved on
-	// the signature for compatibility but is ignored by the controller.
 	_, reasoningTrace, err := e.ReMemController.Execute(ctx, userInput, nil)
 	if err != nil {
 		log.Error().Err(err).Msg("remem_execute_failed")

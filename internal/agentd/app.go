@@ -165,7 +165,3 @@ func (a vectorIndexerAdapter) SimilaritySearch(ctx context.Context, vector []flo
 	}
 	return out, nil
 }
-
-// cloneEngine returns a shallow copy of the base orchestrator engine so that
-// per-request callbacks (OnDelta/OnTool/etc) don't race across concurrent
-// requests. Callers can safely mutate the returned engine without affecting

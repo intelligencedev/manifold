@@ -123,7 +123,13 @@ func (s *Store) UpsertEdge(ctx context.Context, edge Edge) error {
 	if edge.Weight != 0 {
 		props["weight"] = edge.Weight
 	}
-	return databases.TypedUpsertEdge(ctx, s.graph, edge.Source, string(edge.GraphType), edge.Rel, edge.Target, props)
+	return databases.TypedUpsertEdge(ctx, s.graph, databases.TypedEdgeInput{
+		Source:    edge.Source,
+		GraphType: string(edge.GraphType),
+		Rel:       edge.Rel,
+		Target:    edge.Target,
+		Props:     props,
+	})
 }
 
 func (s *Store) Neighbors(ctx context.Context, id string, graphType GraphType, rel string) ([]string, error) {

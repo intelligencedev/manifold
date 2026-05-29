@@ -43,7 +43,6 @@ func (em *EvolvingMemory) relevanceBasedPrune(ctx context.Context) {
 		return
 	}
 
-	// Remove lowest relevance entries
 	if toRemove > len(filtered) {
 		toRemove = len(filtered)
 	}

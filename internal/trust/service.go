@@ -7,12 +7,16 @@ type Service struct{ store Store }
 func NewService(store Store) *Service { return &Service{store: store} }
 
 func (s *Service) Init(ctx context.Context) error {
-	if s == nil || s.store == nil { return nil }
+	if s == nil || s.store == nil {
+		return nil
+	}
 	return s.store.Init(ctx)
 }
 
 func (s *Service) List(ctx context.Context) ([]Budget, error) {
-	if s == nil || s.store == nil { return nil, nil }
+	if s == nil || s.store == nil {
+		return nil, nil
+	}
 	return s.store.List(ctx)
 }
 

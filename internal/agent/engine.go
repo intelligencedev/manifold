@@ -96,20 +96,9 @@ type Engine struct {
 	// OnThoughtSummary, if set, is called for streamed reasoning summaries.
 	OnThoughtSummary func(string)
 	// OnTool, if set, is called after each tool execution with tool name, args, result, and tool ID.
-	OnTool func(toolName string, args []byte, result []byte, toolID string)
-	// OnToolStart, if set, is invoked immediately after the model emits a tool call
-	// but before the tool is executed. This allows UIs to display a pending tool
-	// invocation and later append the result when OnTool fires. Args are the raw
-	// JSON arguments provided by the model (may still be partial JSON in some
-	// provider streaming implementations, but are generally complete here).
-	OnToolStart func(toolName string, args []byte, toolID string)
-	// OnTurnMessage, if set, is called for every message added to the conversation
-	// during this turn (including intermediate assistant messages with tool calls
-	// and tool response messages). This enables full conversation history capture.
-	OnTurnMessage func(llm.Message)
-	// OnSummaryTriggered, if set, is invoked when conversation summarization is triggered
-	// due to the message history exceeding the token budget. Parameters include:
-	// inputTokens, tokenBudget, messageCount, and messagesBeingSummarized.
+	OnTool             func(toolName string, args []byte, result []byte, toolID string)
+	OnToolStart        func(toolName string, args []byte, toolID string)
+	OnTurnMessage      func(llm.Message)
 	OnSummaryTriggered func(inputTokens, tokenBudget, messageCount, summarizedCount int)
 	// OnMemoryEvent, if set, is invoked when the evolving memory system emits
 	// Search/Synthesis/Evolve events. Useful for debugging and observability.

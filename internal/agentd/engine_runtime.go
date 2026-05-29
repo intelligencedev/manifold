@@ -4,8 +4,11 @@ import (
 	"context"
 	"manifold/internal/agent"
 	"manifold/internal/agent/belief"
+	"manifold/internal/agent/memory"
+	"manifold/internal/config"
 	"manifold/internal/embedding"
 	llmproviders "manifold/internal/llm/providers"
+	"manifold/internal/persistence"
 	"manifold/internal/policy"
 	"manifold/internal/rag/retrieve"
 	"manifold/internal/specialists"
@@ -39,69 +42,74 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID, p
 	settings := withChatMemorySettings(settingsOpt)
 	a.configureBeliefRunState(eng, userID, sessionID, projectID, objectiveID, "orchestrator")
 
-	// Ensure the specialists catalog in the system prompt is user-scoped.
-	// The base engine prompt is composed with the system (user=0) specialists
-	// registry; without this override, non-system users can see system specialists.
-	//
-	// Do this before applying any per-user orchestrator overlay so we can build a
-	// base prompt with the correct catalog.
 	if a.cfg.Auth.Enabled && userID != systemUserID {
 		eng.System = a.composeSystemPromptForUser(ctx, userID)
 		eng.UserPromptContext = a.composeUserPromptContextForUser(ctx, userID)
 	}
 
 	em := a.attachSessionEvolvingMemory(eng, userID, sessionID, settings.EvolvingMemoryEnabled)
-
-	// Look up user's orchestrator overlay
 	if a.cfg.Auth.Enabled && userID != systemUserID {
-		sp, ok, err := a.specStore.GetByName(ctx, userID, specialists.OrchestratorName)
-		if err == nil && ok {
-			// Apply user's LLM overrides (provider/model/extra params).
-			llmCfg, provider := specialists.ApplyLLMClientOverride(a.cfg.LLMClient, sp)
-			userCfg := *a.cfg
-			userCfg.LLMClient = llmCfg
-			if provider == "" || provider == "openai" || provider == "local" {
-				userCfg.OpenAI = llmCfg.OpenAI
-			}
-			if userLLM, err := llmproviders.Build(userCfg, a.httpClient); err != nil {
-				log.Warn().Err(err).Msg("failed to build per-user llm provider")
-			} else {
-				eng.LLM = userLLM
-			}
-			currentModel := strings.TrimSpace(sp.Model)
-			if currentModel == "" {
-				switch provider {
-				case "anthropic":
-					currentModel = strings.TrimSpace(llmCfg.Anthropic.Model)
-				case "google":
-					currentModel = strings.TrimSpace(llmCfg.Google.Model)
-				default:
-					currentModel = strings.TrimSpace(llmCfg.OpenAI.Model)
-				}
-			}
-			if currentModel != "" {
-				eng.Model = currentModel
-			}
-
-			// Apply user's tool configuration
-			eng.Tools = a.chatToolRegistry(sp.EnableTools, sp.AllowTools, sp.AutoDiscover)
-			if sp.Harness != nil {
-				harnessCfg := harnessOverrideConfig(a.cfg.Harness, harnessConfigFromPersist(sp.Harness))
-				eng.HarnessEnabled = harnessCfg.Enabled
-				eng.HarnessConfig = harnessRunConfig(harnessCfg)
-			}
-
-			// Apply user's system prompt if set.
-			// This should preserve the user-scoped specialists catalog.
-			if sp.System != "" {
-				eng.System = a.composeSystemPromptForUserWithOverride(ctx, userID, sp.System)
-				eng.UserPromptContext = a.composeUserPromptContextForUser(ctx, userID)
-			}
-		}
+		a.applyUserOrchestratorOverlay(ctx, eng, userID)
 	}
 
-	// Create a per-request delegator so ask_agent/agent_call uses the
-	// user-specific specialists registry (including tool allowlists).
+	delegator := a.newRunDelegator(ctx, eng, userID, em, settings)
+	eng.Delegator = delegator
+	eng.TeamDelegator = a
+
+	return eng
+}
+
+func (a *app) applyUserOrchestratorOverlay(ctx context.Context, eng *agent.Engine, userID int64) {
+	sp, ok, err := a.specStore.GetByName(ctx, userID, specialists.OrchestratorName)
+	if err != nil || !ok {
+		return
+	}
+	a.applyUserOrchestratorLLM(eng, sp)
+	eng.Tools = a.chatToolRegistry(sp.EnableTools, sp.AllowTools, sp.AutoDiscover)
+	if sp.Harness != nil {
+		harnessCfg := harnessOverrideConfig(a.cfg.Harness, harnessConfigFromPersist(sp.Harness))
+		eng.HarnessEnabled = harnessCfg.Enabled
+		eng.HarnessConfig = harnessRunConfig(harnessCfg)
+	}
+	if sp.System != "" {
+		eng.System = a.composeSystemPromptForUserWithOverride(ctx, userID, sp.System)
+		eng.UserPromptContext = a.composeUserPromptContextForUser(ctx, userID)
+	}
+}
+
+func (a *app) applyUserOrchestratorLLM(eng *agent.Engine, sp persistence.Specialist) {
+	llmCfg, provider := specialists.ApplyLLMClientOverride(a.cfg.LLMClient, sp)
+	userCfg := *a.cfg
+	userCfg.LLMClient = llmCfg
+	if provider == "" || provider == "openai" || provider == "local" {
+		userCfg.OpenAI = llmCfg.OpenAI
+	}
+	if userLLM, err := llmproviders.Build(userCfg, a.httpClient); err != nil {
+		log.Warn().Err(err).Msg("failed to build per-user llm provider")
+	} else {
+		eng.LLM = userLLM
+	}
+	if currentModel := currentSpecialistModel(sp, llmCfg, provider); currentModel != "" {
+		eng.Model = currentModel
+	}
+}
+
+func currentSpecialistModel(sp persistence.Specialist, llmCfg config.LLMClientConfig, provider string) string {
+	currentModel := strings.TrimSpace(sp.Model)
+	if currentModel != "" {
+		return currentModel
+	}
+	switch provider {
+	case "anthropic":
+		return strings.TrimSpace(llmCfg.Anthropic.Model)
+	case "google":
+		return strings.TrimSpace(llmCfg.Google.Model)
+	default:
+		return strings.TrimSpace(llmCfg.OpenAI.Model)
+	}
+}
+
+func (a *app) newRunDelegator(ctx context.Context, eng *agent.Engine, userID int64, em *memory.EvolvingMemory, settings chatMemoryRunSettings) *agenttools.Delegator {
 	reg := a.specRegistry
 	if a.cfg.Auth.Enabled && userID != systemUserID {
 		if userReg, err := a.specialistsRegistryForUser(ctx, userID); err == nil && userReg != nil {
@@ -124,10 +132,7 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID, p
 	if eng.ReMemEnabled {
 		delegator.ConfigureReMem(a.evolvingCfg.LLM, a.evolvingCfg.Model, a.rememMaxInnerSteps)
 	}
-	eng.Delegator = delegator
-	eng.TeamDelegator = a
-
-	return eng
+	return delegator
 }
 
 func (a *app) configureBeliefRunState(eng *agent.Engine, userID int64, sessionID, projectID, objectiveID, agentRole string) {

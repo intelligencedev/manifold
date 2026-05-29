@@ -32,7 +32,7 @@ func TestUpsertChunkEmbeddings_MemoryVector(t *testing.T) {
 	in := IngestRequest{ID: "doc:acme:1", Tenant: "acme", Source: "test"}
 	chunks := []ChunkRecord{{Index: 0, Text: "hello world"}, {Index: 1, Text: "goodbye"}}
 
-	n, err := UpsertChunkEmbeddings(ctx, vec, emb, in.ID, "english", chunks, in, 1)
+	n, err := UpsertChunkEmbeddings(ctx, vec, emb, ChunkIndexRequest{DocID: in.ID, Lang: "english", Chunks: chunks, Input: in, Version: 1})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestUpsertChunkEmbeddings_EmbedsRawChunkText(t *testing.T) {
 	in := IngestRequest{ID: "doc:acme:1", Tenant: "acme"}
 	chunks := []ChunkRecord{{Index: 0, Text: "hello world"}}
 
-	if _, err := UpsertChunkEmbeddings(ctx, vec, emb, in.ID, "english", chunks, in, 1); err != nil {
+	if _, err := UpsertChunkEmbeddings(ctx, vec, emb, ChunkIndexRequest{DocID: in.ID, Lang: "english", Chunks: chunks, Input: in, Version: 1}); err != nil {
 		t.Fatalf("UpsertChunkEmbeddings() error = %v", err)
 	}
 	if len(emb.texts) != 1 || emb.texts[0] != "hello world" {

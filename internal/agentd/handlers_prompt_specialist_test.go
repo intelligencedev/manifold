@@ -389,7 +389,12 @@ func TestHandleChatTarget_JSONIncludesQueuedMatrixMessages(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/prompt?specialist=weather", nil).WithContext(ctx)
 	rr := httptest.NewRecorder()
 
-	handled := a.handleChatTarget(rr, req, chatDispatchTarget{SpecialistName: "weather"}, "forecast please", "sess-json", "", "", false, "", nil, 0, chatTargetDescriptor{})
+	handled := a.handleChatTarget(rr, req, chatTargetHandleRequest{
+		Target:         chatDispatchTarget{SpecialistName: "weather"},
+		Prompt:         "forecast please",
+		SessionID:      "sess-json",
+		MemorySettings: defaultChatMemoryRunSettings(),
+	})
 	if !handled {
 		t.Fatalf("expected specialist handler to process request")
 	}
@@ -450,7 +455,12 @@ func TestHandleChatTargetUsesImageAPIForImageGenerationSpecialist(t *testing.T) 
 	req := httptest.NewRequest(http.MethodPost, "/api/prompt?specialist=image-maker", nil)
 	rr := httptest.NewRecorder()
 
-	handled := a.handleChatTarget(rr, req, chatDispatchTarget{SpecialistName: "image-maker"}, "draw a river", "sess-image", "", "", false, "", nil, 0, chatTargetDescriptor{})
+	handled := a.handleChatTarget(rr, req, chatTargetHandleRequest{
+		Target:         chatDispatchTarget{SpecialistName: "image-maker"},
+		Prompt:         "draw a river",
+		SessionID:      "sess-image",
+		MemorySettings: defaultChatMemoryRunSettings(),
+	})
 	if !handled {
 		t.Fatalf("expected specialist handler to process request")
 	}
@@ -495,7 +505,12 @@ func TestHandleChatTarget_SSEIncludesQueuedMatrixMessages(t *testing.T) {
 	req.Header.Set("Accept", "text/event-stream")
 	rr := httptest.NewRecorder()
 
-	handled := a.handleChatTarget(rr, req, chatDispatchTarget{SpecialistName: "weather"}, "forecast please", "sess-sse", "", "", false, "", nil, 0, chatTargetDescriptor{})
+	handled := a.handleChatTarget(rr, req, chatTargetHandleRequest{
+		Target:         chatDispatchTarget{SpecialistName: "weather"},
+		Prompt:         "forecast please",
+		SessionID:      "sess-sse",
+		MemorySettings: defaultChatMemoryRunSettings(),
+	})
 	if !handled {
 		t.Fatalf("expected specialist handler to process request")
 	}

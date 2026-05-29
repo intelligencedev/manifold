@@ -39,9 +39,6 @@ func (t *sseTransportWrapper) RoundTrip(req *http.Request) (*http.Response, erro
 			}
 		}
 
-		// Inject the header only for streaming requests (detected via stream:true).
-		// mlx_lm.server handles streaming without the Accept header in many cases,
-		// but adding it for explicit streaming improves interoperability and is benign.
 		if isStreaming {
 			req.Header.Set("Accept", "text/event-stream")
 		}

@@ -38,7 +38,6 @@ func (em *EvolvingMemory) EvolveEnhanced(
 	// Classify memory type based on content analysis.
 	memType := em.classifyMemoryType(input, output, summary, strategyCard)
 
-	// Build raw trace from reasoning trace
 	rawTrace := ""
 	if len(reasoningTrace) > 0 {
 		for i, t := range reasoningTrace {

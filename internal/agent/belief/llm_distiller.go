@@ -127,6 +127,54 @@ func (d LLMDistiller) DistillWithAudit(ctx context.Context, input DistillationIn
 }
 
 func (d LLMDistiller) validatePayload(input DistillationInput, payload llmCandidatePayload, raw string) (CandidateRecord, Candidate, bool) {
+	record := newCandidateRecord(input, payload, raw, d.Config.Model)
+	reject := func(reason string) (CandidateRecord, Candidate, bool) {
+		record.ValidationStatus = CandidateValidationRejected
+		record.ReviewState = ReviewStateNeedsReview
+		record.RejectionReason = reason
+		return record, Candidate{}, false
+	}
+
+	parsed, reason, ok := parseCandidatePayload(payload)
+	if !ok {
+		return reject(reason)
+	}
+	minConfidence := d.Config.MinCandidateConfidence
+	if minConfidence <= 0 {
+		minConfidence = 0.55
+	}
+	autoApplyConfidence := d.Config.AutoApplyMinConfidence
+	if autoApplyConfidence <= 0 {
+		autoApplyConfidence = 0.65
+	}
+	applyParsedCandidate(&record, parsed)
+	if parsed.Confidence < minConfidence {
+		record.ValidationStatus = CandidateValidationRejected
+		record.ReviewState = ReviewStateNeedsReview
+		record.RejectionReason = "confidence below minCandidateConfidence"
+		return record, Candidate{}, false
+	}
+	if parsed.Confidence < autoApplyConfidence {
+		record.ValidationStatus = CandidateValidationQueued
+		record.ReviewState = ReviewStateNeedsReview
+		return record, Candidate{}, false
+	}
+	record.ValidationStatus = CandidateValidationAccepted
+	record.ReviewState = ReviewStateAutoActive
+	return record, parsed.toCandidate(record), true
+}
+
+type parsedCandidatePayload struct {
+	Statement     string
+	Kind          BeliefKind
+	Enforcement   EnforcementMode
+	Polarity      EvidencePolarity
+	Confidence    float64
+	SourceQuality float64
+	EvidenceNote  string
+}
+
+func newCandidateRecord(input DistillationInput, payload llmCandidatePayload, raw, model string) CandidateRecord {
 	normalized := map[string]any{
 		"statement":      payload.Statement,
 		"kind":           payload.Kind,
@@ -138,13 +186,13 @@ func (d LLMDistiller) validatePayload(input DistillationInput, payload llmCandid
 	if payload.Confidence != nil {
 		normalized["confidence"] = *payload.Confidence
 	}
-	record := CandidateRecord{
+	return CandidateRecord{
 		TenantID:          input.Episode.TenantID,
 		EpisodeID:         input.Episode.ID,
 		ScopeID:           input.Episode.ScopeID,
 		RawPayload:        raw,
 		NormalizedPayload: normalized,
-		Model:             d.Config.Model,
+		Model:             model,
 		Metadata: map[string]any{
 			"distiller":       "llm",
 			"projectId":       input.Episode.ProjectID,
@@ -153,83 +201,74 @@ func (d LLMDistiller) validatePayload(input DistillationInput, payload llmCandid
 			"evolvingEntryId": input.Episode.EvolvingEntryID,
 		},
 	}
-	reject := func(reason string) (CandidateRecord, Candidate, bool) {
-		record.ValidationStatus = CandidateValidationRejected
-		record.ReviewState = ReviewStateNeedsReview
-		record.RejectionReason = reason
-		return record, Candidate{}, false
-	}
+}
 
+func parseCandidatePayload(payload llmCandidatePayload) (parsedCandidatePayload, string, bool) {
 	statement := NormalizeStatement(payload.Statement)
 	if statement == "" {
-		return reject("statement is required")
+		return parsedCandidatePayload{}, "statement is required", false
 	}
 	kind, ok := parseBeliefKind(payload.Kind)
 	if !ok {
-		return reject("invalid kind")
+		return parsedCandidatePayload{}, "invalid kind", false
 	}
 	enforcement, ok := parseEnforcementMode(payload.Enforcement)
 	if !ok {
-		return reject("invalid enforcement")
+		return parsedCandidatePayload{}, "invalid enforcement", false
 	}
 	polarity, ok := parseEvidencePolarity(payload.Polarity)
 	if !ok {
-		return reject("invalid polarity")
+		return parsedCandidatePayload{}, "invalid polarity", false
 	}
-	if strings.TrimSpace(payload.EvidenceNote) == "" {
-		return reject("evidence_note is required")
+	evidenceNote := strings.TrimSpace(payload.EvidenceNote)
+	if evidenceNote == "" {
+		return parsedCandidatePayload{}, "evidence_note is required", false
 	}
 	if payload.Confidence == nil || *payload.Confidence < 0 || *payload.Confidence > 1 {
-		return reject("confidence must be between 0 and 1")
+		return parsedCandidatePayload{}, "confidence must be between 0 and 1", false
 	}
 	sourceQuality := *payload.Confidence
 	if payload.SourceQuality != nil {
 		if *payload.SourceQuality < 0 || *payload.SourceQuality > 1 {
-			return reject("source_quality must be between 0 and 1")
+			return parsedCandidatePayload{}, "source_quality must be between 0 and 1", false
 		}
 		sourceQuality = *payload.SourceQuality
 	}
-	minConfidence := d.Config.MinCandidateConfidence
-	if minConfidence <= 0 {
-		minConfidence = 0.55
-	}
-	autoApplyConfidence := d.Config.AutoApplyMinConfidence
-	if autoApplyConfidence <= 0 {
-		autoApplyConfidence = 0.65
-	}
-	record.Statement = statement
-	record.StatementHash = StatementHash(statement)
-	record.Kind = kind
-	record.Enforcement = enforcement
-	record.Polarity = polarity
-	record.Confidence = *payload.Confidence
-	record.SourceQuality = sourceQuality
-	record.EvidenceNote = strings.TrimSpace(payload.EvidenceNote)
-	if *payload.Confidence < minConfidence {
-		record.ValidationStatus = CandidateValidationRejected
-		record.ReviewState = ReviewStateNeedsReview
-		record.RejectionReason = "confidence below minCandidateConfidence"
-		return record, Candidate{}, false
-	}
-	if *payload.Confidence < autoApplyConfidence {
-		record.ValidationStatus = CandidateValidationQueued
-		record.ReviewState = ReviewStateNeedsReview
-		return record, Candidate{}, false
-	}
-	record.ValidationStatus = CandidateValidationAccepted
-	record.ReviewState = ReviewStateAutoActive
-	return record, Candidate{
+	return parsedCandidatePayload{
 		Statement:     statement,
-		StatementHash: record.StatementHash,
 		Kind:          kind,
 		Enforcement:   enforcement,
-		SourceQuality: sourceQuality,
-		ReviewState:   ReviewStateAutoActive,
-		Confidence:    *payload.Confidence,
 		Polarity:      polarity,
-		EvidenceNote:  strings.TrimSpace(payload.EvidenceNote),
+		Confidence:    *payload.Confidence,
+		SourceQuality: sourceQuality,
+		EvidenceNote:  evidenceNote,
+	}, "", true
+}
+
+func applyParsedCandidate(record *CandidateRecord, parsed parsedCandidatePayload) {
+	record.Statement = parsed.Statement
+	record.StatementHash = StatementHash(parsed.Statement)
+	record.Kind = parsed.Kind
+	record.Enforcement = parsed.Enforcement
+	record.Polarity = parsed.Polarity
+	record.Confidence = parsed.Confidence
+	record.SourceQuality = parsed.SourceQuality
+	record.EvidenceNote = parsed.EvidenceNote
+}
+
+func (p parsedCandidatePayload) toCandidate(record CandidateRecord) Candidate {
+	return Candidate{
+		Statement:     p.Statement,
+		StatementHash: record.StatementHash,
+		Kind:          p.Kind,
+		Enforcement:   p.Enforcement,
+		SourceQuality: p.SourceQuality,
+		ReviewState:   ReviewStateAutoActive,
+		Confidence:    p.Confidence,
+		Polarity:      p.Polarity,
+		EvidenceNote:  p.EvidenceNote,
 		Metadata:      cloneCandidateMetadata(record.Metadata),
-	}, true
+	}
 }
 
 func parseLLMDistillerResponse(raw string) (llmDistillerResponse, error) {

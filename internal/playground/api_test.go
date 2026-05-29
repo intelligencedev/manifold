@@ -26,13 +26,14 @@ func TestStartRunValidatesUnknownSpecialist(t *testing.T) {
 	}
 	service := NewService(
 		Config{SpecialistValidator: fakeSpecialistValidator{err: ErrSpecialistNotFound}},
-		nil,
-		dataset.NewService(fakeDatasetStore{}),
-		experiment.NewRepository(),
-		experiment.NewPlanner(experiment.PlannerConfig{}),
-		worker.NewWorker(fakePlaygroundProvider{}, nil),
-		eval.NewRunner(eval.NewRegistry(), fakePlaygroundProvider{}),
-		store,
+		Dependencies{
+			Datasets:    dataset.NewService(fakeDatasetStore{}),
+			Experiments: experiment.NewRepository(),
+			Planner:     experiment.NewPlanner(experiment.PlannerConfig{}),
+			Workers:     worker.NewWorker(fakePlaygroundProvider{}, nil),
+			Evals:       eval.NewRunner(eval.NewRegistry(), fakePlaygroundProvider{}),
+			Store:       store,
+		},
 	)
 
 	_, err := service.StartRun(context.Background(), "exp-1")
@@ -51,13 +52,14 @@ func TestStartRunValidatesPausedSpecialist(t *testing.T) {
 	}
 	service := NewService(
 		Config{SpecialistValidator: fakeSpecialistValidator{err: ErrSpecialistPaused}},
-		nil,
-		dataset.NewService(fakeDatasetStore{}),
-		experiment.NewRepository(),
-		experiment.NewPlanner(experiment.PlannerConfig{}),
-		worker.NewWorker(fakePlaygroundProvider{}, nil),
-		eval.NewRunner(eval.NewRegistry(), fakePlaygroundProvider{}),
-		store,
+		Dependencies{
+			Datasets:    dataset.NewService(fakeDatasetStore{}),
+			Experiments: experiment.NewRepository(),
+			Planner:     experiment.NewPlanner(experiment.PlannerConfig{}),
+			Workers:     worker.NewWorker(fakePlaygroundProvider{}, nil),
+			Evals:       eval.NewRunner(eval.NewRegistry(), fakePlaygroundProvider{}),
+			Store:       store,
+		},
 	)
 
 	_, err := service.StartRun(context.Background(), "exp-1")
@@ -86,13 +88,14 @@ func TestStartRunDirectProviderStillExecutes(t *testing.T) {
 	prov := fakePlaygroundProvider{}
 	service := NewService(
 		Config{},
-		nil,
-		dataset.NewService(datasets),
-		experiment.NewRepository(),
-		experiment.NewPlanner(experiment.PlannerConfig{}),
-		worker.NewWorker(prov, nil),
-		eval.NewRunner(eval.NewRegistry(), prov),
-		store,
+		Dependencies{
+			Datasets:    dataset.NewService(datasets),
+			Experiments: experiment.NewRepository(),
+			Planner:     experiment.NewPlanner(experiment.PlannerConfig{}),
+			Workers:     worker.NewWorker(prov, nil),
+			Evals:       eval.NewRunner(eval.NewRegistry(), prov),
+			Store:       store,
+		},
 	)
 
 	run, err := service.StartRun(context.Background(), "exp-1")

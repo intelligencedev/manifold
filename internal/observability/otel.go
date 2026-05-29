@@ -96,7 +96,6 @@ func InitOTel(ctx context.Context, obs config.ObsConfig) (func(context.Context) 
 	otel.SetMeterProvider(mp)
 	otel.SetTextMapPropagator(propagation.TraceContext{})
 
-	// Initialize OTLP log exporter
 	logExp, err := otlploghttp.New(ctx, logExporterOptions(obs.OTLP)...)
 	if err != nil {
 		return nil, fmt.Errorf("init log exporter: %w", err)

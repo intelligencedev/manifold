@@ -214,73 +214,8 @@ func (s *Service) collectSearch(ctx context.Context, tenantID int64, req SearchR
 		return rankCandidates(merged, req.Limit), nil
 	}
 
-	if s.search != nil {
-		results, searchErr := s.search.Search(ctx, req.Query, req.Limit*3)
-		if searchErr == nil {
-			keys := make([]string, 0, len(results))
-			for _, result := range results {
-				if !matchesIndexMetadata(result.Metadata, tenantID, req.Prefix) {
-					continue
-				}
-				key := result.Metadata["key_name"]
-				if key == "" {
-					continue
-				}
-				keys = append(keys, key)
-				candidate := merged[key]
-				candidate.Score += result.Score
-				if candidate.Snippet == "" {
-					candidate.Snippet = result.Snippet
-				}
-				merged[key] = candidate
-			}
-			if len(keys) > 0 {
-				records, getErr := s.store.Get(ctx, tenantID, keys)
-				if getErr == nil {
-					for _, record := range records {
-						candidate := merged[record.KeyName]
-						candidate.Record = record
-						merged[record.KeyName] = candidate
-					}
-				}
-			}
-		}
-	}
-
-	if s.enableVectorSearch && s.vector != nil {
-		instruction := embedding.FormatQueryInput(s.embeddingConfig, embedding.UseCaseTransitQuery, req.Query, "")
-		vectors, embedErr := s.embedFn(ctx, s.embeddingConfig, []string{instruction.Input})
-		if embedErr == nil && len(vectors) == 1 {
-			filter := map[string]string{"kind": "transit", "tenant_id": strconv.FormatInt(tenantID, 10)}
-			vectorResults, searchErr := s.vector.SimilaritySearch(ctx, vectors[0], req.Limit*3, filter)
-			if searchErr == nil {
-				keys := make([]string, 0, len(vectorResults))
-				for _, result := range vectorResults {
-					if !matchesIndexMetadata(result.Metadata, tenantID, req.Prefix) {
-						continue
-					}
-					key := result.Metadata["key_name"]
-					if key == "" {
-						continue
-					}
-					keys = append(keys, key)
-					candidate := merged[key]
-					candidate.Score += result.Score
-					merged[key] = candidate
-				}
-				if len(keys) > 0 {
-					records, getErr := s.store.Get(ctx, tenantID, keys)
-					if getErr == nil {
-						for _, record := range records {
-							candidate := merged[record.KeyName]
-							candidate.Record = record
-							merged[record.KeyName] = candidate
-						}
-					}
-				}
-			}
-		}
-	}
+	s.mergeSearchIndexResults(ctx, tenantID, req, merged)
+	s.mergeVectorSearchResults(ctx, tenantID, req, merged)
 
 	for key, candidate := range merged {
 		if candidate.Record.KeyName == "" {
@@ -292,6 +227,74 @@ func (s *Service) collectSearch(ctx context.Context, tenantID int64, req SearchR
 		}
 	}
 	return rankCandidates(merged, req.Limit), nil
+}
+
+func (s *Service) mergeSearchIndexResults(ctx context.Context, tenantID int64, req SearchRequest, merged map[string]SearchCandidate) {
+	if s.search == nil {
+		return
+	}
+	results, err := s.search.Search(ctx, req.Query, req.Limit*3)
+	if err != nil {
+		return
+	}
+	keys := make([]string, 0, len(results))
+	for _, result := range results {
+		key := result.Metadata["key_name"]
+		if key == "" || !matchesIndexMetadata(result.Metadata, tenantID, req.Prefix) {
+			continue
+		}
+		keys = append(keys, key)
+		candidate := merged[key]
+		candidate.Score += result.Score
+		if candidate.Snippet == "" {
+			candidate.Snippet = result.Snippet
+		}
+		merged[key] = candidate
+	}
+	s.hydrateCandidates(ctx, tenantID, keys, merged)
+}
+
+func (s *Service) mergeVectorSearchResults(ctx context.Context, tenantID int64, req SearchRequest, merged map[string]SearchCandidate) {
+	if !s.enableVectorSearch || s.vector == nil {
+		return
+	}
+	instruction := embedding.FormatQueryInput(s.embeddingConfig, embedding.UseCaseTransitQuery, req.Query, "")
+	vectors, err := s.embedFn(ctx, s.embeddingConfig, []string{instruction.Input})
+	if err != nil || len(vectors) != 1 {
+		return
+	}
+	filter := map[string]string{"kind": "transit", "tenant_id": strconv.FormatInt(tenantID, 10)}
+	results, err := s.vector.SimilaritySearch(ctx, vectors[0], req.Limit*3, filter)
+	if err != nil {
+		return
+	}
+	keys := make([]string, 0, len(results))
+	for _, result := range results {
+		key := result.Metadata["key_name"]
+		if key == "" || !matchesIndexMetadata(result.Metadata, tenantID, req.Prefix) {
+			continue
+		}
+		keys = append(keys, key)
+		candidate := merged[key]
+		candidate.Score += result.Score
+		merged[key] = candidate
+	}
+	s.hydrateCandidates(ctx, tenantID, keys, merged)
+}
+
+func (s *Service) hydrateCandidates(ctx context.Context, tenantID int64, keys []string, merged map[string]SearchCandidate) {
+	if len(keys) == 0 {
+		return
+	}
+	records, err := s.store.Get(ctx, tenantID, keys)
+	if err != nil {
+		return
+	}
+	for _, record := range records {
+		candidate := merged[record.KeyName]
+		candidate.Record = record
+		merged[record.KeyName] = candidate
+	}
 }
 
 func rankCandidates(merged map[string]SearchCandidate, limit int) []SearchCandidate {

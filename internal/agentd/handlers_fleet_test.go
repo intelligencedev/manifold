@@ -7,10 +7,10 @@ import (
 	"testing"
 
 	"manifold/internal/config"
+	"manifold/internal/constitution"
 	"manifold/internal/fleet"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/trust"
-	"manifold/internal/constitution"
 )
 
 func TestFleetStateHandlerReturnsSnapshot(t *testing.T) {

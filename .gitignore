@@ -66,7 +66,6 @@ develop/**/.env.*
 dist/
 config.yaml
 models/
-frontend/node_modules/
 web/agentd-ui/node_modules/
 web/agentd-ui/dist/
 web/agentd-ui/.vite/
@@ -79,6 +78,7 @@ playground-artifacts
 /agentd
 /agent
 /openapi
+/plans
 docker-compose.matrixfold.yml
 docs/backend-rewrite.md
 mcp.yaml

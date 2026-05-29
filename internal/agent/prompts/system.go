@@ -293,7 +293,6 @@ func combinePromptSections(base, addition string) string {
 }
 
 // CachedSkillsForProject returns cached project skills metadata and rendered prompt.
-// Returns nil,nil when the project has no visible skills.
 func CachedSkillsForProject(projectDir string) (*skills.CachedSkills, error) {
 	if strings.TrimSpace(projectDir) == "" {
 		return nil, nil

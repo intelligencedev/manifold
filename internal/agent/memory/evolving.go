@@ -8,131 +8,161 @@ import (
 )
 
 func NewEvolvingMemory(cfg EvolvingMemoryConfig) *EvolvingMemory {
-	topK := cfg.TopK
-	if topK <= 0 {
-		topK = 4
-	}
-	windowSz := cfg.WindowSize
-	if windowSz <= 0 {
-		windowSz = 20
-	}
-	maxSz := cfg.MaxSize
-	if maxSz <= 0 {
-		maxSz = 1000 // reasonable default
-	}
-
-	// Pruning defaults from paper analysis
-	pruneThreshold := cfg.PruneThreshold
-	if pruneThreshold <= 0 {
-		pruneThreshold = 0.95 // high similarity = near duplicate
-	}
-	relevanceDecay := cfg.RelevanceDecay
-	if relevanceDecay <= 0 {
-		relevanceDecay = 0.99 // 1% daily decay
-	}
-	minRelevance := cfg.MinRelevance
-	if minRelevance <= 0 {
-		minRelevance = 0.1
-	}
-	rankingWeights := normalizeRankingWeights(cfg.RankingWeights)
-	mmrLambda := cfg.MMRLambda
-	if mmrLambda <= 0 || mmrLambda > 1 {
-		mmrLambda = 0.7
-	}
-	queryCacheTTL := cfg.QueryEmbeddingCacheTTL
-	if queryCacheTTL <= 0 {
-		queryCacheTTL = 5 * time.Minute
-	}
-	queryCacheMax := cfg.QueryEmbeddingCacheSize
-	if queryCacheMax <= 0 {
-		queryCacheMax = 128
-	}
-	promotionAccessThreshold := cfg.PromotionAccessThreshold
-	if promotionAccessThreshold <= 0 {
-		promotionAccessThreshold = defaultPromotionAccessThreshold
-	}
-	pruneQualityFloor := cfg.PruneQualityFloor
-	if pruneQualityFloor <= 0 {
-		pruneQualityFloor = defaultPruneQualityFloor
-	}
-	janitorInterval := cfg.JanitorInterval
-	if janitorInterval < 0 {
-		janitorInterval = 0
-	} else if janitorInterval == 0 {
-		janitorInterval = defaultMemoryJanitorInterval
-	}
-
-	sessionID := strings.TrimSpace(cfg.SessionID)
-	if sessionID == "" {
-		sessionID = "default"
-	}
-
-	embedFn := cfg.EmbedFn
-	if embedFn == nil {
-		embedFn = embedding.EmbedText
-	}
-	persistDelay := cfg.PersistDebounce
-	if persistDelay <= 0 {
-		persistDelay = 250 * time.Millisecond
-	}
-
+	resolved := resolveEvolvingMemoryConfig(cfg)
 	em := &EvolvingMemory{
 		entries:                  make([]*MemoryEntry, 0),
 		embedCfg:                 cfg.EmbeddingConfig,
-		embedFn:                  embedFn,
+		embedFn:                  resolved.embedFn,
 		llm:                      cfg.LLM,
 		model:                    cfg.Model,
-		maxSize:                  maxSz,
-		topK:                     topK,
-		windowSz:                 windowSz,
+		maxSize:                  resolved.maxSize,
+		topK:                     resolved.topK,
+		windowSz:                 resolved.windowSize,
 		enableRAG:                cfg.EnableRAG,
-		pruneThreshold:           pruneThreshold,
-		relevanceDecay:           relevanceDecay,
-		minRelevance:             minRelevance,
+		pruneThreshold:           resolved.pruneThreshold,
+		relevanceDecay:           resolved.relevanceDecay,
+		minRelevance:             resolved.minRelevance,
 		enableSmartPrune:         cfg.EnableSmartPrune,
-		rankingWeights:           rankingWeights,
-		mmrLambda:                mmrLambda,
-		promotionAccessThreshold: promotionAccessThreshold,
-		pruneQualityFloor:        pruneQualityFloor,
-		janitorInterval:          janitorInterval,
+		rankingWeights:           resolved.rankingWeights,
+		mmrLambda:                resolved.mmrLambda,
+		promotionAccessThreshold: resolved.promotionAccessThreshold,
+		pruneQualityFloor:        resolved.pruneQualityFloor,
+		janitorInterval:          resolved.janitorInterval,
 		metrics:                  cfg.Metrics,
 		queryCache:               make(map[string]embeddingCacheEntry),
-		queryCacheTTL:            queryCacheTTL,
-		queryCacheMax:            queryCacheMax,
+		queryCacheTTL:            resolved.queryCacheTTL,
+		queryCacheMax:            resolved.queryCacheMax,
 		store:                    cfg.Store,
 		userID:                   cfg.UserID,
-		sessionID:                sessionID,
-		persistDelay:             persistDelay,
+		sessionID:                resolved.sessionID,
+		persistDelay:             resolved.persistDelay,
 		magmaSink:                cfg.MagmaSink,
 		dirtyIDs:                 make(map[string]struct{}),
 		deletedIDs:               make(map[string]struct{}),
 		callbacks:                cfg.Callbacks,
 	}
+	em.loadPersistedEntries()
+	return em
+}
 
-	// If a store is provided, preload entries for the configured user.
-	// Note: systemUserID is 0 in agentd; we still want persistence for it.
-	if em.store != nil {
-		if entries, err := em.store.Load(context.Background(), em.userID, em.sessionID); err == nil && len(entries) > 0 {
-			// Respect maxSize by keeping only the newest maxSize entries.
-			if len(entries) > em.maxSize {
-				entries = entries[len(entries)-em.maxSize:]
+type resolvedEvolvingMemoryConfig struct {
+	topK                     int
+	windowSize               int
+	maxSize                  int
+	pruneThreshold           float64
+	relevanceDecay           float64
+	minRelevance             float64
+	rankingWeights           RankingWeights
+	mmrLambda                float64
+	queryCacheTTL            time.Duration
+	queryCacheMax            int
+	promotionAccessThreshold int
+	pruneQualityFloor        int
+	janitorInterval          time.Duration
+	sessionID                string
+	embedFn                  EmbedFunc
+	persistDelay             time.Duration
+}
+
+func resolveEvolvingMemoryConfig(cfg EvolvingMemoryConfig) resolvedEvolvingMemoryConfig {
+	return resolvedEvolvingMemoryConfig{
+		topK:                     defaultInt(cfg.TopK, 4),
+		windowSize:               defaultInt(cfg.WindowSize, 20),
+		maxSize:                  defaultInt(cfg.MaxSize, 1000),
+		pruneThreshold:           defaultFloat(cfg.PruneThreshold, 0.95),
+		relevanceDecay:           defaultFloat(cfg.RelevanceDecay, 0.99),
+		minRelevance:             defaultFloat(cfg.MinRelevance, 0.1),
+		rankingWeights:           normalizeRankingWeights(cfg.RankingWeights),
+		mmrLambda:                defaultUnitFloat(cfg.MMRLambda, 0.7),
+		queryCacheTTL:            defaultDuration(cfg.QueryEmbeddingCacheTTL, 5*time.Minute),
+		queryCacheMax:            defaultInt(cfg.QueryEmbeddingCacheSize, 128),
+		promotionAccessThreshold: defaultInt(cfg.PromotionAccessThreshold, defaultPromotionAccessThreshold),
+		pruneQualityFloor:        defaultInt(cfg.PruneQualityFloor, defaultPruneQualityFloor),
+		janitorInterval:          resolveJanitorInterval(cfg.JanitorInterval),
+		sessionID:                defaultString(strings.TrimSpace(cfg.SessionID), "default"),
+		embedFn:                  resolveEmbedFn(cfg.EmbedFn),
+		persistDelay:             defaultDuration(cfg.PersistDebounce, 250*time.Millisecond),
+	}
+}
+
+func defaultInt(value, fallback int) int {
+	if value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+func defaultFloat(value, fallback float64) float64 {
+	if value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+func defaultUnitFloat(value, fallback float64) float64 {
+	if value <= 0 || value > 1 {
+		return fallback
+	}
+	return value
+}
+
+func defaultDuration(value, fallback time.Duration) time.Duration {
+	if value <= 0 {
+		return fallback
+	}
+	return value
+}
+
+func defaultString(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func resolveJanitorInterval(value time.Duration) time.Duration {
+	if value < 0 {
+		return 0
+	}
+	if value == 0 {
+		return defaultMemoryJanitorInterval
+	}
+	return value
+}
+
+func resolveEmbedFn(embedFn EmbedFunc) EmbedFunc {
+	if embedFn == nil {
+		return embedding.EmbedText
+	}
+	return embedFn
+}
+
+func (em *EvolvingMemory) loadPersistedEntries() {
+	if em.store == nil {
+		return
+	}
+	entries, err := em.store.Load(context.Background(), em.userID, em.sessionID)
+	if err == nil && len(entries) > 0 {
+		em.entries = filterExpiredEntries(normalizeLoadedEntries(entries, em.maxSize), time.Now())
+	}
+	if em.janitorInterval > 0 {
+		em.startStoreJanitor(em.janitorInterval)
+	}
+}
+
+func normalizeLoadedEntries(entries []*MemoryEntry, maxSize int) []*MemoryEntry {
+	if len(entries) > maxSize {
+		entries = entries[len(entries)-maxSize:]
+	}
+	for _, entry := range entries {
+		if entry != nil {
+			entry.Embedding = normalizeVector(entry.Embedding)
+			if entry.Scope == "" {
+				entry.Scope = MemoryScopeSession
 			}
-			for _, entry := range entries {
-				if entry != nil {
-					entry.Embedding = normalizeVector(entry.Embedding)
-					if entry.Scope == "" {
-						entry.Scope = MemoryScopeSession
-					}
-				}
-			}
-			em.entries = filterExpiredEntries(entries, time.Now())
-		}
-		if janitorInterval > 0 {
-			em.startStoreJanitor(janitorInterval)
 		}
 	}
-
-	return em
+	return entries
 }
 
 // SetCallbacks sets (or clears) callbacks for observability.

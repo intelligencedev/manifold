@@ -87,14 +87,24 @@ RETURNING id, user_id, name, created_at, updated_at, revision, bytes, file_count
 	return s.scanProject(row)
 }
 
+type ProjectInsert struct {
+	UserID    int64
+	ProjectID string
+	Name      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	Bytes     int64
+	FileCount int
+}
+
 // InsertWithID inserts a project with a specific ID (used for migration).
 // This preserves existing project IDs when migrating from filesystem to database.
-func (s *pgProjectsStore) InsertWithID(ctx context.Context, userID int64, projectID, name string, createdAt, updatedAt time.Time, bytes int64, fileCount int) error {
+func (s *pgProjectsStore) InsertWithID(ctx context.Context, project ProjectInsert) error {
 	_, err := s.pool.Exec(ctx, `
 INSERT INTO projects (id, user_id, name, created_at, updated_at, revision, bytes, file_count, storage_backend)
 VALUES ($1, $2, $3, $4, $5, 1, $6, $7, 'filesystem')
 ON CONFLICT (id) DO NOTHING`,
-		projectID, userID, name, createdAt, updatedAt, bytes, fileCount)
+		project.ProjectID, project.UserID, project.Name, project.CreatedAt, project.UpdatedAt, project.Bytes, project.FileCount)
 	return err
 }
 
@@ -185,7 +195,6 @@ UPDATE projects SET bytes = $1, file_count = $2, updated_at = $3 WHERE id = $4`,
 }
 
 func (s *pgProjectsStore) Delete(ctx context.Context, userID int64, projectID string) error {
-	// Check ownership first
 	var owner int64
 	err := s.pool.QueryRow(ctx, "SELECT user_id FROM projects WHERE id = $1", projectID).Scan(&owner)
 	if err != nil {
@@ -202,8 +211,6 @@ func (s *pgProjectsStore) Delete(ctx context.Context, userID int64, projectID st
 	_, err = s.pool.Exec(ctx, "DELETE FROM projects WHERE id = $1", projectID)
 	return err
 }
-
-// --- File Index Operations ---
 
 func (s *pgProjectsStore) IndexFile(ctx context.Context, f persistence.ProjectFile) error {
 	now := time.Now().UTC()
@@ -229,7 +236,6 @@ DELETE FROM project_files WHERE project_id = $1 AND path = $2`,
 }
 
 func (s *pgProjectsStore) RemoveFileIndexPrefix(ctx context.Context, projectID, pathPrefix string) error {
-	// Remove exact path and all children
 	pattern := pathPrefix
 	if !strings.HasSuffix(pattern, "/") {
 		pattern += "/"
@@ -242,7 +248,6 @@ WHERE project_id = $1 AND (path = $2 OR path LIKE $3)`,
 }
 
 func (s *pgProjectsStore) ListFiles(ctx context.Context, projectID, dirPath string) ([]persistence.ProjectFile, error) {
-	// Normalize path
 	dirPath = normalizePath(dirPath)
 
 	// For root directory, match entries with no "/" in path
@@ -315,8 +320,6 @@ WHERE project_id = $1 AND path = $2`, projectID, filePath)
 	}
 	return f, nil
 }
-
-// --- Helpers ---
 
 func (s *pgProjectsStore) scanProject(row pgx.Row) (persistence.Project, error) {
 	var p persistence.Project

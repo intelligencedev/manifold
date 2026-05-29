@@ -105,14 +105,7 @@ func LocalTelemetryForWindow(userID int64, window time.Duration) (LocalTelemetry
 	}
 	now := time.Now()
 	cutoff := now.Add(-window)
-	snapshot := LocalTelemetrySnapshot{}
-	latencyCount := int64(0)
-	latencyTotal := time.Duration(0)
-	sizes := map[string]LocalTelemetrySize{}
-	prunedByReason := map[string]int64{}
-	evolvesByResult := map[string]int64{}
-	var earliest time.Time
-
+	agg := newLocalTelemetryAggregation()
 	for _, event := range localMemoryTelemetry.events {
 		if event.timestamp.Before(cutoff) {
 			continue
@@ -120,70 +113,100 @@ func LocalTelemetryForWindow(userID int64, window time.Duration) (LocalTelemetry
 		if userID != 0 && event.userID != 0 && event.userID != userID {
 			continue
 		}
-		if earliest.IsZero() || event.timestamp.Before(earliest) {
-			earliest = event.timestamp
-		}
-		switch event.kind {
-		case "search":
-			snapshot.Totals.Searches += event.count
-			snapshot.Totals.Hits += event.hits
-			latencyCount += event.count
-			latencyTotal += event.duration
-			sizes[fmt.Sprintf("%d:%s", event.userID, event.sessionID)] = LocalTelemetrySize{User: fmt.Sprint(event.userID), Session: event.sessionID, Size: event.size}
-		case "evolve":
-			snapshot.Totals.Evolves += event.count
-			if event.result == "error" {
-				snapshot.Totals.EvolveErrors += event.count
-			}
-			result := event.result
-			if result == "" {
-				result = "unknown"
-			}
-			evolvesByResult[result] += event.count
-			sizes[fmt.Sprintf("%d:%s", event.userID, event.sessionID)] = LocalTelemetrySize{User: fmt.Sprint(event.userID), Session: event.sessionID, Size: event.size}
-		case "smart_merge":
-			snapshot.Totals.SmartMerges += event.count
-		case "pruned":
-			snapshot.Totals.Pruned += event.count
-			reason := event.reason
-			if reason == "" {
-				reason = "unknown"
-			}
-			prunedByReason[reason] += event.count
-		}
+		agg.add(event)
 	}
-	if snapshot.Totals.Searches > 0 {
-		snapshot.Totals.AvgHitsPerSearch = float64(snapshot.Totals.Hits) / float64(snapshot.Totals.Searches)
-	}
-	if latencyCount > 0 {
-		snapshot.Latency.AvgMs = float64(latencyTotal.Milliseconds()) / float64(latencyCount)
-	}
-	for _, size := range sizes {
-		snapshot.Sizes = append(snapshot.Sizes, size)
-	}
-	sort.Slice(snapshot.Sizes, func(left, right int) bool {
-		return snapshot.Sizes[left].Size > snapshot.Sizes[right].Size
-	})
-	for reason, count := range prunedByReason {
-		snapshot.PrunedByReason = append(snapshot.PrunedByReason, LocalTelemetryReason{Reason: reason, Count: count})
-	}
-	sort.Slice(snapshot.PrunedByReason, func(left, right int) bool {
-		return snapshot.PrunedByReason[left].Count > snapshot.PrunedByReason[right].Count
-	})
-	for result, count := range evolvesByResult {
-		snapshot.EvolvesByResult = append(snapshot.EvolvesByResult, LocalTelemetryResult{Result: result, Count: count})
-	}
-	sort.Slice(snapshot.EvolvesByResult, func(left, right int) bool {
-		return snapshot.EvolvesByResult[left].Count > snapshot.EvolvesByResult[right].Count
-	})
-	if earliest.IsZero() {
+	snapshot := agg.snapshot()
+	if agg.earliest.IsZero() {
 		return snapshot, window
 	}
-	available := now.Sub(earliest)
+	available := now.Sub(agg.earliest)
 	if available < window {
 		return snapshot, available
 	}
 	return snapshot, window
+}
+
+type localTelemetryAggregation struct {
+	snap            LocalTelemetrySnapshot
+	latencyCount    int64
+	latencyTotal    time.Duration
+	sizes           map[string]LocalTelemetrySize
+	prunedByReason  map[string]int64
+	evolvesByResult map[string]int64
+	earliest        time.Time
+}
+
+func newLocalTelemetryAggregation() *localTelemetryAggregation {
+	return &localTelemetryAggregation{
+		sizes:           map[string]LocalTelemetrySize{},
+		prunedByReason:  map[string]int64{},
+		evolvesByResult: map[string]int64{},
+	}
+}
+
+func (a *localTelemetryAggregation) add(event localMemoryEvent) {
+	if a.earliest.IsZero() || event.timestamp.Before(a.earliest) {
+		a.earliest = event.timestamp
+	}
+	switch event.kind {
+	case "search":
+		a.snap.Totals.Searches += event.count
+		a.snap.Totals.Hits += event.hits
+		a.latencyCount += event.count
+		a.latencyTotal += event.duration
+		a.addSize(event)
+	case "evolve":
+		a.snap.Totals.Evolves += event.count
+		if event.result == "error" {
+			a.snap.Totals.EvolveErrors += event.count
+		}
+		a.evolvesByResult[valueOrUnknown(event.result)] += event.count
+		a.addSize(event)
+	case "smart_merge":
+		a.snap.Totals.SmartMerges += event.count
+	case "pruned":
+		a.snap.Totals.Pruned += event.count
+		a.prunedByReason[valueOrUnknown(event.reason)] += event.count
+	}
+}
+
+func (a *localTelemetryAggregation) addSize(event localMemoryEvent) {
+	a.sizes[fmt.Sprintf("%d:%s", event.userID, event.sessionID)] = LocalTelemetrySize{User: fmt.Sprint(event.userID), Session: event.sessionID, Size: event.size}
+}
+
+func (a *localTelemetryAggregation) snapshot() LocalTelemetrySnapshot {
+	if a.snap.Totals.Searches > 0 {
+		a.snap.Totals.AvgHitsPerSearch = float64(a.snap.Totals.Hits) / float64(a.snap.Totals.Searches)
+	}
+	if a.latencyCount > 0 {
+		a.snap.Latency.AvgMs = float64(a.latencyTotal.Milliseconds()) / float64(a.latencyCount)
+	}
+	for _, size := range a.sizes {
+		a.snap.Sizes = append(a.snap.Sizes, size)
+	}
+	sort.Slice(a.snap.Sizes, func(left, right int) bool {
+		return a.snap.Sizes[left].Size > a.snap.Sizes[right].Size
+	})
+	for reason, count := range a.prunedByReason {
+		a.snap.PrunedByReason = append(a.snap.PrunedByReason, LocalTelemetryReason{Reason: reason, Count: count})
+	}
+	sort.Slice(a.snap.PrunedByReason, func(left, right int) bool {
+		return a.snap.PrunedByReason[left].Count > a.snap.PrunedByReason[right].Count
+	})
+	for result, count := range a.evolvesByResult {
+		a.snap.EvolvesByResult = append(a.snap.EvolvesByResult, LocalTelemetryResult{Result: result, Count: count})
+	}
+	sort.Slice(a.snap.EvolvesByResult, func(left, right int) bool {
+		return a.snap.EvolvesByResult[left].Count > a.snap.EvolvesByResult[right].Count
+	})
+	return a.snap
+}
+
+func valueOrUnknown(value string) string {
+	if value == "" {
+		return "unknown"
+	}
+	return value
 }
 
 type MemoryMetrics struct {

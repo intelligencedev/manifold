@@ -206,7 +206,6 @@ func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.
 		defaultProvider = "openai"
 	}
 	baseModel, baseURL, baseKey, baseHeaders, baseParams := a.providerDefaults(defaultProvider)
-	// Start from global defaults
 	out := persist.Specialist{
 		ID:                         0,
 		UserID:                     userID,

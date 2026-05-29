@@ -15,13 +15,24 @@ func (a *app) constitutionVersionsHandler() http.HandlerFunc {
 		switch r.Method {
 		case http.MethodGet:
 			versions, err := a.constitutionSvc.List(r.Context())
-			if err != nil { writeError(w, http.StatusInternalServerError, err); return }
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err)
+				return
+			}
 			writeJSON(w, http.StatusOK, versions)
 		case http.MethodPost:
-			var body struct { Body string `json:"body"` }
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil { writeError(w, http.StatusBadRequest, err); return }
+			var body struct {
+				Body string `json:"body"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				writeError(w, http.StatusBadRequest, err)
+				return
+			}
 			version, err := a.constitutionSvc.Create(r.Context(), body.Body, systemUserID)
-			if err != nil { writeError(w, http.StatusInternalServerError, err); return }
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err)
+				return
+			}
 			writeJSON(w, http.StatusCreated, version)
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -46,7 +57,10 @@ func (a *app) constitutionVersionActionHandler() http.HandlerFunc {
 			return
 		}
 		version, err := a.constitutionSvc.Activate(r.Context(), parts[0])
-		if err != nil { writeError(w, http.StatusInternalServerError, err); return }
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
 		writeJSON(w, http.StatusOK, version)
 	}
 }

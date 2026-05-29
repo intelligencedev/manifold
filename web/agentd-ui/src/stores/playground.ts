@@ -362,8 +362,25 @@ export const usePlaygroundStore = defineStore("playground", () => {
   }
 
   function extractErr(err: unknown, fallback: string): string {
-    const anyErr = err as any;
-    return anyErr?.response?.data?.error || anyErr?.message || fallback;
+    if (!err || typeof err !== "object") {
+      return fallback;
+    }
+    const response = "response" in err ? err.response : undefined;
+    if (response && typeof response === "object" && "data" in response) {
+      const data = response.data;
+      if (
+        data &&
+        typeof data === "object" &&
+        "error" in data &&
+        typeof data.error === "string"
+      ) {
+        return data.error;
+      }
+    }
+    if ("message" in err && typeof err.message === "string") {
+      return err.message;
+    }
+    return fallback;
   }
 
   return {

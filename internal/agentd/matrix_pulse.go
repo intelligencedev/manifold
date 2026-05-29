@@ -161,7 +161,15 @@ func (r *pulseRuntime) runPulseTask(ctx context.Context, now time.Time, target s
 	if runErr != nil {
 		pulseErr = runErr.Error()
 	}
-	if err := r.store.CompleteRoomPulse(ctx, room.RoomID, room.RouteTarget, claimToken, time.Now().UTC(), result, pulseErr, []string{task.ID}); err != nil {
+	if err := r.store.CompleteRoomPulse(ctx, persistence.RoomPulseCompletion{
+		RoomID:      room.RoomID,
+		RouteTarget: room.RouteTarget,
+		Token:       claimToken,
+		CompletedAt: time.Now().UTC(),
+		Summary:     result,
+		Error:       pulseErr,
+		DueTaskIDs:  []string{task.ID},
+	}); err != nil {
 		log.Warn().Str("room_id", room.RoomID).Str("target", room.RouteTarget).Str("task_id", task.ID).Err(err).Msg("matrix_pulse_complete_failed")
 	}
 }

@@ -47,6 +47,18 @@ type Delegator struct {
 
 const defaultImagePromptSize = "1K"
 
+type delegateRunConfig struct {
+	dispatchCtx          context.Context
+	provider             llm.Provider
+	toolsReg             tools.Registry
+	system               string
+	model                string
+	imageGeneration      bool
+	inputRequestsEnabled bool
+	maxSteps             int
+	history              []llm.Message
+}
+
 func NewDelegator(reg tools.Registry, specReg *specialists.Registry, wsMgr workspaces.WorkspaceManager, defaultMaxSteps int) *Delegator {
 	return &Delegator{reg: reg, specReg: specReg, wsMgr: wsMgr, defaultSys: "You are a helpful assistant.", defaultMaxStep: defaultMaxSteps}
 }
@@ -102,104 +114,143 @@ func (d *Delegator) SetTeamDelegator(delegator agent.TeamDelegator) {
 }
 
 func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer agent.AgentTracer) (string, error) {
-	dispatchCtx := ctx
-	if pid := req.ProjectID; pid != "" && d.wsMgr != nil {
-		ws, err := d.wsMgr.Checkout(ctx, req.UserID, pid, "")
-		if err != nil {
-			return "", fmt.Errorf("workspace checkout failed: %w", err)
-		}
-		if ws.BaseDir != "" {
-			dispatchCtx = sandbox.WithBaseDir(dispatchCtx, ws.BaseDir)
-		}
+	dispatchCtx, err := d.dispatchContext(ctx, req)
+	if err != nil {
+		return "", err
 	}
-
-	var prov llm.Provider
-	var toolsReg tools.Registry
-	system := d.defaultSys
-	model := ""
-	imageGeneration := false
-
-	toolsReg = d.reg
-	inputRequestsEnabled := true
-
-	if req.AgentName != "" && d.specReg != nil {
-		if a, ok := d.specReg.Get(req.AgentName); ok && a != nil {
-			prov = a.Provider()
-			toolsReg = a.ToolsRegistry()
-			inputRequestsEnabled = a.EnableTools
-			imageGeneration = a.ImageGeneration
-			// The specialist's System field already has the default prompt prepended
-			// during registry initialization, so use it directly
-			system = a.System
-			model = a.Model
-			if a.EnableTools && toolsReg == nil {
-				toolsReg = tools.NewRegistry()
-			}
-		}
-	}
-	if prov == nil {
-		if p := tools.ProviderFromContext(dispatchCtx); p != nil {
-			prov = p
-		}
-	}
-	if prov == nil {
+	cfg, err := d.runConfig(dispatchCtx, req)
+	if err != nil {
 		return "", fmt.Errorf("no llm provider available for delegated agent")
 	}
-
-	maxSteps := req.MaxSteps
-	if maxSteps <= 0 {
-		maxSteps = d.defaultMaxStep
-		if maxSteps <= 0 {
-			maxSteps = 8
-		}
-	}
-	if req.EnableTools != nil && !*req.EnableTools {
-		toolsReg = tools.NewRegistry()
-		inputRequestsEnabled = false
-	} else if toolsReg == nil {
-		toolsReg = tools.NewRegistry()
-	}
-	if inputRequestsEnabled {
-		toolsReg = tools.NewOverlayRegistry(toolsReg, inputrequesttool.New())
-	}
-	if imageGeneration {
-		toolsReg = tools.NewRegistry()
-		system = ""
-		maxSteps = 1
-		req.History = nil
-	}
-
-	runCtx := dispatchCtx
-	if req.TimeoutSeconds > 0 {
-		var cancel context.CancelFunc
-		runCtx, cancel = context.WithTimeout(dispatchCtx, time.Duration(req.TimeoutSeconds)*time.Second)
-		defer cancel()
-	} else if _, has := dispatchCtx.Deadline(); !has && d.defaultTimeout > 0 {
-		var cancel context.CancelFunc
-		runCtx, cancel = context.WithTimeout(dispatchCtx, d.defaultTimeout)
+	runCtx, cancel := d.runContext(cfg.dispatchCtx, req)
+	if cancel != nil {
 		defer cancel()
 	}
-	if imageGeneration {
+	if cfg.imageGeneration {
 		runCtx = llm.WithImagePrompt(runCtx, llm.ImagePromptOptions{Size: defaultImagePromptSize})
 	}
 	runCtx = inputrequest.WithRunMetadata(runCtx, inputrequest.RunMetadata{
 		Agent:        req.AgentName,
-		Model:        model,
+		Model:        cfg.model,
 		CallID:       req.CallID,
 		ParentCallID: req.ParentCallID,
 		Depth:        req.Depth,
 	})
+	d.traceStart(tracer, req, cfg)
 
-	if tracer != nil {
-		tracer.Trace(agent.AgentTrace{Type: "agent_start", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Content: req.Prompt})
+	eng := d.newEngine(cfg, req, tracer)
+	d.configureRuntimeFeatures(eng, cfg, req)
+	d.attachTracer(eng, tracer, req, cfg.model)
+	eng.AttachTokenizer(cfg.provider, nil)
+
+	observability.LoggerWithTrace(ctx).Info().Str("agent_delegate", req.AgentName).Msg("delegated_agent_start")
+	out, err := eng.RunStream(runCtx, req.Prompt, cfg.history)
+	if err != nil {
+		d.traceError(tracer, req, cfg.model, err)
+		return "", err
 	}
+	d.traceFinal(tracer, req, cfg.model, out)
+	return out, nil
+}
 
+func (d *Delegator) dispatchContext(ctx context.Context, req agent.DelegateRequest) (context.Context, error) {
+	if req.ProjectID == "" || d.wsMgr == nil {
+		return ctx, nil
+	}
+	ws, err := d.wsMgr.Checkout(ctx, req.UserID, req.ProjectID, "")
+	if err != nil {
+		return ctx, fmt.Errorf("workspace checkout failed: %w", err)
+	}
+	if ws.BaseDir == "" {
+		return ctx, nil
+	}
+	return sandbox.WithBaseDir(ctx, ws.BaseDir), nil
+}
+
+func (d *Delegator) runConfig(dispatchCtx context.Context, req agent.DelegateRequest) (delegateRunConfig, error) {
+	cfg := delegateRunConfig{
+		dispatchCtx:          dispatchCtx,
+		toolsReg:             d.reg,
+		system:               d.defaultSys,
+		inputRequestsEnabled: true,
+		maxSteps:             d.maxSteps(req.MaxSteps),
+		history:              req.History,
+	}
+	d.applySpecialistConfig(&cfg, req.AgentName)
+	if cfg.provider == nil {
+		cfg.provider = tools.ProviderFromContext(dispatchCtx)
+	}
+	if cfg.provider == nil {
+		return cfg, fmt.Errorf("missing provider")
+	}
+	d.applyToolPolicy(&cfg, req)
+	return cfg, nil
+}
+
+func (d *Delegator) applySpecialistConfig(cfg *delegateRunConfig, agentName string) {
+	if agentName == "" || d.specReg == nil {
+		return
+	}
+	a, ok := d.specReg.Get(agentName)
+	if !ok || a == nil {
+		return
+	}
+	cfg.provider = a.Provider()
+	cfg.toolsReg = a.ToolsRegistry()
+	cfg.inputRequestsEnabled = a.EnableTools
+	cfg.imageGeneration = a.ImageGeneration
+	cfg.system = a.System
+	cfg.model = a.Model
+	if a.EnableTools && cfg.toolsReg == nil {
+		cfg.toolsReg = tools.NewRegistry()
+	}
+}
+
+func (d *Delegator) maxSteps(requested int) int {
+	if requested > 0 {
+		return requested
+	}
+	if d.defaultMaxStep > 0 {
+		return d.defaultMaxStep
+	}
+	return 8
+}
+
+func (d *Delegator) applyToolPolicy(cfg *delegateRunConfig, req agent.DelegateRequest) {
+	if req.EnableTools != nil && !*req.EnableTools {
+		cfg.toolsReg = tools.NewRegistry()
+		cfg.inputRequestsEnabled = false
+	} else if cfg.toolsReg == nil {
+		cfg.toolsReg = tools.NewRegistry()
+	}
+	if cfg.inputRequestsEnabled {
+		cfg.toolsReg = tools.NewOverlayRegistry(cfg.toolsReg, inputrequesttool.New())
+	}
+	if cfg.imageGeneration {
+		cfg.toolsReg = tools.NewRegistry()
+		cfg.system = ""
+		cfg.maxSteps = 1
+		cfg.history = nil
+	}
+}
+
+func (d *Delegator) runContext(dispatchCtx context.Context, req agent.DelegateRequest) (context.Context, context.CancelFunc) {
+	if req.TimeoutSeconds > 0 {
+		return context.WithTimeout(dispatchCtx, time.Duration(req.TimeoutSeconds)*time.Second)
+	}
+	if _, has := dispatchCtx.Deadline(); !has && d.defaultTimeout > 0 {
+		return context.WithTimeout(dispatchCtx, d.defaultTimeout)
+	}
+	return dispatchCtx, nil
+}
+
+func (d *Delegator) newEngine(cfg delegateRunConfig, req agent.DelegateRequest, tracer agent.AgentTracer) *agent.Engine {
 	eng := &agent.Engine{
-		LLM:                       prov,
-		Tools:                     toolsReg,
-		MaxSteps:                  maxSteps,
-		System:                    prompts.EnsureMemoryInstructions(system),
-		Model:                     model,
+		LLM:                       cfg.provider,
+		Tools:                     cfg.toolsReg,
+		MaxSteps:                  cfg.maxSteps,
+		System:                    prompts.EnsureMemoryInstructions(cfg.system),
+		Model:                     cfg.model,
 		SessionID:                 req.SessionID,
 		ProjectID:                 req.ProjectID,
 		ObjectiveID:               req.ObjectiveID,
@@ -221,6 +272,10 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 		AgentTracer:               tracer,
 		AgentDepth:                req.Depth,
 	}
+	return eng
+}
+
+func (d *Delegator) configureRuntimeFeatures(eng *agent.Engine, cfg delegateRunConfig, req agent.DelegateRequest) {
 	if req.DisableBeliefMemory {
 		eng.BeliefStore = nil
 		eng.BeliefDistiller = nil
@@ -231,7 +286,7 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 	if req.DisableEvolvingMemory {
 		eng.EvolvingMemory = nil
 	}
-	if imageGeneration {
+	if cfg.imageGeneration {
 		eng.System = ""
 		eng.UserPromptContext = ""
 		eng.EvolvingMemory = nil
@@ -247,7 +302,7 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 		eng.SummaryEnabled = false
 		eng.SkipInitialSummarization = true
 	}
-	if !imageGeneration && !req.DisableEvolvingMemory && d.evolvingMemory != nil && d.reMemLLM != nil {
+	if !cfg.imageGeneration && !req.DisableEvolvingMemory && d.evolvingMemory != nil && d.reMemLLM != nil {
 		eng.ReMemEnabled = true
 		eng.ReMemController = memory.NewReMemController(memory.ReMemConfig{
 			LLM:           d.reMemLLM,
@@ -256,8 +311,9 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 			MaxInnerSteps: d.reMemMaxSteps,
 		})
 	}
-	eng.AttachTokenizer(prov, nil)
+}
 
+func (d *Delegator) attachTracer(eng *agent.Engine, tracer agent.AgentTracer, req agent.DelegateRequest, model string) {
 	if tracer != nil {
 		eng.OnDelta = func(delta string) {
 			if delta == "" {
@@ -278,18 +334,25 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 			tracer.Trace(agent.AgentTrace{Type: "agent_thought_summary", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, ThoughtSummary: summary})
 		}
 	}
+}
 
-	observability.LoggerWithTrace(ctx).Info().Str("agent_delegate", req.AgentName).Msg("delegated_agent_start")
-	// Use RunStream instead of Run to enable streaming callbacks (OnDelta, OnThoughtSummary, etc.)
-	out, err := eng.RunStream(runCtx, req.Prompt, req.History)
-	if err != nil {
-		if tracer != nil {
-			tracer.Trace(agent.AgentTrace{Type: "agent_error", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Error: err.Error()})
-		}
-		return "", err
+func (d *Delegator) traceStart(tracer agent.AgentTracer, req agent.DelegateRequest, cfg delegateRunConfig) {
+	if tracer == nil {
+		return
 	}
-	if tracer != nil {
-		tracer.Trace(agent.AgentTrace{Type: "agent_final", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Content: out})
+	tracer.Trace(agent.AgentTrace{Type: "agent_start", Agent: req.AgentName, Model: cfg.model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Content: req.Prompt})
+}
+
+func (d *Delegator) traceError(tracer agent.AgentTracer, req agent.DelegateRequest, model string, err error) {
+	if tracer == nil {
+		return
 	}
-	return out, nil
+	tracer.Trace(agent.AgentTrace{Type: "agent_error", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Error: err.Error()})
+}
+
+func (d *Delegator) traceFinal(tracer agent.AgentTracer, req agent.DelegateRequest, model, out string) {
+	if tracer == nil {
+		return
+	}
+	tracer.Trace(agent.AgentTrace{Type: "agent_final", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Content: out})
 }

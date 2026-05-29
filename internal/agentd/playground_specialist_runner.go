@@ -72,7 +72,13 @@ func (r *playgroundSpecialistRunner) RunTask(ctx context.Context, task worker.Ta
 		defer r.app.commitWorkspace(runCtx, workspace)
 	}
 
-	build := r.app.buildSpecialistChatEngine(runCtx, execution.SpecialistName, "", sessionID, task.ProjectID, "", ownerID)
+	build := r.app.buildSpecialistChatEngine(runCtx, chatEngineBuildRequest{
+		Name:           execution.SpecialistName,
+		SessionID:      sessionID,
+		ProjectID:      task.ProjectID,
+		Owner:          ownerID,
+		MemorySettings: defaultChatMemoryRunSettings(),
+	})
 	if build.Err != nil {
 		return provider.Response{}, build.Err
 	}
@@ -80,9 +86,15 @@ func (r *playgroundSpecialistRunner) RunTask(ctx context.Context, task worker.Ta
 	if build.Engine == nil {
 		return provider.Response{}, fmt.Errorf("playground specialist %q did not produce an engine", execution.SpecialistName)
 	}
-	configureFleetCallbacks(r.app, build.Engine, task.RunID, sessionID, task.ProjectID, "", &ownerID)
+	configureFleetCallbacks(r.app, build.Engine, fleetCallbackRequest{
+		RunID:     task.RunID,
+		SessionID: sessionID,
+		ProjectID: task.ProjectID,
+		UserID:    &ownerID,
+	})
 
-	runCtx, cancel, _ := withMaybeTimeout(runCtx, r.app.cfg.AgentRunTimeoutSeconds)
+	runCtx, cancel, timeout := withMaybeTimeout(runCtx, r.app.cfg.AgentRunTimeoutSeconds)
+	_ = timeout
 	defer cancel()
 
 	started := time.Now()

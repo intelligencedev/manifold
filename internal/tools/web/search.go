@@ -64,7 +64,6 @@ func newTokenBucket(capacity int, refillRate time.Duration) *tokenBucket {
 }
 
 // takeToken attempts to take a token from the bucket
-// Returns true if successful, false if rate limited
 func (tb *tokenBucket) takeToken() bool {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
@@ -344,7 +343,6 @@ func (t *tool) searchSearXNGHTML(ctx context.Context, query string, max int, cat
 		}
 		seen[urlStr] = struct{}{}
 
-		// Extract a simple title from the URL for now
 		title := urlStr
 		if u, err := url.Parse(urlStr); err == nil && u.Host != "" {
 			title = u.Host + u.Path

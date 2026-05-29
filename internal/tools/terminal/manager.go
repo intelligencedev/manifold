@@ -12,8 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
-
 	"manifold/internal/config"
 	"manifold/internal/sandbox"
 )
@@ -214,36 +212,9 @@ func normalizeCommandArgs(command string, args []string) (string, []string) {
 }
 
 func (m *Manager) Start(ctx context.Context, req StartRequest) (StartResult, error) {
-	command, args := normalizeCommandArgs(req.Command, req.Args)
-	if command == "" {
-		return StartResult{}, errors.New("command is required")
-	}
-	if sandbox.IsBinaryBlocked(command, m.blocked) {
-		return StartResult{}, fmt.Errorf("binary is blocked or invalid: %q", command)
-	}
-	base, scopeKey, err := m.scope(ctx)
+	prepared, err := m.prepareStart(ctx, req)
 	if err != nil {
 		return StartResult{}, err
-	}
-	safeArgs := make([]string, 0, len(args))
-	for _, arg := range args {
-		safeArg, err := sandbox.SanitizeArg(base, arg)
-		if err != nil {
-			return StartResult{}, err
-		}
-		safeArgs = append(safeArgs, safeArg)
-	}
-
-	timeout := time.Duration(req.TimeoutSeconds) * time.Second
-	if timeout <= 0 || timeout > m.maxRuntime {
-		timeout = m.maxRuntime
-	}
-	rows, cols := req.Rows, req.Cols
-	if rows <= 0 {
-		rows = 24
-	}
-	if cols <= 0 {
-		cols = 80
 	}
 
 	now := time.Now().UTC()
@@ -253,62 +224,28 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) (StartResult, err
 		return StartResult{}, errors.New("terminal manager is closed")
 	}
 	m.purgeExpiredLocked(now)
-	if m.runningCountLocked(scopeKey) >= m.maxSessions {
+	if m.runningCountLocked(prepared.scopeKey) >= m.maxSessions {
 		m.mu.Unlock()
 		return StartResult{}, errors.New("terminal session limit reached")
 	}
 
-	cmd := exec.Command(command, safeArgs...)
-	cmd.Dir = base
-	cmd.Env = os.Environ()
-	tty, err := startProcessPTY(cmd, rows, cols)
+	session, err := m.startSessionLocked(prepared, req, now)
 	if err != nil {
 		m.mu.Unlock()
 		return StartResult{}, err
 	}
-	id := uuid.NewString()
-	s := &session{
-		id:        id,
-		name:      strings.TrimSpace(req.Name),
-		scopeKey:  scopeKey,
-		cwd:       base,
-		command:   command,
-		args:      append([]string(nil), safeArgs...),
-		cmd:       cmd,
-		pty:       tty,
-		pid:       cmd.Process.Pid,
-		startedAt: now,
-		lastUsed:  now,
-		buffer:    newOutputBuffer(m.bufferBytes),
-		done:      make(chan struct{}),
-	}
-	m.sessions[id] = s
+	m.sessions[session.id] = session
 	m.mu.Unlock()
 
 	if req.Stdin != "" {
-		_, _ = tty.Write([]byte(req.Stdin))
+		_, _ = session.pty.Write([]byte(req.Stdin))
 	}
-	m.watchSession(s, timeout)
+	m.watchSession(session, prepared.timeout)
 	select {
-	case <-s.done:
+	case <-session.done:
 	case <-time.After(defaultInitialOutputWait):
 	}
-	snap := s.snapshot(0, m.bufferBytes)
-	return StartResult{
-		OK:         true,
-		TerminalID: id,
-		Name:       s.name,
-		PID:        s.pid,
-		CWD:        s.cwd,
-		Command:    s.command,
-		Args:       append([]string(nil), s.args...),
-		StartedAt:  s.startedAt,
-		Running:    s.isRunning(),
-		Output:     snap.Output,
-		Chunks:     snap.Chunks,
-		NextSeq:    snap.NextSeq,
-		Truncated:  snap.Truncated,
-	}, nil
+	return m.startResult(session), nil
 }
 
 func (m *Manager) Read(ctx context.Context, req ReadRequest) (ReadResult, error) {

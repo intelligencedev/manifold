@@ -76,11 +76,11 @@ func (s *pgChatStore) DeleteMessage(ctx context.Context, userID *int64, sessionI
 	return tx.Commit(ctx)
 }
 
-func (s *pgChatStore) DeleteMessagesAfterWithRelated(ctx context.Context, userID *int64, sessionID string, messageID string, inclusive bool, relatedMessageIDs []string, resetSummary bool) error {
-	if strings.TrimSpace(messageID) == "" {
+func (s *pgChatStore) DeleteMessagesAfterWithRelated(ctx context.Context, req persistence.ChatDeleteAfterRequest) error {
+	if strings.TrimSpace(req.MessageID) == "" {
 		return persistence.ErrNotFound
 	}
-	if _, err := s.GetSession(ctx, userID, sessionID); err != nil {
+	if _, err := s.GetSession(ctx, req.UserID, req.SessionID); err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -92,13 +92,13 @@ func (s *pgChatStore) DeleteMessagesAfterWithRelated(ctx context.Context, userID
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if err := s.deleteMessagesAfterTx(ctx, tx, sessionID, messageID, inclusive); err != nil {
+	if err := s.deleteMessagesAfterTx(ctx, tx, req.SessionID, req.MessageID, req.Inclusive); err != nil {
 		return err
 	}
-	if err := s.deleteRelatedMessagesTx(ctx, tx, sessionID, relatedMessageIDs); err != nil {
+	if err := s.deleteRelatedMessagesTx(ctx, tx, req.SessionID, req.RelatedMessageIDs); err != nil {
 		return err
 	}
-	if err := s.finalizeChatDeleteTx(ctx, tx, userID, sessionID, resetSummary); err != nil {
+	if err := s.finalizeChatDeleteTx(ctx, tx, req.UserID, req.SessionID, req.ResetSummary); err != nil {
 		return err
 	}
 

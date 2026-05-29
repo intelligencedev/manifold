@@ -87,7 +87,6 @@ func simpleSnippet(text, query string) string {
 		}
 		return text
 	}
-	// build a window around idx
 	start := max(idx-60, 0)
 	end := min(start+160, len(text))
 	return text[start:end]

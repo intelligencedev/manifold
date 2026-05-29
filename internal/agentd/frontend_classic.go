@@ -1,5 +1,3 @@
-//go:build !cockpit
-
 package agentd
 
 import "manifold/internal/webui"

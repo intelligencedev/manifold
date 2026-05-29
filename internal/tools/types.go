@@ -232,7 +232,6 @@ func (r *defaultRegistry) Dispatch(ctx context.Context, name string, raw json.Ra
 	}
 	val, err := t.Call(ctx, raw)
 	if err != nil {
-		// return structured error payload
 		b, _ := json.Marshal(map[string]any{"ok": false, "error": err.Error()})
 		observability.LoggerWithTrace(ctx).Error().Str("tool", name).Err(err).Msg("tool_error")
 		return b, nil

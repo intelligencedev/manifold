@@ -12,7 +12,12 @@ import (
 // UpsertChunkEmbeddings embeds chunk texts and upserts vectors into the vector store.
 // It returns the number of upserts performed. Metadata includes doc_id, tenant, lang,
 // model, and version.
-func UpsertChunkEmbeddings(ctx context.Context, vec databases.VectorStore, emb embedder.Embedder, docID string, lang string, chunks []ChunkRecord, in IngestRequest, version int) (int, error) {
+func UpsertChunkEmbeddings(ctx context.Context, vec databases.VectorStore, emb embedder.Embedder, req ChunkIndexRequest) (int, error) {
+	docID := req.DocID
+	lang := req.Lang
+	chunks := req.Chunks
+	in := req.Input
+	version := req.Version
 	if vec == nil || emb == nil || len(chunks) == 0 {
 		return 0, nil
 	}

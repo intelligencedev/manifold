@@ -41,7 +41,6 @@ func (e *Engine) countTokens(ctx context.Context, text string) int {
 				Msg("tokenization_failed_using_heuristic")
 			return llm.EstimateTokens(text)
 		}
-		// Return heuristic anyway if we can't tokenize
 		return llm.EstimateTokens(text)
 	}
 	return count
@@ -61,7 +60,6 @@ func (e *Engine) countMessagesTokens(ctx context.Context, msgs []llm.Message) in
 				Msg("tokenization_failed_using_heuristic")
 			return llm.EstimateTokensForMessages(msgs)
 		}
-		// Return heuristic anyway if we can't tokenize
 		return llm.EstimateTokensForMessages(msgs)
 	}
 	return count

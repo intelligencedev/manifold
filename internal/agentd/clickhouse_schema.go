@@ -54,13 +54,11 @@ func ensureClickHouseTables(ctx context.Context, cfg config.ClickHouseConfig) er
 	ctxTimeout, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Ensure database exists
 	dbName := opts.Auth.Database
 	if err := conn.Exec(ctxTimeout, fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", dbName)); err != nil {
 		return fmt.Errorf("create database %s: %w", dbName, err)
 	}
 
-	// Get table names from config with defaults
 	metricsTable := strings.TrimSpace(cfg.MetricsTable)
 	if metricsTable == "" {
 		metricsTable = "metrics"
@@ -74,7 +72,6 @@ func ensureClickHouseTables(ctx context.Context, cfg config.ClickHouseConfig) er
 		logsTable = "logs"
 	}
 
-	// Create tables if they don't exist
 	if err := createMetricsTableIfNotExists(ctxTimeout, conn, dbName, metricsTable); err != nil {
 		log.Warn().Err(err).Msgf("failed to create metrics table %s", metricsTable)
 	}

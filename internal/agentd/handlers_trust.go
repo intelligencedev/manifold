@@ -17,7 +17,10 @@ func (a *app) trustBudgetsHandler() http.HandlerFunc {
 		switch r.Method {
 		case http.MethodGet:
 			budgets, err := a.trustService.List(r.Context())
-			if err != nil { writeError(w, http.StatusInternalServerError, err); return }
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err)
+				return
+			}
 			writeJSON(w, http.StatusOK, budgets)
 		case http.MethodPost:
 			http.Error(w, "use refill or spend endpoints", http.StatusBadRequest)
@@ -65,7 +68,10 @@ func (a *app) trustBudgetActionHandler() http.HandlerFunc {
 			http.NotFound(w, r)
 			return
 		}
-		if err != nil { writeError(w, http.StatusInternalServerError, err); return }
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err)
+			return
+		}
 		writeJSON(w, http.StatusOK, resp)
 	}
 }

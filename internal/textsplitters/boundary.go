@@ -74,7 +74,6 @@ func clipOverlapTail(chunk string, want int, unit Unit, tok Tokenizer) string {
 	if want >= n {
 		return chunk
 	}
-	// get byte index where last want runes start
 	// compute forward to reduce complexity
 	var idxs []int
 	idxs = make([]int, 0, n+1)

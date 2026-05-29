@@ -255,7 +255,11 @@ func buildIntervalStatus(now time.Time, roomEnabled bool, task persistence.Pulse
 }
 
 func buildDailyTimeStatus(now time.Time, roomEnabled bool, task persistence.PulseTask, status TaskStatus) TaskStatus {
-	hour, minute, _ := parseSpecificTime(task.SpecificTime)
+	hour, minute, err := parseSpecificTime(task.SpecificTime)
+	if err != nil {
+		hour = 9
+		minute = 0
+	}
 	localNow := now.Local()
 	scheduledToday := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), hour, minute, 0, 0, time.Local)
 	next := scheduledToday

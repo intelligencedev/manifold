@@ -143,6 +143,21 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 		return fmt.Errorf("rerankBaseUrl is required when rerankEnabled is true")
 	}
 
+	applySummarySettings(cfg, settings)
+	applyEmbeddingSettings(cfg, settings)
+	applyRerankSettings(cfg, settings)
+	applyTimeoutSettings(cfg, settings)
+	if err := applyExecSettings(cfg, settings); err != nil {
+		return err
+	}
+	applyObservabilitySettings(cfg, settings)
+	applyLogSettings(cfg, settings)
+	applyWebSettings(cfg, settings)
+	applyDatabaseSettings(cfg, settings)
+	return nil
+}
+
+func applySummarySettings(cfg *config.Config, settings agentdSettings) {
 	if settings.SummaryProvider != "" {
 		cfg.Summary.LLMClient.Provider = settings.SummaryProvider
 	}
@@ -166,7 +181,9 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 		cfg.SummaryReserveBufferTokens = settings.SummaryReserveBufferTokens
 		cfg.Summary.ReserveBufferTokens = settings.SummaryReserveBufferTokens
 	}
+}
 
+func applyEmbeddingSettings(cfg *config.Config, settings agentdSettings) {
 	if settings.EmbedBaseURL != "" {
 		cfg.Embedding.BaseURL = settings.EmbedBaseURL
 	}
@@ -195,7 +212,9 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	cfg.Embedding.Instructions.RAGQuery = settings.EmbedRAGQueryInstruction
 	cfg.Embedding.Instructions.EvolvingMemoryQuery = settings.EmbedEvolvingMemoryQueryInstruction
 	cfg.Embedding.Instructions.TransitQuery = settings.EmbedTransitQueryInstruction
+}
 
+func applyRerankSettings(cfg *config.Config, settings agentdSettings) {
 	cfg.Reranking.Enabled = settings.RerankEnabled
 	if settings.RerankBaseURL != "" {
 		cfg.Reranking.BaseURL = settings.RerankBaseURL
@@ -216,7 +235,9 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	if settings.RerankPath != "" {
 		cfg.Reranking.Path = settings.RerankPath
 	}
+}
 
+func applyTimeoutSettings(cfg *config.Config, settings agentdSettings) {
 	if settings.AgentRunTimeoutSeconds != 0 {
 		cfg.AgentRunTimeoutSeconds = settings.AgentRunTimeoutSeconds
 	}
@@ -226,7 +247,9 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	if settings.WorkflowTimeoutSeconds != 0 {
 		cfg.WorkflowTimeoutSeconds = settings.WorkflowTimeoutSeconds
 	}
+}
 
+func applyExecSettings(cfg *config.Config, settings agentdSettings) error {
 	if settings.BlockBinaries != "" {
 		binaries, err := parseBlockBinaries(settings.BlockBinaries)
 		if err != nil {
@@ -252,7 +275,10 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	if settings.TerminalOutputBufferBytes != 0 {
 		cfg.Exec.TerminalOutputBufferBytes = settings.TerminalOutputBufferBytes
 	}
+	return nil
+}
 
+func applyObservabilitySettings(cfg *config.Config, settings agentdSettings) {
 	if settings.OTELServiceName != "" {
 		cfg.Obs.ServiceName = settings.OTELServiceName
 	}
@@ -265,7 +291,9 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	if settings.OTLPEndpoint != "" {
 		cfg.Obs.OTLP = settings.OTLPEndpoint
 	}
+}
 
+func applyLogSettings(cfg *config.Config, settings agentdSettings) {
 	if settings.LogPath != "" {
 		cfg.LogPath = settings.LogPath
 	}
@@ -274,11 +302,15 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	}
 	cfg.LogPayloads = settings.LogPayloads
 	cfg.LogRawPrompts = settings.LogRawPrompts
+}
 
+func applyWebSettings(cfg *config.Config, settings agentdSettings) {
 	if settings.WebSearXNGURL != "" {
 		cfg.Web.SearXNGURL = settings.WebSearXNGURL
 	}
+}
 
+func applyDatabaseSettings(cfg *config.Config, settings agentdSettings) {
 	if settings.PostgresDSN != "" {
 		cfg.Databases.DefaultDSN = settings.PostgresDSN
 	}
@@ -312,8 +344,6 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	if settings.GraphDSN != "" {
 		cfg.Databases.Graph.DSN = settings.GraphDSN
 	}
-
-	return nil
 }
 
 func validateEmbeddingInstructionSettings(settings agentdSettings) error {
@@ -351,6 +381,18 @@ func persistToConfigYAML(settings agentdSettings) error {
 func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	settings = normalizeAgentdSettings(settings)
 
+	applySummarySettingsYAML(root, settings)
+	applyEmbeddingSettingsYAML(root, settings)
+	applyRerankSettingsYAML(root, settings)
+	applyTimeoutSettingsYAML(root, settings)
+	applyExecSettingsYAML(root, settings)
+	applyObservabilitySettingsYAML(root, settings)
+	applyLogSettingsYAML(root, settings)
+	applyWebSettingsYAML(root, settings)
+	applyDatabaseSettingsYAML(root, settings)
+}
+
+func applySummarySettingsYAML(root map[string]any, settings agentdSettings) {
 	setNestedMapValue(root, []string{"summaryEnabled"}, settings.SummaryEnabled)
 	setNestedMapValue(root, []string{"summary", "enabled"}, settings.SummaryEnabled)
 	if settings.SummaryPlainTextContextWindowTokens != 0 {
@@ -373,7 +415,9 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	if summaryURL != "" {
 		setNestedMapValue(root, []string{"summary", "llm_client", "openai", "baseURL"}, summaryURL)
 	}
+}
 
+func applyEmbeddingSettingsYAML(root map[string]any, settings agentdSettings) {
 	if settings.EmbedBaseURL != "" {
 		setNestedMapValue(root, []string{"embedding", "baseURL"}, settings.EmbedBaseURL)
 	}
@@ -402,7 +446,9 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	setNestedMapValue(root, []string{"embedding", "instructions", "ragQuery"}, settings.EmbedRAGQueryInstruction)
 	setNestedMapValue(root, []string{"embedding", "instructions", "evolvingMemoryQuery"}, settings.EmbedEvolvingMemoryQueryInstruction)
 	setNestedMapValue(root, []string{"embedding", "instructions", "transitQuery"}, settings.EmbedTransitQueryInstruction)
+}
 
+func applyRerankSettingsYAML(root map[string]any, settings agentdSettings) {
 	setNestedMapValue(root, []string{"reranking", "enabled"}, settings.RerankEnabled)
 	if settings.RerankBaseURL != "" {
 		setNestedMapValue(root, []string{"reranking", "baseURL"}, settings.RerankBaseURL)
@@ -423,7 +469,9 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	if len(settings.RerankAPIHeaders) > 0 {
 		setNestedMapValue(root, []string{"reranking", "headers"}, settings.RerankAPIHeaders)
 	}
+}
 
+func applyTimeoutSettingsYAML(root map[string]any, settings agentdSettings) {
 	if settings.AgentRunTimeoutSeconds != 0 {
 		setNestedMapValue(root, []string{"agentRunTimeoutSeconds"}, settings.AgentRunTimeoutSeconds)
 	}
@@ -433,7 +481,9 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	if settings.WorkflowTimeoutSeconds != 0 {
 		setNestedMapValue(root, []string{"workflowTimeoutSeconds"}, settings.WorkflowTimeoutSeconds)
 	}
+}
 
+func applyExecSettingsYAML(root map[string]any, settings agentdSettings) {
 	if settings.BlockBinaries != "" {
 		parts, err := parseBlockBinaries(settings.BlockBinaries)
 		if err == nil {
@@ -458,7 +508,9 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	if settings.TerminalOutputBufferBytes != 0 {
 		setNestedMapValue(root, []string{"exec", "terminalOutputBufferBytes"}, settings.TerminalOutputBufferBytes)
 	}
+}
 
+func applyObservabilitySettingsYAML(root map[string]any, settings agentdSettings) {
 	if settings.OTELServiceName != "" {
 		setNestedMapValue(root, []string{"obs", "serviceName"}, settings.OTELServiceName)
 	}
@@ -471,7 +523,9 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	if settings.OTLPEndpoint != "" {
 		setNestedMapValue(root, []string{"obs", "otlp"}, settings.OTLPEndpoint)
 	}
+}
 
+func applyLogSettingsYAML(root map[string]any, settings agentdSettings) {
 	setNestedMapValue(root, []string{"logPayloads"}, settings.LogPayloads)
 	setNestedMapValue(root, []string{"logRawPrompts"}, settings.LogRawPrompts)
 	if settings.LogPath != "" {
@@ -480,11 +534,15 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	if settings.LogLevel != "" {
 		setNestedMapValue(root, []string{"logLevel"}, settings.LogLevel)
 	}
+}
 
+func applyWebSettingsYAML(root map[string]any, settings agentdSettings) {
 	if settings.WebSearXNGURL != "" {
 		setNestedMapValue(root, []string{"web", "searXNGURL"}, settings.WebSearXNGURL)
 	}
+}
 
+func applyDatabaseSettingsYAML(root map[string]any, settings agentdSettings) {
 	if settings.PostgresDSN != "" {
 		setNestedMapValue(root, []string{"databases", "defaultDSN"}, settings.PostgresDSN)
 	}

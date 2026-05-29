@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"net/http"
 	"sort"
 	"strings"
@@ -12,8 +11,9 @@ import (
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
-	"github.com/anthropics/anthropic-sdk-go/shared/constant"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"go.opentelemetry.io/otel/trace"
 
 	"manifold/internal/config"
 	"manifold/internal/llm"
@@ -174,12 +174,51 @@ func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Messag
 	if err != nil {
 		return llm.Message{}, err
 	}
-
 	toolDefs, err := adaptTools(tools, c.cacheCfg)
 	if err != nil {
 		return llm.Message{}, err
 	}
+	converted = appendImageBlocksToMessages(converted, images)
+	params := c.newMessageParams(model, converted, sys, toolDefs)
 
+	ctx, span := llm.StartRequestSpan(ctx, "Anthropic ChatWithImageAttachments", string(params.Model), len(tools), len(msgs))
+	defer span.End()
+	llm.LogRedactedPrompt(ctx, msgs)
+	logger := observability.LoggerWithTrace(ctx)
+
+	result, err := c.runImageChatStream(ctx, params)
+	if err != nil {
+		span.RecordError(err)
+		logger.Error().Err(err).Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", result.duration).Msg("anthropic_chat_with_images_error")
+		return llm.Message{}, err
+	}
+	out := imageChatMessageFromResult(result)
+	llm.LogRedactedResponse(ctx, result.message)
+	recordAnthropicUsage(ctx, span, string(params.Model), result.usage)
+	logAnthropicImageChatOK(logger, string(params.Model), len(tools), result)
+	return out, nil
+}
+
+func appendImageBlocksToMessages(converted []anthropic.MessageParam, images []ImageAttachment) []anthropic.MessageParam {
+	imageBlocks := imageContentBlocks(images)
+	if len(imageBlocks) == 0 {
+		return converted
+	}
+	lastUserIdx := -1
+	for i := len(converted) - 1; i >= 0; i-- {
+		if converted[i].Role == anthropic.MessageParamRoleUser {
+			lastUserIdx = i
+			break
+		}
+	}
+	if lastUserIdx >= 0 {
+		converted[lastUserIdx].Content = append(converted[lastUserIdx].Content, imageBlocks...)
+		return converted
+	}
+	return append(converted, anthropic.NewUserMessage(imageBlocks...))
+}
+
+func imageContentBlocks(images []ImageAttachment) []anthropic.ContentBlockParamUnion {
 	imageBlocks := make([]anthropic.ContentBlockParamUnion, 0, len(images))
 	for _, img := range images {
 		mime := strings.ToLower(strings.TrimSpace(img.MimeType))
@@ -191,22 +230,15 @@ func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Messag
 		}
 		imageBlocks = append(imageBlocks, anthropic.NewImageBlockBase64(mime, img.Base64Data))
 	}
+	return imageBlocks
+}
 
-	if len(imageBlocks) > 0 {
-		lastUserIdx := -1
-		for i := len(converted) - 1; i >= 0; i-- {
-			if converted[i].Role == anthropic.MessageParamRoleUser {
-				lastUserIdx = i
-				break
-			}
-		}
-		if lastUserIdx >= 0 {
-			converted[lastUserIdx].Content = append(converted[lastUserIdx].Content, imageBlocks...)
-		} else {
-			converted = append(converted, anthropic.NewUserMessage(imageBlocks...))
-		}
-	}
-
+func (c *Client) newMessageParams(
+	model string,
+	converted []anthropic.MessageParam,
+	sys []anthropic.TextBlockParam,
+	toolDefs []anthropic.ToolUnionParam,
+) anthropic.MessageNewParams {
 	params := anthropic.MessageNewParams{
 		Model:     anthropic.Model(c.pickModel(model)),
 		Messages:  converted,
@@ -232,119 +264,144 @@ func (c *Client) ChatWithImageAttachments(ctx context.Context, msgs []llm.Messag
 	if len(extra) > 0 {
 		params.SetExtraFields(extra)
 	}
+	return params
+}
 
-	ctx, span := llm.StartRequestSpan(ctx, "Anthropic ChatWithImageAttachments", string(params.Model), len(tools), len(msgs))
-	defer span.End()
-	llm.LogRedactedPrompt(ctx, msgs)
-	logger := observability.LoggerWithTrace(ctx)
+type imageChatStreamResult struct {
+	message     anthropic.Message
+	usage       anthropic.MessageDeltaUsage
+	toolBuffers map[int]*toolBuffer
+	text        string
+	duration    time.Duration
+}
 
+func (c *Client) runImageChatStream(ctx context.Context, params anthropic.MessageNewParams) (imageChatStreamResult, error) {
 	start := time.Now()
 	stream := c.sdk.Messages.NewStreaming(ctx, params)
 	defer func() { _ = stream.Close() }()
 
-	var acc anthropic.Message
-	var usage anthropic.MessageDeltaUsage
-	toolBuffers := map[int]*toolBuffer{}
-	var textBuf strings.Builder
+	result := imageChatStreamResult{toolBuffers: map[int]*toolBuffer{}}
+	textBuf := strings.Builder{}
+	logger := observability.LoggerWithTrace(ctx)
 
 	for stream.Next() {
 		event := stream.Current()
-		if err := acc.Accumulate(event); err != nil {
+		if err := result.message.Accumulate(event); err != nil {
 			logger.Debug().Err(err).Msg("anthropic_accumulate_error")
 		}
-
-		switch ev := event.AsAny().(type) {
-		case anthropic.ContentBlockStartEvent:
-			switch block := ev.ContentBlock.AsAny().(type) {
-			case anthropic.ToolUseBlock:
-				id := strings.TrimSpace(block.ID)
-				if id == "" {
-					id = fmt.Sprintf("call-%d", len(toolBuffers)+1)
-				}
-				tb := &toolBuffer{name: block.Name, id: id}
-				tb.appendInitial(block.Input)
-				toolBuffers[int(ev.Index)] = tb
-			}
-		case anthropic.ContentBlockDeltaEvent:
-			switch delta := ev.Delta.AsAny().(type) {
-			case anthropic.TextDelta:
-				if delta.Text != "" {
-					textBuf.WriteString(delta.Text)
-				}
-			case anthropic.InputJSONDelta:
-				if tb := toolBuffers[int(ev.Index)]; tb != nil {
-					tb.appendPartial(delta.PartialJSON)
-				}
-			}
-		case anthropic.MessageDeltaEvent:
-			usage = ev.Usage
-		}
+		accumulateImageChatEvent(event, result.toolBuffers, &textBuf, &result.usage)
 	}
-
-	dur := time.Since(start)
+	result.duration = time.Since(start)
 	if err := stream.Err(); err != nil {
-		span.RecordError(err)
-		logger.Error().Err(err).Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Msg("anthropic_chat_with_images_error")
-		return llm.Message{}, err
+		return result, err
 	}
+	result.text = textBuf.String()
+	return result, nil
+}
 
-	out := messageFromResponse(&acc)
-	if strings.TrimSpace(out.Content) == "" && textBuf.Len() > 0 {
-		out.Content = textBuf.String()
-	}
-
-	if len(toolBuffers) > 0 {
-		hasStreamedDeltas := false
-		for _, tb := range toolBuffers {
-			if tb != nil && tb.hasDeltas {
-				hasStreamedDeltas = true
-				break
+func accumulateImageChatEvent(
+	event anthropic.MessageStreamEventUnion,
+	toolBuffers map[int]*toolBuffer,
+	textBuf *strings.Builder,
+	usage *anthropic.MessageDeltaUsage,
+) {
+	switch ev := event.AsAny().(type) {
+	case anthropic.ContentBlockStartEvent:
+		if block, ok := ev.ContentBlock.AsAny().(anthropic.ToolUseBlock); ok {
+			id := strings.TrimSpace(block.ID)
+			if id == "" {
+				id = fmt.Sprintf("call-%d", len(toolBuffers)+1)
 			}
+			tb := &toolBuffer{name: block.Name, id: id}
+			tb.appendInitial(block.Input)
+			toolBuffers[int(ev.Index)] = tb
 		}
-		if hasStreamedDeltas {
-			indices := make([]int, 0, len(toolBuffers))
-			for idx := range toolBuffers {
-				indices = append(indices, idx)
-			}
-			sort.Ints(indices)
-			calls := make([]llm.ToolCall, 0, len(indices))
-			for _, idx := range indices {
-				if tb := toolBuffers[idx]; tb != nil {
-					calls = append(calls, tb.toToolCall())
-				}
-			}
-			if len(calls) > 0 {
-				out.ToolCalls = calls
-			}
+	case anthropic.ContentBlockDeltaEvent:
+		accumulateImageChatDelta(ev, toolBuffers, textBuf)
+	case anthropic.MessageDeltaEvent:
+		*usage = ev.Usage
+	}
+}
+
+func accumulateImageChatDelta(
+	ev anthropic.ContentBlockDeltaEvent,
+	toolBuffers map[int]*toolBuffer,
+	textBuf *strings.Builder,
+) {
+	switch delta := ev.Delta.AsAny().(type) {
+	case anthropic.TextDelta:
+		textBuf.WriteString(delta.Text)
+	case anthropic.InputJSONDelta:
+		if tb := toolBuffers[int(ev.Index)]; tb != nil {
+			tb.appendPartial(delta.PartialJSON)
 		}
 	}
+}
 
-	llm.LogRedactedResponse(ctx, acc)
+func imageChatMessageFromResult(result imageChatStreamResult) llm.Message {
+	out := messageFromResponse(&result.message)
+	if strings.TrimSpace(out.Content) == "" && result.text != "" {
+		out.Content = result.text
+	}
+	if calls := streamedToolCalls(result.toolBuffers); len(calls) > 0 {
+		out.ToolCalls = calls
+	}
+	return out
+}
 
+func streamedToolCalls(toolBuffers map[int]*toolBuffer) []llm.ToolCall {
+	if !hasStreamedToolDeltas(toolBuffers) {
+		return nil
+	}
+	indices := make([]int, 0, len(toolBuffers))
+	for idx := range toolBuffers {
+		indices = append(indices, idx)
+	}
+	sort.Ints(indices)
+	calls := make([]llm.ToolCall, 0, len(indices))
+	for _, idx := range indices {
+		if tb := toolBuffers[idx]; tb != nil {
+			calls = append(calls, tb.toToolCall())
+		}
+	}
+	return calls
+}
+
+func hasStreamedToolDeltas(toolBuffers map[int]*toolBuffer) bool {
+	for _, tb := range toolBuffers {
+		if tb != nil && tb.hasDeltas {
+			return true
+		}
+	}
+	return false
+}
+
+func recordAnthropicUsage(ctx context.Context, span trace.Span, model string, usage anthropic.MessageDeltaUsage) {
 	promptTokens := usagePromptTokens(usage.CacheCreationInputTokens, usage.CacheReadInputTokens, usage.InputTokens)
 	completionTokens := int(usage.OutputTokens)
 	totalTokens := promptTokens + completionTokens
-
 	llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
-	llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
+	llm.RecordTokenMetricsFromContext(ctx, model, promptTokens, completionTokens)
+}
 
-	stopReason := string(acc.StopReason)
+func logAnthropicImageChatOK(logger *zerolog.Logger, model string, toolCount int, result imageChatStreamResult) {
+	promptTokens := usagePromptTokens(result.usage.CacheCreationInputTokens, result.usage.CacheReadInputTokens, result.usage.InputTokens)
+	completionTokens := int(result.usage.OutputTokens)
+	totalTokens := promptTokens + completionTokens
+	stopReason := string(result.message.StopReason)
 	if stopReason == "" {
 		stopReason = "unknown"
 	}
-
 	logger.Debug().
-		Str("model", string(params.Model)).
-		Int("tools", len(tools)).
-		Dur("duration", dur).
+		Str("model", model).
+		Int("tools", toolCount).
+		Dur("duration", result.duration).
 		Int("prompt_tokens", promptTokens).
 		Int("completion_tokens", completionTokens).
 		Int("total_tokens", totalTokens).
 		Str("stop_reason", stopReason).
-		Str("stop_sequence", acc.StopSequence).
+		Str("stop_sequence", result.message.StopSequence).
 		Msg("anthropic_chat_with_images_ok")
-
-	return out, nil
 }
 
 func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, h llm.StreamHandler) error {
@@ -352,557 +409,202 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	if err != nil {
 		return err
 	}
-
-	// NOTE: do not enforce model-specific token limits here; summarization and
-	// context budgeting are handled centrally in the agent engine using llm.ContextSize
-	// and per-model config. This avoids duplicating hard-coded thresholds here.
 	toolDefs, err := adaptTools(tools, c.cacheCfg)
 	if err != nil {
 		return err
 	}
-
-	params := anthropic.MessageNewParams{
-		Model:     anthropic.Model(c.pickModel(model)),
-		Messages:  converted,
-		System:    sys,
-		Tools:     toolDefs,
-		MaxTokens: c.maxTokens,
-	}
-	if shouldIncludeThoughtSummaries(string(params.Model)) {
-		// Enable extended thinking so we can stream thinking deltas and surface them
-		// as thought summaries in the UI.
-		//
-		// Anthropic enforces budget_tokens >= 1024 AND max_tokens > budget_tokens.
-		const thinkingBudget int64 = 1024
-		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(thinkingBudget)
-		if params.MaxTokens <= thinkingBudget {
-			params.MaxTokens = thinkingBudget + 1024
-		}
-	}
-	extra := llm.NormalizeExtraParams(c.extra)
-	if v, found, ok := llm.PopIntExtraParam(extra, "max_tokens", "maxTokens"); found {
-		if ok {
-			params.MaxTokens = v
-		} else {
-			log.Warn().Msg("anthropic_invalid_extra_max_tokens")
-		}
-	}
-	if len(extra) > 0 {
-		params.SetExtraFields(extra)
-	}
-
+	params := c.newMessageParams(model, converted, sys, toolDefs)
 	ctx, span := llm.StartRequestSpan(ctx, "Anthropic ChatStream", string(params.Model), len(tools), len(msgs))
 	defer span.End()
 	llm.LogRedactedPrompt(ctx, msgs)
-	log := observability.LoggerWithTrace(ctx)
+	logger := observability.LoggerWithTrace(ctx)
+	logger.Debug().Str("model", string(params.Model)).Int("tools", len(tools)).Int("msgs", len(msgs)).Msg("anthropic_stream_start")
 
-	start := time.Now()
-	log.Debug().Str("model", string(params.Model)).Int("tools", len(tools)).Int("msgs", len(msgs)).Msg("anthropic_stream_start")
-
-	stream := c.sdk.Messages.NewStreaming(ctx, params)
-	defer func() { _ = stream.Close() }()
-
-	var acc anthropic.Message
-	var usage anthropic.MessageDeltaUsage
-	toolBuffers := map[int]*toolBuffer{}
-	thinkingBlocks := map[int64]*strings.Builder{}
-	var thinkingCount int
-	hasDelta := false
-
-	for stream.Next() {
-		event := stream.Current()
-		// The SDK's Accumulate method has a bug where it fails to marshal
-		// content blocks with empty/invalid Input JSON (e.g., tool calls with
-		// no arguments). We track tool calls ourselves via toolBuffers, so
-		// we can safely ignore this specific error.
-		if err := acc.Accumulate(event); err != nil {
-			// Log detailed error for debugging
-			log.Debug().Err(err).Msg("anthropic_accumulate_error")
-		}
-
-		switch ev := event.AsAny().(type) {
-		case anthropic.ContentBlockStartEvent:
-			switch block := ev.ContentBlock.AsAny().(type) {
-			case anthropic.ThinkingBlock:
-				if h != nil {
-					b := &strings.Builder{}
-					b.WriteString(block.Thinking)
-					thinkingBlocks[ev.Index] = b
-					thinkingCount++
-					if b.Len() > 0 {
-						h.OnThoughtSummary(b.String())
-					}
-				}
-			case anthropic.ToolUseBlock:
-				id := strings.TrimSpace(block.ID)
-				if id == "" {
-					id = fmt.Sprintf("call-%d", len(toolBuffers)+1)
-				}
-				// Log the initial input for debugging
-				rawInput, _ := json.Marshal(block.Input)
-				log.Debug().Str("id", id).Str("input", string(rawInput)).Msg("anthropic_tool_start")
-
-				tb := &toolBuffer{name: block.Name, id: id}
-				tb.appendInitial(block.Input)
-				toolBuffers[int(ev.Index)] = tb
-			}
-		case anthropic.ContentBlockDeltaEvent:
-			switch delta := ev.Delta.AsAny().(type) {
-			case anthropic.TextDelta:
-				if h != nil && delta.Text != "" {
-					h.OnDelta(delta.Text)
-					hasDelta = true
-				}
-			case anthropic.InputJSONDelta:
-				// Log partial JSON for debugging
-				log.Debug().Int("index", int(ev.Index)).Str("partial", delta.PartialJSON).Msg("anthropic_tool_delta")
-				if tb := toolBuffers[int(ev.Index)]; tb != nil {
-					tb.appendPartial(delta.PartialJSON)
-				}
-			case anthropic.ThinkingDelta:
-				if h != nil && delta.Thinking != "" {
-					b := thinkingBlocks[ev.Index]
-					if b == nil {
-						b = &strings.Builder{}
-						thinkingBlocks[ev.Index] = b
-						thinkingCount++
-					}
-					b.WriteString(delta.Thinking)
-					h.OnThoughtSummary(b.String())
-				}
-			}
-		case anthropic.MessageDeltaEvent:
-			usage = ev.Usage
-		}
-	}
-
-	if err := stream.Err(); err != nil {
-		dur := time.Since(start)
+	result, err := c.runChatStream(ctx, params, h)
+	if err != nil {
 		span.RecordError(err)
-		log.Error().Err(err).Str("model", string(params.Model)).Dur("duration", dur).Msg("anthropic_stream_error")
+		logger.Error().Err(err).Str("model", string(params.Model)).Dur("duration", result.duration).Msg("anthropic_stream_error")
 		return err
 	}
-
-	// Extract tool calls from the SDK's accumulated message.
-	msg := messageFromResponse(&acc)
-
-	// Check if any toolBuffer received streaming deltas - if so, prefer our tracking
-	// because the SDK doesn't correctly accumulate partial JSON from InputJSONDelta events.
-	hasStreamedDeltas := false
-	for _, tb := range toolBuffers {
-		if tb != nil && tb.hasDeltas {
-			hasStreamedDeltas = true
-			break
-		}
-	}
-
-	// Emit tool calls - prefer our toolBuffers when streaming deltas were received
-	if len(toolBuffers) > 0 && hasStreamedDeltas {
-		// Use our own tracking since we received streaming partial JSON
-		log.Debug().Int("count", len(toolBuffers)).Msg("anthropic_using_tool_buffer_for_streamed_deltas")
-		indices := make([]int, 0, len(toolBuffers))
-		for i := range toolBuffers {
-			indices = append(indices, i)
-		}
-		sort.Ints(indices)
-		for _, idx := range indices {
-			if tb := toolBuffers[idx]; tb != nil && h != nil {
-				h.OnToolCall(tb.toToolCall())
-			}
-		}
-	} else if len(msg.ToolCalls) > 0 {
-		// Use SDK's accumulated data when no streaming deltas
-		for _, tc := range msg.ToolCalls {
-			if h != nil {
-				h.OnToolCall(tc)
-			}
-		}
-	} else if len(toolBuffers) > 0 {
-		// Fallback to our own tracking if SDK didn't capture tool calls
-		log.Debug().Int("count", len(toolBuffers)).Msg("anthropic_using_tool_buffer_fallback")
-		indices := make([]int, 0, len(toolBuffers))
-		for i := range toolBuffers {
-			indices = append(indices, i)
-		}
-		sort.Ints(indices)
-		for _, idx := range indices {
-			if tb := toolBuffers[idx]; tb != nil && h != nil {
-				h.OnToolCall(tb.toToolCall())
-			}
-		}
-	}
-	if !hasDelta && h != nil && msg.Content != "" {
-		h.OnDelta(msg.Content)
-	}
-
-	// Emit thought signature for multi-turn preservation if we captured thinking blocks.
-	// This allows the engine to store and replay thinking blocks on subsequent turns.
-	if h != nil && len(thinkingBlocks) > 0 {
-		var thinkingData []thinkingData
-		// Extract signatures from accumulated message content blocks
-		for _, block := range acc.Content {
-			if tb, ok := block.AsAny().(anthropic.ThinkingBlock); ok {
-				thinkingData = append(thinkingData, struct {
-					Signature string `json:"signature"`
-					Thinking  string `json:"thinking"`
-				}{
-					Signature: tb.Signature,
-					Thinking:  tb.Thinking,
-				})
-			}
-		}
-		if len(thinkingData) > 0 {
-			if encoded, err := json.Marshal(thinkingData); err == nil {
-				h.OnThoughtSignature(string(encoded))
-			}
-		}
-	}
-
-	promptTokens := usagePromptTokens(usage.CacheCreationInputTokens, usage.CacheReadInputTokens, usage.InputTokens)
-	completionTokens := int(usage.OutputTokens)
-	totalTokens := promptTokens + completionTokens
-	llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
-	llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
-	llm.LogRedactedResponse(ctx, acc)
-
-	dur := time.Since(start)
-	stopReason := string(acc.StopReason)
-	if stopReason == "" {
-		stopReason = "unknown"
-	}
-
-	log.Debug().
-		Str("model", string(params.Model)).
-		Int("tools", len(tools)).
-		Dur("duration", dur).
-		Int("prompt_tokens", promptTokens).
-		Int("completion_tokens", completionTokens).
-		Int("total_tokens", totalTokens).
-		Int("thought_summaries", thinkingCount).
-		Str("stop_reason", stopReason).
-		Str("stop_sequence", acc.StopSequence).
-		Msg("anthropic_stream_ok")
-
+	msg := messageFromResponse(&result.message)
+	emitChatStreamResult(h, msg, result, logger)
+	recordAnthropicUsage(ctx, span, string(params.Model), result.usage)
+	llm.LogRedactedResponse(ctx, result.message)
+	logAnthropicStreamOK(logger, string(params.Model), len(tools), result)
 	return nil
 }
 
-func (c *Client) pickModel(model string) string {
-	if m := strings.TrimSpace(model); m != "" {
-		return m
-	}
-	return c.model
+type chatStreamResult struct {
+	message        anthropic.Message
+	usage          anthropic.MessageDeltaUsage
+	toolBuffers    map[int]*toolBuffer
+	thinkingBlocks map[int64]*strings.Builder
+	thinkingCount  int
+	hasDelta       bool
+	duration       time.Duration
 }
 
-func shouldIncludeThoughtSummaries(model string) bool {
-	m := strings.ToLower(strings.TrimSpace(model))
-	if m == "" {
-		return false
-	}
-	if idx := strings.LastIndex(m, "/"); idx != -1 {
-		m = m[idx+1:]
-	}
-	// Extended thinking is not available on all Claude models. Be conservative to
-	// avoid 400 errors from older/non-thinking models.
-	supports := []string{
-		"claude-sonnet-4-5",
-		"claude-haiku-4-5",
-		"claude-opus-4-5",
-	}
-	for _, s := range supports {
-		if strings.Contains(m, s) {
-			return true
+func (c *Client) runChatStream(ctx context.Context, params anthropic.MessageNewParams, h llm.StreamHandler) (chatStreamResult, error) {
+	start := time.Now()
+	stream := c.sdk.Messages.NewStreaming(ctx, params)
+	defer func() { _ = stream.Close() }()
+	result := chatStreamResult{toolBuffers: map[int]*toolBuffer{}, thinkingBlocks: map[int64]*strings.Builder{}}
+	logger := observability.LoggerWithTrace(ctx)
+	for stream.Next() {
+		event := stream.Current()
+		if err := result.message.Accumulate(event); err != nil {
+			logger.Debug().Err(err).Msg("anthropic_accumulate_error")
 		}
+		accumulateChatStreamEvent(event, h, &result, logger)
 	}
-	return false
+	result.duration = time.Since(start)
+	return result, stream.Err()
 }
 
-func adaptTools(tools []llm.ToolSchema, cacheCfg config.AnthropicPromptCacheConfig) ([]anthropic.ToolUnionParam, error) {
-	if len(tools) == 0 {
-		return nil, nil
-	}
-	out := make([]anthropic.ToolUnionParam, 0, len(tools))
-	cacheTools := cacheCfg.Enabled && cacheCfg.CacheTools
-	cacheControl := anthropic.CacheControlEphemeralParam{TTL: anthropic.CacheControlEphemeralTTLTTL5m}
-	for _, t := range tools {
-		name := strings.TrimSpace(t.Name)
-		if name == "" {
-			return nil, fmt.Errorf("anthropic provider: tool name required")
-		}
-		schema := anthropic.ToolInputSchemaParam{
-			Type: constant.ValueOf[constant.Object](),
-		}
-		extras := map[string]any{}
-		maps.Copy(extras, t.Parameters)
-		if props, ok := extras["properties"]; ok {
-			schema.Properties = props
-			delete(extras, "properties")
-		}
-		if req, ok := extras["required"]; ok {
-			delete(extras, "required")
-			switch v := req.(type) {
-			case []string:
-				schema.Required = v
-			case []any:
-				for _, item := range v {
-					if s, ok := item.(string); ok {
-						schema.Required = append(schema.Required, s)
-					}
-				}
-			}
-		}
-		delete(extras, "type")
-		if len(extras) > 0 {
-			schema.ExtraFields = extras
-		}
-
-		param := anthropic.ToolParam{
-			Name:        name,
-			InputSchema: schema,
-		}
-		if desc := strings.TrimSpace(t.Description); desc != "" {
-			param.Description = anthropic.String(desc)
-		}
-		out = append(out, anthropic.ToolUnionParam{OfTool: &param})
-	}
-	if cacheTools {
-		if last := out[len(out)-1].OfTool; last != nil {
-			last.CacheControl = cacheControl
-		}
-	}
-	return out, nil
-}
-
-func adaptMessages(msgs []llm.Message, cacheCfg config.AnthropicPromptCacheConfig) ([]anthropic.TextBlockParam, []anthropic.MessageParam, error) {
-	if len(msgs) == 0 {
-		return nil, nil, fmt.Errorf("messages required")
-	}
-	var system []anthropic.TextBlockParam
-	out := make([]anthropic.MessageParam, 0, len(msgs))
-	toolResultCount := 0
-	cacheSystem := cacheCfg.Enabled && cacheCfg.CacheSystem
-	cacheMessages := cacheCfg.Enabled && cacheCfg.CacheMessages
-	cacheControl := anthropic.CacheControlEphemeralParam{TTL: anthropic.CacheControlEphemeralTTLTTL5m}
-	var lastMessageText *anthropic.TextBlockParam
-	newTextBlock := func(text string) anthropic.ContentBlockParamUnion {
-		block := &anthropic.TextBlockParam{Text: text}
-		lastMessageText = block
-		return anthropic.ContentBlockParamUnion{OfText: block}
-	}
-
-	for _, m := range msgs {
-		role := strings.ToLower(strings.TrimSpace(m.Role))
-		switch role {
-		case "system":
-			if strings.TrimSpace(m.Content) != "" {
-				system = append(system, anthropic.TextBlockParam{Text: m.Content})
-			}
-		case "user":
-			blocks := []anthropic.ContentBlockParamUnion{}
-			if strings.TrimSpace(m.Content) != "" {
-				blocks = append(blocks, newTextBlock(m.Content))
-			}
-			if len(blocks) > 0 {
-				out = append(out, anthropic.NewUserMessage(blocks...))
-			}
-		case "assistant":
-			blocks := []anthropic.ContentBlockParamUnion{}
-			// Prepend thinking blocks if present. Anthropic requires assistant messages
-			// to start with thinking blocks when extended thinking is enabled.
-			if m.ThoughtSignature != "" {
-				var savedThinking []thinkingData
-				if err := json.Unmarshal([]byte(m.ThoughtSignature), &savedThinking); err == nil {
-					for _, td := range savedThinking {
-						blocks = append(blocks, anthropic.NewThinkingBlock(td.Signature, td.Thinking))
-					}
-				}
-			}
-			if strings.TrimSpace(m.Content) != "" {
-				blocks = append(blocks, newTextBlock(m.Content))
-			}
-			for i, tc := range m.ToolCalls {
-				id := strings.TrimSpace(tc.ID)
-				if id == "" {
-					id = fmt.Sprintf("call-%d", i+1)
-				}
-				blocks = append(blocks, anthropic.NewToolUseBlock(id, decodeArgs(tc.Args), tc.Name))
-			}
-			if len(blocks) > 0 {
-				out = append(out, anthropic.NewAssistantMessage(blocks...))
-			}
-		case "tool":
-			id := strings.TrimSpace(m.ToolID)
-			if id == "" {
-				toolResultCount++
-				id = fmt.Sprintf("tool-result-%d", toolResultCount)
-			}
-			out = append(out, anthropic.NewUserMessage(anthropic.NewToolResultBlock(id, m.Content, false)))
-		default:
-			return nil, nil, fmt.Errorf("unsupported role for anthropic provider: %s", m.Role)
-		}
-	}
-	if cacheSystem && len(system) > 0 {
-		system[len(system)-1].CacheControl = cacheControl
-	}
-	if cacheMessages && lastMessageText != nil {
-		lastMessageText.CacheControl = cacheControl
-	}
-	return system, out, nil
-}
-
-func decodeArgs(raw json.RawMessage) any {
-	if len(raw) == 0 {
-		return map[string]any{}
-	}
-	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err == nil {
-		return m
-	}
-	// If we can't unmarshal to a map, return empty object
-	// Anthropic requires tool_use.input to be a valid dictionary
-	return map[string]any{}
-}
-
-func messageFromResponse(resp *anthropic.Message) llm.Message {
-	if resp == nil {
-		return llm.Message{}
-	}
-	var sb strings.Builder
-	var calls []llm.ToolCall
-	var thinkingBlocks []thinkingData
-	callIdx := 0
-
-	for _, block := range resp.Content {
-		switch v := block.AsAny().(type) {
-		case anthropic.ThinkingBlock:
-			// Capture thinking blocks to preserve across conversation turns.
-			// Anthropic requires these to be included in assistant messages when
-			// extended thinking is enabled.
-			thinkingBlocks = append(thinkingBlocks, thinkingData{
-				Signature: v.Signature,
-				Thinking:  v.Thinking,
-			})
-		case anthropic.TextBlock:
-			sb.WriteString(v.Text)
-		case anthropic.ToolUseBlock:
-			callIdx++
-			id := strings.TrimSpace(v.ID)
-			if id == "" {
-				id = fmt.Sprintf("call-%d", callIdx)
-			}
-			args := v.Input
-			if len(args) == 0 {
-				if b, err := json.Marshal(v.Input); err == nil {
-					args = b
-				}
-			}
-			calls = append(calls, llm.ToolCall{
-				Name: v.Name,
-				Args: args,
-				ID:   id,
-			})
-		}
-	}
-
-	// Encode thinking blocks as JSON in ThoughtSignature for multi-turn preservation.
-	var thoughtSig string
-	if len(thinkingBlocks) > 0 {
-		if encoded, err := json.Marshal(thinkingBlocks); err == nil {
-			thoughtSig = string(encoded)
-		}
-	}
-
-	return llm.Message{
-		Role:    "assistant",
-		Content: sb.String(),
-		ToolCalls: func() []llm.ToolCall {
-			if len(calls) == 0 {
-				return nil
-			}
-			return calls
-		}(),
-		ThoughtSignature: thoughtSig,
+func accumulateChatStreamEvent(event anthropic.MessageStreamEventUnion, h llm.StreamHandler, result *chatStreamResult, logger *zerolog.Logger) {
+	switch ev := event.AsAny().(type) {
+	case anthropic.ContentBlockStartEvent:
+		accumulateChatStreamBlockStart(ev, h, result, logger)
+	case anthropic.ContentBlockDeltaEvent:
+		accumulateChatStreamBlockDelta(ev, h, result, logger)
+	case anthropic.MessageDeltaEvent:
+		result.usage = ev.Usage
 	}
 }
 
-func usagePromptTokens(cacheCreation int64, cacheRead int64, input int64) int {
-	return int(cacheCreation + cacheRead + input)
-}
-
-type toolBuffer struct {
-	name        string
-	id          string
-	buf         strings.Builder
-	hasDeltas   bool
-	initialJSON string
-}
-
-func (tb *toolBuffer) appendInitial(raw json.RawMessage) {
-	// Store the initial JSON string. We might need to "re-open" it if deltas come.
-	if len(raw) == 0 {
-		// Anthropic requires tool_use.input to be a dictionary; treat empty as {} so we can append deltas safely.
-		raw = json.RawMessage("{}")
+func accumulateChatStreamBlockStart(ev anthropic.ContentBlockStartEvent, h llm.StreamHandler, result *chatStreamResult, logger *zerolog.Logger) {
+	switch block := ev.ContentBlock.AsAny().(type) {
+	case anthropic.ThinkingBlock:
+		if h == nil {
+			return
+		}
+		b := &strings.Builder{}
+		b.WriteString(block.Thinking)
+		result.thinkingBlocks[ev.Index] = b
+		result.thinkingCount++
+		if b.Len() > 0 {
+			h.OnThoughtSummary(b.String())
+		}
+	case anthropic.ToolUseBlock:
+		id := strings.TrimSpace(block.ID)
+		if id == "" {
+			id = fmt.Sprintf("call-%d", len(result.toolBuffers)+1)
+		}
+		rawInput, _ := json.Marshal(block.Input)
+		logger.Debug().Str("id", id).Str("input", string(rawInput)).Msg("anthropic_tool_start")
+		tb := &toolBuffer{name: block.Name, id: id}
+		tb.appendInitial(block.Input)
+		result.toolBuffers[int(ev.Index)] = tb
 	}
-	tb.initialJSON = string(raw)
-	tb.buf.WriteString(tb.initialJSON)
 }
 
-func (tb *toolBuffer) appendPartial(partial string) {
-	if partial == "" {
+func accumulateChatStreamBlockDelta(ev anthropic.ContentBlockDeltaEvent, h llm.StreamHandler, result *chatStreamResult, logger *zerolog.Logger) {
+	switch delta := ev.Delta.AsAny().(type) {
+	case anthropic.TextDelta:
+		if h != nil && delta.Text != "" {
+			h.OnDelta(delta.Text)
+			result.hasDelta = true
+		}
+	case anthropic.InputJSONDelta:
+		logger.Debug().Int("index", int(ev.Index)).Str("partial", delta.PartialJSON).Msg("anthropic_tool_delta")
+		if tb := result.toolBuffers[int(ev.Index)]; tb != nil {
+			tb.appendPartial(delta.PartialJSON)
+		}
+	case anthropic.ThinkingDelta:
+		accumulateChatStreamThinkingDelta(ev.Index, delta.Thinking, h, result)
+	}
+}
+
+func accumulateChatStreamThinkingDelta(index int64, thinking string, h llm.StreamHandler, result *chatStreamResult) {
+	if h == nil || thinking == "" {
 		return
 	}
-	// If this is the first delta, we need to prepare the buffer.
-	// The initial input from content_block_start is typically an empty object "{}"
-	// which is just a placeholder. When streaming deltas arrive, they contain
-	// the actual JSON content that should replace (not extend) the initial empty object.
-	if !tb.hasDeltas {
-		// Clear the buffer and start fresh with the incoming partial JSON
-		tb.buf.Reset()
-		tb.hasDeltas = true
+	b := result.thinkingBlocks[index]
+	if b == nil {
+		b = &strings.Builder{}
+		result.thinkingBlocks[index] = b
+		result.thinkingCount++
 	}
-	tb.buf.WriteString(partial)
+	b.WriteString(thinking)
+	h.OnThoughtSummary(b.String())
 }
 
-func (tb *toolBuffer) toToolCall() llm.ToolCall {
-	args := tb.buf.String()
-	// If we had deltas, we likely stripped the closing brace and need to restore it.
-	// But only if the deltas didn't already close it (unlikely for partials, but possible).
-	// Actually, simpler: if it doesn't end in '}', add it.
-	if tb.hasDeltas && !strings.HasSuffix(strings.TrimSpace(args), "}") {
-		args += "}"
+func emitChatStreamResult(h llm.StreamHandler, msg llm.Message, result chatStreamResult, logger *zerolog.Logger) {
+	if h == nil {
+		return
 	}
+	emitChatStreamToolCalls(h, msg, result.toolBuffers, logger)
+	if !result.hasDelta && msg.Content != "" {
+		h.OnDelta(msg.Content)
+	}
+	emitChatStreamThoughtSignature(h, result.message, result.thinkingBlocks)
+}
 
-	// Ensure we always have valid JSON - default to empty object if buffer is empty or invalid
-	trimmed := strings.TrimSpace(args)
-	if trimmed == "" {
-		trimmed = "{}"
-	} else {
-		if !strings.HasPrefix(trimmed, "{") {
-			trimmed = "{" + trimmed
+func emitChatStreamToolCalls(h llm.StreamHandler, msg llm.Message, toolBuffers map[int]*toolBuffer, logger *zerolog.Logger) {
+	switch {
+	case len(toolBuffers) > 0 && hasStreamedToolDeltas(toolBuffers):
+		logger.Debug().Int("count", len(toolBuffers)).Msg("anthropic_using_tool_buffer_for_streamed_deltas")
+		emitBufferedToolCalls(h, toolBuffers)
+	case len(msg.ToolCalls) > 0:
+		for _, tc := range msg.ToolCalls {
+			h.OnToolCall(tc)
 		}
-		if !strings.HasSuffix(trimmed, "}") {
-			trimmed += "}"
+	case len(toolBuffers) > 0:
+		logger.Debug().Int("count", len(toolBuffers)).Msg("anthropic_using_tool_buffer_fallback")
+		emitBufferedToolCalls(h, toolBuffers)
+	}
+}
+
+func emitBufferedToolCalls(h llm.StreamHandler, toolBuffers map[int]*toolBuffer) {
+	indices := make([]int, 0, len(toolBuffers))
+	for i := range toolBuffers {
+		indices = append(indices, i)
+	}
+	sort.Ints(indices)
+	for _, idx := range indices {
+		if tb := toolBuffers[idx]; tb != nil {
+			h.OnToolCall(tb.toToolCall())
 		}
 	}
-	if !json.Valid([]byte(trimmed)) {
-		trimmed = "{}"
-	}
+}
 
-	args = trimmed
-	return llm.ToolCall{
-		Name: tb.name,
-		Args: json.RawMessage(args),
-		ID:   tb.id,
+func emitChatStreamThoughtSignature(h llm.StreamHandler, acc anthropic.Message, thinkingBlocks map[int64]*strings.Builder) {
+	if len(thinkingBlocks) == 0 {
+		return
+	}
+	var thinkingData []thinkingData
+	for _, block := range acc.Content {
+		if tb, ok := block.AsAny().(anthropic.ThinkingBlock); ok {
+			thinkingData = append(thinkingData, struct {
+				Signature string `json:"signature"`
+				Thinking  string `json:"thinking"`
+			}{Signature: tb.Signature, Thinking: tb.Thinking})
+		}
+	}
+	if len(thinkingData) > 0 {
+		if encoded, err := json.Marshal(thinkingData); err == nil {
+			h.OnThoughtSignature(string(encoded))
+		}
 	}
 }
 
-// Tokenizer returns a MessagesTokenizer for accurate preflight token counting
-// using the Anthropic /v1/messages/count_tokens endpoint.
-func (c *Client) Tokenizer(cache *llm.TokenCache) llm.Tokenizer {
-	return NewMessagesTokenizer(c.sdk, c.model, cache)
-}
-
-// SupportsTokenization returns true as Anthropic always supports
-// the count_tokens endpoint for preflight token counting.
-func (c *Client) SupportsTokenization() bool {
-	return true
+func logAnthropicStreamOK(logger *zerolog.Logger, model string, toolCount int, result chatStreamResult) {
+	promptTokens := usagePromptTokens(result.usage.CacheCreationInputTokens, result.usage.CacheReadInputTokens, result.usage.InputTokens)
+	completionTokens := int(result.usage.OutputTokens)
+	totalTokens := promptTokens + completionTokens
+	stopReason := string(result.message.StopReason)
+	if stopReason == "" {
+		stopReason = "unknown"
+	}
+	logger.Debug().
+		Str("model", model).
+		Int("tools", toolCount).
+		Dur("duration", result.duration).
+		Int("prompt_tokens", promptTokens).
+		Int("completion_tokens", completionTokens).
+		Int("total_tokens", totalTokens).
+		Int("thought_summaries", result.thinkingCount).
+		Str("stop_reason", stopReason).
+		Str("stop_sequence", result.message.StopSequence).
+		Msg("anthropic_stream_ok")
 }

@@ -34,21 +34,18 @@ func (t *MessagesTokenizer) CountTokens(ctx context.Context, text string) (int, 
 		return 0, nil
 	}
 
-	// Check cache first
 	if t.cache != nil {
 		if count, ok := t.cache.Get(text); ok {
 			return count, nil
 		}
 	}
 
-	// Build a simple user message for counting
 	msgs := []llm.Message{{Role: "user", Content: text}}
 	count, err := t.CountMessagesTokens(ctx, msgs)
 	if err != nil {
 		return 0, err
 	}
 
-	// Cache the result
 	if t.cache != nil {
 		t.cache.Set(text, count)
 	}
@@ -132,13 +129,11 @@ func (t *MessagesTokenizer) buildMessageParams(msgs []llm.Message) ([]anthropic.
 					params = append(params, anthropic.NewAssistantMessage(blocks...))
 				}
 			} else if strings.TrimSpace(m.Content) != "" {
-				// Plain assistant message
 				params = append(params, anthropic.NewAssistantMessage(
 					anthropic.NewTextBlock(m.Content),
 				))
 			}
 		case "tool":
-			// Tool result messages
 			params = append(params, anthropic.NewUserMessage(
 				anthropic.NewToolResultBlock(m.ToolID, m.Content, false),
 			))

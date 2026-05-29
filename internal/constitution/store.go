@@ -27,7 +27,9 @@ type Store interface {
 }
 
 func NewStore(pool *pgxpool.Pool) Store {
-	if pool == nil { return &memStore{} }
+	if pool == nil {
+		return &memStore{}
+	}
 	return &pgStore{pool: pool}
 }
 
@@ -37,25 +39,38 @@ type memStore struct {
 }
 
 func (s *memStore) Init(context.Context) error { return nil }
-func (s *memStore) List(context.Context) ([]Version, error) { s.mu.RLock(); defer s.mu.RUnlock(); return append([]Version(nil), s.versions...), nil }
+func (s *memStore) List(context.Context) ([]Version, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]Version(nil), s.versions...), nil
+}
 func (s *memStore) Create(_ context.Context, body string, createdBy int64) (Version, error) {
-	s.mu.Lock(); defer s.mu.Unlock()
-	v := Version{ID: uuid.NewString(), Version: len(s.versions)+1, Body: body, CreatedBy: createdBy, CreatedAt: time.Now().UTC()}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	v := Version{ID: uuid.NewString(), Version: len(s.versions) + 1, Body: body, CreatedBy: createdBy, CreatedAt: time.Now().UTC()}
 	s.versions = append(s.versions, v)
 	return v, nil
 }
 func (s *memStore) Activate(_ context.Context, id string) (Version, error) {
-	s.mu.Lock(); defer s.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	var out Version
 	for i := range s.versions {
 		s.versions[i].Active = s.versions[i].ID == id
-		if s.versions[i].Active { out = s.versions[i] }
+		if s.versions[i].Active {
+			out = s.versions[i]
+		}
 	}
 	return out, nil
 }
 func (s *memStore) GetActive(_ context.Context) (Version, bool, error) {
-	s.mu.RLock(); defer s.mu.RUnlock()
-	for _, v := range s.versions { if v.Active { return v, true, nil } }
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, v := range s.versions {
+		if v.Active {
+			return v, true, nil
+		}
+	}
 	return Version{}, false, nil
 }
 
@@ -75,10 +90,18 @@ CREATE TABLE IF NOT EXISTS constitutions (
 }
 func (s *pgStore) List(ctx context.Context) ([]Version, error) {
 	rows, err := s.pool.Query(ctx, `SELECT id, version, body, active, created_at, created_by FROM constitutions ORDER BY version DESC`)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
 	out := []Version{}
-	for rows.Next() { var v Version; if err := rows.Scan(&v.ID, &v.Version, &v.Body, &v.Active, &v.CreatedAt, &v.CreatedBy); err != nil { return nil, err }; out = append(out, v) }
+	for rows.Next() {
+		var v Version
+		if err := rows.Scan(&v.ID, &v.Version, &v.Body, &v.Active, &v.CreatedAt, &v.CreatedBy); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
 	return out, rows.Err()
 }
 func (s *pgStore) Create(ctx context.Context, body string, createdBy int64) (Version, error) {
@@ -90,7 +113,9 @@ func (s *pgStore) Create(ctx context.Context, body string, createdBy int64) (Ver
 }
 func (s *pgStore) Activate(ctx context.Context, id string) (Version, error) {
 	_, err := s.pool.Exec(ctx, `UPDATE constitutions SET active = (id = $1)`, id)
-	if err != nil { return Version{}, err }
+	if err != nil {
+		return Version{}, err
+	}
 	var v Version
 	err = s.pool.QueryRow(ctx, `SELECT id, version, body, active, created_at, created_by FROM constitutions WHERE id=$1`, id).Scan(&v.ID, &v.Version, &v.Body, &v.Active, &v.CreatedAt, &v.CreatedBy)
 	return v, err
@@ -98,6 +123,8 @@ func (s *pgStore) Activate(ctx context.Context, id string) (Version, error) {
 func (s *pgStore) GetActive(ctx context.Context) (Version, bool, error) {
 	var v Version
 	err := s.pool.QueryRow(ctx, `SELECT id, version, body, active, created_at, created_by FROM constitutions WHERE active = true ORDER BY version DESC LIMIT 1`).Scan(&v.ID, &v.Version, &v.Body, &v.Active, &v.CreatedAt, &v.CreatedBy)
-	if err != nil { return Version{}, false, nil }
+	if err != nil {
+		return Version{}, false, nil
+	}
 	return v, true, nil
 }

@@ -23,7 +23,6 @@ type qdrantVector struct {
 	metric     string // cosine|l2|euclidean|ip|dot|manhattan
 }
 
-// Creates a new Qdrant vector store.
 // Note: The Go client uses Qdrant's gRPC API, which runs on port 6334 by default.
 //
 // Optionally, an API key can be provided as a query parameter: "http://localhost:6334?api_key=your_api_key"

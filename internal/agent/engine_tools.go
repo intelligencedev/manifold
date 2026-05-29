@@ -368,13 +368,3 @@ func (e *Engine) runDelegatedTeam(ctx context.Context, tc llm.ToolCall) []byte {
 	}
 	return []byte(result)
 }
-
-// maybeSummarize inspects msgs and, if the input tokens exceed the available
-// budget (context window minus reserve buffer), calls the LLM to produce a
-// short summary of older messages. Returns a new messages slice where older
-// messages have been replaced by a single summary assistant message plus the
-// most recent messages preserved.
-//
-// The pattern follows OpenAI's recommendation:
-// 1. Count input tokens (preflight)
-// 2. Compare against context_window - reserve_buffer

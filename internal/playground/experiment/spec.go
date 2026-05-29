@@ -177,18 +177,15 @@ func NewRepository() *Repository {
 	return &Repository{experiments: make(map[string]ExperimentSpec)}
 }
 
-// Save stores or replaces an experiment spec.
 func (r *Repository) Save(spec ExperimentSpec) {
 	r.experiments[spec.ID] = spec
 }
 
-// Get fetches a spec by ID.
 func (r *Repository) Get(id string) (ExperimentSpec, bool) {
 	spec, ok := r.experiments[id]
 	return spec, ok
 }
 
-// Delete removes an experiment spec from the repository cache.
 func (r *Repository) Delete(id string) {
 	delete(r.experiments, id)
 }

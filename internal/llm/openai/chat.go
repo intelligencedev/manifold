@@ -1,19 +1,15 @@
 package openai
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
 	"maps"
-	"net/http"
 	"strings"
 	"time"
 
 	sdk "github.com/openai/openai-go/v2"
+	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel/trace"
 
 	"manifold/internal/llm"
 	"manifold/internal/observability"
@@ -24,147 +20,7 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 	if imgOpts, ok := llm.ImagePromptFromContext(ctx); ok {
 		return c.chatWithImageGeneration(ctx, msgs, model, imgOpts)
 	}
-
-	tools = c.requestTools(tools)
-
-	if strings.EqualFold(c.api, "responses") {
-		return c.chatResponses(ctx, msgs, tools, model, nil)
-	}
-
-	effectiveModel := firstNonEmpty(model, c.model)
-
-	log := observability.LoggerWithTrace(ctx)
-	params := sdk.ChatCompletionNewParams{
-		Model: sdk.ChatModel(effectiveModel),
-	}
-	// messages
-	params.Messages = AdaptMessages(string(params.Model), c.chatCompletionMessages(msgs))
-	actualTools := configureChatCompletionTools(&params, tools, c.isSelfHosted())
-	if len(c.extra) > 0 {
-		// When no tools are provided, ensure we don't forward tool-specific
-		// flags from the client extra params.
-		if !actualTools {
-			tmp := make(map[string]any, len(c.extra))
-			maps.Copy(tmp, c.extra)
-			delete(tmp, "parallel_tool_calls")
-			params.SetExtraFields(sanitizeExtraFields(tmp))
-		} else {
-			params.SetExtraFields(sanitizeExtraFields(c.extra))
-		}
-	}
-	// Start a tracing span and log prompt for correlation
-	ctx, span := llm.StartRequestSpan(ctx, "OpenAI Chat", string(params.Model), len(tools), len(msgs))
-	defer span.End()
-	llm.LogRedactedPrompt(ctx, msgs)
-
-	start := time.Now()
-	comp, err := c.sdk.Chat.Completions.New(ctx, params)
-	dur := time.Since(start)
-	if err != nil {
-		log.Error().Err(err).Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Msg("chat_completion_error")
-		span.RecordError(err)
-		return llm.Message{}, err
-	}
-	f := log.With().Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Int("messages", len(msgs))
-	f = f.Int("prompt_tokens", int(comp.Usage.PromptTokens)).
-		Int("completion_tokens", int(comp.Usage.CompletionTokens)).
-		Int("total_tokens", int(comp.Usage.TotalTokens))
-
-	// Attempt to surface any nested token detail attributes that the API returned
-	var usageMap map[string]any
-	if b, err := json.Marshal(comp.Usage); err == nil {
-		if err := json.Unmarshal(b, &usageMap); err == nil {
-			if v, ok := usageMap["prompt_tokens_details"].(map[string]any); ok {
-				for k, val := range v {
-					if num, ok := val.(float64); ok {
-						f = f.Int("prompt_tokens_details_"+k, int(num))
-					}
-				}
-			}
-			if v, ok := usageMap["completion_tokens_details"].(map[string]any); ok {
-				for k, val := range v {
-					if num, ok := val.(float64); ok {
-						f = f.Int("completion_tokens_details_"+k, int(num))
-					}
-				}
-			}
-		}
-	}
-
-	fields := f.Logger()
-	if c.logPayloads && c.extra != nil && len(c.extra) > 0 {
-		if b, err := json.Marshal(c.extra); err == nil {
-			fields = fields.With().RawJSON("extra", observability.RedactJSON(b)).Logger()
-		}
-	}
-	fields.Debug().Msg("chat_completion_ok")
-
-	// Prepare assistant message output before token fallback
-	var out llm.Message
-	gemini := isGemini3Model(string(params.Model))
-	if len(comp.Choices) > 0 {
-		msg := comp.Choices[0].Message
-		out = llm.Message{Role: "assistant", Content: msg.Content}
-		if c.isSelfHosted() {
-			out.Content = stripTaggedThoughtContent(out.Content)
-		}
-		for _, tc := range msg.ToolCalls {
-			switch v := tc.AsAny().(type) {
-			case sdk.ChatCompletionMessageFunctionToolCall:
-				// Skip tool calls with empty or effectively empty arguments to prevent JSON unmarshal errors
-				if isEmptyArgs(v.Function.Arguments) {
-					log.Warn().Str("tool", v.Function.Name).Str("id", v.ID).Msg("skipping tool call with empty arguments")
-					continue
-				}
-				sig := ""
-				if gemini {
-					sig = extractThoughtSignature(v.RawJSON())
-				}
-				out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
-					Name:             v.Function.Name,
-					Args:             json.RawMessage(v.Function.Arguments),
-					ID:               v.ID,
-					ThoughtSignature: sig,
-				})
-			case sdk.ChatCompletionMessageCustomToolCall:
-				// Skip tool calls with empty input to prevent JSON unmarshal errors
-				if isEmptyArgs(v.Custom.Input) {
-					log.Warn().Str("tool", v.Custom.Name).Str("id", v.ID).Msg("skipping tool call with empty input")
-					continue
-				}
-				out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
-					Name: v.Custom.Name,
-					Args: json.RawMessage(v.Custom.Input),
-					ID:   v.ID,
-				})
-			}
-		}
-	}
-
-	// Redacted response logging
-	llm.LogRedactedResponse(ctx, comp.Choices)
-
-	if c.isSelfHosted() {
-		promptTokens := int(comp.Usage.PromptTokens)
-		completionTokens := int(comp.Usage.CompletionTokens)
-		totalTokens := int(comp.Usage.TotalTokens)
-		if !hasChatCompletionUsage(comp.Usage) {
-			promptText := buildPromptText(msgs)
-			promptTokens = c.tokenizeCount(ctx, promptText)
-			completionTokens = c.tokenizeCount(ctx, out.Content)
-			totalTokens = promptTokens + completionTokens
-		}
-		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
-		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
-	} else {
-		// Use OpenAI provided usage
-		llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
-		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
-	}
-	if len(comp.Choices) == 0 {
-		return llm.Message{}, nil
-	}
-	return out, nil
+	return c.ChatWithOptions(ctx, msgs, tools, model, nil)
 }
 
 // ChatWithOptions is like Chat but allows callers to:
@@ -182,23 +38,7 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 	ctx, span := llm.StartRequestSpan(ctx, "OpenAI ChatWithOptions", firstNonEmpty(model, c.model), len(tools), len(msgs))
 	defer span.End()
 	llm.LogRedactedPrompt(ctx, msgs)
-	params := sdk.ChatCompletionNewParams{
-		Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
-	}
-	params.Messages = AdaptMessages(string(params.Model), c.chatCompletionMessages(msgs))
-	actualTools := configureChatCompletionTools(&params, tools, c.isSelfHosted())
-	if len(c.extra) > 0 || len(extra) > 0 {
-		merged := make(map[string]any, len(c.extra)+len(extra))
-		maps.Copy(merged, c.extra)
-		maps.Copy(merged, extra)
-		// Some provider-specific flags (e.g., parallel_tool_calls) are only
-		// valid when tools are actually provided. Remove those keys when no
-		// tools are present to avoid 400 errors from the API.
-		if !actualTools {
-			delete(merged, "parallel_tool_calls")
-		}
-		params.SetExtraFields(sanitizeExtraFields(merged))
-	}
+	params := c.chatCompletionParams(msgs, tools, model, extra)
 	start := time.Now()
 	comp, err := c.sdk.Chat.Completions.New(ctx, params)
 	dur := time.Since(start)
@@ -207,92 +47,132 @@ func (c *Client) ChatWithOptions(ctx context.Context, msgs []llm.Message, tools 
 		span.RecordError(err)
 		return llm.Message{}, err
 	}
-	f := log.With().Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Int("messages", len(msgs))
-	f = f.Int("prompt_tokens", int(comp.Usage.PromptTokens)).
-		Int("completion_tokens", int(comp.Usage.CompletionTokens)).
-		Int("total_tokens", int(comp.Usage.TotalTokens))
-
-	// Attempt to surface any nested token detail attributes that the API returned
-	var usageMap map[string]any
-	if b, err := json.Marshal(comp.Usage); err == nil {
-		if err := json.Unmarshal(b, &usageMap); err == nil {
-			if v, ok := usageMap["prompt_tokens_details"].(map[string]any); ok {
-				for k, val := range v {
-					if num, ok := val.(float64); ok {
-						f = f.Int("prompt_tokens_details_"+k, int(num))
-					}
-				}
-			}
-			if v, ok := usageMap["completion_tokens_details"].(map[string]any); ok {
-				for k, val := range v {
-					if num, ok := val.(float64); ok {
-						f = f.Int("completion_tokens_details_"+k, int(num))
-					}
-				}
-			}
-		}
+	c.logChatCompletionOK(log, comp, params, tools, msgs, dur)
+	out := c.messageFromChatCompletion(comp, string(params.Model))
+	llm.LogRedactedResponse(ctx, comp.Choices)
+	c.recordChatCompletionUsage(ctx, span, comp.Usage, string(params.Model), msgs, out.Content)
+	if len(comp.Choices) == 0 {
+		return llm.Message{}, nil
 	}
+	return out, nil
+}
 
-	fields := f.Logger()
+func (c *Client) chatCompletionParams(msgs []llm.Message, tools []llm.ToolSchema, model string, extra map[string]any) sdk.ChatCompletionNewParams {
+	params := sdk.ChatCompletionNewParams{Model: sdk.ChatModel(firstNonEmpty(model, c.model))}
+	params.Messages = AdaptMessages(string(params.Model), c.chatCompletionMessages(msgs))
+	actualTools := configureChatCompletionTools(&params, tools, c.isSelfHosted())
+	if len(c.extra) > 0 || len(extra) > 0 {
+		merged := make(map[string]any, len(c.extra)+len(extra))
+		maps.Copy(merged, c.extra)
+		maps.Copy(merged, extra)
+		if !actualTools {
+			delete(merged, "parallel_tool_calls")
+		}
+		params.SetExtraFields(sanitizeExtraFields(merged))
+	}
+	return params
+}
+
+func (c *Client) logChatCompletionOK(
+	log *zerolog.Logger,
+	comp *sdk.ChatCompletion,
+	params sdk.ChatCompletionNewParams,
+	tools []llm.ToolSchema,
+	msgs []llm.Message,
+	dur time.Duration,
+) {
+	fields := chatCompletionLogEvent(log, comp, params, tools, msgs, dur).Logger()
 	if c.logPayloads && c.extra != nil && len(c.extra) > 0 {
 		if b, err := json.Marshal(c.extra); err == nil {
 			fields = fields.With().RawJSON("extra", observability.RedactJSON(b)).Logger()
 		}
 	}
 	fields.Debug().Msg("chat_completion_ok")
-	// Prepare assistant output first
-	var out llm.Message
-	gemini := isGemini3Model(string(params.Model))
-	if len(comp.Choices) > 0 {
-		msg := comp.Choices[0].Message
-		out = llm.Message{Role: "assistant", Content: msg.Content}
-		if c.isSelfHosted() {
-			out.Content = stripTaggedThoughtContent(out.Content)
-		}
-		for _, tc := range msg.ToolCalls {
-			switch v := tc.AsAny().(type) {
-			case sdk.ChatCompletionMessageFunctionToolCall:
-				out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
-					Name: v.Function.Name,
-					Args: json.RawMessage(v.Function.Arguments),
-					ID:   v.ID,
-					ThoughtSignature: func() string {
-						if gemini {
-							return extractThoughtSignature(v.RawJSON())
-						}
-						return ""
-					}(),
-				})
-			case sdk.ChatCompletionMessageCustomToolCall:
-				out.ToolCalls = append(out.ToolCalls, llm.ToolCall{
-					Name: v.Custom.Name,
-					Args: json.RawMessage(v.Custom.Input),
-					ID:   v.ID,
-				})
+}
+
+func chatCompletionLogEvent(
+	log *zerolog.Logger,
+	comp *sdk.ChatCompletion,
+	params sdk.ChatCompletionNewParams,
+	tools []llm.ToolSchema,
+	msgs []llm.Message,
+	dur time.Duration,
+) zerolog.Context {
+	fields := log.With().Str("model", string(params.Model)).Int("tools", len(tools)).Dur("duration", dur).Int("messages", len(msgs))
+	fields = fields.Int("prompt_tokens", int(comp.Usage.PromptTokens)).
+		Int("completion_tokens", int(comp.Usage.CompletionTokens)).
+		Int("total_tokens", int(comp.Usage.TotalTokens))
+	return appendChatUsageDetails(fields, comp.Usage)
+}
+
+func appendChatUsageDetails(fields zerolog.Context, usage sdk.CompletionUsage) zerolog.Context {
+	var usageMap map[string]any
+	if b, err := json.Marshal(usage); err == nil {
+		_ = json.Unmarshal(b, &usageMap)
+	}
+	for _, group := range []string{"prompt_tokens_details", "completion_tokens_details"} {
+		if values, ok := usageMap[group].(map[string]any); ok {
+			for k, val := range values {
+				if num, ok := val.(float64); ok {
+					fields = fields.Int(group+"_"+k, int(num))
+				}
 			}
 		}
 	}
+	return fields
+}
 
-	llm.LogRedactedResponse(ctx, comp.Choices)
-	if c.isSelfHosted() {
-		promptTokens := int(comp.Usage.PromptTokens)
-		completionTokens := int(comp.Usage.CompletionTokens)
-		totalTokens := int(comp.Usage.TotalTokens)
-		if !hasChatCompletionUsage(comp.Usage) {
-			promptTokens = c.tokenizeCount(ctx, buildPromptText(msgs))
-			completionTokens = c.tokenizeCount(ctx, out.Content)
-			totalTokens = promptTokens + completionTokens
-		}
-		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
-		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
-	} else {
-		llm.RecordTokenAttributes(span, int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens), int(comp.Usage.TotalTokens))
-		llm.RecordTokenMetricsFromContext(ctx, string(params.Model), int(comp.Usage.PromptTokens), int(comp.Usage.CompletionTokens))
-	}
+func (c *Client) messageFromChatCompletion(comp *sdk.ChatCompletion, model string) llm.Message {
 	if len(comp.Choices) == 0 {
-		return llm.Message{}, nil
+		return llm.Message{}
 	}
-	return out, nil
+	msg := comp.Choices[0].Message
+	out := llm.Message{Role: "assistant", Content: msg.Content}
+	if c.isSelfHosted() {
+		out.Content = stripTaggedThoughtContent(out.Content)
+	}
+	gemini := isGemini3Model(model)
+	for _, tc := range msg.ToolCalls {
+		if call, ok := chatCompletionToolCall(tc, gemini); ok {
+			out.ToolCalls = append(out.ToolCalls, call)
+		}
+	}
+	return out
+}
+
+func chatCompletionToolCall(tc sdk.ChatCompletionMessageToolCallUnion, gemini bool) (llm.ToolCall, bool) {
+	switch v := tc.AsAny().(type) {
+	case sdk.ChatCompletionMessageFunctionToolCall:
+		sig := ""
+		if gemini {
+			sig = extractThoughtSignature(v.RawJSON())
+		}
+		return llm.ToolCall{Name: v.Function.Name, Args: json.RawMessage(v.Function.Arguments), ID: v.ID, ThoughtSignature: sig}, true
+	case sdk.ChatCompletionMessageCustomToolCall:
+		return llm.ToolCall{Name: v.Custom.Name, Args: json.RawMessage(v.Custom.Input), ID: v.ID}, true
+	default:
+		return llm.ToolCall{}, false
+	}
+}
+
+func (c *Client) recordChatCompletionUsage(
+	ctx context.Context,
+	span trace.Span,
+	usage sdk.CompletionUsage,
+	model string,
+	msgs []llm.Message,
+	content string,
+) {
+	promptTokens := int(usage.PromptTokens)
+	completionTokens := int(usage.CompletionTokens)
+	totalTokens := int(usage.TotalTokens)
+	if c.isSelfHosted() && !hasChatCompletionUsage(usage) {
+		promptTokens = c.tokenizeCount(ctx, buildPromptText(msgs))
+		completionTokens = c.tokenizeCount(ctx, content)
+		totalTokens = promptTokens + completionTokens
+	}
+	llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
+	llm.RecordTokenMetricsFromContext(ctx, model, promptTokens, completionTokens)
 }
 
 func hasChatCompletionUsage(usage sdk.CompletionUsage) bool {
@@ -302,60 +182,41 @@ func hasChatCompletionUsage(usage sdk.CompletionUsage) bool {
 // ChatStream implements streaming chat completions using OpenAI's streaming API.
 func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, h llm.StreamHandler) error {
 	if imgOpts, ok := llm.ImagePromptFromContext(ctx); ok {
-		msg, err := c.chatWithImageGeneration(ctx, msgs, model, imgOpts)
-		if err != nil {
-			return err
-		}
-		if h != nil {
-			if strings.TrimSpace(msg.Content) != "" {
-				h.OnDelta(msg.Content)
-			}
-			for _, img := range msg.Images {
-				h.OnImage(img)
-			}
-		}
-		return nil
+		return c.streamImageChatResult(ctx, msgs, model, imgOpts, h)
 	}
 	tools = c.requestTools(tools)
 	if strings.EqualFold(c.api, "responses") {
 		return c.chatStreamResponses(ctx, msgs, tools, model, h)
 	}
-	// For self-hosted backends (llama.cpp, mlx_lm.server, etc.), prefer a generic SSE reader
-	// to maximize compatibility. Some servers diverge slightly from OpenAI's
-	// streaming chunk schema which can cause the SDK parser to abort and close
-	// the connection early (observed with mlx_lm.server BrokenPipeError).
 	if c.isSelfHosted() {
 		return c.chatStreamSSEFallback(ctx, msgs, tools, model, h)
 	}
-	log := observability.LoggerWithTrace(ctx)
-	params := sdk.ChatCompletionNewParams{
-		Model: sdk.ChatModel(firstNonEmpty(model, c.model)),
+	return c.chatCompletionStream(ctx, msgs, tools, model, h)
+}
+
+func (c *Client) streamImageChatResult(ctx context.Context, msgs []llm.Message, model string, imgOpts llm.ImagePromptOptions, h llm.StreamHandler) error {
+	msg, err := c.chatWithImageGeneration(ctx, msgs, model, imgOpts)
+	if err != nil {
+		return err
 	}
-	// Start tracing and log prompt
+	if h == nil {
+		return nil
+	}
+	if strings.TrimSpace(msg.Content) != "" {
+		h.OnDelta(msg.Content)
+	}
+	for _, img := range msg.Images {
+		h.OnImage(img)
+	}
+	return nil
+}
+
+func (c *Client) chatCompletionStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, h llm.StreamHandler) error {
+	log := observability.LoggerWithTrace(ctx)
 	ctx, span := llm.StartRequestSpan(ctx, "OpenAI ChatStream", firstNonEmpty(model, c.model), len(tools), len(msgs))
 	defer span.End()
 	llm.LogRedactedPrompt(ctx, msgs)
-	// messages
-	params.Messages = AdaptMessages(string(params.Model), c.chatCompletionMessages(msgs))
-	actualTools := configureChatCompletionTools(&params, tools, c.isSelfHosted())
-	if len(c.extra) > 0 {
-		// When no tools are provided, ensure we don't forward tool-specific
-		// flags from the client extra params.
-		if !actualTools {
-			tmp := make(map[string]any, len(c.extra))
-			maps.Copy(tmp, c.extra)
-			delete(tmp, "parallel_tool_calls")
-			params.SetExtraFields(sanitizeExtraFields(tmp))
-		} else {
-			params.SetExtraFields(sanitizeExtraFields(c.extra))
-		}
-	}
-	// Ask the API to include a final usage chunk so we can log token counts.
-	// Some self-hosted backends (e.g., mlx_lm.server) may not support this flag
-	// or may behave inconsistently, so only enable it for OpenAI cloud.
-	if !c.isSelfHosted() {
-		params.StreamOptions.IncludeUsage = sdk.Bool(true)
-	}
+	params := c.chatCompletionStreamParams(msgs, tools, model)
 
 	start := time.Now()
 	stream := c.sdk.Chat.Completions.NewStreaming(ctx, params)
@@ -363,389 +224,191 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 		_ = stream.Close()
 	}()
 
-	// Accumulate tool calls across chunks since they come incrementally
-	toolCalls := make(map[int]*llm.ToolCall)
-	// Track whether we've flushed tool calls to the handler
-	toolCallsFlushed := false
-	// Track token usage (filled from the final usage chunk if available)
-	var promptTokens, completionTokens, totalTokens int
-	// Hold any nested usage detail numeric fields so we can log them at the end
-	promptDetails := make(map[string]int)
-	completionDetails := make(map[string]int)
-
-	// Collect assistant content for self-hosted tokenization fallback
-	var assistantContentBuilder strings.Builder
-	gemini := isGemini3Model(string(params.Model))
+	state := newChatCompletionStreamState(string(params.Model))
 
 	for stream.Next() {
-		chunk := stream.Current()
-		if len(chunk.Choices) == 0 {
-			// Even if there are no choices, the final chunk may contain usage
-			if chunk.JSON.Usage.Valid() && chunk.JSON.Usage.Raw() != "null" {
-				promptTokens = int(chunk.Usage.PromptTokens)
-				completionTokens = int(chunk.Usage.CompletionTokens)
-				totalTokens = int(chunk.Usage.TotalTokens)
-
-				// Try to extract nested detail maps from the raw JSON usage
-				var usageMap map[string]any
-				if raw := chunk.JSON.Usage.Raw(); raw != "" && raw != "null" {
-					if err := json.Unmarshal([]byte(raw), &usageMap); err == nil {
-						if v, ok := usageMap["prompt_tokens_details"].(map[string]any); ok {
-							for k, val := range v {
-								if num, ok := val.(float64); ok {
-									promptDetails[k] = int(num)
-								}
-							}
-						}
-						if v, ok := usageMap["completion_tokens_details"].(map[string]any); ok {
-							for k, val := range v {
-								if num, ok := val.(float64); ok {
-									completionDetails[k] = int(num)
-								}
-							}
-						}
-					}
-				}
-			}
-			continue
-		}
-
-		delta := chunk.Choices[0].Delta
-
-		// Handle content deltas
-		if delta.Content != "" {
-			h.OnDelta(delta.Content)
-			assistantContentBuilder.WriteString(delta.Content)
-		}
-
-		// Handle tool calls - accumulate across chunks
-		// Use tc.Index (the API-provided index) NOT the range iteration index,
-		// because chunks may arrive out of order or contain only a subset of tool calls.
-		for _, tc := range delta.ToolCalls {
-			idx := int(tc.Index)
-			if toolCalls[idx] == nil {
-				toolCalls[idx] = &llm.ToolCall{
-					ID: tc.ID,
-				}
-			}
-
-			// Accumulate function name
-			if tc.Function.Name != "" {
-				toolCalls[idx].Name = tc.Function.Name
-			}
-
-			// Accumulate function arguments
-			if tc.Function.Arguments != "" {
-				if toolCalls[idx].Args == nil {
-					toolCalls[idx].Args = json.RawMessage(tc.Function.Arguments)
-				} else {
-					// Append new arguments to existing ones
-					existing := string(toolCalls[idx].Args)
-					toolCalls[idx].Args = json.RawMessage(existing + tc.Function.Arguments)
-				}
-			}
-			if gemini && toolCalls[idx].ThoughtSignature == "" {
-				toolCalls[idx].ThoughtSignature = extractThoughtSignature(tc.RawJSON())
-			}
-		}
-
-		// Check if we're done with this step (finish_reason indicates completion)
-		if len(chunk.Choices) > 0 && chunk.Choices[0].FinishReason != "" && !toolCallsFlushed {
-			// Send all accumulated tool calls
-			for _, tc := range toolCalls {
-				if tc != nil && tc.Name != "" && !isEmptyArgsBytes(tc.Args) {
-					h.OnToolCall(*tc)
-				} else if tc != nil && tc.Name != "" {
-					log.Warn().Str("tool", tc.Name).Str("id", tc.ID).Msg("skipping tool call with empty arguments in stream")
-				}
-			}
-			toolCallsFlushed = true
-			// Do not break: we may still receive a final usage chunk
-		}
+		state.handleChunk(stream.Current(), h, log)
 	}
 
 	err := stream.Err()
 	dur := time.Since(start)
-	// Build base logger and include nested usage detail fields if available
-	baseBuilder := log.With().
-		Str("model", string(params.Model)).
-		Int("tools", len(tools)).
-		Dur("duration", dur).
-		Int("prompt_tokens", promptTokens).
-		Int("completion_tokens", completionTokens).
-		Int("total_tokens", totalTokens)
-
-	// Append any nested prompt detail fields we captured
-	for k, v := range promptDetails {
-		baseBuilder = baseBuilder.Int("prompt_tokens_details_"+k, v)
-	}
-	for k, v := range completionDetails {
-		baseBuilder = baseBuilder.Int("completion_tokens_details_"+k, v)
-	}
-
-	base := baseBuilder.Logger()
+	base := state.logger(log, string(params.Model), len(tools), dur)
 	if err != nil {
 		base.Error().Err(err).Msg("chat_stream_error")
 		span.RecordError(err)
 	} else {
 		if c.isSelfHosted() {
-			// Override counts by re-tokenizing prompt and accumulated assistant content
-			promptTokens = c.tokenizeCount(ctx, buildPromptText(msgs))
-			completionTokens = c.tokenizeCount(ctx, assistantContentBuilder.String())
-			totalTokens = promptTokens + completionTokens
+			state.promptTokens = c.tokenizeCount(ctx, buildPromptText(msgs))
+			state.completionTokens = c.tokenizeCount(ctx, state.assistantContent())
+			state.totalTokens = state.promptTokens + state.completionTokens
 		}
-		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
-		llm.LogRedactedResponse(ctx, map[string]int{"prompt_tokens": promptTokens, "completion_tokens": completionTokens, "total_tokens": totalTokens})
-		if promptTokens > 0 || completionTokens > 0 {
-			llm.RecordTokenMetricsFromContext(ctx, string(params.Model), promptTokens, completionTokens)
-		}
+		state.recordSuccess(ctx, span, string(params.Model))
 		base.Debug().Msg("chat_stream_ok")
 	}
 	return err
 }
 
-// chatStreamSSEFallback implements a tolerant SSE reader for self-hosted servers
-// (mlx_lm.server, llama.cpp, etc.). It posts to /v1/chat/completions with
-// stream=true, sets Accept: text/event-stream, then parses lines prefixed with
-// "data: ", attempting to extract deltas from a variety of chunk shapes.
-func (c *Client) chatStreamSSEFallback(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, h llm.StreamHandler) error {
-	log := observability.LoggerWithTrace(ctx)
-	// Start tracing and log prompt
-	ctx, span := llm.StartRequestSpan(ctx, "OpenAI ChatStream (SSE Fallback)", firstNonEmpty(model, c.model), len(tools), len(msgs))
-	defer span.End()
-	llm.LogRedactedPrompt(ctx, msgs)
-
-	// Build URL (ensure single /v1 prefix)
-	base := strings.TrimSuffix(strings.TrimSpace(c.baseURL), "/")
-	if base == "" {
-		base = "https://api.openai.com/v1"
-	}
-	url := base + "/chat/completions"
-
-	// Build body
-	body := map[string]any{
-		"model":    firstNonEmpty(model, c.model),
-		"messages": AdaptMessages(model, c.chatCompletionMessages(msgs)),
-		"stream":   true,
-	}
-	actualTools := configureChatCompletionBodyTools(body, tools, c.isSelfHosted())
-	// Merge extra params, but drop tool flags if no tools
+func (c *Client) chatCompletionStreamParams(msgs []llm.Message, tools []llm.ToolSchema, model string) sdk.ChatCompletionNewParams {
+	params := sdk.ChatCompletionNewParams{Model: sdk.ChatModel(firstNonEmpty(model, c.model))}
+	params.Messages = AdaptMessages(string(params.Model), c.chatCompletionMessages(msgs))
+	actualTools := configureChatCompletionTools(&params, tools, c.isSelfHosted())
 	if len(c.extra) > 0 {
-		tmp := make(map[string]any, len(c.extra))
-		maps.Copy(tmp, c.extra)
+		extra := c.extra
 		if !actualTools {
-			delete(tmp, "parallel_tool_calls")
+			extra = make(map[string]any, len(c.extra))
+			maps.Copy(extra, c.extra)
+			delete(extra, "parallel_tool_calls")
 		}
-		for k, v := range tmp {
-			// do not overwrite required fields above unless explicitly provided
-			if k == "model" || k == "messages" || k == "stream" {
-				continue
-			}
-			body[k] = v
-		}
+		params.SetExtraFields(sanitizeExtraFields(extra))
 	}
-	streamOptions := map[string]any{"include_usage": true}
-	if existing, ok := body["stream_options"].(map[string]any); ok {
-		maps.Copy(streamOptions, existing)
-	} else if existing, ok := body["streamOptions"].(map[string]any); ok {
-		maps.Copy(streamOptions, existing)
+	if !c.isSelfHosted() {
+		params.StreamOptions.IncludeUsage = sdk.Bool(true)
 	}
-	body["stream_options"] = streamOptions
-	delete(body, "streamOptions")
-
-	payload, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "text/event-stream")
-	c.applyAuthHeader(req)
-
-	// Allow custom headers via ExtraParams["extra_headers"] if provided by config
-	// But we already support config.OpenAI.ExtraHeaders at handlers layer; keeping minimal here
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		b, _ := io.ReadAll(resp.Body)
-		log.Error().Int("status", resp.StatusCode).RawJSON("body", observability.RedactJSON(b)).Msg("sse_fallback_bad_status")
-		return fmt.Errorf("chatStream SSE fallback: status %d", resp.StatusCode)
-	}
-
-	start := time.Now()
-
-	// Accumulate for token metrics fallback
-	var assistantContentBuilder strings.Builder
-	var reportedPromptTokens, reportedCompletionTokens, reportedTotalTokens int
-	// Tool calls accumulation
-	toolCalls := make(map[int]*llm.ToolCall)
-	toolCallsFlushed := false
-	var thoughtStream selfHostedThoughtStreamState
-	emitSelfHostedDelta := func(content string) {
-		if content == "" {
-			return
-		}
-		thoughtStream.emit(content, h, &assistantContentBuilder)
-	}
-
-	scanner := bufio.NewScanner(resp.Body)
-	// Increase buffer in case of large JSON chunks
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		if !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if data == "[DONE]" {
-			break
-		}
-		// Parse JSON payload liberally
-		var m map[string]any
-		if err := json.Unmarshal([]byte(data), &m); err != nil {
-			// Skip invalid JSON chunks rather than aborting the stream
-			continue
-		}
-		if usage, ok := m["usage"].(map[string]any); ok {
-			reportedPromptTokens = usageInt(usage["prompt_tokens"])
-			reportedCompletionTokens = usageInt(usage["completion_tokens"])
-			reportedTotalTokens = usageInt(usage["total_tokens"])
-			if reportedTotalTokens == 0 {
-				reportedTotalTokens = reportedPromptTokens + reportedCompletionTokens
-			}
-		}
-
-		// Try OpenAI-style: choices[0].delta.content
-		if choices, ok := m["choices"].([]any); ok && len(choices) > 0 {
-			if ch, ok := choices[0].(map[string]any); ok {
-				// delta.content
-				if delta, ok := ch["delta"].(map[string]any); ok {
-					if reasoning := extractSelfHostedReasoningContent(delta["reasoning_content"]); reasoning != "" {
-						thoughtStream.emitReasoning(reasoning, h)
-					}
-					if reasoning := extractSelfHostedReasoningContent(delta["reasoningContent"]); reasoning != "" {
-						thoughtStream.emitReasoning(reasoning, h)
-					}
-					if s, ok := delta["content"].(string); ok && s != "" {
-						emitSelfHostedDelta(s)
-					}
-					// tool calls accumulation (function.name, function.arguments)
-					if tcs, ok := delta["tool_calls"].([]any); ok {
-						for i, tcv := range tcs {
-							if tcv == nil {
-								continue
-							}
-							if toolCalls[i] == nil {
-								toolCalls[i] = &llm.ToolCall{}
-							}
-							if tcm, ok := tcv.(map[string]any); ok {
-								if id, ok := tcm["id"].(string); ok && id != "" {
-									toolCalls[i].ID = id
-								}
-								if fn, ok := tcm["function"].(map[string]any); ok {
-									if name, ok := fn["name"].(string); ok && name != "" {
-										toolCalls[i].Name = name
-									}
-									if args, ok := fn["arguments"].(string); ok && args != "" {
-										if toolCalls[i].Args == nil {
-											toolCalls[i].Args = json.RawMessage(args)
-										} else {
-											existing := string(toolCalls[i].Args)
-											toolCalls[i].Args = json.RawMessage(existing + args)
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-				// finish_reason -> flush tool calls once
-				if fr, ok := ch["finish_reason"].(string); ok && fr != "" && !toolCallsFlushed {
-					for _, tc := range toolCalls {
-						if tc != nil && tc.Name != "" && len(tc.Args) > 0 {
-							h.OnToolCall(*tc)
-						}
-					}
-					toolCallsFlushed = true
-				}
-				// Some servers send message at end; capture for completeness
-				if msg, ok := ch["message"].(map[string]any); ok {
-					if reasoning := extractSelfHostedReasoningContent(msg["reasoning_content"]); reasoning != "" {
-						thoughtStream.emitReasoning(reasoning, h)
-					}
-					if reasoning := extractSelfHostedReasoningContent(msg["reasoningContent"]); reasoning != "" {
-						thoughtStream.emitReasoning(reasoning, h)
-					}
-					if s, ok := msg["content"].(string); ok && s != "" {
-						emitSelfHostedDelta(s)
-					}
-				}
-			}
-			continue
-		}
-
-		// mlx_lm compatibility: sometimes payload may contain {"response":"..."}
-		if s, ok := m["response"].(string); ok && s != "" {
-			emitSelfHostedDelta(s)
-			continue
-		}
-		// Another possible token key
-		if s, ok := m["token"].(string); ok && s != "" {
-			emitSelfHostedDelta(s)
-			continue
-		}
-	}
-	// Any scanner error is non-fatal if we received some content
-	scanErr := scanner.Err()
-
-	// Token metrics fallback using /tokenize if available
-	if c.isSelfHosted() {
-		promptTokens := reportedPromptTokens
-		completionTokens := reportedCompletionTokens
-		totalTokens := reportedTotalTokens
-		if promptTokens == 0 && completionTokens == 0 && totalTokens == 0 {
-			promptTokens = c.tokenizeCount(ctx, buildPromptText(msgs))
-			completionTokens = c.tokenizeCount(ctx, assistantContentBuilder.String())
-			totalTokens = promptTokens + completionTokens
-		}
-		llm.RecordTokenAttributes(span, promptTokens, completionTokens, totalTokens)
-		if promptTokens > 0 || completionTokens > 0 {
-			llm.RecordTokenMetricsFromContext(ctx, firstNonEmpty(model, c.model), promptTokens, completionTokens)
-		}
-		llm.LogRedactedResponse(ctx, map[string]int{"prompt_tokens": promptTokens, "completion_tokens": completionTokens, "total_tokens": totalTokens})
-	}
-
-	dur := time.Since(start)
-	if scanErr != nil && !errors.Is(scanErr, context.Canceled) {
-		observability.LoggerWithTrace(ctx).Error().Err(scanErr).Dur("duration", dur).Msg("chat_stream_sse_fallback_error")
-		span.RecordError(scanErr)
-		return scanErr
-	}
-	observability.LoggerWithTrace(ctx).Debug().Dur("duration", dur).Msg("chat_stream_sse_fallback_ok")
-	return nil
+	return params
 }
 
-func usageInt(value any) int {
-	switch v := value.(type) {
-	case float64:
-		return int(v)
-	case float32:
-		return int(v)
-	case int:
-		return v
-	case int64:
-		return int(v)
-	default:
-		return 0
+type chatCompletionStreamState struct {
+	toolCalls               map[int]*llm.ToolCall
+	toolCallsFlushed        bool
+	promptTokens            int
+	completionTokens        int
+	totalTokens             int
+	promptDetails           map[string]int
+	completionDetails       map[string]int
+	assistantContentBuilder strings.Builder
+	gemini                  bool
+}
+
+func newChatCompletionStreamState(model string) *chatCompletionStreamState {
+	return &chatCompletionStreamState{
+		toolCalls:         make(map[int]*llm.ToolCall),
+		promptDetails:     make(map[string]int),
+		completionDetails: make(map[string]int),
+		gemini:            isGemini3Model(model),
+	}
+}
+
+func (s *chatCompletionStreamState) handleChunk(chunk sdk.ChatCompletionChunk, h llm.StreamHandler, log *zerolog.Logger) {
+	if len(chunk.Choices) == 0 {
+		s.recordUsage(chunk)
+		return
+	}
+	choice := chunk.Choices[0]
+	s.emitContent(choice.Delta.Content, h)
+	for _, tc := range choice.Delta.ToolCalls {
+		s.accumulateToolCall(tc)
+	}
+	if choice.FinishReason != "" && !s.toolCallsFlushed {
+		s.flushToolCalls(h, log)
+		s.toolCallsFlushed = true
+	}
+}
+
+func (s *chatCompletionStreamState) emitContent(content string, h llm.StreamHandler) {
+	if content == "" {
+		return
+	}
+	h.OnDelta(content)
+	s.assistantContentBuilder.WriteString(content)
+}
+
+func (s *chatCompletionStreamState) recordUsage(chunk sdk.ChatCompletionChunk) {
+	if !chunk.JSON.Usage.Valid() || chunk.JSON.Usage.Raw() == "null" {
+		return
+	}
+	s.promptTokens = int(chunk.Usage.PromptTokens)
+	s.completionTokens = int(chunk.Usage.CompletionTokens)
+	s.totalTokens = int(chunk.Usage.TotalTokens)
+	s.recordUsageDetails(chunk.JSON.Usage.Raw())
+}
+
+func (s *chatCompletionStreamState) recordUsageDetails(raw string) {
+	if raw == "" || raw == "null" {
+		return
+	}
+	var usageMap map[string]any
+	if err := json.Unmarshal([]byte(raw), &usageMap); err != nil {
+		return
+	}
+	copyNumericUsageDetails(s.promptDetails, usageMap["prompt_tokens_details"])
+	copyNumericUsageDetails(s.completionDetails, usageMap["completion_tokens_details"])
+}
+
+func copyNumericUsageDetails(dst map[string]int, raw any) {
+	values, ok := raw.(map[string]any)
+	if !ok {
+		return
+	}
+	for k, val := range values {
+		if num, ok := val.(float64); ok {
+			dst[k] = int(num)
+		}
+	}
+}
+
+func (s *chatCompletionStreamState) accumulateToolCall(tc sdk.ChatCompletionChunkChoiceDeltaToolCall) {
+	idx := int(tc.Index)
+	if s.toolCalls[idx] == nil {
+		s.toolCalls[idx] = &llm.ToolCall{ID: tc.ID}
+	}
+	call := s.toolCalls[idx]
+	if tc.Function.Name != "" {
+		call.Name = tc.Function.Name
+	}
+	if tc.Function.Arguments != "" {
+		call.Args = appendRawMessage(call.Args, tc.Function.Arguments)
+	}
+	if s.gemini && call.ThoughtSignature == "" {
+		call.ThoughtSignature = extractThoughtSignature(tc.RawJSON())
+	}
+}
+
+func appendRawMessage(existing json.RawMessage, next string) json.RawMessage {
+	if existing == nil {
+		return json.RawMessage(next)
+	}
+	return json.RawMessage(string(existing) + next)
+}
+
+func (s *chatCompletionStreamState) flushToolCalls(h llm.StreamHandler, log *zerolog.Logger) {
+	for _, tc := range s.toolCalls {
+		if tc != nil && tc.Name != "" && !isEmptyArgsBytes(tc.Args) {
+			h.OnToolCall(*tc)
+		} else if tc != nil && tc.Name != "" {
+			log.Warn().Str("tool", tc.Name).Str("id", tc.ID).Msg("skipping tool call with empty arguments in stream")
+		}
+	}
+}
+
+func (s *chatCompletionStreamState) logger(log *zerolog.Logger, model string, toolCount int, dur time.Duration) zerolog.Logger {
+	builder := log.With().
+		Str("model", model).
+		Int("tools", toolCount).
+		Dur("duration", dur).
+		Int("prompt_tokens", s.promptTokens).
+		Int("completion_tokens", s.completionTokens).
+		Int("total_tokens", s.totalTokens)
+	for k, v := range s.promptDetails {
+		builder = builder.Int("prompt_tokens_details_"+k, v)
+	}
+	for k, v := range s.completionDetails {
+		builder = builder.Int("completion_tokens_details_"+k, v)
+	}
+	return builder.Logger()
+}
+
+func (s *chatCompletionStreamState) assistantContent() string {
+	return s.assistantContentBuilder.String()
+}
+
+func (s *chatCompletionStreamState) recordSuccess(ctx context.Context, span trace.Span, model string) {
+	llm.RecordTokenAttributes(span, s.promptTokens, s.completionTokens, s.totalTokens)
+	llm.LogRedactedResponse(ctx, map[string]int{
+		"prompt_tokens":     s.promptTokens,
+		"completion_tokens": s.completionTokens,
+		"total_tokens":      s.totalTokens,
+	})
+	if s.promptTokens > 0 || s.completionTokens > 0 {
+		llm.RecordTokenMetricsFromContext(ctx, model, s.promptTokens, s.completionTokens)
 	}
 }

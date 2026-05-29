@@ -103,6 +103,7 @@ func NewEvolvingMemory(cfg EvolvingMemoryConfig) *EvolvingMemory {
 		userID:                   cfg.UserID,
 		sessionID:                sessionID,
 		persistDelay:             persistDelay,
+		magmaSink:                cfg.MagmaSink,
 		dirtyIDs:                 make(map[string]struct{}),
 		deletedIDs:               make(map[string]struct{}),
 		callbacks:                cfg.Callbacks,

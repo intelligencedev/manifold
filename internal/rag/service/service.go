@@ -86,6 +86,13 @@ func WithMagmaLLM(provider llm.Provider) Option {
 	return func(s *Service) { s.magmaLLM = provider }
 }
 
+func (s *Service) MagmaService() *magma.Service {
+	if s == nil {
+		return nil
+	}
+	return s.magma
+}
+
 func (s *Service) Close() {
 	if s == nil || s.magma == nil {
 		return

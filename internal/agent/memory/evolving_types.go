@@ -224,6 +224,13 @@ type EvolvingMemoryJanitorStore interface {
 	DeleteExpired(ctx context.Context, before time.Time) (int64, error)
 }
 
+// EvolvingMemoryMagmaSink mirrors evolved memories into an agentic long-term
+// memory backend. It is intentionally defined in this package to avoid coupling
+// EvolvingMemory to a concrete MAGMA implementation.
+type EvolvingMemoryMagmaSink interface {
+	IngestEvolvingMemory(ctx context.Context, userID int64, sessionID string, entry *MemoryEntry) (string, error)
+}
+
 // EvolvingMemory implements the Search → Synthesis → Evolve loop from the paper.
 // It provides:
 // - R: retrieval function (top-k similarity search)
@@ -268,6 +275,7 @@ type EvolvingMemory struct {
 	pendingPersist []*MemoryEntry
 	dirtyIDs       map[string]struct{}
 	deletedIDs     map[string]struct{}
+	magmaSink      EvolvingMemoryMagmaSink
 
 	callbacks *MemoryCallbacks
 }
@@ -341,6 +349,7 @@ type EvolvingMemoryConfig struct {
 	UserID          int64
 	SessionID       string
 	PersistDebounce time.Duration
+	MagmaSink       EvolvingMemoryMagmaSink
 
 	Callbacks *MemoryCallbacks
 }

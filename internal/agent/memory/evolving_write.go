@@ -152,6 +152,9 @@ func (em *EvolvingMemory) EvolveEnhanced(
 	if em.store != nil {
 		em.persistEntriesAsync(entriesSnapshot)
 	}
+	if em.magmaSink != nil {
+		em.ingestMagma(ctx, entry)
+	}
 
 	log.Info().
 		Str("entry_id", entry.ID).
@@ -159,6 +162,15 @@ func (em *EvolvingMemory) EvolveEnhanced(
 		Bool("has_strategy_card", strategyCard != "").
 		Msg("evolving_memory_entry_added")
 	return nil
+}
+
+func (em *EvolvingMemory) ingestMagma(ctx context.Context, entry *MemoryEntry) {
+	if em == nil || em.magmaSink == nil || entry == nil {
+		return
+	}
+	if _, err := em.magmaSink.IngestEvolvingMemory(ctx, em.userID, em.sessionID, cloneEntry(entry)); err != nil {
+		observability.LoggerWithTrace(ctx).Warn().Err(err).Str("entry_id", entry.ID).Msg("evolving_memory_magma_ingest_failed")
+	}
 }
 
 // classifyMemoryType determines if the memory is factual, procedural, or episodic.

@@ -30,6 +30,12 @@ type recordingEmbedder struct {
 	texts []string
 }
 
+type recordingMagmaSink struct {
+	userID    int64
+	sessionID string
+	entry     *MemoryEntry
+}
+
 func (c *countingEmbedder) embed(ctx context.Context, cfg config.EmbeddingConfig, texts []string) ([][]float32, error) {
 	c.mu.Lock()
 	c.calls++
@@ -65,6 +71,13 @@ func (m *mockLLMProvider) ChatStream(ctx context.Context, messages []llm.Message
 	return nil
 }
 
+func (s *recordingMagmaSink) IngestEvolvingMemory(_ context.Context, userID int64, sessionID string, entry *MemoryEntry) (string, error) {
+	s.userID = userID
+	s.sessionID = sessionID
+	s.entry = cloneEntry(entry)
+	return "event:user:7:evolving:" + entry.ID, nil
+}
+
 func testEmbedFn(_ context.Context, _ config.EmbeddingConfig, texts []string) ([][]float32, error) {
 	// Deterministic, cheap embedding for tests.
 	out := make([][]float32, len(texts))
@@ -76,6 +89,41 @@ func testEmbedFn(_ context.Context, _ config.EmbeddingConfig, texts []string) ([
 		out[i] = v
 	}
 	return out, nil
+}
+
+func TestEvolveEnhancedMirrorsToMagmaSink(t *testing.T) {
+	t.Parallel()
+
+	sink := &recordingMagmaSink{}
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbedFn:    testEmbedFn,
+		LLM:        &mockLLMProvider{response: "Remember the deployment workflow."},
+		Model:      "test-model",
+		EnableRAG:  true,
+		UserID:     7,
+		SessionID:  "session-1",
+		MagmaSink:  sink,
+		MaxSize:    100,
+		TopK:       3,
+		WindowSize: 10,
+	})
+
+	if err := em.EvolveEnhanced(context.Background(), "deploy service", "deployment succeeded", "success", nil, nil, ""); err != nil {
+		t.Fatalf("EvolveEnhanced failed: %v", err)
+	}
+
+	if sink.userID != 7 || sink.sessionID != "session-1" {
+		t.Fatalf("unexpected MAGMA sink scope: user=%d session=%q", sink.userID, sink.sessionID)
+	}
+	if sink.entry == nil {
+		t.Fatal("expected MAGMA sink entry")
+	}
+	if sink.entry.Input != "deploy service" || sink.entry.Summary != "Remember the deployment workflow." {
+		t.Fatalf("unexpected MAGMA sink entry: %#v", sink.entry)
+	}
+	if sink.entry == em.entries[0] {
+		t.Fatal("expected MAGMA sink to receive a cloned entry")
+	}
 }
 
 func TestEvolvingMemory_SearchSynthesizeEvolve(t *testing.T) {

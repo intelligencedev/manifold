@@ -469,6 +469,10 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		if mgr.EvolvingMemory != nil {
 			evStore = mgr.EvolvingMemory
 		}
+		var magmaSink memory.EvolvingMemoryMagmaSink
+		if cfg.Magma.Enabled && app.ragService != nil && app.ragService.MagmaService() != nil {
+			magmaSink = evolvingMagmaSink{service: app.ragService.MagmaService(), workerCount: cfg.Magma.Consolidation.WorkerCount}
+		}
 
 		storeJanitorInterval := time.Duration(cfg.EvolvingMemory.StoreJanitorIntervalMinutes) * time.Minute
 		app.evolvingCfg = memory.EvolvingMemoryConfig{
@@ -490,6 +494,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 			Metrics:                  memory.NewMemoryMetrics(),
 			Store:                    evStore,
 			UserID:                   systemUserID,
+			MagmaSink:                magmaSink,
 		}
 		if cfg.EvolvingMemory.PersistDebounceMs > 0 {
 			app.evolvingCfg.PersistDebounce = time.Duration(cfg.EvolvingMemory.PersistDebounceMs) * time.Millisecond
@@ -515,6 +520,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 			Metrics:                  app.evolvingCfg.Metrics,
 			Store:                    evStore,
 			UserID:                   systemUserID,
+			MagmaSink:                magmaSink,
 		})
 		log.Info().
 			Bool("enabled", true).

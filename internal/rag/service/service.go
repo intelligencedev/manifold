@@ -178,6 +178,7 @@ func (s *Service) Ingest(ctx context.Context, in ingest.IngestRequest) (ingest.I
 	s.metrics.ObserveHistogram("ingestion_stage_ms", float64(ms(dur)), map[string]string{"stage": "total", "tenant": in.Tenant})
 	magmaOpt := s.normalizeMagmaIngestOptions(in.Options.Magma)
 	var magmaEventID string
+	warnings := []string(nil)
 	if magmaOpt.Enabled && s.magma != nil {
 		t0 = s.clock.Now()
 		s.magma.StartConsolidationWorkers(context.Background(), s.magmaCfg.Consolidation.WorkerCount)
@@ -192,6 +193,10 @@ func (s *Service) Ingest(ctx context.Context, in ingest.IngestRequest) (ingest.I
 			return ingest.IngestResponse{}, err
 		}
 		magmaEventID = resp.EventID
+		if resp.Status == "queue_full" {
+			warnings = append(warnings, "magma consolidation queue is full; event stored but not queued for consolidation")
+			s.metrics.IncCounter("magma_consolidation_queue_dropped_total", map[string]string{"tenant": in.Tenant})
+		}
 		s.metrics.ObserveHistogram("ingestion_stage_ms", float64(ms(s.clock.Now().Sub(t0))), map[string]string{"stage": "magma_fast", "tenant": in.Tenant})
 		s.metrics.IncCounter("magma_events_total", map[string]string{"tenant": in.Tenant})
 	}
@@ -206,7 +211,7 @@ func (s *Service) Ingest(ctx context.Context, in ingest.IngestRequest) (ingest.I
 			VectorUpserts: vecUpserts,
 			Duration:      dur,
 		},
-		Warnings: nil,
+		Warnings: warnings,
 	}, nil
 }
 

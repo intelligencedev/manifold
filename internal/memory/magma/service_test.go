@@ -2,6 +2,7 @@ package magma
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -10,6 +11,16 @@ import (
 	"manifold/internal/persistence/databases"
 	"manifold/internal/rag/embedder"
 )
+
+type failingEmbedder struct{}
+
+func (failingEmbedder) EmbedBatch(context.Context, []string) ([][]float32, error) {
+	return nil, errors.New("embed failed")
+}
+
+func (failingEmbedder) Name() string               { return "failing" }
+func (failingEmbedder) Dimension() int             { return 0 }
+func (failingEmbedder) Ping(context.Context) error { return nil }
 
 func TestService_IngestConsolidateAndQuery(t *testing.T) {
 	t.Parallel()
@@ -239,6 +250,56 @@ func TestService_ConfigControlsSemanticThreshold(t *testing.T) {
 	}
 	if len(neighbors) != 0 {
 		t.Fatalf("expected semantic threshold to prune links between %s and %s, got %#v", first.EventID, second.EventID, neighbors)
+	}
+}
+
+func TestService_ReportsQueueFull(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), databases.NewMemoryVector(), embedder.NewDeterministic(32, true, 0), ServiceConfig{
+		QueueSize: 1,
+	})
+
+	first, err := svc.Ingest(ctx, IngestRequest{ID: "first", Tenant: "t1", Text: "Melanie practiced guitar."})
+	if err != nil {
+		t.Fatalf("first Ingest() error = %v", err)
+	}
+	if first.Status != "queued" {
+		t.Fatalf("expected first event queued, got %q", first.Status)
+	}
+	second, err := svc.Ingest(ctx, IngestRequest{ID: "second", Tenant: "t1", Text: "Melanie practiced piano."})
+	if err != nil {
+		t.Fatalf("second Ingest() error = %v", err)
+	}
+	if second.Status != "queue_full" {
+		t.Fatalf("expected queue_full status, got %q", second.Status)
+	}
+	stats := svc.Stats()
+	if stats.QueueDepth != 1 || stats.DroppedTotal != 1 {
+		t.Fatalf("unexpected stats after queue full: %#v", stats)
+	}
+}
+
+func TestService_StatsTrackConsolidationFailure(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), nil, failingEmbedder{}, ServiceConfig{})
+	if err := svc.store.StoreEvent(ctx, EventNode{ID: "event:t1:broken", Tenant: "t1", Text: "Broken event"}); err != nil {
+		t.Fatalf("StoreEvent() error = %v", err)
+	}
+	if !svc.enqueue("event:t1:broken") {
+		t.Fatalf("expected enqueue")
+	}
+	processed, err := svc.DrainConsolidation(ctx, 1)
+	if err == nil {
+		t.Fatalf("expected consolidation error")
+	}
+	if processed != 0 {
+		t.Fatalf("expected no successful events, got %d", processed)
+	}
+	stats := svc.Stats()
+	if stats.FailedTotal != 1 || stats.ProcessedTotal != 0 || !strings.Contains(stats.LastError, "embed failed") {
+		t.Fatalf("unexpected failure stats: %#v", stats)
 	}
 }
 

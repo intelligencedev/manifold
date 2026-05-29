@@ -119,6 +119,38 @@ func TestService_MagmaConfigEnablesDefaultIngestAndRetrieve(t *testing.T) {
 	}
 }
 
+func TestService_MagmaQueueFullWarning(t *testing.T) {
+	t.Parallel()
+	mgr := databases.Manager{
+		Search: databases.NewMemorySearch(),
+		Vector: databases.NewMemoryVector(),
+		Graph:  databases.NewMemoryGraph(),
+	}
+	svc := New(mgr, WithMagmaConfig(config.MagmaConfig{
+		Enabled: true,
+		Consolidation: config.MagmaConsolidationConfig{
+			MaxQueueSize: 1,
+			WorkerCount:  -1,
+		},
+	}))
+	ctx := context.Background()
+
+	first, err := svc.Ingest(ctx, ingest.IngestRequest{ID: "doc:first", Text: "Melanie practiced guitar.", Tenant: "t1"})
+	if err != nil {
+		t.Fatalf("first Ingest() error = %v", err)
+	}
+	if len(first.Warnings) != 0 {
+		t.Fatalf("unexpected first warnings: %#v", first.Warnings)
+	}
+	second, err := svc.Ingest(ctx, ingest.IngestRequest{ID: "doc:second", Text: "Melanie practiced piano.", Tenant: "t1"})
+	if err != nil {
+		t.Fatalf("second Ingest() error = %v", err)
+	}
+	if len(second.Warnings) != 1 {
+		t.Fatalf("expected queue full warning, got %#v", second.Warnings)
+	}
+}
+
 func waitForMagmaEvent(t *testing.T, ctx context.Context, svc *Service, eventID string) {
 	t.Helper()
 	deadline := time.After(2 * time.Second)

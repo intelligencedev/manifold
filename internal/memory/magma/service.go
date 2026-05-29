@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"manifold/internal/persistence/databases"
@@ -22,6 +23,12 @@ type Service struct {
 	closeOnce sync.Once
 	workerWG  sync.WaitGroup
 	cancel    context.CancelFunc
+
+	processedTotal atomic.Uint64
+	failedTotal    atomic.Uint64
+	droppedTotal   atomic.Uint64
+	errMu          sync.RWMutex
+	lastErr        error
 }
 
 func NewService(graph databases.GraphDB, vector databases.VectorStore, emb embedder.Embedder) *Service {
@@ -44,6 +51,9 @@ func NewServiceWithConfig(graph databases.GraphDB, vector databases.VectorStore,
 
 func (s *Service) StartConsolidationWorkers(ctx context.Context, workers int) {
 	if s == nil {
+		return
+	}
+	if workers < 0 {
 		return
 	}
 	if workers <= 0 {
@@ -104,11 +114,11 @@ func (s *Service) Ingest(ctx context.Context, in IngestRequest) (EventIngestResp
 			return EventIngestResponse{}, err
 		}
 	}
-	select {
-	case s.queue <- event.ID:
-	default:
+	status := "queued"
+	if !s.enqueue(event.ID) {
+		status = "queue_full"
 	}
-	return EventIngestResponse{EventID: event.ID, Status: "ingested"}, nil
+	return EventIngestResponse{EventID: event.ID, Status: status}, nil
 }
 
 func (s *Service) Consolidate(ctx context.Context, eventID string) error {
@@ -157,7 +167,7 @@ func (s *Service) DrainConsolidation(ctx context.Context, limit int) (int, error
 	for processed < limit {
 		select {
 		case eventID := <-s.queue:
-			if err := s.Consolidate(ctx, eventID); err != nil {
+			if err := s.consolidateQueued(ctx, eventID); err != nil {
 				return processed, err
 			}
 			processed++
@@ -175,8 +185,27 @@ func (s *Service) runConsolidationWorker(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case eventID := <-s.queue:
-			_ = s.Consolidate(ctx, eventID)
+			_ = s.consolidateQueued(ctx, eventID)
 		}
+	}
+}
+
+func (s *Service) Stats() ServiceStats {
+	if s == nil {
+		return ServiceStats{}
+	}
+	s.errMu.RLock()
+	var lastErr string
+	if s.lastErr != nil {
+		lastErr = s.lastErr.Error()
+	}
+	s.errMu.RUnlock()
+	return ServiceStats{
+		QueueDepth:     len(s.queue),
+		ProcessedTotal: s.processedTotal.Load(),
+		FailedTotal:    s.failedTotal.Load(),
+		DroppedTotal:   s.droppedTotal.Load(),
+		LastError:      lastErr,
 	}
 }
 
@@ -204,6 +233,33 @@ func (s *Service) embed(ctx context.Context, text string) ([]float32, error) {
 		return nil, nil
 	}
 	return vectors[0], nil
+}
+
+func (s *Service) enqueue(eventID string) bool {
+	select {
+	case s.queue <- eventID:
+		return true
+	default:
+		s.droppedTotal.Add(1)
+		return false
+	}
+}
+
+func (s *Service) consolidateQueued(ctx context.Context, eventID string) error {
+	if err := s.Consolidate(ctx, eventID); err != nil {
+		s.failedTotal.Add(1)
+		s.setLastError(err)
+		return err
+	}
+	s.processedTotal.Add(1)
+	s.setLastError(nil)
+	return nil
+}
+
+func (s *Service) setLastError(err error) {
+	s.errMu.Lock()
+	defer s.errMu.Unlock()
+	s.lastErr = err
 }
 
 func (s *Service) graphEnabled(graphType GraphType) bool {

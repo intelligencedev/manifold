@@ -135,6 +135,14 @@ type EventIngestResponse struct {
 	Status  string
 }
 
+type ServiceStats struct {
+	QueueDepth     int
+	ProcessedTotal uint64
+	FailedTotal    uint64
+	DroppedTotal   uint64
+	LastError      string
+}
+
 type ServiceConfig struct {
 	QueueSize           int
 	SemanticTopK        int

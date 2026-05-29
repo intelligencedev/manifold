@@ -183,10 +183,11 @@ func (s *Service) Consolidate(ctx context.Context, eventID string) (err error) {
 		edges = append(edges, causalEdges...)
 	}
 	return s.store.BatchUpsert(ctx, BatchUpsertRequest{
-		Event:         event,
-		TemporalAttrs: attrs,
-		Entities:      entities,
-		Edges:         edges,
+		Event:           event,
+		TemporalAttrs:   attrs,
+		Entities:        entities,
+		Edges:           edges,
+		SkipEntityLinks: !s.entityCoReferenceEnabled(event),
 	})
 }
 
@@ -337,6 +338,10 @@ func (s *Service) llmExtractionEnabled(event EventNode) bool {
 	return s.graphEnabledForEvent(event, GraphTemporal) || s.graphEnabledForEvent(event, GraphEntity) || s.graphEnabledForEvent(event, GraphCausal)
 }
 
+func (s *Service) entityCoReferenceEnabled(event EventNode) bool {
+	return s != nil && s.cfg.Graphs.CoReference && s.graphEnabledForEvent(event, GraphEntity)
+}
+
 func normalizeServiceConfig(cfg ServiceConfig) ServiceConfig {
 	if cfg.QueueSize <= 0 {
 		cfg.QueueSize = 1024
@@ -348,7 +353,7 @@ func normalizeServiceConfig(cfg ServiceConfig) ServiceConfig {
 		cfg.SimilarityThreshold = 0.7
 	}
 	if !cfg.Graphs.Semantic && !cfg.Graphs.Temporal && !cfg.Graphs.Causal && !cfg.Graphs.Entity {
-		cfg.Graphs = GraphConfig{Semantic: true, Temporal: true, Causal: true, Entity: true}
+		cfg.Graphs = GraphConfig{Semantic: true, Temporal: true, Causal: true, Entity: true, CoReference: true}
 	}
 	return cfg
 }

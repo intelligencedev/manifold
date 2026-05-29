@@ -285,6 +285,74 @@ func TestService_ConfigDisablesGraphViews(t *testing.T) {
 	}
 }
 
+func TestService_EntityCoReferenceConfigControlsRelatedEdges(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), databases.NewMemoryVector(), embedder.NewDeterministic(32, true, 0), ServiceConfig{
+		Graphs: GraphConfig{Entity: true, CoReference: false},
+	})
+
+	resp, err := svc.Ingest(ctx, IngestRequest{
+		ID:     "co-ref-disabled",
+		Tenant: "t1",
+		Text:   "Melanie and Daniel practiced guitar.",
+	})
+	if err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+	if _, err := svc.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("DrainConsolidation() error = %v", err)
+	}
+	event, ok := svc.Event(ctx, resp.EventID)
+	if !ok || len(event.EntityMentions) != 2 {
+		t.Fatalf("expected two entity mentions, got %#v", event.EntityMentions)
+	}
+	related, err := svc.store.Neighbors(ctx, "entity:t1:melanie", GraphEntity, "RELATED_TO")
+	if err != nil {
+		t.Fatalf("RELATED_TO neighbors error = %v", err)
+	}
+	if len(related) != 0 {
+		t.Fatalf("expected co-reference disabled to skip RELATED_TO edges, got %#v", related)
+	}
+	mentions, err := svc.store.Neighbors(ctx, "entity:t1:melanie", GraphEntity, "MENTIONS")
+	if err != nil {
+		t.Fatalf("MENTIONS neighbors error = %v", err)
+	}
+	if len(mentions) != 1 || mentions[0] != resp.EventID {
+		t.Fatalf("expected MENTIONS edge to remain, got %#v", mentions)
+	}
+}
+
+func TestService_EntityCoReferenceEnabledCreatesRelatedEdges(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), databases.NewMemoryVector(), embedder.NewDeterministic(32, true, 0), ServiceConfig{
+		Graphs: GraphConfig{Entity: true, CoReference: true},
+	})
+
+	resp, err := svc.Ingest(ctx, IngestRequest{
+		ID:     "co-ref-enabled",
+		Tenant: "t1",
+		Text:   "Melanie and Daniel practiced guitar.",
+	})
+	if err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+	if _, err := svc.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("DrainConsolidation() error = %v", err)
+	}
+	if resp.EventID == "" {
+		t.Fatalf("expected event ID")
+	}
+	related, err := svc.store.Neighbors(ctx, "entity:t1:melanie", GraphEntity, "RELATED_TO")
+	if err != nil {
+		t.Fatalf("RELATED_TO neighbors error = %v", err)
+	}
+	if len(related) != 1 || related[0] != "entity:t1:daniel" {
+		t.Fatalf("expected co-reference RELATED_TO edge, got %#v", related)
+	}
+}
+
 func TestService_IngestGraphsOverrideServiceDefaults(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

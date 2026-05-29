@@ -84,10 +84,11 @@ type Edge struct {
 }
 
 type BatchUpsertRequest struct {
-	Event         EventNode
-	TemporalAttrs TemporalAttrs
-	Entities      []EntityMention
-	Edges         []Edge
+	Event           EventNode
+	TemporalAttrs   TemporalAttrs
+	Entities        []EntityMention
+	Edges           []Edge
+	SkipEntityLinks bool
 }
 
 type AnchorType string
@@ -200,10 +201,11 @@ type PromptConfig struct {
 }
 
 type GraphConfig struct {
-	Semantic bool
-	Temporal bool
-	Causal   bool
-	Entity   bool
+	Semantic    bool
+	Temporal    bool
+	Causal      bool
+	Entity      bool
+	CoReference bool
 }
 
 type Observer interface {

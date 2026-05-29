@@ -497,10 +497,11 @@ func magmaServiceConfig(cfg config.MagmaConfig, observer magma.Observer, provide
 		},
 		Observer: observer,
 		Graphs: magma.GraphConfig{
-			Semantic: cfg.Graphs.Semantic.Enabled,
-			Temporal: cfg.Graphs.Temporal.Enabled,
-			Causal:   cfg.Graphs.Causal.Enabled,
-			Entity:   cfg.Graphs.Entity.Enabled,
+			Semantic:    cfg.Graphs.Semantic.Enabled,
+			Temporal:    cfg.Graphs.Temporal.Enabled,
+			Causal:      cfg.Graphs.Causal.Enabled,
+			Entity:      cfg.Graphs.Entity.Enabled,
+			CoReference: cfg.Graphs.Entity.CoReference,
 		},
 	}
 }

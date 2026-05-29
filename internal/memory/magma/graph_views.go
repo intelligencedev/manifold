@@ -72,18 +72,20 @@ func (s *Store) BatchUpsert(ctx context.Context, req BatchUpsertRequest) error {
 			return err
 		}
 	}
-	for i := range req.Entities {
-		for j := i + 1; j < len(req.Entities); j++ {
-			left := req.Entities[i].ID
-			right := req.Entities[j].ID
-			if left == "" || right == "" || left == right {
-				continue
-			}
-			if err := s.UpsertEdge(ctx, Edge{Source: left, GraphType: GraphEntity, Rel: "RELATED_TO", Target: right}); err != nil {
-				return err
-			}
-			if err := s.UpsertEdge(ctx, Edge{Source: right, GraphType: GraphEntity, Rel: "RELATED_TO", Target: left}); err != nil {
-				return err
+	if !req.SkipEntityLinks {
+		for i := range req.Entities {
+			for j := i + 1; j < len(req.Entities); j++ {
+				left := req.Entities[i].ID
+				right := req.Entities[j].ID
+				if left == "" || right == "" || left == right {
+					continue
+				}
+				if err := s.UpsertEdge(ctx, Edge{Source: left, GraphType: GraphEntity, Rel: "RELATED_TO", Target: right}); err != nil {
+					return err
+				}
+				if err := s.UpsertEdge(ctx, Edge{Source: right, GraphType: GraphEntity, Rel: "RELATED_TO", Target: left}); err != nil {
+					return err
+				}
 			}
 		}
 	}

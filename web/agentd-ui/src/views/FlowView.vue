@@ -333,7 +333,12 @@
             @drop="onDrop"
             @connect="onConnect"
           >
-            <Background />
+            <Background
+              variant="dots"
+              :gap="20"
+              :size="1.4"
+              color="rgb(var(--color-subtle-foreground) / 0.45)"
+            />
 
             <!-- Themed Controls (replaces default Controls) -->
             <Panel position="bottom-left">
@@ -3511,11 +3516,6 @@ async function onImportSelected(event: Event) {
 /* ensure flow canvas fills area */
 .vue-flow__container {
   height: 100%;
-}
-
-.vue-flow__pane {
-  background-image: radial-gradient(rgb(var(--color-border)) 1px, transparent 1px);
-  background-size: 20px 20px;
 }
 
 .vue-flow__edge.flow-edge-active {

@@ -1,9 +1,3 @@
 <template>
-  <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><!-- Icon from Solar by 480 Design - https://creativecommons.org/licenses/by/4.0/ --><path fill="currentColor" fillRule="evenodd" d="M3.464 3.464C2 4.93 2 7.286 2 12s0 7.071 1.464 8.535C4.93 22 7.286 22 12 22s7.071 0 8.535-1.465C22 19.072 22 16.714 22 12s0-7.071-1.465-8.536C19.072 2 16.714 2 12 2S4.929 2 3.464 3.464m7.08 4.053a.75.75 0 1 0-1.087-1.034l-2.314 2.43l-.6-.63a.75.75 0 1 0-1.086 1.034l1.143 1.2a.75.75 0 0 0 1.086 0zM13 8.25a.75.75 0 0 0 0 1.5h5a.75.75 0 0 0 0-1.5zm-2.457 6.267a.75.75 0 1 0-1.086-1.034l-2.314 2.43l-.6-.63a.75.75 0 1 0-1.086 1.034l1.143 1.2a.75.75 0 0 0 1.086 0zM13 15.25a.75.75 0 0 0 0 1.5h5a.75.75 0 0 0 0-1.5z" clipRule="evenodd" /></svg>
+  <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2a10 10 0 1 0 9.54 12.97a1 1 0 0 0-1.91-.59A8 8 0 1 1 12 4a7.96 7.96 0 0 1 5.66 2.34L15.7 8.3a.5.5 0 0 0 .35.85H21.5A.5.5 0 0 0 22 8.65V3.21a.5.5 0 0 0-.85-.36L19.1 4.9A10 10 0 0 0 12 2" /><path fill="currentColor" d="M12 6a1 1 0 0 0-1 1v5a1 1 0 0 0 .5.87l3.5 2a1 1 0 1 0 1-1.74l-3-1.71V7a1 1 0 0 0-1-1" /></svg>
 </template>
-
-<script lang="ts">
-export default {
-  name: 'SolarChecklistMinimalisticBold'
-}
-</script>

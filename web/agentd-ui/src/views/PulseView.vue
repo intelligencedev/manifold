@@ -39,11 +39,22 @@ function selectRoom(id: string) {
 }
 
 // auto-select first room
-watch(rooms, (list) => {
-  if (list?.length && !selectedRoomId.value) {
-    selectedRoomId.value = list[0].roomId;
-  }
-});
+watch(
+  rooms,
+  (list) => {
+    if (!list?.length) {
+      selectedRoomId.value = null;
+      return;
+    }
+    if (
+      !selectedRoomId.value ||
+      !list.some((r) => r.roomId === selectedRoomId.value)
+    ) {
+      selectedRoomId.value = list[0].roomId;
+    }
+  },
+  { immediate: true },
+);
 
 // ── tabs ───────────────────────────────────────────────────────────────────
 const activeTab = ref<"transcript" | "tasks">("tasks");

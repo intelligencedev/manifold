@@ -309,7 +309,7 @@
 
         <div
           ref="messagesPane"
-          class="flex-1 min-h-0 space-y-5 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-4 pb-3"
+          class="flex-1 min-h-0 space-y-5 overflow-y-auto overflow-x-hidden overscroll-contain px-8 py-4 pb-3 xl:px-12"
           @scroll="handleMessagesScroll"
           @click="handleMarkdownClick"
         >
@@ -325,22 +325,15 @@
           <div
             v-for="message in chatMessages"
             :key="message.id"
-            class="group/msg relative grid w-full grid-cols-[64px_minmax(0,1fr)] gap-4"
+            class="group/msg relative w-full"
           >
-            <aside
-              :class="[
-                'pt-2 font-mono text-[11px] uppercase tracking-[0.12em]',
-                message.role === 'assistant'
-                  ? 'text-[rgb(var(--accent-hi))]'
-                  : message.role === 'tool'
-                    ? 'text-[rgb(var(--data))]'
-                    : 'text-faint-foreground',
-              ]"
-            >
-              {{ message.role === 'assistant' ? agentNameFor(message) : labelForRole(message.role) }}
-            </aside>
             <article
-              class="relative min-w-0 py-1 pr-6"
+              :class="[
+                'relative min-w-0',
+                message.role === 'user'
+                  ? 'ml-auto max-w-[62%] rounded-lg border border-border/70 bg-surface-muted/50 px-4 py-3'
+                  : 'py-1 pr-6',
+              ]"
             >
               <header class="flex flex-wrap items-center gap-2">
                 <template v-if="message.role === 'assistant'">
@@ -709,6 +702,7 @@
             <!-- Action toolbar: outside article, visible only on hover -->
             <div
               class="flex items-center gap-1 text-xs text-subtle-foreground mt-1 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-150"
+              :class="message.role === 'user' ? 'justify-end pr-1' : ''"
             >
               <button
                 v-if="message.role === 'assistant'"

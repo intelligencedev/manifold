@@ -11,7 +11,7 @@
     <div class="flex min-h-0 flex-1 flex-row gap-6">
       <!-- left: card grid -->
       <div
-        class="scrollbar-inset min-h-0 min-w-0 w-1/2 overflow-auto border-r border-border/60 pr-6"
+        class="scrollbar-inset min-h-0 min-w-0 w-1/2 overflow-auto border-r border-border/60 pl-1 pr-6"
       >
         <div class="mb-4 flex items-center justify-between gap-3">
           <h2 class="text-base font-semibold">Specialists & Teams</h2>
@@ -106,7 +106,7 @@
             <GlassCard
               v-for="t in teams"
               :key="t.name"
-              class="flex flex-col transition-all duration-200 cursor-pointer"
+              class="flex flex-col p-4 transition-all duration-200 cursor-pointer"
               :class="{
                 'ring-2 ring-accent/60 ring-offset-2 ring-offset-surface':
                   isCurrentlyEditingTeam(t.name),
@@ -225,7 +225,7 @@
             <GlassCard
               v-for="s in filteredSpecialists"
               :key="s.name"
-              class="flex flex-col transition-all duration-200 cursor-pointer"
+              class="flex flex-col p-4 transition-all duration-200 cursor-pointer"
               :class="{
                 'ring-2 ring-accent/60 ring-offset-2 ring-offset-surface':
                   isCurrentlyEditing(s.name),

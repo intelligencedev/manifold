@@ -544,8 +544,13 @@ function startPaneResize(event: PointerEvent) {
 </script>
 
 <template>
-  <section class="flex min-h-0 flex-1 flex-col space-y-3">
-    <Panel title="Projects" flat :padded="false" class="halo-hairline-b pb-3">
+  <section class="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+    <Panel
+      title="Projects"
+      flat
+      :padded="false"
+      class="halo-hairline-b shrink-0 pb-3"
+    >
       <div class="flex flex-wrap items-center gap-3">
         <div class="flex flex-wrap items-center gap-2">
           <label class="sr-only" for="new-project">New project name</label>
@@ -610,11 +615,11 @@ function startPaneResize(event: PointerEvent) {
     <div
       v-if="store.currentProjectId"
       ref="splitPaneRef"
-      class="flex min-h-0 flex-1 flex-row gap-0"
+      class="flex min-h-0 flex-1 flex-row items-stretch gap-0 overflow-hidden"
     >
       <GlassCard
         flat
-        class="flex min-h-0 min-w-0 shrink-0 flex-col p-6 pr-6"
+        class="flex h-full min-h-0 min-w-0 shrink-0 flex-col p-6 pr-6"
         :style="leftPaneStyle"
       >
         <div class="mb-4 flex items-center gap-3">
@@ -679,7 +684,7 @@ function startPaneResize(event: PointerEvent) {
         </div>
       </GlassCard>
 
-      <div class="flex w-4 shrink-0 items-stretch justify-center">
+      <div class="flex w-4 shrink-0 self-stretch items-stretch justify-center">
         <button
           type="button"
           class="projects-splitter"
@@ -694,7 +699,7 @@ function startPaneResize(event: PointerEvent) {
 
       <GlassCard
         flat
-        class="flex min-h-0 min-w-0 shrink-0 flex-col p-6 pl-6"
+        class="flex h-full min-h-0 min-w-0 shrink-0 flex-col p-6 pl-6"
         :style="rightPaneStyle"
       >
         <div
@@ -804,7 +809,11 @@ function startPaneResize(event: PointerEvent) {
       </GlassCard>
     </div>
 
-    <GlassCard v-else flat class="p-6 text-subtle-foreground">
+    <GlassCard
+      v-else
+      flat
+      class="flex min-h-0 flex-1 items-center justify-center p-6 text-subtle-foreground"
+    >
       No project selected. Create one to get started.
     </GlassCard>
 

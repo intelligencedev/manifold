@@ -22,24 +22,64 @@ export const useProjectsStore = defineStore("projects", () => {
   const error = ref<string | null>(null);
   const currentProjectId = ref<string>("");
   const treeByPath = ref<Record<string, FileEntry[]>>({});
+  const treeRequests = new Map<string, Promise<FileEntry[]>>();
+  let projectsRequest: {
+    includeUsage: boolean;
+    promise: Promise<ProjectSummary[]>;
+  } | null = null;
+  let projectsRequestSequence = 0;
 
-  async function refresh() {
+  function selectFallbackProject(projectList: ProjectSummary[]) {
+    if (
+      projectList.length &&
+      !projectList.find((p) => p.id === currentProjectId.value)
+    ) {
+      currentProjectId.value = projectList[0].id;
+    }
+  }
+
+  async function refresh(options: { includeUsage?: boolean } = {}) {
+    const includeUsage = options.includeUsage ?? true;
     loading.value = true;
     error.value = null;
+    if (!projectsRequest || (includeUsage && !projectsRequest.includeUsage)) {
+      const sequence = projectsRequestSequence + 1;
+      projectsRequestSequence = sequence;
+      projectsRequest = {
+        includeUsage,
+        promise: listProjects({ includeUsage })
+          .then((projectList) => {
+            if (
+              sequence === projectsRequestSequence ||
+              !projects.value.length
+            ) {
+              projects.value = projectList;
+              selectFallbackProject(projectList);
+            }
+            return projectList;
+          })
+          .finally(() => {
+            if (sequence === projectsRequestSequence) {
+              projectsRequest = null;
+            }
+          }),
+      };
+    }
+
     try {
-      projects.value = await listProjects();
-      if (
-        projects.value.length &&
-        !projects.value.find((p) => p.id === currentProjectId.value)
-      ) {
-        currentProjectId.value = projects.value[0].id;
-      }
+      return await projectsRequest.promise;
     } catch (e) {
       error.value = "Failed to load projects";
       console.error(e);
+      return projects.value;
     } finally {
       loading.value = false;
     }
+  }
+
+  async function ensureProjects() {
+    if (projects.value.length) return projects.value;
+    return refresh({ includeUsage: false });
   }
 
   async function setCurrent(id: string) {
@@ -74,23 +114,43 @@ export const useProjectsStore = defineStore("projects", () => {
     }
   }
 
-  async function ensureTree(path = ".") {
+  async function ensureTree(path = ".", options: { force?: boolean } = {}) {
     const id = currentProjectId.value;
-    if (!id) return;
-    const key = `${id}:${path}`;
-    treeByPath.value[key] = await listProjectTree(id, path);
+    if (!id) return [];
+    const clean = normalizePath(path);
+    const key = `${id}:${clean}`;
+    if (!options.force && treeByPath.value[key]) {
+      return treeByPath.value[key];
+    }
+    let request = treeRequests.get(key);
+    if (!request) {
+      request = listProjectTree(id, clean)
+        .then((entries) => {
+          treeByPath.value[key] = entries;
+          return entries;
+        })
+        .finally(() => {
+          treeRequests.delete(key);
+        });
+      treeRequests.set(key, request);
+    }
+    return request;
   }
 
   async function makeDir(path: string) {
     if (!currentProjectId.value) return;
     await createDir(currentProjectId.value, path);
-    await ensureTree(path.split("/").slice(0, -1).join("/") || ".");
+    await ensureTree(path.split("/").slice(0, -1).join("/") || ".", {
+      force: true,
+    });
   }
 
   async function removePath(path: string) {
     if (!currentProjectId.value) return;
     await deletePath(currentProjectId.value, path);
-    await ensureTree(path.split("/").slice(0, -1).join("/") || ".");
+    await ensureTree(path.split("/").slice(0, -1).join("/") || ".", {
+      force: true,
+    });
   }
 
   function normalizePath(path: string) {
@@ -141,16 +201,16 @@ export const useProjectsStore = defineStore("projects", () => {
     const srcParent = parentPath(src);
     const destParent = parentPath(dest);
     invalidateCachedSubtree(projectID, src);
-    await ensureTree(srcParent);
+    await ensureTree(srcParent, { force: true });
     if (destParent !== srcParent) {
-      await ensureTree(destParent);
+      await ensureTree(destParent, { force: true });
     }
   }
 
   async function upload(path: string, file: File) {
     if (!currentProjectId.value) return;
     await uploadFile(currentProjectId.value, path, file);
-    await ensureTree(path || ".");
+    await ensureTree(path || ".", { force: true });
   }
 
   async function readTextFile(path: string) {
@@ -166,7 +226,7 @@ export const useProjectsStore = defineStore("projects", () => {
     if (!name) return;
     const dir = parentPath(clean);
     await saveProjectFileText(currentProjectId.value, dir, name, content);
-    await ensureTree(dir);
+    await ensureTree(dir, { force: true });
   }
 
   async function create(name: string) {
@@ -198,6 +258,7 @@ export const useProjectsStore = defineStore("projects", () => {
     treeByPath,
     // actions
     refresh,
+    ensureProjects,
     setCurrent,
     ensureTree,
     makeDir,

@@ -212,7 +212,10 @@ async function renderMermaidDiagrams() {
 }
 
 onMounted(() => {
-  void store.refresh().then(() => store.ensureTree(cwd.value));
+  void store.ensureProjects().then(async () => {
+    await store.ensureTree(cwd.value);
+    void store.refresh({ includeUsage: true });
+  });
 });
 
 onBeforeUnmount(() => {
@@ -604,8 +607,10 @@ function startPaneResize(event: PointerEvent) {
             >Created
             {{ new Date(current.createdAt).toLocaleDateString() }}</span
           >
-          <Pill tone="neutral" size="sm">{{ current.files }} files</Pill>
-          <Pill tone="neutral" size="sm"
+          <Pill v-if="current.usageLoaded" tone="neutral" size="sm"
+            >{{ current.files }} files</Pill
+          >
+          <Pill v-if="current.usageLoaded" tone="neutral" size="sm"
             >{{ (current.sizeBytes / 1024).toFixed(1) }} KB</Pill
           >
         </div>

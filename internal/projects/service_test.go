@@ -108,6 +108,44 @@ func TestServiceCRUD(t *testing.T) {
 	}
 }
 
+func TestListProjectsWithUsageOption(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	svc := NewService(tmp, "")
+	userID := int64(13)
+	ctx := context.Background()
+
+	project, err := svc.CreateProject(ctx, userID, "Usage")
+	if err != nil {
+		t.Fatalf("CreateProject error: %v", err)
+	}
+	if err := svc.UploadFile(ctx, userID, project.ID, ".", "notes.txt", strings.NewReader("hello")); err != nil {
+		t.Fatalf("UploadFile error: %v", err)
+	}
+
+	withoutUsage, err := svc.ListProjectsWithUsage(ctx, userID, false)
+	if err != nil {
+		t.Fatalf("ListProjectsWithUsage(false) error: %v", err)
+	}
+	if len(withoutUsage) != 1 {
+		t.Fatalf("expected one project without usage, got: %+v", withoutUsage)
+	}
+	if withoutUsage[0].Bytes != 0 || withoutUsage[0].FileCount != 0 {
+		t.Fatalf("expected empty usage fields, got bytes=%d files=%d", withoutUsage[0].Bytes, withoutUsage[0].FileCount)
+	}
+
+	withUsage, err := svc.ListProjectsWithUsage(ctx, userID, true)
+	if err != nil {
+		t.Fatalf("ListProjectsWithUsage(true) error: %v", err)
+	}
+	if len(withUsage) != 1 {
+		t.Fatalf("expected one project with usage, got: %+v", withUsage)
+	}
+	if withUsage[0].Bytes < 5 || withUsage[0].FileCount < 1 {
+		t.Fatalf("expected computed usage, got bytes=%d files=%d", withUsage[0].Bytes, withUsage[0].FileCount)
+	}
+}
+
 func TestServiceMove(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()

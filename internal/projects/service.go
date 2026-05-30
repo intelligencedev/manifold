@@ -191,10 +191,18 @@ func (s *Service) DeleteProject(_ context.Context, userID int64, projectID strin
 
 // ListProjects lists all projects for a user, computing size and file count.
 func (s *Service) ListProjects(_ context.Context, userID int64) ([]Project, error) {
-	return s.ListProjectsByKind(context.Background(), userID, ProjectKindChat)
+	return s.ListProjectsWithUsage(context.Background(), userID, true)
+}
+
+func (s *Service) ListProjectsWithUsage(_ context.Context, userID int64, includeUsage bool) ([]Project, error) {
+	return s.ListProjectsByKindWithUsage(context.Background(), userID, ProjectKindChat, includeUsage)
 }
 
 func (s *Service) ListProjectsByKind(_ context.Context, userID int64, kind string) ([]Project, error) {
+	return s.ListProjectsByKindWithUsage(context.Background(), userID, kind, true)
+}
+
+func (s *Service) ListProjectsByKindWithUsage(_ context.Context, userID int64, kind string, includeUsage bool) ([]Project, error) {
 	kind = normalizeProjectKind("", kind)
 	base := s.userRoot(userID)
 	entries, err := os.ReadDir(base)
@@ -223,8 +231,10 @@ func (s *Service) ListProjectsByKind(_ context.Context, userID int64, kind strin
 		if normalizeProjectKind(p.Name, p.Kind) != kind {
 			continue
 		}
-		bytes, files := s.computeUsage(root)
-		p.Bytes, p.FileCount = bytes, files
+		if includeUsage {
+			bytes, files := s.computeUsage(root)
+			p.Bytes, p.FileCount = bytes, files
+		}
 		out = append(out, p)
 	}
 	// Sort by UpdatedAt desc then Name

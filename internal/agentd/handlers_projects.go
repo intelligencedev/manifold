@@ -69,7 +69,8 @@ func (a *app) projectsHandler() http.HandlerFunc {
 		}
 		switch r.Method {
 		case http.MethodGet:
-			list, err := a.projectsService.ListProjects(r.Context(), userID)
+			includeUsage := r.URL.Query().Get("usage") != "false"
+			list, err := a.projectsService.ListProjectsWithUsage(r.Context(), userID, includeUsage)
 			if err != nil {
 				log.Error().Err(err).Msg("list_projects")
 				http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -78,12 +79,13 @@ func (a *app) projectsHandler() http.HandlerFunc {
 			out := make([]map[string]any, 0, len(list))
 			for _, p := range list {
 				out = append(out, map[string]any{
-					"id":        p.ID,
-					"name":      p.Name,
-					"createdAt": p.CreatedAt,
-					"updatedAt": p.UpdatedAt,
-					"sizeBytes": p.Bytes,
-					"files":     p.FileCount,
+					"id":          p.ID,
+					"name":        p.Name,
+					"createdAt":   p.CreatedAt,
+					"updatedAt":   p.UpdatedAt,
+					"sizeBytes":   p.Bytes,
+					"files":       p.FileCount,
+					"usageLoaded": includeUsage,
 				})
 			}
 			w.Header().Set("Content-Type", "application/json")

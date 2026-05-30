@@ -7,6 +7,7 @@ export interface ProjectSummary {
   updatedAt: string;
   sizeBytes: number;
   files: number;
+  usageLoaded?: boolean;
 }
 
 export interface FileEntry {
@@ -17,9 +18,17 @@ export interface FileEntry {
   modTime: string;
 }
 
-export async function listProjects(): Promise<ProjectSummary[]> {
+export async function listProjects(
+  options: { includeUsage?: boolean } = {},
+): Promise<ProjectSummary[]> {
   const { data } = await apiClient.get<{ projects: ProjectSummary[] }>(
     "/projects",
+    {
+      params:
+        options.includeUsage === undefined
+          ? undefined
+          : { usage: options.includeUsage },
+    },
   );
   return data.projects || [];
 }

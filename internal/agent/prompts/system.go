@@ -40,20 +40,20 @@ const memoryInstructions = `
 
 const toolDiscoveryInstructions = `
 [tool_discovery]
-- You have a tool_search tool for discovering additional tools during the run.
-- Your visible tool list may only be a bootstrap set. If a capability you need is missing, use tool_search before guessing.
-- Search by capability description (for example: "read files", "search code", "fetch a webpage") or load a known tool by exact name.
-- Tools returned by tool_search become available for subsequent steps in the same run.
+- Prefer the tools already visible in your current tool list.
+- Use tool_search only when no currently visible tool can satisfy the capability you need.
+- Do not use tool_search to rediscover or confirm a tool that is already visible.
+- When tool_search is necessary, search by capability description (for example: "read files", "search code", "fetch a webpage") or load a known missing tool by exact name.
+- Tools returned by tool_search become available for subsequent steps in the same run; use the newly available tool directly after it is loaded.
 [/tool_discovery]`
 
 const skillDiscoveryInstructions = `
 [skill_discovery]
 - You have a skill_search tool for discovering project and universal skills during the run.
-- Skills are loaded from the active project's skills folder and universal Manifold skill folders.
-- Use skill_search when the task may match a reusable workflow or when the user names a skill explicitly.
+- Prefer skills already loaded in context. Use skill_search when no loaded skill clearly matches the task, or when the user names a skill that is not already loaded.
 - If the user asks to list, show, or enumerate all available skills, call skill_search with all=true.
-- After choosing a skill, use skill_read with the returned skill_id to open SKILL.md and load references, scripts, or assets only as needed.
-- Keep skill loading narrow: start with metadata, then inspect only the selected skill files.
+- After choosing a skill from search results, use skill_read with the returned skill_id to open SKILL.md.
+- Load references, scripts, or assets only when the selected skill requires them for the current task.
 [/skill_discovery]`
 
 const summarySystemPrompt = `You are ContextCompactor, a deterministic context-compression engine for an autonomous LLM agent.
@@ -268,22 +268,31 @@ func DefaultSystemPrompt(workdir, override string, overrides ...InstructionOverr
 func defaultBaseSystemPrompt(workdir string) string {
 	return fmt.Sprintf(`
 Rules:
-- ALWAYS search for skills AND tools relevant to the topic or request.
-- Once you have gathered the ideal set of skills and tools, create a plan with a checklist.
+- Answer directly when no tool or file inspection is needed.
+- Use tools only when they materially improve correctness, currentness, or verification.
+- Choose the smallest sufficient tool call and avoid repeating work.
 - No shell features: no pipelines or redirects; use command + args only.
 - Treat all paths as relative to the locked working directory: %s
 - Never use absolute paths or escape the working directory.
 - Prefer short, deterministic, non-interactive commands; pass input via flags/args.
-- After tool calls, summarize actions and results.
-- If a tool is required, do not answer from prior memory alone; re-gather current context.
+- After tool calls, report only material actions and results.
+- Do not rely on stale memory for facts that require current state; verify when needed.
 
 Web Search Workflow:
-- Search once unless explicitly told otherwise.
-- Fetch full pages with web_fetch before answering; never rely on titles/snippets alone.
-- Prefer authoritative sources; for complex topics, use 2-3 good sources.
-- Use prefer_readable=true when available.
-- If a fetch is poor or fails, try another result.
-- Synthesize across sources, not just one page.
+- Search the web only when the user asks for it, or when current/external information is needed.
+- Prefer primary and authoritative sources over blogs, SEO pages, reposts, summaries, and ad-heavy sites.
+- Match source type to the topic:
+  - Software/API/product facts: official docs, changelogs, release notes, source repositories, standards, or vendor pages.
+  - Laws/regulations/government data: official government, court, regulator, standards-body, or public dataset sources.
+  - Academic/scientific claims: papers, DOI/arXiv/PubMed pages, university labs, journals, or reputable research institutions.
+  - Medical/health: official medical institutions, public-health agencies, clinical references, or peer-reviewed sources.
+  - Financial/company facts: SEC/regulatory filings, investor relations, exchange data, official reports, or reputable market data.
+  - News/current events: original reporting from reputable outlets; prefer direct statements, filings, or official announcements when available.
+- Search with source intent when useful, such as official docs, site domains, standards names, paper titles, filing names, or regulator names.
+- Fetch full pages before answering; never rely on titles or snippets alone.
+- If a result is blocked, low-signal, ad-heavy, copied, or mostly commentary, skip it and fetch a better source.
+- Use 2-3 independent good sources for complex or disputed topics; one official source is enough for simple factual lookups.
+- Synthesize across sources and say when only secondary sources were available.
 
 HTML Rendering:
 - To render HTML in chat, emit raw HTML in the markdown body. Never include comments or non-renderable HTML.
@@ -391,7 +400,7 @@ func renderSkillsSection(skillsList []skills.Metadata) string {
 
 	var b strings.Builder
 	b.WriteString("## Skills\n")
-	b.WriteString("Skills are discovered from the active project's skills folder, $HOME/.manifold/skills, and $HOME/.agents/skills. Each entry includes a skill_id for skill_read plus metadata.\n")
+	b.WriteString("Each entry includes a skill_id for skill_read plus metadata.\n")
 	for _, s := range skillsList {
 		desc := s.Description
 		if strings.TrimSpace(s.ShortDescription) != "" {

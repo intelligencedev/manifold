@@ -10,17 +10,18 @@
         </p>
       </div>
       <div class="flex items-center gap-2">
-        <button
+        <label
           v-if="overviewMode === 'customize'"
-          type="button"
-          class="halo-focus inline-flex h-8 items-center gap-1.5 rounded-md border border-[rgb(var(--line-strong))] px-2.5 font-mono text-[11px] uppercase tracking-[0.08em] text-muted-foreground transition hover:bg-surface-muted hover:text-foreground"
-          aria-label="Reset dashboard layout"
-          title="Reset dashboard layout"
-          @click="resetLayout"
+          class="flex items-center gap-2 text-xs text-foreground"
         >
-          <SolarRefreshIcon class="h-3.5 w-3.5" />
-          Reset
-        </button>
+          <span>Time Range</span>
+          <DropdownSelect
+            v-model="dashboardTimeRange"
+            size="sm"
+            class="text-xs"
+            :options="timeRangeDropdownOptions"
+          />
+        </label>
         <MSegmented
           v-model="overviewMode"
           :options="[
@@ -56,17 +57,16 @@
         </div>
       </div>
       <DashboardGrid
-        ref="dashboardGridRef"
         :layout="dashboardLayout"
         storage-key="overview-dashboard-layout"
         @layout-change="onLayoutChange"
       >
         <template #item-tokens>
-          <TokenUsagePanel />
+          <TokenUsagePanel :time-range="dashboardTimeRange" />
         </template>
 
         <template #item-traces>
-          <TracesPanel />
+          <TracesPanel :time-range="dashboardTimeRange" />
         </template>
 
         <template #item-memory>
@@ -74,11 +74,12 @@
         </template>
 
         <template #item-memory-metrics>
-          <MemoryMetricsPanel />
+          <MemoryMetricsPanel :time-range="dashboardTimeRange" />
         </template>
 
         <template #item-logs>
           <LogsPanel
+            :time-range="dashboardTimeRange"
             :selected-log-id="selectedLogId"
             @select-log="openLogDetail"
           />
@@ -93,24 +94,87 @@
         </template>
 
         <template #item-throughput>
-          <section class="flex h-full flex-col p-5 text-foreground">
-            <header class="mb-3">
-              <p
-                class="font-mono text-[11px] uppercase tracking-[0.18em] text-faint-foreground"
-              >
-                Runs
-              </p>
-              <h2 class="font-display text-lg leading-tight text-foreground">
-                Throughput
-              </h2>
+          <section class="flex h-full flex-col p-4 text-foreground">
+            <header class="mb-2 flex items-start justify-between gap-4">
+              <div class="min-w-0">
+                <p
+                  class="font-mono text-[10px] uppercase tracking-[0.18em] text-faint-foreground"
+                >
+                  Runs
+                </p>
+                <h2 class="font-display text-lg leading-tight text-foreground">
+                  Throughput
+                </h2>
+                <p class="mt-1 text-xs leading-snug text-muted-foreground">
+                  Rolling hourly buckets for runs started in the last 8 hours.
+                </p>
+              </div>
+              <dl class="grid shrink-0 grid-cols-3 gap-3 text-right">
+                <div>
+                  <dt
+                    class="font-mono text-[9px] uppercase tracking-[0.14em] text-faint-foreground"
+                  >
+                    Total
+                  </dt>
+                  <dd class="mt-1 text-lg font-semibold tabular-nums">
+                    {{ throughputTotal }}
+                  </dd>
+                </div>
+                <div>
+                  <dt
+                    class="font-mono text-[9px] uppercase tracking-[0.14em] text-faint-foreground"
+                  >
+                    Peak
+                  </dt>
+                  <dd
+                    class="mt-1 text-lg font-semibold tabular-nums text-[rgb(var(--data))]"
+                  >
+                    {{ throughputPeak }}
+                  </dd>
+                </div>
+                <div>
+                  <dt
+                    class="font-mono text-[9px] uppercase tracking-[0.14em] text-faint-foreground"
+                  >
+                    Latest
+                  </dt>
+                  <dd class="mt-1 text-lg font-semibold tabular-nums">
+                    {{ throughputLatest }}
+                  </dd>
+                </div>
+              </dl>
             </header>
             <div class="min-h-0 flex-1">
               <svg
-                class="h-full w-full overflow-visible"
-                viewBox="0 0 720 180"
+                class="h-full w-full"
+                viewBox="0 0 1080 220"
+                preserveAspectRatio="none"
                 role="img"
                 aria-label="Run throughput"
               >
+                <g
+                  v-for="tick in chartYTicks"
+                  :key="tick.label"
+                  class="text-[9px]"
+                >
+                  <line
+                    x1="44"
+                    x2="1064"
+                    :y1="tick.y"
+                    :y2="tick.y"
+                    stroke="rgb(var(--color-border) / 0.55)"
+                    stroke-dasharray="3 5"
+                    vector-effect="non-scaling-stroke"
+                  />
+                  <text
+                    x="28"
+                    :y="tick.y + 3"
+                    text-anchor="end"
+                    class="fill-[rgb(var(--color-faint-foreground))] font-mono"
+                  >
+                    {{ tick.label }}
+                  </text>
+                </g>
                 <path
                   :d="sparkAreaPath"
                   fill="rgb(var(--data) / 0.10)"
@@ -123,17 +187,29 @@
                   stroke-width="2"
                   stroke-linecap="round"
                   stroke-linejoin="round"
+                  vector-effect="non-scaling-stroke"
                 />
-                <g v-for="point in chartPoints" :key="point.label">
+                <g v-for="point in chartPoints" :key="point.timestamp">
+                  <title>
+                    {{ point.value }} runs started at {{ point.timestamp }}
+                  </title>
                   <circle
                     :cx="point.x"
                     :cy="point.y"
-                    r="3"
+                    r="4"
                     fill="rgb(var(--data))"
                   />
                   <text
                     :x="point.x"
-                    y="176"
+                    :y="point.valueLabelY"
+                    text-anchor="middle"
+                    class="fill-[rgb(var(--color-foreground))] font-mono text-[10px] font-semibold"
+                  >
+                    {{ point.value }}
+                  </text>
+                  <text
+                    :x="point.x"
+                    y="204"
                     text-anchor="middle"
                     class="fill-[rgb(var(--color-faint-foreground))] font-mono text-[9px]"
                   >
@@ -173,24 +249,33 @@ import LogsPanel from "@/components/observability/LogsPanel.vue";
 import LogDetailDrawer from "@/components/observability/LogDetailDrawer.vue";
 import AgentsPanel from "@/components/overview/AgentsPanel.vue";
 import RecentRunsPanel from "@/components/overview/RecentRunsPanel.vue";
+import DropdownSelect from "@/components/DropdownSelect.vue";
 import MSegmented from "@/components/ui/MSegmented.vue";
-import SolarRefreshIcon from "@/components/icons/SolarRefresh.vue";
 import DurableView from "@/views/DurableView.vue";
 import {
   fetchAgentRuns,
   fetchAgentStatus,
   listSpecialists,
 } from "@/api/client";
-import type { MetricsTimeRangeValue } from "@/composables/observability/useTokenMetrics";
+import {
+  TOKEN_METRIC_TIME_RANGES,
+  type MetricsTimeRangeValue,
+} from "@/composables/observability/useTokenMetrics";
 
 type OverviewMode = "customize" | "queue-ops";
 
 const route = useRoute();
 const router = useRouter();
-const dashboardGridRef = ref<InstanceType<typeof DashboardGrid>>();
 const selectedLogId = ref<string | null>(null);
-const selectedLogWindow = ref<MetricsTimeRangeValue>("1h");
+const selectedLogWindow = ref<MetricsTimeRangeValue>("24h");
 const overviewMode = ref<OverviewMode>(normalizeOverviewMode(route.query.tab));
+const dashboardTimeRange = ref<MetricsTimeRangeValue>("24h");
+
+const timeRangeDropdownOptions = TOKEN_METRIC_TIME_RANGES.map((option) => ({
+  id: option.value,
+  label: option.label,
+  value: option.value,
+}));
 
 // Define default dashboard layout
 // 12 columns grid, row height = 80px + 16px margin = 96px per row
@@ -227,6 +312,10 @@ watch(overviewMode, (mode) => {
       tab: mode === "queue-ops" ? mode : undefined,
     },
   });
+});
+
+watch(dashboardTimeRange, (range) => {
+  selectedLogWindow.value = range;
 });
 
 const { data: agentData } = useQuery({
@@ -310,9 +399,9 @@ const overviewStats = computed(() => [
   },
 ]);
 
-const chartPoints = computed(() => {
+const chartBuckets = computed(() => {
   const now = new Date();
-  const buckets = Array.from({ length: 8 }, (_, index) => {
+  return Array.from({ length: 8 }, (_, index) => {
     const bucketStart = new Date(now);
     bucketStart.setMinutes(0, 0, 0);
     bucketStart.setHours(bucketStart.getHours() - (7 - index));
@@ -326,27 +415,68 @@ const chartPoints = computed(() => {
       label: bucketStart.toLocaleTimeString([], {
         hour: "numeric",
       }),
+      timestamp: bucketStart.toLocaleTimeString([], {
+        hour: "numeric",
+        minute: "2-digit",
+      }),
       value,
     };
   });
-  const max = Math.max(1, ...buckets.map((bucket) => bucket.value));
-  return buckets.map((bucket, index) => {
-    const x = 28 + index * (664 / Math.max(1, buckets.length - 1));
-    const y = 150 - (bucket.value / max) * 120;
-    return { ...bucket, x, y };
+});
+
+const chartMax = computed(() =>
+  Math.max(1, ...chartBuckets.value.map((bucket) => bucket.value)),
+);
+
+const chartPoints = computed(() => {
+  const max = chartMax.value;
+  const top = 26;
+  const bottom = 174;
+  const height = bottom - top;
+  return chartBuckets.value.map((bucket, index) => {
+    const x = 52 + index * (996 / Math.max(1, chartBuckets.value.length - 1));
+    const y = bottom - (bucket.value / max) * height;
+    return {
+      ...bucket,
+      x,
+      y,
+      valueLabelY: Math.max(14, y - 10),
+    };
   });
 });
 
-const sparkPath = computed(() =>
-  chartPoints.value
-    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
-    .join(" "),
+const chartYTicks = computed(() => {
+  const max = chartMax.value;
+  const midpoint = Math.ceil(max / 2);
+  const values = Array.from(new Set([max, midpoint, 0]));
+  const top = 26;
+  const bottom = 174;
+  const height = bottom - top;
+  return values.map((value) => ({
+    label: value.toLocaleString(),
+    y: bottom - (value / max) * height,
+  }));
+});
+
+const throughputTotal = computed(() =>
+  chartBuckets.value.reduce((sum, bucket) => sum + bucket.value, 0),
 );
+
+const throughputPeak = computed(() =>
+  Math.max(0, ...chartBuckets.value.map((bucket) => bucket.value)),
+);
+
+const throughputLatest = computed(
+  () => chartBuckets.value[chartBuckets.value.length - 1]?.value ?? 0,
+);
+
+const sparkPath = computed(() => buildSmoothPath(chartPoints.value));
 
 const sparkAreaPath = computed(() => {
   const points = chartPoints.value;
-  if (!points.length) return "";
-  return `${sparkPath.value} L ${points[points.length - 1].x} 150 L ${points[0].x} 150 Z`;
+  if (!points.length || !sparkPath.value) return "";
+  const baseline = 174;
+  return `${sparkPath.value} L ${points[points.length - 1].x} ${baseline} L ${points[0].x} ${baseline} Z`;
 });
 
 const recentRuns = computed(() =>
@@ -359,6 +489,27 @@ const recentRuns = computed(() =>
     )
     .slice(0, 5),
 );
+
+type ChartPoint = {
+  x: number;
+  y: number;
+};
+
+function buildSmoothPath(points: ChartPoint[]) {
+  if (points.length === 0) return "";
+  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+
+  const commands = [`M ${points[0].x} ${points[0].y}`];
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const current = points[index];
+    const next = points[index + 1];
+    const controlOffset = (next.x - current.x) * 0.45;
+    commands.push(
+      `C ${current.x + controlOffset} ${current.y}, ${next.x - controlOffset} ${next.y}, ${next.x} ${next.y}`,
+    );
+  }
+  return commands.join(" ");
+}
 
 function isToday(value: string) {
   const date = new Date(value);
@@ -373,10 +524,6 @@ function isToday(value: string) {
 function onLayoutChange(newLayout: GridItemConfig[]) {
   // Layout changes are automatically saved via DashboardGrid component
   console.log("Dashboard layout updated:", newLayout);
-}
-
-function resetLayout() {
-  dashboardGridRef.value?.resetLayout();
 }
 
 function openLogDetail(payload: { id: string; window: MetricsTimeRangeValue }) {

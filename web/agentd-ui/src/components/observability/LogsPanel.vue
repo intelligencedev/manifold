@@ -13,15 +13,6 @@
         class="flex flex-wrap items-center justify-end gap-3 text-xs text-faint-foreground"
       >
         <label class="flex items-center gap-2 text-foreground">
-          <span>Time Range</span>
-          <DropdownSelect
-            v-model="selectedRange"
-            size="sm"
-            class="text-xs"
-            :options="timeRangeDropdownOptions"
-          />
-        </label>
-        <label class="flex items-center gap-2 text-foreground">
           <span>Level</span>
           <DropdownSelect
             v-model="selectedLevel"
@@ -52,7 +43,7 @@
       >
         Failed to load logs.
       </div>
-        <div v-else class="flex h-full flex-col">
+      <div v-else class="flex h-full flex-col">
         <div
           v-if="!filteredLogs.length"
           class="rounded-lg border border-border/70 bg-surface p-4 text-sm text-faint-foreground"
@@ -81,7 +72,9 @@
               >
                 {{ log.level || "info" }}
               </span>
-              <span class="min-w-0 flex-1 text-foreground break-all">{{ log.message }}</span>
+              <span class="min-w-0 flex-1 text-foreground break-all">{{
+                log.message
+              }}</span>
               <span
                 v-if="log.service"
                 class="shrink-0 rounded-full border border-border/70 bg-muted/20 px-2 py-0.5 text-[11px] font-medium font-mono uppercase tracking-[0.12em] text-faint-foreground"
@@ -104,18 +97,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, toRef } from "vue";
 import DropdownSelect from "@/components/DropdownSelect.vue";
-import {
-  TOKEN_METRIC_TIME_RANGES,
-  type MetricsTimeRangeValue,
-} from "@/composables/observability/useTokenMetrics";
+import type { MetricsTimeRangeValue } from "@/composables/observability/useTokenMetrics";
 import {
   useLogMetrics,
   type LogDisplayRow,
 } from "@/composables/observability/useLogMetrics";
 
 const props = defineProps<{
+  timeRange: MetricsTimeRangeValue;
   selectedLogId?: string | null;
 }>();
 
@@ -123,14 +114,8 @@ const emit = defineEmits<{
   selectLog: [payload: { id: string; window: MetricsTimeRangeValue }];
 }>();
 
-const selectedRange = ref<MetricsTimeRangeValue>("1h");
+const selectedRange = toRef(props, "timeRange");
 const selectedLevel = ref("all");
-
-const timeRangeDropdownOptions = TOKEN_METRIC_TIME_RANGES.map((option) => ({
-  id: option.value,
-  label: option.label,
-  value: option.value,
-}));
 
 const levelDropdownOptions = [
   { id: "all", label: "All", value: "all" },
@@ -215,7 +200,8 @@ function formatSource(source?: string) {
 
 function sourceTooltip(source?: string) {
   if (source === "clickhouse") return "Persistent telemetry from ClickHouse.";
-  if (source === "process") return "Bounded process-local telemetry. Resets when agentd restarts.";
+  if (source === "process")
+    return "Bounded process-local telemetry. Resets when agentd restarts.";
   return "No telemetry provider is enabled.";
 }
 </script>

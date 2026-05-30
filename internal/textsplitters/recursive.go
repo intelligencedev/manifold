@@ -15,7 +15,6 @@ func newRecursiveSplitter(cfg RecursiveConfig) (Splitter, error) {
 }
 
 func (r *recursiveSplitter) Split(text string) []string {
-	// stage 1: markdown sections
 	md, err := newMarkdownSplitter(r.cfg.Markdown)
 	if err != nil {
 		return nil
@@ -29,7 +28,6 @@ func (r *recursiveSplitter) Split(text string) []string {
 		if len(sec) == 0 {
 			continue
 		}
-		// stage 2: paragraphs
 		p, err := newParagraphSplitter(r.cfg.Paragraphs)
 		if err != nil {
 			out = append(out, sec)
@@ -40,7 +38,6 @@ func (r *recursiveSplitter) Split(text string) []string {
 			pChunks = []string{sec}
 		}
 		for _, pc := range pChunks {
-			// stage 3: sentences
 			s, err := newSentenceSplitter(r.cfg.Sentences)
 			if err != nil {
 				out = append(out, pc)

@@ -858,6 +858,7 @@ export const useChatStore = defineStore("chat", () => {
       upsertSessionMeta(updated);
     } catch (error) {
       console.warn("auto-title failed", error);
+      return;
     }
   }
 

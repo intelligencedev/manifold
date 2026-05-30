@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"manifold/internal/config"
 	"manifold/internal/llm"
 	"manifold/internal/observability"
 
@@ -83,7 +84,7 @@ func (c *Client) chatStreamSSEPayload(msgs []llm.Message, tools []llm.ToolSchema
 func (c *Client) postChatStreamSSE(ctx context.Context, payload []byte) (*http.Response, error) {
 	base := strings.TrimSuffix(strings.TrimSpace(c.baseURL), "/")
 	if base == "" {
-		base = "https://api.openai.com/v1"
+		base = config.OpenAIAPIV1BaseURL
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/chat/completions", bytes.NewReader(payload))
 	if err != nil {

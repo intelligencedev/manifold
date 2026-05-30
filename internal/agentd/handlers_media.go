@@ -574,7 +574,7 @@ func (a *app) sttEndpoint(r *http.Request, userID int64) (string, string, string
 		baseURL = strings.TrimSpace(orch.BaseURL)
 	}
 	if baseURL == "" {
-		baseURL = "https://api.openai.com"
+		baseURL = config.OpenAIAPIBaseURL
 	}
 	baseURL = strings.TrimRight(strings.TrimSuffix(strings.TrimRight(baseURL, "/"), "/v1"), "/")
 	return baseURL + "/v1/audio/transcriptions", model, orch.APIKey

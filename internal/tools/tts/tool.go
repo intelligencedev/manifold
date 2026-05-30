@@ -162,7 +162,7 @@ func (t *Tool) callRequest(args callArgs) callRequest {
 		baseURL = t.cfg.OpenAI.BaseURL
 	}
 	if baseURL == "" {
-		baseURL = "https://api.openai.com"
+		baseURL = config.OpenAIAPIBaseURL
 	}
 	base := strings.TrimRight(baseURL, "/")
 	url := base + "/v1/audio/speech"

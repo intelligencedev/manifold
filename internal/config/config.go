@@ -146,7 +146,7 @@ type HarnessCompactConfig struct {
 	PhaseThresholds []float64 `yaml:"phaseThresholds" json:"phaseThresholds"`
 }
 
-// CodeQAConfig controls the Phase 1 code-quality judge pipeline.
+// CodeQAConfig controls the code-quality judge pipeline.
 type CodeQAConfig struct {
 	Enabled                bool     `yaml:"enabled" json:"enabled"`
 	ArtifactDir            string   `yaml:"artifactDir" json:"artifactDir"`

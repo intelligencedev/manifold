@@ -11,6 +11,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"manifold/internal/config"
 	"manifold/internal/llm"
 	"manifold/internal/observability"
 )
@@ -145,7 +146,7 @@ func (t *ResponsesTokenizer) newInputTokensRequest(ctx context.Context, msgs []l
 func inputTokensURL(baseURL string) string {
 	baseURL = strings.TrimSuffix(strings.TrimSpace(baseURL), "/")
 	if baseURL == "" {
-		baseURL = "https://api.openai.com/v1"
+		baseURL = config.OpenAIAPIV1BaseURL
 	}
 	return baseURL + "/responses/input_tokens"
 }

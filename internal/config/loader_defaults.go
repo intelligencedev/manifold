@@ -20,7 +20,7 @@ func applyLLMDefaults(cfg *Config) {
 		cfg.LLMClient.Provider = "openai"
 	}
 	if cfg.LLMClient.OpenAI.BaseURL == "" {
-		cfg.LLMClient.OpenAI.BaseURL = "https://api.openai.com/v1"
+		cfg.LLMClient.OpenAI.BaseURL = OpenAIAPIV1BaseURL
 	}
 	if cfg.LLMClient.OpenAI.Model == "" {
 		cfg.LLMClient.OpenAI.Model = "gpt-4o-mini"
@@ -206,7 +206,7 @@ func applyTimeoutAndTokenDefaults(cfg *Config) {
 
 func applyEmbeddingAndRerankingDefaults(cfg *Config) {
 	if cfg.Embedding.BaseURL == "" {
-		cfg.Embedding.BaseURL = "https://api.openai.com"
+		cfg.Embedding.BaseURL = OpenAIAPIBaseURL
 	}
 	if cfg.Embedding.Model == "" {
 		cfg.Embedding.Model = "text-embedding-3-small"

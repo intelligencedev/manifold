@@ -90,6 +90,8 @@ const md = new MarkdownIt({
         return wrapHighlighted(value, lang);
       } catch (error) {
         console.warn("markdown highlight failed", error);
+        const escaped = md.utils.escapeHtml(code);
+        return wrapHighlighted(escaped, lang);
       }
     }
 

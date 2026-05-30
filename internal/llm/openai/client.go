@@ -49,7 +49,7 @@ func (c *Client) SupportsCompaction() bool {
 	if err != nil || parsed.Host == "" {
 		return false
 	}
-	return strings.EqualFold(parsed.Hostname(), "api.openai.com")
+	return strings.EqualFold(parsed.Hostname(), config.OpenAIAPIHost)
 }
 
 // ImageAttachment represents a single image attachment to include in a user message.
@@ -66,7 +66,7 @@ func New(c config.OpenAIConfig, httpClient *http.Client) *Client {
 	}
 
 	// For self-hosted mlx_lm.server, wrap the transport to inject Accept: text/event-stream header
-	if c.BaseURL != "" && c.BaseURL != "https://api.openai.com/v1" {
+	if c.BaseURL != "" && c.BaseURL != config.OpenAIAPIV1BaseURL {
 		baseURL := strings.TrimSuffix(strings.TrimSpace(c.BaseURL), "/")
 		if baseURL == "" {
 			baseURL = "http://localhost:8000"
@@ -127,7 +127,7 @@ func (c *Client) applyAuthHeader(req *http.Request) {
 // isSelfHosted returns true when we should use the fallback /tokenize endpoint
 // for counting tokens instead of relying on OpenAI usage fields.
 func (c *Client) isSelfHosted() bool {
-	return c.baseURL != "" && c.baseURL != "https://api.openai.com/v1"
+	return c.baseURL != "" && c.baseURL != config.OpenAIAPIV1BaseURL
 }
 
 // tokenizeCount calls the llama.cpp server /tokenize endpoint to obtain a

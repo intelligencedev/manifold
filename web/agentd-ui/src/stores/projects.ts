@@ -50,6 +50,7 @@ export const useProjectsStore = defineStore("projects", () => {
     } catch (e) {
       // Non-fatal - local state is still updated
       console.warn("Failed to persist active project preference:", e);
+      return;
     }
   }
 
@@ -69,6 +70,7 @@ export const useProjectsStore = defineStore("projects", () => {
     } catch (e) {
       // Non-fatal - will use default project selection
       console.warn("Failed to load user preferences:", e);
+      return;
     }
   }
 

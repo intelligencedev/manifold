@@ -1,3 +1,5 @@
+[![aislop](https://badges.scanaislop.com/score/intelligencedev/manifold.svg)](https://scanaislop.com/intelligencedev/manifold)
+
 # Manifold
 
 Manifold is an **experimental** platform for long-horizon workflow automation with teams of AI assistants.

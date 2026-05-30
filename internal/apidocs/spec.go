@@ -262,6 +262,22 @@ func buildRequestBody(kind string) map[string]any {
 				},
 			},
 		}
+	case "form":
+		return map[string]any{
+			"required": true,
+			"content": map[string]any{
+				"application/x-www-form-urlencoded": map[string]any{
+					"schema": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"state": map[string]any{"type": "string"},
+							"code":  map[string]any{"type": "string"},
+							"user":  map[string]any{"type": "string"},
+						},
+					},
+				},
+			},
+		}
 	default:
 		return nil
 	}

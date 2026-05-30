@@ -4,17 +4,26 @@ import (
 	"context"
 
 	"manifold/internal/agent/prompts"
+	"manifold/internal/config"
 )
+
+func promptInstructionOverrides(cfg *config.Config) prompts.InstructionOverrides {
+	if cfg == nil {
+		return prompts.InstructionOverrides{}
+	}
+	return prompts.InstructionOverrides{
+		BaseSystem:                 cfg.PromptOverrides.BaseSystem,
+		MemoryInstructions:         cfg.PromptOverrides.MemoryInstructions,
+		ToolDiscoveryInstructions:  cfg.PromptOverrides.ToolDiscoveryInstructions,
+		SkillDiscoveryInstructions: cfg.PromptOverrides.SkillDiscoveryInstructions,
+	}
+}
 
 // composeSystemPrompt builds the stable base system prompt (including AGENTS.md,
 // if present). Dynamic specialist catalogs are inserted after the static prompt
 // boundary so provider system-prompt caches remain effective.
 func (a *app) composeSystemPrompt() string {
-	base := prompts.DefaultSystemPrompt(a.cfg.Workdir, a.cfg.SystemPrompt)
-	if a.cfg.AutoDiscover {
-		base = prompts.EnsureToolDiscoveryInstructions(base)
-	}
-	return base
+	return prompts.DefaultSystemPrompt(a.cfg.Workdir, a.cfg.SystemPrompt, promptInstructionOverrides(a.cfg))
 }
 
 // composeSystemPromptForUser builds the stable base system prompt (including AGENTS.md)
@@ -27,11 +36,7 @@ func (a *app) composeSystemPromptForUser(ctx context.Context, userID int64) stri
 }
 
 func (a *app) composeSystemPromptForUserWithOverride(ctx context.Context, userID int64, systemPrompt string) string {
-	base := prompts.DefaultSystemPrompt(a.cfg.Workdir, systemPrompt)
-	if a.cfg.AutoDiscover {
-		base = prompts.EnsureToolDiscoveryInstructions(base)
-	}
-	return base
+	return prompts.DefaultSystemPrompt(a.cfg.Workdir, systemPrompt, promptInstructionOverrides(a.cfg))
 }
 
 func (a *app) composeUserPromptContext() string {

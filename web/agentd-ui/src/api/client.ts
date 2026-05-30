@@ -238,6 +238,11 @@ export interface AgentdSettings {
   summaryPlainTextContextWindowTokens: number;
   summaryReserveBufferTokens: number;
 
+  promptBaseSystem: string;
+  promptMemoryInstructions: string;
+  promptToolDiscoveryInstructions: string;
+  promptSkillDiscoveryInstructions: string;
+
   embedBaseUrl: string;
   embedModel: string;
   embedApiKey: string;

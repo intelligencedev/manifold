@@ -39,6 +39,10 @@ func TestApplyAgentdSettings_UsesNormalizedAliases(t *testing.T) {
 		EmbedInstructionMode:                "enabled",
 		EmbedInstructionFormat:              "qwen",
 		EmbedRAGQueryInstruction:            "Retrieve relevant passages.",
+		PromptBaseSystem:                    "Base system",
+		PromptMemoryInstructions:            "[memory] custom [/memory]",
+		PromptToolDiscoveryInstructions:     "[tool_discovery] custom [/tool_discovery]",
+		PromptSkillDiscoveryInstructions:    "[skill_discovery] custom [/skill_discovery]",
 		RerankEnabled:                       true,
 		RerankBaseURL:                       "http://localhost:8203",
 		RerankModel:                         "qwen3-reranker-0.6b",
@@ -63,6 +67,12 @@ func TestApplyAgentdSettings_UsesNormalizedAliases(t *testing.T) {
 	}
 	if cfg.Embedding.Instructions.Mode != "enabled" || cfg.Embedding.Instructions.RAGQuery != "Retrieve relevant passages." {
 		t.Fatalf("expected embedding instruction settings, got %+v", cfg.Embedding.Instructions)
+	}
+	if cfg.PromptOverrides.BaseSystem != "Base system" ||
+		cfg.PromptOverrides.MemoryInstructions != "[memory] custom [/memory]" ||
+		cfg.PromptOverrides.ToolDiscoveryInstructions != "[tool_discovery] custom [/tool_discovery]" ||
+		cfg.PromptOverrides.SkillDiscoveryInstructions != "[skill_discovery] custom [/skill_discovery]" {
+		t.Fatalf("expected prompt overrides, got %+v", cfg.PromptOverrides)
 	}
 	if !cfg.Reranking.Enabled || cfg.Reranking.BaseURL != "http://localhost:8203" || cfg.Reranking.Model != "qwen3-reranker-0.6b" {
 		t.Fatalf("expected reranking settings, got %+v", cfg.Reranking)
@@ -100,6 +110,10 @@ func TestApplyAgentdSettingsYAML_UsesNormalizedAliases(t *testing.T) {
 		EmbedInstructionMode:                "enabled",
 		EmbedInstructionFormat:              "qwen",
 		EmbedEvolvingMemoryQueryInstruction: "Retrieve relevant memories.",
+		PromptBaseSystem:                    "Base system",
+		PromptMemoryInstructions:            "[memory] custom [/memory]",
+		PromptToolDiscoveryInstructions:     "[tool_discovery] custom [/tool_discovery]",
+		PromptSkillDiscoveryInstructions:    "[skill_discovery] custom [/skill_discovery]",
 		RerankEnabled:                       true,
 		RerankBaseURL:                       "http://localhost:8203",
 		RerankModel:                         "qwen3-reranker-0.6b",
@@ -133,6 +147,10 @@ func TestApplyAgentdSettingsYAML_UsesNormalizedAliases(t *testing.T) {
 	instructions, ok := embeddingCfg["instructions"].(map[string]any)
 	if !ok || instructions["mode"] != "enabled" || instructions["evolvingMemoryQuery"] != "Retrieve relevant memories." {
 		t.Fatalf("expected embedding instructions in YAML map, got %#v", embeddingCfg["instructions"])
+	}
+	promptOverrides, ok := root["promptOverrides"].(map[string]any)
+	if !ok || promptOverrides["baseSystem"] != "Base system" || promptOverrides["memoryInstructions"] != "[memory] custom [/memory]" {
+		t.Fatalf("expected prompt overrides in YAML map, got %#v", root["promptOverrides"])
 	}
 	rerankingCfg, ok := root["reranking"].(map[string]any)
 	if !ok || rerankingCfg["enabled"] != true || rerankingCfg["baseURL"] != "http://localhost:8203" || rerankingCfg["model"] != "qwen3-reranker-0.6b" {

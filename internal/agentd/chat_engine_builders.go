@@ -8,6 +8,7 @@ import (
 
 	"manifold/internal/agent"
 	"manifold/internal/agent/harness"
+	"manifold/internal/agent/memory"
 	"manifold/internal/agent/prompts"
 	"manifold/internal/config"
 	"manifold/internal/llm"
@@ -86,6 +87,7 @@ func (a *app) buildOrchestratorChatEngine(ctx context.Context, req chatEngineBui
 	if override := strings.TrimSpace(req.SystemPromptOverride); override != "" {
 		eng.System = a.composeSystemPromptForUserWithOverride(ctx, req.Owner, override)
 	}
+	eng.System = a.ensureChatMemoryInstructions(eng.System, req.MemorySettings.EvolvingMemoryEnabled)
 	enableTools, autoDiscover := a.chatOrchestratorToolConfig(ctx, req.Owner)
 	eng.System = a.ensureChatDiscoveryInstructions(eng.System, enableTools, autoDiscover)
 	var skillsContext string
@@ -114,10 +116,11 @@ func (a *app) buildSpecialistChatEngine(ctx context.Context, req chatEngineBuild
 		toolReg = tools.NewRegistry()
 	}
 
-	systemPrompt := prompts.EnsureMemoryInstructions(sp.System)
+	systemPrompt := sp.System
 	if override := strings.TrimSpace(req.SystemPromptOverride); override != "" {
-		systemPrompt = prompts.EnsureMemoryInstructions(override)
+		systemPrompt = prompts.DefaultSystemPrompt(a.cfg.Workdir, override, promptInstructionOverrides(a.cfg))
 	}
+	systemPrompt = a.ensureChatMemoryInstructions(systemPrompt, req.MemorySettings.EvolvingMemoryEnabled)
 	systemPrompt = a.ensureChatDiscoveryInstructions(systemPrompt, sp.EnableTools, sp.AutoDiscover)
 	var skillsContext string
 	toolReg, systemPrompt, skillsContext = a.applyChatSkillsMode(toolReg, systemPrompt, a.chatProjectDir(ctx, nil), sp.EnableTools, sp.AutoDiscover)
@@ -206,7 +209,8 @@ func (a *app) buildTeamChatEngine(ctx context.Context, req chatEngineBuildReques
 	if basePrompt == "" {
 		basePrompt = specialists.DefaultOrchestratorPrompt
 	}
-	systemPrompt := prompts.DefaultSystemPrompt(a.cfg.Workdir, basePrompt)
+	systemPrompt := prompts.DefaultSystemPrompt(a.cfg.Workdir, basePrompt, promptInstructionOverrides(a.cfg))
+	systemPrompt = a.ensureChatMemoryInstructions(systemPrompt, req.MemorySettings.EvolvingMemoryEnabled)
 	resolvedAutoDiscover := a.resolveAutoDiscover(sp.AutoDiscover)
 	systemPrompt = a.ensureChatDiscoveryInstructions(systemPrompt, sp.EnableTools, resolvedAutoDiscover)
 	var skillsContext string
@@ -235,6 +239,16 @@ func (a *app) buildTeamChatEngine(ctx context.Context, req chatEngineBuildReques
 		em = nil
 	}
 	eng.AttachTokenizer(userLLM, nil)
+	eng.Delegator = a.newTeamRunDelegator(eng, teamReg, em)
+	eng.TeamDelegator = a
+
+	return chatEngineBuildResult{
+		Engine:     eng,
+		ModelLabel: chatModelLabel(req.Name, currentModel),
+	}
+}
+
+func (a *app) newTeamRunDelegator(eng *agent.Engine, teamReg *specialists.Registry, em *memory.EvolvingMemory) *agenttools.Delegator {
 	delegator := agenttools.NewDelegator(eng.Tools, teamReg, a.workspaceManager, a.chatMaxSteps())
 	delegator.SetDefaultTimeout(a.cfg.AgentRunTimeoutSeconds)
 	delegator.SetEvolvingMemory(em)
@@ -247,13 +261,7 @@ func (a *app) buildTeamChatEngine(ctx context.Context, req chatEngineBuildReques
 	if eng.ReMemEnabled {
 		delegator.ConfigureReMem(a.evolvingCfg.LLM, a.evolvingCfg.Model, a.rememMaxInnerSteps)
 	}
-	eng.Delegator = delegator
-	eng.TeamDelegator = a
-
-	return chatEngineBuildResult{
-		Engine:     eng,
-		ModelLabel: chatModelLabel(req.Name, currentModel),
-	}
+	return delegator
 }
 
 func (a *app) buildTeamRegistry(ctx context.Context, owner int64, team persist.SpecialistTeam) (*specialists.Registry, error) {
@@ -280,6 +288,7 @@ func (a *app) buildTeamRegistry(ctx context.Context, owner int64, team persist.S
 		}
 	}
 	reg := specialists.NewRegistry(baseRegCfg, specialists.ConfigsFromStore(filtered), a.httpClient, a.baseToolRegistry)
+	reg.SetPromptOverrides(promptInstructionOverrides(a.cfg))
 	reg.SetToolDiscovery(a.toolIndex, a.cfg.AutoDiscover, a.cfg.MaxDiscoveredTools)
 	return reg, nil
 }
@@ -304,7 +313,14 @@ func (a *app) resolveAutoDiscover(autoDiscover *bool) bool {
 
 func (a *app) ensureChatDiscoveryInstructions(systemPrompt string, enableTools bool, autoDiscover bool) string {
 	if enableTools && autoDiscover {
-		return prompts.EnsureToolDiscoveryInstructions(systemPrompt)
+		return prompts.EnsureToolDiscoveryInstructions(systemPrompt, promptInstructionOverrides(a.cfg))
+	}
+	return systemPrompt
+}
+
+func (a *app) ensureChatMemoryInstructions(systemPrompt string, evolvingMemoryEnabled bool) string {
+	if evolvingMemoryEnabled {
+		return prompts.EnsureMemoryInstructions(systemPrompt, promptInstructionOverrides(a.cfg))
 	}
 	return systemPrompt
 }
@@ -326,7 +342,7 @@ func (a *app) applyChatSkillsMode(toolReg tools.Registry, systemPrompt, projectD
 	if !autoDiscover {
 		return tools.NewOverlayRegistry(toolReg, newSkillReadTool(projectDir)), systemPrompt, cached.RenderedPrompt
 	}
-	systemPrompt = prompts.EnsureSkillDiscoveryInstructions(systemPrompt)
+	systemPrompt = prompts.EnsureSkillDiscoveryInstructions(systemPrompt, promptInstructionOverrides(a.cfg))
 	return tools.NewOverlayRegistry(toolReg, newSkillReadTool(projectDir), newSkillSearchTool(projectDir)), systemPrompt, ""
 }
 

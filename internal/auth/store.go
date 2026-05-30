@@ -85,8 +85,8 @@ func (s *Store) UpsertUser(ctx context.Context, u *User) (*User, error) {
 INSERT INTO users(email, name, picture, provider, subject)
 VALUES ($1,$2,$3,$4,$5)
 ON CONFLICT (email) DO UPDATE SET
-  name=EXCLUDED.name,
-  picture=EXCLUDED.picture,
+  name=COALESCE(NULLIF(EXCLUDED.name, ''), users.name),
+  picture=COALESCE(NULLIF(EXCLUDED.picture, ''), users.picture),
   updated_at=now()
 RETURNING id, created_at, updated_at
 `, u.Email, u.Name, u.Picture, u.Provider, u.Subject)

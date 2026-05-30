@@ -60,6 +60,7 @@ type Registry struct {
 	toolIndex            *tooldiscovery.ToolIndex
 	autoDiscover         bool
 	maxDiscovered        int
+	promptOverrides      prompts.InstructionOverrides
 }
 
 // NewRegistry builds a registry from config.SpecialistConfig entries.
@@ -102,6 +103,13 @@ func (r *Registry) SetToolDiscovery(index *tooldiscovery.ToolIndex, autoDiscover
 	r.toolIndex = index
 	r.autoDiscover = autoDiscover
 	r.maxDiscovered = maxDiscovered
+	r.rebuildLocked()
+}
+
+func (r *Registry) SetPromptOverrides(overrides prompts.InstructionOverrides) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.promptOverrides = overrides
 	r.rebuildLocked()
 }
 
@@ -234,15 +242,10 @@ func (r *Registry) rebuildLocked() {
 			toolsView = nil
 		}
 
-		// Prepend default system prompt to specialist's configured system prompt
-		// This ensures specialists get tool usage rules, memory instructions, etc.
-		specialistSystem := sc.System
-		if specialistSystem != "" {
-			baseSystem := prompts.DefaultSystemPrompt(r.workdir, "")
-			specialistSystem = combineSystemPrompts(baseSystem, specialistSystem)
-		}
-		if resolvedAutoDiscover {
-			specialistSystem = prompts.EnsureToolDiscoveryInstructions(specialistSystem)
+		// Prefix shared base prompt before specialist-specific instructions.
+		specialistSystem := prompts.DefaultSystemPrompt(r.workdir, sc.System, r.promptOverrides)
+		if sc.EnableTools && resolvedAutoDiscover {
+			specialistSystem = prompts.EnsureToolDiscoveryInstructions(specialistSystem, r.promptOverrides)
 		}
 
 		a := &Agent{

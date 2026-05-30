@@ -589,6 +589,9 @@ func TestBuildSpecialistChatEngineCanDisableSessionEvolvingMemory(t *testing.T) 
 	if !result.Engine.DisableEvolvingMemory {
 		t.Fatal("expected DisableEvolvingMemory flag")
 	}
+	if strings.Contains(result.Engine.System, "[memory]") {
+		t.Fatalf("did not expect memory instructions when evolving memory is disabled: %q", result.Engine.System)
+	}
 }
 
 func TestApplyChatMemorySettingsCanDisableBeliefMemory(t *testing.T) {

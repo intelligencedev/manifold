@@ -29,6 +29,7 @@ func (a *app) initSpecialists(ctx context.Context) error {
 
 	if list, err := specStore.List(ctx, systemUserID); err == nil {
 		a.specRegistry.ReplaceFromConfigs(a.cfg.LLMClient, specialists.ConfigsFromStore(list), a.httpClient, a.baseToolRegistry)
+		a.specRegistry.SetPromptOverrides(promptInstructionOverrides(a.cfg))
 		a.specRegistry.SetToolDiscovery(a.toolIndex, a.cfg.AutoDiscover, a.cfg.MaxDiscoveredTools)
 	}
 	a.refreshEngineSystemPrompt()

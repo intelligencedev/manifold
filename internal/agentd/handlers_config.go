@@ -17,6 +17,11 @@ type agentdSettings struct {
 	SummaryPlainTextContextWindowTokens int    `json:"summaryPlainTextContextWindowTokens"`
 	SummaryReserveBufferTokens          int    `json:"summaryReserveBufferTokens"`
 
+	PromptBaseSystem                 string `json:"promptBaseSystem"`
+	PromptMemoryInstructions         string `json:"promptMemoryInstructions"`
+	PromptToolDiscoveryInstructions  string `json:"promptToolDiscoveryInstructions"`
+	PromptSkillDiscoveryInstructions string `json:"promptSkillDiscoveryInstructions"`
+
 	EmbedBaseURL                        string            `json:"embedBaseUrl"`
 	EmbedModel                          string            `json:"embedModel"`
 	EmbedAPIKey                         string            `json:"embedApiKey"`
@@ -134,6 +139,10 @@ func (a *app) handleUpdateAgentdConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("persist config.yaml: %w", err))
 		return
 	}
+	if a.specRegistry != nil {
+		a.specRegistry.SetPromptOverrides(promptInstructionOverrides(a.cfg))
+	}
+	a.refreshEngineSystemPrompt()
 
 	// Indicate that a restart is required for some changes to fully apply.
 	w.Header().Set("X-Needs-Restart", "true")

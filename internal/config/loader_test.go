@@ -44,6 +44,11 @@ func TestLoad_FromYAML(t *testing.T) {
 
 	configText := `workdir: .
 systemPrompt: Test prompt
+promptOverrides:
+  baseSystem: Configured base prompt
+  memoryInstructions: Configured memory instructions
+  toolDiscoveryInstructions: Configured tool discovery instructions
+  skillDiscoveryInstructions: Configured skill discovery instructions
 logPath: manifold.log
 logLevel: debug
 logPayloads: true
@@ -130,6 +135,18 @@ auth:
   cookieDomain: ""
   stateTTLSeconds: 600
   sessionTTLHours: 72
+  oidc:
+    scopes: [openid, email, name]
+    responseMode: form_post
+    tokenAuthStyle: params
+    providerName: apple
+    logoutURL: ""
+    logoutRedirectParam: post_logout_redirect_uri
+    apple:
+      teamID: TEAM123456
+      keyID: KEY1234567
+      privateKeyPath: /run/secrets/apple-auth-key.p8
+      clientSecretTTLHours: 720
   oauth2:
     authURL: https://github.com/login/oauth/authorize
     tokenURL: https://github.com/login/oauth/access_token
@@ -289,6 +306,12 @@ tokenization:
 	if cfg.SystemPrompt != "Test prompt" {
 		t.Fatalf("unexpected system prompt: %q", cfg.SystemPrompt)
 	}
+	if cfg.PromptOverrides.BaseSystem != "Configured base prompt" ||
+		cfg.PromptOverrides.MemoryInstructions != "Configured memory instructions" ||
+		cfg.PromptOverrides.ToolDiscoveryInstructions != "Configured tool discovery instructions" ||
+		cfg.PromptOverrides.SkillDiscoveryInstructions != "Configured skill discovery instructions" {
+		t.Fatalf("unexpected prompt overrides: %+v", cfg.PromptOverrides)
+	}
 	if cfg.LLMClient.OpenAI.APIKey != "test-openai-key" {
 		t.Fatalf("expected expanded openai api key, got %q", cfg.LLMClient.OpenAI.APIKey)
 	}
@@ -300,6 +323,12 @@ tokenization:
 	}
 	if cfg.Auth.ClientSecret != "test-auth-secret" {
 		t.Fatalf("expected expanded auth client secret, got %q", cfg.Auth.ClientSecret)
+	}
+	if cfg.Auth.OIDC.ResponseMode != "form_post" || cfg.Auth.OIDC.TokenAuthStyle != "params" {
+		t.Fatalf("unexpected oidc auth config: %+v", cfg.Auth.OIDC)
+	}
+	if cfg.Auth.OIDC.Apple.TeamID != "TEAM123456" || cfg.Auth.OIDC.Apple.ClientSecretTTLHours != 720 {
+		t.Fatalf("unexpected apple oidc config: %+v", cfg.Auth.OIDC.Apple)
 	}
 	if cfg.Databases.Search.Index != "docs" || cfg.Databases.Vector.Index != "vectors" {
 		t.Fatalf("unexpected database config: %+v %+v", cfg.Databases.Search, cfg.Databases.Vector)

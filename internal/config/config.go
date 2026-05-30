@@ -5,6 +5,9 @@ type Config struct {
 	Workdir string `yaml:"workdir" json:"workdir"`
 	// If empty, the built-in hard-coded prompt is used.
 	SystemPrompt string `yaml:"systemPrompt" json:"systemPrompt"`
+	// PromptOverrides replaces selected built-in prompt blocks while preserving
+	// systemPrompt as additive custom guidance.
+	PromptOverrides PromptOverridesConfig `yaml:"promptOverrides" json:"promptOverrides"`
 	// Rolling summarization config: enable and tuning knobs (token-based only)
 	SummaryEnabled bool `yaml:"summaryEnabled" json:"summaryEnabled"`
 	// Summary configures rolling chat summaries independently from the primary LLM.
@@ -118,6 +121,16 @@ type Config struct {
 	CodeQA CodeQAConfig `yaml:"codeQA" json:"codeQA"`
 	// Tokenization configures accurate token counting for summarization.
 	Tokenization TokenizationConfig `yaml:"tokenization" json:"tokenization"`
+}
+
+// PromptOverridesConfig customizes built-in prompt blocks.
+//
+// Empty fields use the hard-coded defaults from internal/agent/prompts.
+type PromptOverridesConfig struct {
+	BaseSystem                 string `yaml:"baseSystem" json:"baseSystem"`
+	MemoryInstructions         string `yaml:"memoryInstructions" json:"memoryInstructions"`
+	ToolDiscoveryInstructions  string `yaml:"toolDiscoveryInstructions" json:"toolDiscoveryInstructions"`
+	SkillDiscoveryInstructions string `yaml:"skillDiscoveryInstructions" json:"skillDiscoveryInstructions"`
 }
 
 // HarnessConfig controls the optional Forge-style guarded agent loop.
@@ -479,6 +492,8 @@ type AuthConfig struct {
 	SessionTTLHours int `yaml:"sessionTTLHours" json:"sessionTTLHours"`
 	// OAuth2 provides additional configuration when Provider=="oauth2".
 	OAuth2 OAuth2Config `yaml:"oauth2" json:"oauth2"`
+	// OIDC provides additional configuration when Provider=="oidc".
+	OIDC OIDCConfig `yaml:"oidc" json:"oidc"`
 }
 
 // OAuth2Config contains the endpoints and mapping hints required for plain OAuth2 providers.
@@ -497,6 +512,26 @@ type OAuth2Config struct {
 	SubjectField        string   `yaml:"subjectField" json:"subjectField"`
 	RolesField          string   `yaml:"rolesField" json:"rolesField"`
 	DisablePKCE         bool     `yaml:"disablePKCE" json:"disablePKCE"` // Disable PKCE for providers that don't support it well
+}
+
+// OIDCConfig contains optional provider-specific controls for OIDC providers.
+type OIDCConfig struct {
+	Scopes              []string        `yaml:"scopes" json:"scopes"`
+	ResponseMode        string          `yaml:"responseMode" json:"responseMode"`
+	TokenAuthStyle      string          `yaml:"tokenAuthStyle" json:"tokenAuthStyle"`
+	ProviderName        string          `yaml:"providerName" json:"providerName"`
+	LogoutURL           string          `yaml:"logoutURL" json:"logoutURL"`
+	LogoutRedirectParam string          `yaml:"logoutRedirectParam" json:"logoutRedirectParam"`
+	Apple               AppleOIDCConfig `yaml:"apple" json:"apple"`
+}
+
+// AppleOIDCConfig configures Sign in with Apple client-secret JWT generation.
+type AppleOIDCConfig struct {
+	TeamID               string `yaml:"teamID" json:"teamID"`
+	KeyID                string `yaml:"keyID" json:"keyID"`
+	PrivateKeyPath       string `yaml:"privateKeyPath" json:"privateKeyPath"`
+	PrivateKey           string `yaml:"privateKey" json:"privateKey"`
+	ClientSecretTTLHours int    `yaml:"clientSecretTTLHours" json:"clientSecretTTLHours"`
 }
 
 // DBConfig contains sub-config for each pluggable database backend.

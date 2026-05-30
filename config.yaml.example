@@ -11,6 +11,14 @@
 
 workdir: .
 systemPrompt: ""
+promptOverrides:
+  # Empty fields use Manifold's built-in defaults from internal/agent/prompts.
+  # These shared blocks are prefixed before orchestrator/specialist custom
+  # system instructions when their matching feature is enabled.
+  baseSystem: ""
+  memoryInstructions: ""
+  toolDiscoveryInstructions: ""
+  skillDiscoveryInstructions: ""
 
 # Agent runtime limits.
 maxSteps: 1000
@@ -216,6 +224,24 @@ auth:
   cookieDomain: ""
   stateTTLSeconds: 600
   sessionTTLHours: 72
+  oidc:
+    # Optional OIDC controls. Defaults are compatible with Google/Keycloak.
+    scopes:
+      - openid
+      - email
+      - profile
+    responseMode: ""
+    # "" auto-detects, "params" sends client credentials in the token request body.
+    tokenAuthStyle: ""
+    providerName: oidc
+    logoutURL: ""
+    logoutRedirectParam: post_logout_redirect_uri
+    apple:
+      teamID: "${APPLE_TEAM_ID}"
+      keyID: "${APPLE_KEY_ID}"
+      privateKeyPath: "${APPLE_PRIVATE_KEY_PATH}"
+      privateKey: "${APPLE_PRIVATE_KEY}"
+      clientSecretTTLHours: 4320
   oauth2:
     authURL: https://github.com/login/oauth/authorize
     tokenURL: https://github.com/login/oauth/access_token

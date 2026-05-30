@@ -15,6 +15,15 @@ import (
 
 var skillsCache = skills.DefaultCache()
 
+// InstructionOverrides replaces selected built-in prompt blocks. Empty fields
+// keep the hard-coded defaults in this package.
+type InstructionOverrides struct {
+	BaseSystem                 string
+	MemoryInstructions         string
+	ToolDiscoveryInstructions  string
+	SkillDiscoveryInstructions string
+}
+
 const memoryInstructions = `
 [memory]
 - EvolvingMemory provides two context sources:
@@ -213,28 +222,28 @@ func BuildConversationSummaryMessages(conversationMaterial string) []llm.Message
 	}
 }
 
-// EnsureMemoryInstructions appends memory system instructions to any system prompt
-// if they are not already present. This ensures all agents (orchestrator, specialists,
-// and delegated agents) receive memory usage guidance.
-func EnsureMemoryInstructions(systemPrompt string) string {
+// EnsureMemoryInstructions appends memory system instructions to any system
+// prompt if they are not already present. Callers decide when memory guidance is
+// applicable for the current run.
+func EnsureMemoryInstructions(systemPrompt string, overrides ...InstructionOverrides) string {
 	if strings.Contains(systemPrompt, "[memory]") {
 		return systemPrompt
 	}
-	return systemPrompt + memoryInstructions
+	return combinePromptSections(systemPrompt, instructionBlock(firstOverride(overrides).MemoryInstructions, memoryInstructions))
 }
 
-func EnsureToolDiscoveryInstructions(systemPrompt string) string {
+func EnsureToolDiscoveryInstructions(systemPrompt string, overrides ...InstructionOverrides) string {
 	if strings.Contains(systemPrompt, "[tool_discovery]") {
 		return systemPrompt
 	}
-	return systemPrompt + toolDiscoveryInstructions
+	return combinePromptSections(systemPrompt, instructionBlock(firstOverride(overrides).ToolDiscoveryInstructions, toolDiscoveryInstructions))
 }
 
-func EnsureSkillDiscoveryInstructions(systemPrompt string) string {
+func EnsureSkillDiscoveryInstructions(systemPrompt string, overrides ...InstructionOverrides) string {
 	if strings.Contains(systemPrompt, "[skill_discovery]") {
 		return systemPrompt
 	}
-	return systemPrompt + skillDiscoveryInstructions
+	return combinePromptSections(systemPrompt, instructionBlock(firstOverride(overrides).SkillDiscoveryInstructions, skillDiscoveryInstructions))
 }
 
 // DefaultSystemPrompt describes the run_cli tool clearly so the model will use it.
@@ -244,8 +253,20 @@ func EnsureSkillDiscoveryInstructions(systemPrompt string) string {
 //
 // The override parameter, when non-empty, is appended after the hard-coded
 // default so custom orchestrator guidance preserves the shared base rules.
-func DefaultSystemPrompt(workdir, override string) string {
-	base := fmt.Sprintf(`
+func DefaultSystemPrompt(workdir, override string, overrides ...InstructionOverrides) string {
+	promptOverrides := firstOverride(overrides)
+	base := defaultBaseSystemPrompt(workdir)
+	if customBase := strings.TrimSpace(promptOverrides.BaseSystem); customBase != "" {
+		base = renderPromptOverride(customBase, workdir)
+	}
+	if trimmed := strings.TrimSpace(override); trimmed != "" {
+		base = combinePromptSections(base, trimmed)
+	}
+	return base
+}
+
+func defaultBaseSystemPrompt(workdir string) string {
+	return fmt.Sprintf(`
 Rules:
 - ALWAYS search for skills AND tools relevant to the topic or request.
 - Once you have gathered the ideal set of skills and tools, create a plan with a checklist.
@@ -271,12 +292,26 @@ HTML Rendering:
 - Never include <script>, event handlers, forms, iframes, or external embeds.
 - When the user asks for source and rendered output together, emit raw HTML first, then a fenced html block.
 `, workdir)
-	if trimmed := strings.TrimSpace(override); trimmed != "" {
-		base = combinePromptSections(base, trimmed)
-	}
+}
 
-	// Always append memory instructions at the end
-	return EnsureMemoryInstructions(base)
+func firstOverride(overrides []InstructionOverrides) InstructionOverrides {
+	if len(overrides) == 0 {
+		return InstructionOverrides{}
+	}
+	return overrides[0]
+}
+
+func instructionBlock(override, fallback string) string {
+	if trimmed := strings.TrimSpace(override); trimmed != "" {
+		return trimmed
+	}
+	return fallback
+}
+
+func renderPromptOverride(text, workdir string) string {
+	text = strings.ReplaceAll(text, "{{workdir}}", workdir)
+	text = strings.ReplaceAll(text, "${workdir}", workdir)
+	return text
 }
 
 func combinePromptSections(base, addition string) string {

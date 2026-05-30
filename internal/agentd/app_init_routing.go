@@ -33,6 +33,7 @@ func initAppRouting(ctx context.Context, cfg *config.Config, httpClient *http.Cl
 	log.Info().Str("mode", wsMgr.Mode()).Msg("workspace_manager_initialized")
 
 	specReg := specialists.NewRegistryWithWorkdir(cfg.LLMClient, cfg.Specialists, httpClient, tooling.registry, cfg.Workdir)
+	specReg.SetPromptOverrides(promptInstructionOverrides(cfg))
 	registerSpecialistTools(cfg, httpClient, tooling.registry, specReg, wsMgr)
 
 	mcpMgr := registerSharedMCPServers(ctx, cfg, mgr, tooling.baseRegistry)

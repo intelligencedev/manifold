@@ -284,6 +284,73 @@
         </fieldset>
       </template>
 
+      <!-- Prompts -->
+      <template v-if="activeSection === 'prompts'">
+        <fieldset class="space-y-4">
+          <legend class="text-sm font-semibold text-foreground">
+            Built-in Prompt Overrides
+          </legend>
+          <div class="grid gap-4 grid-cols-2">
+            <div class="space-y-1 col-span-2">
+              <label
+                for="prompt-base-system"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Base System</label
+              >
+              <textarea
+                id="prompt-base-system"
+                v-model="agentdSettings.promptBaseSystem"
+                rows="8"
+                placeholder="Leave empty to use the built-in base system prompt."
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 font-mono text-xs"
+              />
+            </div>
+            <div class="space-y-1">
+              <label
+                for="prompt-memory"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Memory Instructions</label
+              >
+              <textarea
+                id="prompt-memory"
+                v-model="agentdSettings.promptMemoryInstructions"
+                rows="8"
+                placeholder="Leave empty to use the built-in [memory] block."
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 font-mono text-xs"
+              />
+            </div>
+            <div class="space-y-1">
+              <label
+                for="prompt-tool-discovery"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Tool Discovery Instructions</label
+              >
+              <textarea
+                id="prompt-tool-discovery"
+                v-model="agentdSettings.promptToolDiscoveryInstructions"
+                rows="8"
+                placeholder="Leave empty to use the built-in [tool_discovery] block."
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 font-mono text-xs"
+              />
+            </div>
+            <div class="space-y-1">
+              <label
+                for="prompt-skill-discovery"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Skill Discovery Instructions</label
+              >
+              <textarea
+                id="prompt-skill-discovery"
+                v-model="agentdSettings.promptSkillDiscoveryInstructions"
+                rows="8"
+                placeholder="Leave empty to use the built-in [skill_discovery] block."
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 font-mono text-xs"
+              />
+            </div>
+          </div>
+        </fieldset>
+      </template>
+
       <!-- Embeddings -->
       <template v-if="activeSection === 'embeddings'">
         <fieldset class="space-y-4">
@@ -1255,6 +1322,10 @@ const defaultAgentdSettings: AgentdSettings = {
   summaryEnabled: false,
   summaryPlainTextContextWindowTokens: 0,
   summaryReserveBufferTokens: 25000,
+  promptBaseSystem: "",
+  promptMemoryInstructions: "",
+  promptToolDiscoveryInstructions: "",
+  promptSkillDiscoveryInstructions: "",
   embedBaseUrl: "https://api.openai.com",
   embedModel: "text-embedding-3-small",
   embedApiKey: "",
@@ -1579,6 +1650,7 @@ function handleMessage(event: MessageEvent) {
 type SectionKey =
   | "general"
   | "summarization"
+  | "prompts"
   | "embeddings"
   | "timeouts"
   | "observability"
@@ -1588,6 +1660,7 @@ type SectionKey =
 const sections: { key: SectionKey; label: string }[] = [
   { key: "general", label: "General" },
   { key: "summarization", label: "Summarization" },
+  { key: "prompts", label: "Prompts" },
   { key: "embeddings", label: "Embeddings" },
   { key: "timeouts", label: "Timeouts & Safety" },
   { key: "observability", label: "Observability & Logging" },
@@ -1599,6 +1672,7 @@ const activeSection = ref<SectionKey>("general");
 const sectionDescriptions: Record<SectionKey, string> = {
   general: "Client-local app settings and runtime identifiers.",
   summarization: "Control conversation summarization cadence and retention.",
+  prompts: "Override built-in prompt blocks while keeping custom orchestrator and specialist instructions additive.",
   embeddings: "Configure embedding provider parameters.",
   timeouts: "Global execution time limits and shell safety.",
   observability: "Telemetry export and logging verbosity.",

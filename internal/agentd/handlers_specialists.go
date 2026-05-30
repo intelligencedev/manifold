@@ -385,27 +385,11 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 	}
 	a.llm = llm
 	a.engine.LLM = llm
-	currentModel := strings.TrimSpace(sp.Model)
-	if currentModel == "" {
-		switch provider {
-		case "anthropic":
-			currentModel = strings.TrimSpace(a.cfg.LLMClient.Anthropic.Model)
-		case "google":
-			currentModel = strings.TrimSpace(a.cfg.LLMClient.Google.Model)
-		default:
-			currentModel = strings.TrimSpace(a.cfg.LLMClient.OpenAI.Model)
-		}
-	}
-	a.engine.Model = currentModel
+	a.engine.Model = a.orchestratorModel(provider, sp.Model)
 	a.engine.HarnessEnabled = a.cfg.Harness.Enabled
 	a.engine.HarnessConfig = harnessRunConfig(a.cfg.Harness)
 
-	if a.cfg.AutoDiscover && a.cfg.EnableTools && a.toolIndex != nil {
-		a.toolRegistry = tooldiscovery.NewDiscoverableRegistry(a.baseToolRegistry, a.toolIndex, a.cfg.ToolAllowList, a.cfg.MaxDiscoveredTools)
-	} else {
-		a.toolRegistry = tools.ApplyTopLevelPolicy(a.baseToolRegistry, a.cfg.EnableTools, a.cfg.ToolAllowList)
-	}
-
+	a.refreshOrchestratorToolRegistry()
 	a.engine.Tools = a.toolRegistry
 	// Propagate updated tool registry to the delegator (if present)
 	if a.engine != nil && a.engine.Delegator != nil {
@@ -450,6 +434,7 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 	}
 	if list, err := a.specStore.List(ctx, systemUserID); err == nil {
 		a.specRegistry.ReplaceFromConfigs(a.cfg.LLMClient, specialists.ConfigsFromStore(list), a.httpClient, a.baseToolRegistry)
+		a.specRegistry.SetPromptOverrides(promptInstructionOverrides(a.cfg))
 		a.specRegistry.SetToolDiscovery(a.toolIndex, a.cfg.AutoDiscover, a.cfg.MaxDiscoveredTools)
 	}
 	a.refreshEngineSystemPrompt()
@@ -463,4 +448,26 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 		Strs("tools", names).
 		Msg("tool_registry_contents_updated")
 	return nil
+}
+
+func (a *app) orchestratorModel(provider string, override string) string {
+	if currentModel := strings.TrimSpace(override); currentModel != "" {
+		return currentModel
+	}
+	switch provider {
+	case "anthropic":
+		return strings.TrimSpace(a.cfg.LLMClient.Anthropic.Model)
+	case "google":
+		return strings.TrimSpace(a.cfg.LLMClient.Google.Model)
+	default:
+		return strings.TrimSpace(a.cfg.LLMClient.OpenAI.Model)
+	}
+}
+
+func (a *app) refreshOrchestratorToolRegistry() {
+	if a.cfg.AutoDiscover && a.cfg.EnableTools && a.toolIndex != nil {
+		a.toolRegistry = tooldiscovery.NewDiscoverableRegistry(a.baseToolRegistry, a.toolIndex, a.cfg.ToolAllowList, a.cfg.MaxDiscoveredTools)
+		return
+	}
+	a.toolRegistry = tools.ApplyTopLevelPolicy(a.baseToolRegistry, a.cfg.EnableTools, a.cfg.ToolAllowList)
 }

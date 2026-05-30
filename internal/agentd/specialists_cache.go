@@ -33,6 +33,7 @@ func (a *app) specialistsRegistryForUser(ctx context.Context, userID int64) (*sp
 		Tools:      a.baseToolRegistry,
 		Workdir:    a.cfg.Workdir,
 	})
+	reg.SetPromptOverrides(promptInstructionOverrides(a.cfg))
 	reg.SetToolDiscovery(a.toolIndex, a.cfg.AutoDiscover, a.cfg.MaxDiscoveredTools)
 
 	a.specRegMu.Lock()
@@ -54,6 +55,7 @@ func (a *app) invalidateSpecialistsCache(ctx context.Context, userID int64) {
 				HTTPClient: a.httpClient,
 				Tools:      a.baseToolRegistry,
 			})
+			a.specRegistry.SetPromptOverrides(promptInstructionOverrides(a.cfg))
 			a.specRegistry.SetToolDiscovery(a.toolIndex, a.cfg.AutoDiscover, a.cfg.MaxDiscoveredTools)
 			a.specRegMu.Lock()
 			if a.userSpecRegs == nil {

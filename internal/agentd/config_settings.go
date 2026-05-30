@@ -20,6 +20,10 @@ func currentAgentdSettings(cfg *config.Config) agentdSettings {
 		SummaryEnabled:                      cfg.SummaryEnabled,
 		SummaryPlainTextContextWindowTokens: cfg.Summary.PlainTextContextWindowTokens,
 		SummaryReserveBufferTokens:          cfg.SummaryReserveBufferTokens,
+		PromptBaseSystem:                    cfg.PromptOverrides.BaseSystem,
+		PromptMemoryInstructions:            cfg.PromptOverrides.MemoryInstructions,
+		PromptToolDiscoveryInstructions:     cfg.PromptOverrides.ToolDiscoveryInstructions,
+		PromptSkillDiscoveryInstructions:    cfg.PromptOverrides.SkillDiscoveryInstructions,
 
 		EmbedBaseURL:                        cfg.Embedding.BaseURL,
 		EmbedModel:                          cfg.Embedding.Model,
@@ -144,6 +148,7 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	}
 
 	applySummarySettings(cfg, settings)
+	applyPromptOverrideSettings(cfg, settings)
 	applyEmbeddingSettings(cfg, settings)
 	applyRerankSettings(cfg, settings)
 	applyTimeoutSettings(cfg, settings)
@@ -155,6 +160,13 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	applyWebSettings(cfg, settings)
 	applyDatabaseSettings(cfg, settings)
 	return nil
+}
+
+func applyPromptOverrideSettings(cfg *config.Config, settings agentdSettings) {
+	cfg.PromptOverrides.BaseSystem = settings.PromptBaseSystem
+	cfg.PromptOverrides.MemoryInstructions = settings.PromptMemoryInstructions
+	cfg.PromptOverrides.ToolDiscoveryInstructions = settings.PromptToolDiscoveryInstructions
+	cfg.PromptOverrides.SkillDiscoveryInstructions = settings.PromptSkillDiscoveryInstructions
 }
 
 func applySummarySettings(cfg *config.Config, settings agentdSettings) {
@@ -382,6 +394,7 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	settings = normalizeAgentdSettings(settings)
 
 	applySummarySettingsYAML(root, settings)
+	applyPromptOverrideSettingsYAML(root, settings)
 	applyEmbeddingSettingsYAML(root, settings)
 	applyRerankSettingsYAML(root, settings)
 	applyTimeoutSettingsYAML(root, settings)
@@ -390,6 +403,13 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	applyLogSettingsYAML(root, settings)
 	applyWebSettingsYAML(root, settings)
 	applyDatabaseSettingsYAML(root, settings)
+}
+
+func applyPromptOverrideSettingsYAML(root map[string]any, settings agentdSettings) {
+	setNestedMapValue(root, []string{"promptOverrides", "baseSystem"}, settings.PromptBaseSystem)
+	setNestedMapValue(root, []string{"promptOverrides", "memoryInstructions"}, settings.PromptMemoryInstructions)
+	setNestedMapValue(root, []string{"promptOverrides", "toolDiscoveryInstructions"}, settings.PromptToolDiscoveryInstructions)
+	setNestedMapValue(root, []string{"promptOverrides", "skillDiscoveryInstructions"}, settings.PromptSkillDiscoveryInstructions)
 }
 
 func applySummarySettingsYAML(root map[string]any, settings agentdSettings) {

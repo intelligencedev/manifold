@@ -9,13 +9,26 @@
           Live agents, today's throughput, and recent work.
         </p>
       </div>
-      <MSegmented
-        v-model="overviewMode"
-        :options="[
-          { value: 'live', label: 'Live' },
-          { value: 'customize', label: 'Customize' },
-        ]"
-      />
+      <div class="flex items-center gap-2">
+        <button
+          v-if="overviewMode === 'customize'"
+          type="button"
+          class="halo-focus inline-flex h-8 items-center gap-1.5 rounded-md border border-[rgb(var(--line-strong))] px-2.5 font-mono text-[11px] uppercase tracking-[0.08em] text-muted-foreground transition hover:bg-surface-muted hover:text-foreground"
+          aria-label="Reset dashboard layout"
+          title="Reset dashboard layout"
+          @click="resetLayout"
+        >
+          <SolarRefreshIcon class="h-3.5 w-3.5" />
+          Reset
+        </button>
+        <MSegmented
+          v-model="overviewMode"
+          :options="[
+            { value: 'live', label: 'Live' },
+            { value: 'customize', label: 'Customize' },
+          ]"
+        />
+      </div>
     </header>
 
     <template v-if="overviewMode === 'live'">
@@ -35,7 +48,12 @@
         description="Runs started in rolling hourly buckets."
       >
         <div class="h-[220px]">
-          <svg class="h-full w-full overflow-visible" viewBox="0 0 720 180" role="img" aria-label="Run throughput">
+          <svg
+            class="h-full w-full overflow-visible"
+            viewBox="0 0 720 180"
+            role="img"
+            aria-label="Run throughput"
+          >
             <path
               :d="sparkAreaPath"
               fill="rgb(var(--data) / 0.10)"
@@ -76,15 +94,6 @@
     </template>
 
     <div v-else class="min-h-0 flex-1 pb-6 pt-1">
-      <div class="mb-3 flex justify-end">
-        <button
-          type="button"
-          class="halo-focus rounded-md border border-[rgb(var(--line-strong))] px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.08em] text-muted-foreground transition hover:bg-surface-muted hover:text-foreground"
-          @click="resetLayout"
-        >
-          Reset layout
-        </button>
-      </div>
       <DashboardGrid
         ref="dashboardGridRef"
         :layout="dashboardLayout"
@@ -151,6 +160,7 @@ import MReadout from "@/components/ui/MReadout.vue";
 import MReadouts from "@/components/ui/MReadouts.vue";
 import MSegmented from "@/components/ui/MSegmented.vue";
 import MSurface from "@/components/ui/MSurface.vue";
+import SolarRefreshIcon from "@/components/icons/SolarRefresh.vue";
 import {
   fetchAgentRuns,
   fetchAgentStatus,

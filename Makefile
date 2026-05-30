@@ -20,7 +20,7 @@ PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 win
 GOLANGCI_LINT_VERSION := v2.12.2
 FORGE_BUILD_TAGS ?= forge
 
-.PHONY: all help fmt fmt-check imports-check vet lint test test-forge-harness modernize modernize-diff ci build build-forge cross checksums tools clean build-tui frontend openapi
+.PHONY: all help fmt fmt-check imports-check vet lint test test-forge-harness modernize modernize-diff ci build cross checksums tools clean build-tui frontend openapi
 .PHONY: sonar sonar-up sonar-down sonar-scan
 
 all: build
@@ -42,10 +42,9 @@ help:
 	@echo "  make sonar               # alias for sonar-scan"
 	@echo "  make sonar-down          # stop local SonarQube stack"
 	@echo "  make build              # build host platform binaries into $(DIST)/"
-	@echo "  make build-forge        # build Forge architecture agentd + embedded frontend"
 	@echo "  make build-agentd       # build only the agentd binary"
-	@echo "  make build-manifold     # build agentd + embedded frontend"
-	@echo "  make build-manifold-beta # build agentd + embedded frontend with beta UI links"
+	@echo "  make build-manifold     # build Forge architecture agentd + embedded frontend"
+	@echo "  make build-manifold-beta # build Forge agentd + embedded frontend with beta UI links"
 	@echo "  make build-agent        # build only the agent binary"
 	@echo "  make frontend           # install frontend deps, then build Vue.js assets"
 	@echo "  make openapi            # generate docs/openapi/openapi.json"
@@ -168,12 +167,6 @@ build: clean | $(DIST)
 	done
 	@echo "Host build complete"
 
-build-forge: frontend | $(DIST)
-	@echo "Building Forge architecture agentd with embedded frontend and tags '$(FORGE_BUILD_TAGS)' -> $(DIST)/agentd-forge"
-	go build -tags "$(FORGE_BUILD_TAGS)" -o $(DIST)/agentd-forge ./cmd/agentd
-	@echo "Forge architecture build complete"
-
-
 # Cross compile all platforms and package them into $(DIST)/
 # Option A: single job builds all platforms (do not run cross in parallel across jobs)
 cross: clean | $(DIST)
@@ -243,9 +236,9 @@ FEATURE_GATE ?= stable
 
 .PHONY: build-manifold build-manifold-beta
 build-manifold: frontend | $(DIST)
-	@echo "Building agentd with embedded frontend into $(DIST)/"
-	go build -o $(DIST)/agentd ./cmd/agentd
-	@echo "agentd with frontend build complete"
+	@echo "Building Forge architecture agentd with embedded frontend and tags '$(FORGE_BUILD_TAGS)' -> $(DIST)/agentd"
+	go build -tags "$(FORGE_BUILD_TAGS)" -o $(DIST)/agentd ./cmd/agentd
+	@echo "Forge architecture agentd with frontend build complete"
 
 build-manifold-beta: FEATURE_GATE := beta
 build-manifold-beta: build-manifold

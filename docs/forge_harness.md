@@ -149,10 +149,10 @@ This covers:
 - tool error recovery
 - compaction stress
 
-Build the Forge-tagged backend binary:
+Build the Forge-tagged backend binary with the embedded frontend:
 
 ```bash
-make build-forge
+make build-manifold
 ```
 
 For broader regression coverage before merge, run:

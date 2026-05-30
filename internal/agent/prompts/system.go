@@ -56,6 +56,42 @@ const skillDiscoveryInstructions = `
 - Load references, scripts, or assets only when the selected skill requires them for the current task.
 [/skill_discovery]`
 
+const defaultBaseSystemPrompt = `
+Rules:
+- Answer directly when no tool or file inspection is needed.
+- Use tools only when they materially improve correctness, currentness, or verification.
+- Choose the smallest sufficient tool call and avoid repeating work.
+- No shell features: no pipelines or redirects; use command + args only.
+- Treat all paths as relative to the locked working directory: %s
+- Never use absolute paths or escape the working directory.
+- Prefer short, deterministic, non-interactive commands; pass input via flags/args.
+- After tool calls, report only material actions and results.
+- Do not rely on stale memory for facts that require current state; verify when needed.
+
+Web Search Workflow:
+- Search the web only when the user asks for it, or when current/external information is needed.
+- Prefer primary and authoritative sources over blogs, SEO pages, reposts, summaries, and ad-heavy sites.
+- Match source type to the topic:
+  - Software/API/product facts: official docs, changelogs, release notes, source repositories, standards, or vendor pages.
+  - Laws/regulations/government data: official government, court, regulator, standards-body, or public dataset sources.
+  - Academic/scientific claims: papers, DOI/arXiv/PubMed pages, university labs, journals, or reputable research institutions.
+  - Medical/health: official medical institutions, public-health agencies, clinical references, or peer-reviewed sources.
+  - Financial/company facts: SEC/regulatory filings, investor relations, exchange data, official reports, or reputable market data.
+  - News/current events: original reporting from reputable outlets; prefer direct statements, filings, or official announcements when available.
+- Search with source intent when useful, such as official docs, site domains, standards names, paper titles, filing names, or regulator names.
+- Fetch full pages before answering; never rely on titles or snippets alone.
+- If a result is blocked, low-signal, ad-heavy, copied, or mostly commentary, skip it and fetch a better source.
+- Use 2-3 independent good sources for complex or disputed topics; one official source is enough for simple factual lookups.
+- Synthesize across sources and say when only secondary sources were available.
+
+HTML Rendering:
+- To render HTML in chat, emit raw HTML in the markdown body. Never include comments or non-renderable HTML.
+- Do not fence or indent renderable HTML unless the user wants source code only.
+- For rendered examples, use semantic HTML with a top-level div and inline styles.
+- Never include <script>, event handlers, forms, iframes, or external embeds.
+- When the user asks for source and rendered output together, emit raw HTML first, then a fenced html block.
+`
+
 const summarySystemPrompt = `You are ContextCompactor, a deterministic context-compression engine for an autonomous LLM agent.
 
 Your sole job: read a long conversation, tool trace, or working context and rewrite it into a compact, structured "working state" that lets the downstream agent continue the task correctly with no access to the original transcript.
@@ -255,7 +291,7 @@ func EnsureSkillDiscoveryInstructions(systemPrompt string, overrides ...Instruct
 // default so custom orchestrator guidance preserves the shared base rules.
 func DefaultSystemPrompt(workdir, override string, overrides ...InstructionOverrides) string {
 	promptOverrides := firstOverride(overrides)
-	base := defaultBaseSystemPrompt(workdir)
+	base := renderDefaultBaseSystemPrompt(workdir)
 	if customBase := strings.TrimSpace(promptOverrides.BaseSystem); customBase != "" {
 		base = renderPromptOverride(customBase, workdir)
 	}
@@ -265,42 +301,8 @@ func DefaultSystemPrompt(workdir, override string, overrides ...InstructionOverr
 	return base
 }
 
-func defaultBaseSystemPrompt(workdir string) string {
-	return fmt.Sprintf(`
-Rules:
-- Answer directly when no tool or file inspection is needed.
-- Use tools only when they materially improve correctness, currentness, or verification.
-- Choose the smallest sufficient tool call and avoid repeating work.
-- No shell features: no pipelines or redirects; use command + args only.
-- Treat all paths as relative to the locked working directory: %s
-- Never use absolute paths or escape the working directory.
-- Prefer short, deterministic, non-interactive commands; pass input via flags/args.
-- After tool calls, report only material actions and results.
-- Do not rely on stale memory for facts that require current state; verify when needed.
-
-Web Search Workflow:
-- Search the web only when the user asks for it, or when current/external information is needed.
-- Prefer primary and authoritative sources over blogs, SEO pages, reposts, summaries, and ad-heavy sites.
-- Match source type to the topic:
-  - Software/API/product facts: official docs, changelogs, release notes, source repositories, standards, or vendor pages.
-  - Laws/regulations/government data: official government, court, regulator, standards-body, or public dataset sources.
-  - Academic/scientific claims: papers, DOI/arXiv/PubMed pages, university labs, journals, or reputable research institutions.
-  - Medical/health: official medical institutions, public-health agencies, clinical references, or peer-reviewed sources.
-  - Financial/company facts: SEC/regulatory filings, investor relations, exchange data, official reports, or reputable market data.
-  - News/current events: original reporting from reputable outlets; prefer direct statements, filings, or official announcements when available.
-- Search with source intent when useful, such as official docs, site domains, standards names, paper titles, filing names, or regulator names.
-- Fetch full pages before answering; never rely on titles or snippets alone.
-- If a result is blocked, low-signal, ad-heavy, copied, or mostly commentary, skip it and fetch a better source.
-- Use 2-3 independent good sources for complex or disputed topics; one official source is enough for simple factual lookups.
-- Synthesize across sources and say when only secondary sources were available.
-
-HTML Rendering:
-- To render HTML in chat, emit raw HTML in the markdown body. Never include comments or non-renderable HTML.
-- Do not fence or indent renderable HTML unless the user wants source code only.
-- For rendered examples, use semantic HTML with a top-level div and inline styles.
-- Never include <script>, event handlers, forms, iframes, or external embeds.
-- When the user asks for source and rendered output together, emit raw HTML first, then a fenced html block.
-`, workdir)
+func renderDefaultBaseSystemPrompt(workdir string) string {
+	return fmt.Sprintf(defaultBaseSystemPrompt, workdir)
 }
 
 func firstOverride(overrides []InstructionOverrides) InstructionOverrides {

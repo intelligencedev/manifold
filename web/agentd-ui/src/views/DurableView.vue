@@ -47,7 +47,7 @@
       </section>
 
       <section
-        class="halo-surface flex min-h-[220px] flex-col rounded-4 border border-border/70"
+        class="halo-surface flex min-h-[220px] flex-col rounded-4 border border-border/70 p-4"
       >
         <div
           class="flex items-center justify-between gap-4 border-b border-border/60 pb-3"
@@ -70,7 +70,7 @@
           </div>
         </div>
 
-        <div class="mt-3 min-h-0 flex-1 overflow-auto">
+        <div class="mt-3 min-h-0 flex-1 overflow-auto pr-1">
           <div
             class="grid grid-cols-[minmax(190px,1.6fr)_repeat(6,minmax(86px,1fr))] gap-2 border-b border-border/60 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-faint-foreground"
           >
@@ -136,7 +136,7 @@
       </section>
 
       <section
-        class="halo-surface flex min-h-0 flex-1 flex-col rounded-4 border border-border/70"
+        class="halo-surface flex min-h-0 flex-1 flex-col rounded-4 border border-border/70 p-4"
       >
         <div
           class="flex flex-wrap items-end justify-between gap-3 border-b border-border/60 pb-3"
@@ -192,7 +192,7 @@
           </div>
         </div>
 
-        <div class="mt-3 min-h-0 flex-1 overflow-auto">
+        <div class="mt-3 min-h-0 flex-1 overflow-auto pr-1">
           <div
             class="grid grid-cols-[minmax(260px,1.5fr)_minmax(150px,0.8fr)_minmax(120px,0.7fr)_90px_minmax(155px,0.8fr)_minmax(155px,0.8fr)_80px] gap-3 border-b border-border/60 pb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-faint-foreground"
           >

@@ -12,7 +12,7 @@ const router = createRouter({
         label: "Overview",
         glyph: "OV",
         title: "Overview",
-        purpose: "Situation room — customizable operations dashboard",
+        purpose: "Platform observability and monitoring",
       },
       component: () => import("@/views/OverviewView.vue"),
     },

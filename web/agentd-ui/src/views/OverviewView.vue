@@ -2,9 +2,6 @@
   <section class="flex min-h-full flex-col gap-4">
     <header class="flex items-start justify-between gap-4">
       <div>
-        <h2 class="font-display text-2xl leading-tight text-foreground">
-          Situation Room
-        </h2>
         <p class="mt-1 text-sm text-muted-foreground">
           Agents, throughput, recent work, and queue operations.
         </p>

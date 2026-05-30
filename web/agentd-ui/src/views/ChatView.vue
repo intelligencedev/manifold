@@ -1425,29 +1425,60 @@ onMounted(() => {
 });
 const projects = computed(() => proj.projects);
 const selectedProjectBySession = ref<Record<string, string>>({});
+
+function hasSelectedProjectOverride(sessionId: string) {
+  return Object.prototype.hasOwnProperty.call(
+    selectedProjectBySession.value,
+    sessionId,
+  );
+}
+
+function projectIdForSession(sessionId: string) {
+  return (
+    sessions.value.find((session) => session.id === sessionId)?.projectId || ""
+  ).trim();
+}
+
+function setSelectedProjectOverride(sessionId: string, projectId: string | null) {
+  const next = { ...selectedProjectBySession.value };
+  if (projectId === null) delete next[sessionId];
+  else next[sessionId] = projectId;
+  selectedProjectBySession.value = next;
+}
+
 const selectedProjectId = computed({
   get: () => {
     const sessionId = activeSessionId.value;
     if (!sessionId) return "";
-    return selectedProjectBySession.value[sessionId] || "";
+    if (hasSelectedProjectOverride(sessionId)) {
+      return selectedProjectBySession.value[sessionId] || "";
+    }
+    return projectIdForSession(sessionId);
   },
   set: (v: string) => {
     const sessionId = activeSessionId.value;
     if (!sessionId) return;
     const projectId = (v || "").trim();
-    const previousProjectId = selectedProjectBySession.value[sessionId] || "";
+    const previousProjectId = selectedProjectId.value;
     if (previousProjectId === projectId) return;
-    selectedProjectBySession.value = {
-      ...selectedProjectBySession.value,
-      [sessionId]: projectId,
-    };
-    void chat.updateSessionProject(sessionId, projectId).catch((error) => {
-      selectedProjectBySession.value = {
-        ...selectedProjectBySession.value,
-        [sessionId]: previousProjectId,
-      };
-      console.warn("Failed to persist chat session project:", error);
-    });
+    setSelectedProjectOverride(sessionId, projectId);
+    void chat
+      .updateSessionProject(sessionId, projectId)
+      .then(() => {
+        if (selectedProjectBySession.value[sessionId] === projectId) {
+          setSelectedProjectOverride(sessionId, null);
+        }
+      })
+      .catch((error) => {
+        if (selectedProjectBySession.value[sessionId] === projectId) {
+          const storedProjectId = projectIdForSession(sessionId);
+          setSelectedProjectOverride(
+            sessionId,
+            previousProjectId === storedProjectId ? null : previousProjectId,
+          );
+        }
+        console.warn("Failed to persist chat session project:", error);
+      });
   },
 });
 const sessions = computed(() => chat.sessions);
@@ -2764,15 +2795,13 @@ watch(
     let projectChanged = false;
     const projectPruned: Record<string, string> = {};
     for (const session of next) {
-      const storedProjectID = (session.projectId || "").trim();
-      const currentProjectID = projectCurrent[session.id] || "";
-      const nextProjectID = storedProjectID || currentProjectID;
-      if (nextProjectID) {
-        projectPruned[session.id] = nextProjectID;
-      }
-      if (storedProjectID && storedProjectID !== currentProjectID) {
+      if (!hasSelectedProjectOverride(session.id)) continue;
+      const overrideProjectID = projectCurrent[session.id] || "";
+      if (overrideProjectID === (session.projectId || "").trim()) {
         projectChanged = true;
+        continue;
       }
+      projectPruned[session.id] = overrideProjectID;
     }
     for (const id of Object.keys(projectCurrent)) {
       if (!keep.has(id)) {

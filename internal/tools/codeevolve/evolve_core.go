@@ -133,7 +133,6 @@ func (db *InMemoryDB) Add(p Program) error {
 	return nil
 }
 
-// Get returns a program by id.
 func (db *InMemoryDB) Get(id string) (Program, bool) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
@@ -141,7 +140,6 @@ func (db *InMemoryDB) Get(id string) (Program, bool) {
 	return p, ok
 }
 
-// Update stores updated data for a program.
 func (db *InMemoryDB) Update(p Program) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
@@ -321,7 +319,7 @@ func RunAlphaEvolve(
 
 	log.Printf("[EVOLVE] Initial program score: %.3f", scores["score"])
 
-	for i := 0; i < generations; i++ {
+	for i := range generations {
 		log.Printf("[EVOLVE] Starting generation %d/%d (stagnation: %d)", i+1, generations, stagnationCount)
 
 		parents, inspirations, err := SampleProgramsFromDatabase(db, 1, 2)
@@ -346,7 +344,11 @@ func RunAlphaEvolve(
 			attemptType = "robustness"
 		}
 
-		prompt, _ := BuildLLMPrompt(parent, inspirations, problemContext, "", i+1, attemptType)
+		prompt, err := BuildLLMPrompt(parent, inspirations, problemContext, "", i+1, attemptType)
+		if err != nil {
+			log.Printf("[EVOLVE] Failed to build prompt: %v", err)
+			continue
+		}
 		log.Printf("[EVOLVE] Built prompt for LLM (%d characters) with focus: %s", len(prompt), attemptType)
 
 		if progress != nil {
@@ -372,7 +374,6 @@ func RunAlphaEvolve(
 			log.Printf("[EVOLVE] Failed to apply diffs to full code: %v", err)
 			continue
 		}
-		// Extract new evolvable sections from updated full code.
 		var newSections []string
 		{
 			scanner := bufio.NewScanner(strings.NewReader(updatedFullCode))

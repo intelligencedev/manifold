@@ -2,6 +2,7 @@ package openai
 
 import (
 	"encoding/json"
+	"maps"
 	"strings"
 
 	sdk "github.com/openai/openai-go/v2"
@@ -43,9 +44,7 @@ func sanitizeToolSchemas(src []llm.ToolSchema) []llm.ToolSchema {
 		if s.Parameters != nil {
 			// shallow copy map to avoid mutating original
 			cp := make(map[string]any, len(s.Parameters))
-			for k, v := range s.Parameters {
-				cp[k] = v
-			}
+			maps.Copy(cp, s.Parameters)
 			cleaned := removeUnsupportedSchema(cp)
 			if len(cleaned) == 0 {
 				s.Parameters = nil
@@ -165,9 +164,6 @@ func extractReasoningSummary(extra map[string]any) (shared.ReasoningSummary, boo
 	if extra == nil {
 		return "", false
 	}
-	// Back-compat: some configs used a top-level "summary" parameter. The Responses API
-	// does not accept this; map it into reasoning.summary and ensure it is not sent
-	// as an extra field.
 	if raw, ok := extra["summary"]; ok {
 		delete(extra, "summary")
 		if s, ok := raw.(string); ok {

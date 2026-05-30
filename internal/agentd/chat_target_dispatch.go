@@ -28,6 +28,7 @@ type chatTargetDispatchOptions struct {
 	ProjectID            string
 	ObjectiveID          string
 	EphemeralSession     bool
+	MemorySettings       chatMemoryRunSettings
 	UserID               *int64
 	IncludeSummary       bool
 	RunContext           context.Context
@@ -50,11 +51,29 @@ type chatTargetDescriptor struct {
 	JSON                 chatJSONOptions
 }
 
-func (a *app) describeChatTarget(target chatDispatchTarget, sessionID, projectID, objectiveID, systemPromptOverride string, owner int64) (chatTargetDescriptor, bool) {
-	if target.SpecialistName != "" && !strings.EqualFold(target.SpecialistName, specialists.OrchestratorName) {
+type chatTargetDescribeRequest struct {
+	Target               chatDispatchTarget
+	SessionID            string
+	ProjectID            string
+	ObjectiveID          string
+	SystemPromptOverride string
+	Owner                int64
+	MemorySettings       chatMemoryRunSettings
+}
+
+func (a *app) describeChatTarget(req chatTargetDescribeRequest) (chatTargetDescriptor, bool) {
+	if req.Target.SpecialistName != "" && !strings.EqualFold(req.Target.SpecialistName, specialists.OrchestratorName) {
 		return chatTargetDescriptor{
 			Build: func(ctx context.Context) chatEngineBuildResult {
-				return a.buildSpecialistChatEngine(ctx, target.SpecialistName, systemPromptOverride, sessionID, projectID, objectiveID, owner)
+				return a.buildSpecialistChatEngine(ctx, chatEngineBuildRequest{
+					Name:                 req.Target.SpecialistName,
+					SystemPromptOverride: req.SystemPromptOverride,
+					SessionID:            req.SessionID,
+					ProjectID:            req.ProjectID,
+					ObjectiveID:          req.ObjectiveID,
+					Owner:                req.Owner,
+					MemorySettings:       req.MemorySettings,
+				})
 			},
 			NotFoundMessage:      "specialist not found",
 			InternalErrorMessage: "specialist registry unavailable",
@@ -75,11 +94,18 @@ func (a *app) describeChatTarget(target chatDispatchTarget, sessionID, projectID
 		}, true
 	}
 
-	if target.TeamName != "" {
+	if req.Target.TeamName != "" {
 		teamTimeout := workflowLikeTimeout(a.cfg.WorkflowTimeoutSeconds, a.cfg.AgentRunTimeoutSeconds)
 		return chatTargetDescriptor{
 			Build: func(ctx context.Context) chatEngineBuildResult {
-				return a.buildTeamChatEngine(ctx, target.TeamName, sessionID, projectID, objectiveID, owner)
+				return a.buildTeamChatEngine(ctx, chatEngineBuildRequest{
+					Name:           req.Target.TeamName,
+					SessionID:      req.SessionID,
+					ProjectID:      req.ProjectID,
+					ObjectiveID:    req.ObjectiveID,
+					Owner:          req.Owner,
+					MemorySettings: req.MemorySettings,
+				})
 			},
 			NotFoundMessage:      "team not found",
 			InternalErrorMessage: "failed to load team",
@@ -124,14 +150,25 @@ func writeChatTargetBuildError(w http.ResponseWriter, build chatEngineBuildResul
 	}
 }
 
-func dispatchOptionsFromDescriptor(descriptor chatTargetDescriptor, prompt, sessionID, projectID, objectiveID string, ephemeralSession bool, userID *int64) chatTargetDispatchOptions {
+type chatTargetDispatchRequest struct {
+	Prompt           string
+	SessionID        string
+	ProjectID        string
+	ObjectiveID      string
+	EphemeralSession bool
+	UserID           *int64
+	MemorySettings   chatMemoryRunSettings
+}
+
+func dispatchOptionsFromDescriptor(descriptor chatTargetDescriptor, req chatTargetDispatchRequest) chatTargetDispatchOptions {
 	return chatTargetDispatchOptions{
-		Prompt:               prompt,
-		SessionID:            sessionID,
-		ProjectID:            projectID,
-		ObjectiveID:          objectiveID,
-		EphemeralSession:     ephemeralSession,
-		UserID:               userID,
+		Prompt:               req.Prompt,
+		SessionID:            req.SessionID,
+		ProjectID:            req.ProjectID,
+		ObjectiveID:          req.ObjectiveID,
+		EphemeralSession:     req.EphemeralSession,
+		MemorySettings:       req.MemorySettings,
+		UserID:               req.UserID,
 		IncludeSummary:       descriptor.IncludeSummary,
 		RunContext:           descriptor.RunContext,
 		CheckedOutWorkspace:  descriptor.CheckedOutWorkspace,
@@ -146,7 +183,14 @@ func dispatchOptionsFromDescriptor(descriptor chatTargetDescriptor, prompt, sess
 func (a *app) agentRunOrchestratorDescriptor(baseCtx context.Context, owner int64, req chatRunRequest, checkedOutWorkspace *workspaces.Workspace) chatTargetDescriptor {
 	return chatTargetDescriptor{
 		Build: func(ctx context.Context) chatEngineBuildResult {
-			return a.buildOrchestratorChatEngine(ctx, owner, req.SessionID, req.ProjectID, req.ObjectiveID, "", checkedOutWorkspace)
+			return a.buildOrchestratorChatEngine(ctx, chatEngineBuildRequest{
+				SessionID:           req.SessionID,
+				ProjectID:           req.ProjectID,
+				ObjectiveID:         req.ObjectiveID,
+				Owner:               owner,
+				CheckedOutWorkspace: checkedOutWorkspace,
+				MemorySettings:      chatMemorySettingsFromRunRequest(req),
+			})
 		},
 		InternalErrorMessage: "agent unavailable",
 		IncludeSummary:       true,
@@ -166,7 +210,15 @@ func (a *app) agentRunOrchestratorDescriptor(baseCtx context.Context, owner int6
 func (a *app) promptOrchestratorDescriptor(baseCtx context.Context, owner int64, req chatRunRequest, checkedOutWorkspace *workspaces.Workspace) chatTargetDescriptor {
 	return chatTargetDescriptor{
 		Build: func(ctx context.Context) chatEngineBuildResult {
-			return a.buildOrchestratorChatEngine(ctx, owner, req.SessionID, req.ProjectID, req.ObjectiveID, req.SystemPrompt, checkedOutWorkspace)
+			return a.buildOrchestratorChatEngine(ctx, chatEngineBuildRequest{
+				SystemPromptOverride: req.SystemPrompt,
+				SessionID:            req.SessionID,
+				ProjectID:            req.ProjectID,
+				ObjectiveID:          req.ObjectiveID,
+				Owner:                owner,
+				CheckedOutWorkspace:  checkedOutWorkspace,
+				MemorySettings:       chatMemorySettingsFromRunRequest(req),
+			})
 		},
 		InternalErrorMessage: "agent unavailable",
 		RunContext:           llm.WithUserID(baseCtx, owner),
@@ -216,7 +268,15 @@ func (a *app) dispatchBuiltChatTarget(w http.ResponseWriter, r *http.Request, op
 		runCtx = sandbox.WithObjectiveID(runCtx, opts.ObjectiveID)
 	}
 	runCtx = applyBuildImagePrompt(runCtx, build)
-	req := chatRunRequest{Prompt: opts.Prompt, SessionID: opts.SessionID, ProjectID: opts.ProjectID, ObjectiveID: opts.ObjectiveID, EphemeralSession: opts.EphemeralSession}
+	req := chatRunRequest{
+		Prompt:                opts.Prompt,
+		SessionID:             opts.SessionID,
+		ProjectID:             opts.ProjectID,
+		ObjectiveID:           opts.ObjectiveID,
+		EphemeralSession:      opts.EphemeralSession,
+		EvolvingMemoryEnabled: boolPtr(opts.MemorySettings.EvolvingMemoryEnabled),
+		BeliefMemoryEnabled:   boolPtr(opts.MemorySettings.BeliefMemoryEnabled),
+	}
 
 	if r.Header.Get("Accept") == "text/event-stream" {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -232,7 +292,15 @@ func (a *app) dispatchBuiltChatTarget(w http.ResponseWriter, r *http.Request, op
 		if streamOpts.Tracer == nil {
 			streamOpts.Tracer = newAgentStreamTracer(w)
 		}
-		a.executeStreamChat(w, r, runCtx, build.Engine, req, history, prun.ID, opts.UserID, opts.CheckedOutWorkspace, streamOpts)
+		a.executeStreamChat(w, r, chatExecutionRequest{
+			RunContext:          runCtx,
+			Engine:              build.Engine,
+			RunRequest:          req,
+			History:             history,
+			RunID:               prun.ID,
+			UserID:              opts.UserID,
+			CheckedOutWorkspace: opts.CheckedOutWorkspace,
+		}, streamOpts)
 		return true
 	}
 
@@ -241,21 +309,59 @@ func (a *app) dispatchBuiltChatTarget(w http.ResponseWriter, r *http.Request, op
 	if jsonOpts.StoreModel == "" {
 		jsonOpts.StoreModel = build.ModelLabel
 	}
-	a.executeJSONChat(w, r, runCtx, build.Engine, req, history, prun.ID, opts.UserID, opts.CheckedOutWorkspace, jsonOpts)
+	a.executeJSONChat(w, r, chatExecutionRequest{
+		RunContext:          runCtx,
+		Engine:              build.Engine,
+		RunRequest:          req,
+		History:             history,
+		RunID:               prun.ID,
+		UserID:              opts.UserID,
+		CheckedOutWorkspace: opts.CheckedOutWorkspace,
+	}, jsonOpts)
 	return true
 }
 
-func (a *app) handleChatTarget(w http.ResponseWriter, r *http.Request, target chatDispatchTarget, prompt, sessionID, projectID, objectiveID string, ephemeralSession bool, systemPromptOverride string, userID *int64, owner int64, fallback chatTargetDescriptor) bool {
-	descriptor, ok := a.describeChatTarget(target, sessionID, projectID, objectiveID, systemPromptOverride, owner)
+type chatTargetHandleRequest struct {
+	Target               chatDispatchTarget
+	Prompt               string
+	SessionID            string
+	ProjectID            string
+	ObjectiveID          string
+	EphemeralSession     bool
+	SystemPromptOverride string
+	UserID               *int64
+	Owner                int64
+	Fallback             chatTargetDescriptor
+	MemorySettings       chatMemoryRunSettings
+}
+
+func (a *app) handleChatTarget(w http.ResponseWriter, r *http.Request, req chatTargetHandleRequest) bool {
+	descriptor, ok := a.describeChatTarget(chatTargetDescribeRequest{
+		Target:               req.Target,
+		SessionID:            req.SessionID,
+		ProjectID:            req.ProjectID,
+		ObjectiveID:          req.ObjectiveID,
+		SystemPromptOverride: req.SystemPromptOverride,
+		Owner:                req.Owner,
+		MemorySettings:       req.MemorySettings,
+	})
 	if !ok {
-		if fallback.Build == nil {
+		if req.Fallback.Build == nil {
 			return false
 		}
-		descriptor = fallback
+		descriptor = req.Fallback
 	}
 
 	if descriptor.RunContext == nil {
 		descriptor.RunContext = r.Context()
 	}
-	return a.dispatchBuiltChatTarget(w, r, dispatchOptionsFromDescriptor(descriptor, prompt, sessionID, projectID, objectiveID, ephemeralSession, userID))
+	return a.dispatchBuiltChatTarget(w, r, dispatchOptionsFromDescriptor(descriptor, chatTargetDispatchRequest{
+		Prompt:           req.Prompt,
+		SessionID:        req.SessionID,
+		ProjectID:        req.ProjectID,
+		ObjectiveID:      req.ObjectiveID,
+		EphemeralSession: req.EphemeralSession,
+		UserID:           req.UserID,
+		MemorySettings:   req.MemorySettings,
+	}))
 }

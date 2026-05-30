@@ -15,7 +15,6 @@ type FakeProvider struct {
 	Resp llm.Message
 	Err  error
 
-	// For streaming tests
 	StreamDeltas []string
 }
 

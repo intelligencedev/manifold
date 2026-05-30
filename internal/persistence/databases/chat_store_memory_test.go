@@ -9,7 +9,8 @@ import (
 	"manifold/internal/persistence"
 )
 
-func int64ptr(v int64) *int64 { return &v }
+//go:fix inline
+func int64ptr(v int64) *int64 { return new(v) }
 
 func TestMemChatStoreLifecycle(t *testing.T) {
 	store := newMemoryChatStore()
@@ -76,6 +77,16 @@ func TestMemChatStoreLifecycle(t *testing.T) {
 	if _, err := store.RenameSession(ctx, nil, "session-1", "Updated"); err != nil {
 		t.Fatalf("RenameSession: %v", err)
 	}
+	if _, err := store.SetSessionProject(ctx, nil, "session-1", "project-1"); err != nil {
+		t.Fatalf("SetSessionProject: %v", err)
+	}
+	locked, err := store.GetSession(ctx, nil, "session-1")
+	if err != nil {
+		t.Fatalf("GetSession after project lock: %v", err)
+	}
+	if locked.ProjectID != "project-1" {
+		t.Fatalf("expected project lock, got %q", locked.ProjectID)
+	}
 
 	if err := store.DeleteSession(ctx, nil, "session-1"); err != nil {
 		t.Fatalf("DeleteSession: %v", err)
@@ -89,8 +100,8 @@ func TestMemChatStoreLifecycle(t *testing.T) {
 func TestMemChatStoreOwnership(t *testing.T) {
 	store := newMemoryChatStore()
 	ctx := context.Background()
-	user1 := int64ptr(1)
-	user2 := int64ptr(2)
+	user1 := new(int64(1))
+	user2 := new(int64(2))
 
 	sess, err := store.CreateSession(ctx, user1, "Mine")
 	if err != nil {
@@ -136,8 +147,8 @@ func TestMemChatStoreOwnership(t *testing.T) {
 func TestMemChatStoreEnsureSessionOwnership(t *testing.T) {
 	store := newMemoryChatStore()
 	ctx := context.Background()
-	user1 := int64ptr(1)
-	user2 := int64ptr(2)
+	user1 := new(int64(1))
+	user2 := new(int64(2))
 
 	if _, err := store.EnsureSession(ctx, user1, "s", "mine"); err != nil {
 		t.Fatalf("EnsureSession owner: %v", err)
@@ -245,7 +256,11 @@ func TestMemChatStoreDeleteMessagesAfterWithRelated(t *testing.T) {
 		t.Fatalf("UpdateSummary: %v", err)
 	}
 
-	if err := store.DeleteMessagesAfterWithRelated(ctx, nil, "session-tail", "assistant-1", false, nil, true); err != nil {
+	if err := store.DeleteMessagesAfterWithRelated(ctx, persistence.ChatDeleteAfterRequest{
+		SessionID:    "session-tail",
+		MessageID:    "assistant-1",
+		ResetSummary: true,
+	}); err != nil {
 		t.Fatalf("DeleteMessagesAfterWithRelated: %v", err)
 	}
 

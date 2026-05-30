@@ -47,13 +47,19 @@ func scanBeliefEpisode(row scanner) (belief.Episode, error) {
 func scanBelief(row scanner) (belief.Belief, error) {
 	var item belief.Belief
 	var status string
+	var kind string
+	var enforcement string
+	var reviewState string
 	var lastObserved *time.Time
 	var expiresAt *time.Time
 	var metadata []byte
-	if err := row.Scan(&item.ID, &item.TenantID, &item.ScopeID, &item.Statement, &item.StatementHash, &item.Confidence, &item.EvidenceFor, &item.EvidenceAgainst, &status, &lastObserved, &expiresAt, &metadata, &item.CreatedAt, &item.UpdatedAt); err != nil {
+	if err := row.Scan(&item.ID, &item.TenantID, &item.ScopeID, &item.Statement, &item.StatementHash, &item.Confidence, &item.EvidenceFor, &item.EvidenceAgainst, &status, &kind, &enforcement, &item.SourceQuality, &reviewState, &lastObserved, &expiresAt, &metadata, &item.CreatedAt, &item.UpdatedAt); err != nil {
 		return belief.Belief{}, err
 	}
 	item.Status = belief.BeliefStatus(status)
+	item.Kind = belief.NormalizeBeliefKind(belief.BeliefKind(kind))
+	item.Enforcement = belief.NormalizeEnforcement(belief.EnforcementMode(enforcement))
+	item.ReviewState = belief.NormalizeReviewState(belief.ReviewState(reviewState))
 	item.LastObserved = lastObserved
 	item.ExpiresAt = expiresAt
 	item.Metadata = unmarshalJSONMap(metadata)
@@ -63,14 +69,20 @@ func scanBelief(row scanner) (belief.Belief, error) {
 func scanBeliefWithScore(row scanner) (belief.Belief, float64, error) {
 	var item belief.Belief
 	var status string
+	var kind string
+	var enforcement string
+	var reviewState string
 	var lastObserved *time.Time
 	var expiresAt *time.Time
 	var metadata []byte
 	var score float64
-	if err := row.Scan(&item.ID, &item.TenantID, &item.ScopeID, &item.Statement, &item.StatementHash, &item.Confidence, &item.EvidenceFor, &item.EvidenceAgainst, &status, &lastObserved, &expiresAt, &metadata, &item.CreatedAt, &item.UpdatedAt, &score); err != nil {
+	if err := row.Scan(&item.ID, &item.TenantID, &item.ScopeID, &item.Statement, &item.StatementHash, &item.Confidence, &item.EvidenceFor, &item.EvidenceAgainst, &status, &kind, &enforcement, &item.SourceQuality, &reviewState, &lastObserved, &expiresAt, &metadata, &item.CreatedAt, &item.UpdatedAt, &score); err != nil {
 		return belief.Belief{}, 0, err
 	}
 	item.Status = belief.BeliefStatus(status)
+	item.Kind = belief.NormalizeBeliefKind(belief.BeliefKind(kind))
+	item.Enforcement = belief.NormalizeEnforcement(belief.EnforcementMode(enforcement))
+	item.ReviewState = belief.NormalizeReviewState(belief.ReviewState(reviewState))
 	item.LastObserved = lastObserved
 	item.ExpiresAt = expiresAt
 	item.Metadata = unmarshalJSONMap(metadata)
@@ -105,6 +117,40 @@ func scanBeliefPromotion(row scanner) (belief.Promotion, error) {
 	promotion.ActorUserID = actorUserID
 	promotion.Metadata = unmarshalJSONMap(metadata)
 	return promotion, nil
+}
+
+func scanBeliefCandidate(row scanner) (belief.CandidateRecord, error) {
+	var candidate belief.CandidateRecord
+	var kind string
+	var enforcement string
+	var polarity string
+	var reviewState string
+	var validationStatus string
+	var episodeID *string
+	var scopeID *string
+	var acceptedBeliefID *string
+	var normalizedPayload []byte
+	var metadata []byte
+	if err := row.Scan(&candidate.ID, &candidate.TenantID, &episodeID, &scopeID, &candidate.Statement, &candidate.StatementHash, &kind, &enforcement, &polarity, &candidate.Confidence, &candidate.SourceQuality, &reviewState, &candidate.EvidenceNote, &candidate.RawPayload, &normalizedPayload, &validationStatus, &candidate.RejectionReason, &acceptedBeliefID, &candidate.Model, &metadata, &candidate.CreatedAt, &candidate.UpdatedAt); err != nil {
+		return belief.CandidateRecord{}, err
+	}
+	if episodeID != nil {
+		candidate.EpisodeID = *episodeID
+	}
+	if scopeID != nil {
+		candidate.ScopeID = *scopeID
+	}
+	if acceptedBeliefID != nil {
+		candidate.AcceptedBeliefID = *acceptedBeliefID
+	}
+	candidate.Kind = belief.NormalizeBeliefKind(belief.BeliefKind(kind))
+	candidate.Enforcement = belief.NormalizeEnforcement(belief.EnforcementMode(enforcement))
+	candidate.Polarity = belief.EvidencePolarity(polarity)
+	candidate.ReviewState = belief.NormalizeReviewState(belief.ReviewState(reviewState))
+	candidate.ValidationStatus = belief.NormalizeCandidateValidationStatus(belief.CandidateValidationStatus(validationStatus))
+	candidate.NormalizedPayload = unmarshalJSONMap(normalizedPayload)
+	candidate.Metadata = unmarshalJSONMap(metadata)
+	return candidate, nil
 }
 
 func marshalJSONMap(metadata map[string]any) ([]byte, error) {

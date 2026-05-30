@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"sort"
 	"strconv"
@@ -34,6 +35,7 @@ type Agent struct {
 	AutoDiscover               bool
 	ReasoningEffort            string // optional: "low"|"medium"|"high"
 	ExtraParams                map[string]any
+	Harness                    *config.HarnessConfig
 
 	provider llm.Provider
 	tools    tools.Registry
@@ -254,6 +256,7 @@ func (r *Registry) rebuildLocked() {
 			AutoDiscover:               resolvedAutoDiscover,
 			ReasoningEffort:            strings.TrimSpace(sc.ReasoningEffort),
 			ExtraParams:                sc.ExtraParams,
+			Harness:                    cloneHarnessConfig(sc.Harness),
 			provider:                   prov,
 			tools:                      toolsView,
 		}
@@ -285,6 +288,7 @@ func cloneSpecialistConfigs(list []config.SpecialistConfig) []config.SpecialistC
 			value := *sc.AutoDiscover
 			clone.AutoDiscover = &value
 		}
+		clone.Harness = cloneHarnessConfig(sc.Harness)
 		clone.ExtraHeaders = copyStringMap(sc.ExtraHeaders)
 		clone.ExtraParams = copyAnyMap(sc.ExtraParams)
 		out = append(out, clone)
@@ -292,14 +296,31 @@ func cloneSpecialistConfigs(list []config.SpecialistConfig) []config.SpecialistC
 	return out
 }
 
+func cloneHarnessConfig(in *config.HarnessConfig) *config.HarnessConfig {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.TerminalTools = append([]string(nil), in.TerminalTools...)
+	out.RequiredSteps = append([]string(nil), in.RequiredSteps...)
+	if len(in.ToolPrerequisites) > 0 {
+		out.ToolPrerequisites = make(map[string][]config.HarnessPrerequisite, len(in.ToolPrerequisites))
+		for tool, prereqs := range in.ToolPrerequisites {
+			out.ToolPrerequisites[tool] = append([]config.HarnessPrerequisite(nil), prereqs...)
+		}
+	} else {
+		out.ToolPrerequisites = nil
+	}
+	out.Compact.PhaseThresholds = append([]float64(nil), in.Compact.PhaseThresholds...)
+	return &out
+}
+
 func copyStringMap(in map[string]string) map[string]string {
 	if len(in) == 0 {
 		return nil
 	}
 	out := make(map[string]string, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }
 
@@ -338,7 +359,6 @@ func (r *Registry) UserPromptContext() string {
 	return r.systemPromptAddendum
 }
 
-// Get returns the named specialist.
 func (r *Registry) Get(name string) (*Agent, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -469,9 +489,7 @@ func (a *Agent) mergedExtraParams() map[string]any {
 		return nil
 	}
 	extra := make(map[string]any, len(a.ExtraParams)+1)
-	for k, v := range a.ExtraParams {
-		extra[k] = v
-	}
+	maps.Copy(extra, a.ExtraParams)
 	if a.ReasoningEffort != "" && extra["reasoning_effort"] == nil {
 		extra["reasoning_effort"] = a.ReasoningEffort
 	}

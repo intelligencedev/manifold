@@ -32,31 +32,12 @@ func (em *EvolvingMemory) EvolveEnhanced(
 		log.Warn().Err(err).Msg("evolving_memory_summarize_failed")
 		summary = "(summary unavailable)"
 	}
+	summary = limitUTF8Bytes(redactPII(summary), maxStoredOutputBytes)
+	strategyCard = limitUTF8Bytes(redactPII(strategyCard), maxStoredOutputBytes)
 
-	// Embed the input for retrieval
-	vecs, err := em.embedFn(ctx, em.embedCfg, []string{input})
-	if err != nil {
-		log.Error().Err(err).Msg("evolving_memory_embed_failed")
-		if cb != nil && cb.OnEvolve != nil {
-			cb.OnEvolve(&MemoryEvent{
-				Phase:      PhaseEvolve,
-				Timestamp:  start,
-				Input:      input,
-				Error:      err,
-				MemorySize: memorySize,
-				DurationMs: time.Since(start).Milliseconds(),
-			})
-		}
-		if em.metrics != nil {
-			em.metrics.RecordEvolve(ctx, "error", memorySize, em.userID, em.sessionID)
-		}
-		return fmt.Errorf("embed input: %w", err)
-	}
+	// Classify memory type based on content analysis.
+	memType := em.classifyMemoryType(input, output, summary, strategyCard)
 
-	// Classify memory type based on content analysis
-	memType := em.classifyMemoryType(input, output, summary)
-
-	// Build raw trace from reasoning trace
 	rawTrace := ""
 	if len(reasoningTrace) > 0 {
 		for i, t := range reasoningTrace {
@@ -76,7 +57,6 @@ func (em *EvolvingMemory) EvolveEnhanced(
 		Feedback:           feedback,
 		Summary:            summary,
 		RawTrace:           rawTrace,
-		Embedding:          normalizeVector(vecs[0]),
 		MemoryType:         memType,
 		StrategyCard:       strategyCard,
 		Scope:              MemoryScopeSession,
@@ -84,11 +64,28 @@ func (em *EvolvingMemory) EvolveEnhanced(
 		AccessCount:        0,
 		LastAccessedAt:     time.Now(),
 		RelevanceScore:     1.0, // Start with full relevance
-		Metadata: map[string]interface{}{
-			"domain": "general",
+		Metadata: map[string]any{
+			"domain":                "general",
+			"embedding_enabled":     em.enableRAG,
+			"embedding_text_basis":  memoryEmbeddingTextBasis,
+			"embedding_text_length": len(retrievalTextForMemory(input, output, feedback, summary, strategyCard)),
 		},
 		CreatedAt: time.Now(),
 	}
+	if em.enableRAG {
+		retrievalText := retrievalTextForMemory(input, output, feedback, summary, strategyCard)
+		vecs, err := em.embedFn(ctx, em.embedCfg, []string{retrievalText})
+		if err != nil {
+			log.Warn().Err(err).Msg("evolving_memory_embed_failed_storing_without_embedding")
+			entry.Metadata["embedding_error"] = err.Error()
+		} else if len(vecs) == 0 {
+			log.Warn().Msg("evolving_memory_embed_empty_storing_without_embedding")
+			entry.Metadata["embedding_error"] = "empty embedding"
+		} else {
+			entry.Embedding = normalizeVector(vecs[0])
+		}
+	}
+	entry.Metadata["has_embedding"] = len(entry.Embedding) > 0
 
 	var mergePlan *smartMergePlan
 	if em.enableSmartPrune {
@@ -154,6 +151,9 @@ func (em *EvolvingMemory) EvolveEnhanced(
 	if em.store != nil {
 		em.persistEntriesAsync(entriesSnapshot)
 	}
+	if em.magmaSink != nil {
+		em.ingestMagma(ctx, entry)
+	}
 
 	log.Info().
 		Str("entry_id", entry.ID).
@@ -163,13 +163,22 @@ func (em *EvolvingMemory) EvolveEnhanced(
 	return nil
 }
 
+func (em *EvolvingMemory) ingestMagma(ctx context.Context, entry *MemoryEntry) {
+	if em == nil || em.magmaSink == nil || entry == nil {
+		return
+	}
+	if _, err := em.magmaSink.IngestEvolvingMemory(ctx, em.userID, em.sessionID, cloneEntry(entry)); err != nil {
+		observability.LoggerWithTrace(ctx).Warn().Err(err).Str("entry_id", entry.ID).Msg("evolving_memory_magma_ingest_failed")
+	}
+}
+
 // classifyMemoryType determines if the memory is factual, procedural, or episodic.
 // This implements the paper's distinction between conversational recall and experience reuse.
-func (em *EvolvingMemory) classifyMemoryType(input, output, summary string) MemoryType {
+func (em *EvolvingMemory) classifyMemoryType(input, output, summary, strategyCard string) MemoryType {
 	// Simple heuristic-based classification
 	// In production, this could use an LLM call for more accurate classification
 
-	combined := input + " " + output + " " + summary
+	combined := input + " " + output + " " + summary + " " + strategyCard
 	if proceduralMemoryPattern.MatchString(combined) {
 		return MemoryProcedural
 	}
@@ -234,7 +243,8 @@ func (em *EvolvingMemory) prepareSmartMerge(ctx context.Context, existingEntries
 		return plan, nil
 	}
 
-	vecs, err := em.embedFn(ctx, em.embedCfg, []string{mergedSummary})
+	retrievalText := retrievalTextForMemory(newEntry.Input, newEntry.Output, newEntry.Feedback, mergedSummary, newEntry.StrategyCard)
+	vecs, err := em.embedFn(ctx, em.embedCfg, []string{retrievalText})
 	if err != nil {
 		return nil, fmt.Errorf("embed merged summary: %w", err)
 	}
@@ -250,7 +260,7 @@ func (em *EvolvingMemory) applySmartMergePlan(ctx context.Context, plan *smartMe
 		return
 	}
 	if newEntry.Metadata == nil {
-		newEntry.Metadata = make(map[string]interface{})
+		newEntry.Metadata = make(map[string]any)
 	}
 	if len(plan.mergedIDs) > 0 {
 		newEntry.Metadata["merged_from"] = append([]string(nil), plan.mergedIDs...)

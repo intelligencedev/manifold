@@ -6,6 +6,7 @@ import (
 	"errors"
 	"manifold/internal/auth"
 	"manifold/internal/playground"
+	"maps"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -16,9 +17,7 @@ func cloneMetrics(in map[string]float64) map[string]float64 {
 		return nil
 	}
 	out := make(map[string]float64, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }
 

@@ -1,10 +1,13 @@
 package skills
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/rs/zerolog/log"
@@ -12,7 +15,7 @@ import (
 )
 
 const (
-	skillsDirName = ".skills"
+	skillsDirName = "skills"
 	skillFileName = "SKILL.md"
 
 	maxNameLen      = 64
@@ -20,40 +23,98 @@ const (
 	maxShortDescLen = maxDescLen
 )
 
-// LoadFromDir directly loads skills from {dir}/.skills without walking up
-// the directory tree. This is the preferred method for project-scoped skills.
+type rootSpec struct {
+	source Source
+	path   string
+	base   string
+}
+
+// LoadFromDir loads project skills from {dir}/skills plus universal skills
+// under $HOME/.manifold/skills and $HOME/.agents/skills. Duplicate skill names
+// are resolved by root order: project, manifold, agents.
 func LoadFromDir(dir string) LoadOutcome {
 	var outcome LoadOutcome
-
-	if strings.TrimSpace(dir) == "" {
-		return outcome
+	seen := make(map[string]struct{})
+	for _, root := range rootsForProject(dir) {
+		loadRoot(root, &outcome, seen)
 	}
+	return outcome
+}
 
-	skillsPath := filepath.Join(dir, skillsDirName)
-	log.Debug().Str("skillsPath", skillsPath).Msg("skills_load_from_dir")
+// UniversalFingerprint returns a stable fingerprint of universal skill metadata
+// files so cache entries can refresh when home-directory skills change.
+func UniversalFingerprint() string {
+	var parts []string
+	for _, root := range universalRoots() {
+		for _, path := range discoverSkillFiles(root.path) {
+			info, err := os.Stat(path)
+			if err != nil || info.IsDir() {
+				continue
+			}
+			parts = append(parts, fmt.Sprintf("%s:%s:%d:%d", root.source, filepath.Clean(path), info.Size(), info.ModTime().UnixNano()))
+		}
+	}
+	sort.Strings(parts)
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\n")))
+	return hex.EncodeToString(sum[:])
+}
 
-	info, err := os.Stat(skillsPath)
+func rootsForProject(dir string) []rootSpec {
+	roots := make([]rootSpec, 0, 3)
+	if strings.TrimSpace(dir) != "" {
+		roots = append(roots, rootSpec{
+			source: SourceProject,
+			path:   filepath.Join(dir, skillsDirName),
+			base:   dir,
+		})
+	}
+	return append(roots, universalRoots()...)
+}
+
+func universalRoots() []rootSpec {
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return nil
+	}
+	return []rootSpec{
+		{source: SourceManifold, path: filepath.Join(home, ".manifold", "skills"), base: filepath.Join(home, ".manifold", "skills")},
+		{source: SourceAgents, path: filepath.Join(home, ".agents", "skills"), base: filepath.Join(home, ".agents", "skills")},
+	}
+}
+
+func loadRoot(root rootSpec, outcome *LoadOutcome, seen map[string]struct{}) {
+	if strings.TrimSpace(root.path) == "" {
+		return
+	}
+	log.Debug().Str("skillsPath", root.path).Str("source", string(root.source)).Msg("skills_load_from_root")
+
+	info, err := os.Stat(root.path)
 	if err != nil || !info.IsDir() {
-		log.Debug().Str("skillsPath", skillsPath).Bool("exists", err == nil).Msg("skills_dir_not_found")
-		return outcome
+		log.Debug().Str("skillsPath", root.path).Bool("exists", err == nil).Msg("skills_dir_not_found")
+		return
 	}
 
-	for _, path := range discoverSkillFiles(skillsPath) {
-		md, err := parseSkill(path, ScopeRepo)
+	for _, path := range discoverSkillFiles(root.path) {
+		md, err := parseSkill(path, root.source)
 		if err != nil {
 			outcome.Errors = append(outcome.Errors, Error{Path: path, Message: err.Error()})
 			continue
 		}
-		// Convert absolute path to project-relative path so agents
-		// never see full filesystem paths (path-traversal safeguard).
-		if rel, relErr := filepath.Rel(dir, md.Path); relErr == nil {
+		key := strings.ToLower(md.Name)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		if rel, relErr := filepath.Rel(root.base, md.Path); relErr == nil {
 			md.Path = rel
 		}
+		md.Path = filepath.ToSlash(md.Path)
+		md.SkillID = skillID(md.Source, md.Name)
+		md.SkillDir = filepath.Dir(path)
+		seen[key] = struct{}{}
 		outcome.Skills = append(outcome.Skills, md)
 	}
-
-	return outcome
 }
+
 func discoverSkillFiles(root string) []string {
 	var paths []string
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -74,7 +135,7 @@ func discoverSkillFiles(root string) []string {
 	return paths
 }
 
-func parseSkill(path string, scope Scope) (Metadata, error) {
+func parseSkill(path string, source Source) (Metadata, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return Metadata{}, fmt.Errorf("read: %w", err)
@@ -109,8 +170,28 @@ func parseSkill(path string, scope Scope) (Metadata, error) {
 		Description:      desc,
 		ShortDescription: short,
 		Path:             filepath.Clean(path),
-		Scope:            scope,
+		Source:           source,
 	}, nil
+}
+
+func skillID(source Source, name string) string {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	var b strings.Builder
+	for _, r := range normalized {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('-')
+		}
+	}
+	id := strings.Trim(b.String(), "-")
+	if id == "" {
+		id = "skill"
+	}
+	return string(source) + ":" + id
 }
 
 type frontmatter struct {

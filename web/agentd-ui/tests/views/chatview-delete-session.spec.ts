@@ -39,15 +39,18 @@ vi.mock("@/api/chat", () => ({
       updatedAt: "2026-02-14T10:00:00Z",
       lastMessagePreview: "Hello",
       messageCount: 1,
+      projectId: "proj-1",
     },
   ],
   fetchChatMessages: async () => [],
+  fetchChatActivities: async () => [],
   createChatSession: async () => ({
     id: "session-2",
     name: "New Chat",
     createdAt: "2026-02-14T10:01:00Z",
     updatedAt: "2026-02-14T10:01:00Z",
     messageCount: 0,
+    projectId: "proj-1",
   }),
   deleteChatSession: chatApiMocks.deleteChatSession,
   renameChatSession: async (id: string, name: string) => ({
@@ -56,6 +59,15 @@ vi.mock("@/api/chat", () => ({
     createdAt: "2026-02-14T10:00:00Z",
     updatedAt: "2026-02-14T10:02:00Z",
     messageCount: 1,
+    projectId: "proj-1",
+  }),
+  updateChatSessionProject: async (id: string, projectId: string) => ({
+    id,
+    name: "Roadmap Chat",
+    createdAt: "2026-02-14T10:00:00Z",
+    updatedAt: "2026-02-14T10:02:00Z",
+    messageCount: 1,
+    projectId,
   }),
   deleteChatMessage: async () => {},
   deleteChatMessagesAfter: async () => {},
@@ -109,7 +121,10 @@ describe("ChatView conversation delete", () => {
     expect(chatApiMocks.deleteChatSession).toHaveBeenCalledTimes(0);
 
     await fireEvent.click(openDeleteDialog);
-    await fireEvent.click(deleteButton);
+    const confirmDeleteButton = getByRole("button", {
+      name: /^Delete Conversation$/i,
+    }) as HTMLButtonElement;
+    await fireEvent.click(confirmDeleteButton);
     await waitFor(() => {
       expect(chatApiMocks.deleteChatSession).toHaveBeenCalledTimes(1);
       expect(chatApiMocks.deleteChatSession).toHaveBeenCalledWith("session-1");

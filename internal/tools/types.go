@@ -221,11 +221,17 @@ func (r *defaultRegistry) Dispatch(ctx context.Context, name string, raw json.Ra
 		return []byte(`{"error":"tool not found"}`), nil
 	}
 	if r.logPayloads {
-		observability.LoggerWithTrace(ctx).Debug().Str("tool", name).RawJSON("args", observability.RedactJSON(raw)).Msg("tool_dispatch")
+		redactedArgs := observability.RedactJSON(raw)
+		event := observability.LoggerWithTrace(ctx).Debug().Str("tool", name)
+		if json.Valid(redactedArgs) {
+			event = event.RawJSON("args", redactedArgs)
+		} else {
+			event = event.Str("args", string(redactedArgs)).Bool("args_json_valid", false)
+		}
+		event.Msg("tool_dispatch")
 	}
 	val, err := t.Call(ctx, raw)
 	if err != nil {
-		// return structured error payload
 		b, _ := json.Marshal(map[string]any{"ok": false, "error": err.Error()})
 		observability.LoggerWithTrace(ctx).Error().Str("tool", name).Err(err).Msg("tool_error")
 		return b, nil

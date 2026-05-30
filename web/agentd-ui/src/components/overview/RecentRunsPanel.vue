@@ -1,48 +1,56 @@
 <template>
-  <div
-    class="rounded-2xl border border-border/70 bg-surface p-6 shadow-lg flex h-full flex-col overflow-hidden"
-  >
+  <div class="halo-surface flex h-full flex-col overflow-hidden p-5">
     <header class="flex items-center justify-between gap-2">
       <div>
-        <p class="text-xs uppercase tracking-wide text-subtle-foreground">
+        <p class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground">
           Recent Runs
         </p>
-        <h2 class="text-base font-semibold text-foreground">Past 24 hours</h2>
+        <h2 class="font-display text-xl font-semibold text-foreground">Past 24 hours</h2>
       </div>
-      <Pill tone="neutral" size="sm">{{
+      <MBadge tone="neutral">{{
         runs.length ? `${runs.length} shown` : "None"
-      }}</Pill>
+      }}</MBadge>
     </header>
 
     <p v-if="!runs.length" class="mt-4 text-xs text-faint-foreground">
       No recent runs in the last 24 hours.
     </p>
 
-    <ul v-else class="mt-4 space-y-2 overflow-y-auto pr-1 text-xs">
-      <li
+    <div v-else class="mt-4 overflow-hidden rounded-lg border border-border">
+      <MRow
         v-for="run in runs"
         :key="run.id"
-        class="rounded-[14px] border border-white/10 bg-surface-muted/40 px-3 py-2"
       >
-        <p class="line-clamp-2 text-xs font-semibold text-foreground">
-          {{ run.prompt || "Untitled run" }}
-        </p>
-        <div
-          class="mt-2 flex items-center justify-between gap-2 text-[11px] text-faint-foreground"
-        >
-          <Pill :tone="runTone(run.status)" size="sm">{{
-            run.status || "unknown"
-          }}</Pill>
-          <span>{{ formatRelativeTime(run.createdAt) }}</span>
-        </div>
-      </li>
-    </ul>
+        <template #avatar>
+          RN
+        </template>
+        <template #title>
+          <p class="line-clamp-2">
+            {{ run.prompt || "Untitled run" }}
+          </p>
+        </template>
+        <template #meta>
+          <span class="font-mono text-[10px] uppercase tracking-[0.08em]">
+            {{ formatRelativeTime(run.createdAt) }}
+          </span>
+        </template>
+        <template #status>
+          <MStatus
+            :state="runState(run.status)"
+            :label="run.status || 'unknown'"
+            :pulse="run.status === 'running'"
+          />
+        </template>
+      </MRow>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
-import Pill from "@/components/ui/Pill.vue";
+import MBadge from "@/components/ui/MBadge.vue";
+import MRow from "@/components/ui/MRow.vue";
+import MStatus from "@/components/ui/MStatus.vue";
 
 type Run = {
   id: string | number;
@@ -54,10 +62,11 @@ type Run = {
 const props = defineProps<{ runs: Run[] }>();
 const runs = computed(() => props.runs ?? []);
 
-const runTone = (status?: string) => {
-  if (status === "completed") return "success";
-  if (status === "running") return "accent";
-  return "danger";
+const runState = (status?: string): "run" | "ok" | "warn" | "danger" | "idle" => {
+  if (status === "completed") return "ok";
+  if (status === "running") return "run";
+  if (status === "failed") return "danger";
+  return "idle";
 };
 
 const formatRelativeTime = (value?: string) => {

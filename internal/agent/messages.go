@@ -13,10 +13,22 @@ The messages below are from earlier exchanges in this conversation. Use them as 
 ---
 `
 
+const currentRequestMarker = "[CURRENT REQUEST]"
+
 // currentRequestPrefix is prepended to the final user message to clearly indicate
 // it is the message requiring a response.
-const currentRequestPrefix = `[CURRENT REQUEST]
+const currentRequestPrefix = currentRequestMarker + `
 This is the user's current message. Respond to THIS message only. Use the conversation history above for context if needed, but focus your response on what is asked here.
+---
+`
+
+// runtimeContextPrefix marks volatile context that must live with the current
+// request, after stable conversation history, so provider/KV caches can reuse
+// the static prompt and unchanged history prefix across turns.
+const runtimeContextMarker = "[RUNTIME CONTEXT]"
+
+const runtimeContextPrefix = runtimeContextMarker + `
+The context below is generated for this request. Use it as background context only; it may include summaries, memories, retrieved facts, policies, or specialist lists.
 ---
 `
 
@@ -36,7 +48,7 @@ func BuildInitialLLMMessages(system, user string, history []llm.Message) []llm.M
 		msgs = append(msgs, llm.Message{Role: "system", Content: system})
 	}
 
-	var userPromptContext []string
+	var runtimeContext []string
 
 	// When we have both history and a new user message, annotate them
 	// to make it clear which is context vs the current request.
@@ -44,15 +56,11 @@ func BuildInitialLLMMessages(system, user string, history []llm.Message) []llm.M
 	hasUser := strings.TrimSpace(user) != ""
 
 	if hasHistory {
-		// Clone history and annotate the first message with context marker.
-		// Synthetic system messages in history (conversation summaries, provider
-		// continuation rules, etc.) are moved into the current user prompt so the
-		// runtime system prompt remains cache-stable across turns.
 		annotatedHistory := make([]llm.Message, 0, len(history))
 		for _, msg := range history {
 			if msg.Role == "system" {
 				if section := strings.TrimSpace(msg.Content); section != "" {
-					userPromptContext = append(userPromptContext, section)
+					runtimeContext = append(runtimeContext, section)
 				}
 				continue
 			}
@@ -81,15 +89,86 @@ func BuildInitialLLMMessages(system, user string, history []llm.Message) []llm.M
 			// Annotate current request to distinguish from history
 			content = currentRequestPrefix + user
 		}
-		if len(userPromptContext) > 0 {
-			content = strings.Join(userPromptContext, "\n\n") + "\n\n" + content
-		}
 		msgs = append(msgs, llm.Message{Role: "user", Content: content})
-	} else if len(userPromptContext) > 0 {
-		msgs = append(msgs, llm.Message{Role: "user", Content: strings.Join(userPromptContext, "\n\n")})
+		if len(runtimeContext) > 0 {
+			msgs = AddRuntimeContextToCurrentUserMessage(msgs, strings.Join(runtimeContext, "\n\n"))
+		}
+	} else if len(runtimeContext) > 0 {
+		msgs = addStandaloneRuntimeContext(msgs, strings.Join(runtimeContext, "\n\n"))
 	}
 
 	return msgs
+}
+
+func AddRuntimeContextToCurrentUserMessage(msgs []llm.Message, section string) []llm.Message {
+	section = strings.TrimSpace(section)
+	if section == "" {
+		return msgs
+	}
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if !strings.EqualFold(strings.TrimSpace(msgs[i].Role), "user") {
+			continue
+		}
+		content := strings.TrimSpace(msgs[i].Content)
+		if content == "" {
+			msgs[i].Content = runtimeContextPrefix + section
+			return msgs
+		}
+		if strings.HasPrefix(content, runtimeContextMarker) {
+			msgs[i].Content = appendRuntimeContextSection(content, section)
+			return msgs
+		}
+		msgs[i].Content = runtimeContextPrefix + section + "\n\n" + msgs[i].Content
+		return msgs
+	}
+	return addStandaloneRuntimeContext(msgs, section)
+}
+
+func appendRuntimeContextSection(content, section string) string {
+	content = strings.TrimSpace(content)
+	section = strings.TrimSpace(section)
+	if section == "" {
+		return content
+	}
+	if idx := strings.Index(content, currentRequestMarker); idx >= 0 {
+		before := strings.TrimSpace(content[:idx])
+		after := strings.TrimSpace(content[idx:])
+		if before == "" {
+			return section + "\n\n" + after
+		}
+		return before + "\n\n" + section + "\n\n" + after
+	}
+	return content + "\n\n" + section
+}
+
+func addStandaloneRuntimeContext(msgs []llm.Message, section string) []llm.Message {
+	section = strings.TrimSpace(section)
+	if section == "" {
+		return msgs
+	}
+	return append(msgs, llm.Message{Role: "user", Content: runtimeContextPrefix + section})
+}
+
+func IsRuntimeContextMessage(msg llm.Message) bool {
+	return strings.EqualFold(strings.TrimSpace(msg.Role), "user") &&
+		strings.HasPrefix(strings.TrimSpace(msg.Content), runtimeContextMarker)
+}
+
+func cacheBoundaryPrefixEnd(msgs []llm.Message) int {
+	return staticPromptPrefixEnd(msgs)
+}
+
+func staticPromptPrefixEnd(msgs []llm.Message) int {
+	end := 0
+	for end < len(msgs) {
+		switch strings.ToLower(strings.TrimSpace(msgs[end].Role)) {
+		case "system", "developer":
+			end++
+		default:
+			return end
+		}
+	}
+	return end
 }
 
 func PrependToCurrentUserMessage(msgs []llm.Message, section string) []llm.Message {

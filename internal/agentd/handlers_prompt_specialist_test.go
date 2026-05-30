@@ -54,7 +54,7 @@ func (s *promptHandlerChatStore) EnsureSessionKind(_ context.Context, userID *in
 	if strings.TrimSpace(kind) == "" {
 		kind = persistence.ChatSessionKindChat
 	}
-	sess := persistence.ChatSession{ID: id, Name: name, Kind: kind, UserID: userID, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	sess := persistence.ChatSession{ID: id, Name: name, Kind: kind, UserID: userID, CreatedAt: time.Now(), UpdatedAt: time.Now(), EvolvingMemoryEnabled: true, BeliefMemoryEnabled: true}
 	s.sessions[id] = sess
 	s.messages[id] = nil
 	return sess, nil
@@ -107,6 +107,31 @@ func (s *promptHandlerChatStore) RenameSession(_ context.Context, _ *int64, id, 
 	defer s.mu.Unlock()
 	sess := s.sessions[id]
 	sess.Name = name
+	s.sessions[id] = sess
+	return sess, nil
+}
+
+func (s *promptHandlerChatStore) SetSessionProject(_ context.Context, _ *int64, id, projectID string) (persistence.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[id]
+	if !ok {
+		return persistence.ChatSession{}, persistence.ErrNotFound
+	}
+	sess.ProjectID = strings.TrimSpace(projectID)
+	s.sessions[id] = sess
+	return sess, nil
+}
+
+func (s *promptHandlerChatStore) SetSessionMemorySettings(_ context.Context, _ *int64, id string, evolvingMemoryEnabled bool, beliefMemoryEnabled bool) (persistence.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[id]
+	if !ok {
+		return persistence.ChatSession{}, persistence.ErrNotFound
+	}
+	sess.EvolvingMemoryEnabled = evolvingMemoryEnabled
+	sess.BeliefMemoryEnabled = beliefMemoryEnabled
 	s.sessions[id] = sess
 	return sess, nil
 }
@@ -364,7 +389,12 @@ func TestHandleChatTarget_JSONIncludesQueuedMatrixMessages(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/prompt?specialist=weather", nil).WithContext(ctx)
 	rr := httptest.NewRecorder()
 
-	handled := a.handleChatTarget(rr, req, chatDispatchTarget{SpecialistName: "weather"}, "forecast please", "sess-json", "", "", false, "", nil, 0, chatTargetDescriptor{})
+	handled := a.handleChatTarget(rr, req, chatTargetHandleRequest{
+		Target:         chatDispatchTarget{SpecialistName: "weather"},
+		Prompt:         "forecast please",
+		SessionID:      "sess-json",
+		MemorySettings: defaultChatMemoryRunSettings(),
+	})
 	if !handled {
 		t.Fatalf("expected specialist handler to process request")
 	}
@@ -425,7 +455,12 @@ func TestHandleChatTargetUsesImageAPIForImageGenerationSpecialist(t *testing.T) 
 	req := httptest.NewRequest(http.MethodPost, "/api/prompt?specialist=image-maker", nil)
 	rr := httptest.NewRecorder()
 
-	handled := a.handleChatTarget(rr, req, chatDispatchTarget{SpecialistName: "image-maker"}, "draw a river", "sess-image", "", "", false, "", nil, 0, chatTargetDescriptor{})
+	handled := a.handleChatTarget(rr, req, chatTargetHandleRequest{
+		Target:         chatDispatchTarget{SpecialistName: "image-maker"},
+		Prompt:         "draw a river",
+		SessionID:      "sess-image",
+		MemorySettings: defaultChatMemoryRunSettings(),
+	})
 	if !handled {
 		t.Fatalf("expected specialist handler to process request")
 	}
@@ -470,7 +505,12 @@ func TestHandleChatTarget_SSEIncludesQueuedMatrixMessages(t *testing.T) {
 	req.Header.Set("Accept", "text/event-stream")
 	rr := httptest.NewRecorder()
 
-	handled := a.handleChatTarget(rr, req, chatDispatchTarget{SpecialistName: "weather"}, "forecast please", "sess-sse", "", "", false, "", nil, 0, chatTargetDescriptor{})
+	handled := a.handleChatTarget(rr, req, chatTargetHandleRequest{
+		Target:         chatDispatchTarget{SpecialistName: "weather"},
+		Prompt:         "forecast please",
+		SessionID:      "sess-sse",
+		MemorySettings: defaultChatMemoryRunSettings(),
+	})
 	if !handled {
 		t.Fatalf("expected specialist handler to process request")
 	}

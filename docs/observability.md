@@ -123,6 +123,19 @@ Manifold instruments:
 - Database operations
 - Tool executions
 - LLM API calls
+- MAGMA memory ingestion, consolidation, retrieval traversal, pruning, approval, and retraction
+
+MAGMA span names:
+
+- `magma.ingest`
+- `magma.consolidate`
+- `magma.query`
+- `magma.query.classify_intent`
+- `magma.query.anchors`
+- `magma.query.traverse`
+- `magma.prune`
+- `magma.approve_edge`
+- `magma.retract_edge`
 
 ### Metrics
 
@@ -132,6 +145,21 @@ Key metrics collected:
 - Tool execution statistics
 - Error rates
 - Token usage (if available from LLM provider)
+
+MAGMA memory metrics:
+
+- `magma_ingestion_fast_ms` — fast-path event ingestion latency.
+- `magma_ingestion_consolidation_ms` — async consolidation latency.
+- `magma_events_total` — MAGMA events accepted by ingestion.
+- `magma_query_ms` — MAGMA retrieval latency.
+- `magma_traversal_hops` — traversal budget used by retrieval.
+- `magma_context_tokens` — approximate tokens in constructed MAGMA context.
+- `magma_intent_distribution` — retrieval intent counts by intent label.
+- `magma_consolidation_success_rate` — consolidation success samples.
+- `magma_entity_resolution_accuracy` — entity extraction validity sample.
+- `magma_lifecycle_events_deleted` — events deleted by lifecycle pruning.
+- `magma_lifecycle_edges_deleted` — edges deleted by lifecycle pruning or retraction.
+- `magma_lifecycle_edges_flagged_review` — low-confidence edges marked for review.
 
 Token usage details:
 

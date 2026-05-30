@@ -19,6 +19,7 @@ type ServiceConfig struct {
 	Store              Store
 	Search             SearchIndexer
 	Vector             VectorIndexer
+	MagmaSink          MagmaSink
 	EmbeddingConfig    config.EmbeddingConfig
 	EmbedFn            EmbedFunc
 	DefaultSearchLimit int
@@ -31,6 +32,7 @@ type Service struct {
 	store              Store
 	search             SearchIndexer
 	vector             VectorIndexer
+	magmaSink          MagmaSink
 	embeddingConfig    config.EmbeddingConfig
 	embedFn            EmbedFunc
 	defaultSearchLimit int
@@ -60,6 +62,7 @@ func NewService(cfg ServiceConfig) *Service {
 		store:              cfg.Store,
 		search:             cfg.Search,
 		vector:             cfg.Vector,
+		magmaSink:          cfg.MagmaSink,
 		embeddingConfig:    cfg.EmbeddingConfig,
 		embedFn:            embedFn,
 		defaultSearchLimit: searchLimit,
@@ -83,10 +86,10 @@ func (s *Service) CreateMemory(ctx context.Context, tenantID, actorID int64, ite
 	normalized := make([]CreateMemoryItem, 0, len(items))
 	for _, item := range items {
 		item = ApplyCreateDefaults(item)
+		item.KeyName = NormalizeKeyName(item.KeyName)
 		if err := ValidateKey(item.KeyName); err != nil {
 			return nil, err
 		}
-		item.KeyName = strings.TrimSpace(item.KeyName)
 		if _, ok := seen[item.KeyName]; ok {
 			return nil, fmt.Errorf("duplicate keyName in request: %s", item.KeyName)
 		}
@@ -99,6 +102,7 @@ func (s *Service) CreateMemory(ctx context.Context, tenantID, actorID int64, ite
 	}
 	for _, record := range records {
 		_ = s.indexRecord(ctx, record)
+		_ = s.ingestMagma(ctx, record)
 	}
 	return records, nil
 }
@@ -114,10 +118,10 @@ func (s *Service) GetMemory(ctx context.Context, tenantID int64, keys []string) 
 		return nil, fmt.Errorf("batch exceeds max size of %d", s.maxBatchSize)
 	}
 	for index := range keys {
+		keys[index] = NormalizeKeyName(keys[index])
 		if err := ValidateKey(keys[index]); err != nil {
 			return nil, err
 		}
-		keys[index] = strings.TrimSpace(keys[index])
 	}
 	return s.store.Get(ctx, tenantID, keys)
 }
@@ -126,16 +130,17 @@ func (s *Service) UpdateMemory(ctx context.Context, tenantID, actorID int64, req
 	if s.store == nil {
 		return Record{}, fmt.Errorf("transit store is not configured")
 	}
+	req.KeyName = NormalizeKeyName(req.KeyName)
 	if err := ValidateKey(req.KeyName); err != nil {
 		return Record{}, err
 	}
-	req.KeyName = strings.TrimSpace(req.KeyName)
 	req.EmbedSource = NormalizeEmbedSource(req.EmbedSource)
 	record, err := s.store.Update(ctx, tenantID, actorID, req)
 	if err != nil {
 		return Record{}, err
 	}
 	_ = s.indexRecord(ctx, record)
+	_ = s.ingestMagma(ctx, record)
 	return record, nil
 }
 
@@ -149,11 +154,12 @@ func (s *Service) DeleteMemory(ctx context.Context, tenantID int64, keys []strin
 	if len(keys) > s.maxBatchSize {
 		return fmt.Errorf("batch exceeds max size of %d", s.maxBatchSize)
 	}
-	for _, key := range keys {
-		if err := ValidateKey(key); err != nil {
+	for index, key := range keys {
+		keys[index] = NormalizeKeyName(key)
+		if err := ValidateKey(keys[index]); err != nil {
 			return err
 		}
-		_ = s.removeIndex(ctx, tenantID, strings.TrimSpace(key))
+		_ = s.removeIndex(ctx, tenantID, keys[index])
 	}
 	return s.store.Delete(ctx, tenantID, keys)
 }
@@ -208,72 +214,8 @@ func (s *Service) collectSearch(ctx context.Context, tenantID int64, req SearchR
 		return rankCandidates(merged, req.Limit), nil
 	}
 
-	if s.search != nil {
-		results, searchErr := s.search.Search(ctx, req.Query, req.Limit*3)
-		if searchErr == nil {
-			keys := make([]string, 0, len(results))
-			for _, result := range results {
-				if !matchesIndexMetadata(result.Metadata, tenantID, req.Prefix) {
-					continue
-				}
-				key := result.Metadata["key_name"]
-				if key == "" {
-					continue
-				}
-				keys = append(keys, key)
-				candidate := merged[key]
-				candidate.Score += result.Score
-				if candidate.Snippet == "" {
-					candidate.Snippet = result.Snippet
-				}
-				merged[key] = candidate
-			}
-			if len(keys) > 0 {
-				records, getErr := s.store.Get(ctx, tenantID, keys)
-				if getErr == nil {
-					for _, record := range records {
-						candidate := merged[record.KeyName]
-						candidate.Record = record
-						merged[record.KeyName] = candidate
-					}
-				}
-			}
-		}
-	}
-
-	if s.enableVectorSearch && s.vector != nil {
-		vectors, embedErr := s.embedFn(ctx, s.embeddingConfig, []string{req.Query})
-		if embedErr == nil && len(vectors) == 1 {
-			filter := map[string]string{"kind": "transit", "tenant_id": strconv.FormatInt(tenantID, 10)}
-			vectorResults, searchErr := s.vector.SimilaritySearch(ctx, vectors[0], req.Limit*3, filter)
-			if searchErr == nil {
-				keys := make([]string, 0, len(vectorResults))
-				for _, result := range vectorResults {
-					if !matchesIndexMetadata(result.Metadata, tenantID, req.Prefix) {
-						continue
-					}
-					key := result.Metadata["key_name"]
-					if key == "" {
-						continue
-					}
-					keys = append(keys, key)
-					candidate := merged[key]
-					candidate.Score += result.Score
-					merged[key] = candidate
-				}
-				if len(keys) > 0 {
-					records, getErr := s.store.Get(ctx, tenantID, keys)
-					if getErr == nil {
-						for _, record := range records {
-							candidate := merged[record.KeyName]
-							candidate.Record = record
-							merged[record.KeyName] = candidate
-						}
-					}
-				}
-			}
-		}
-	}
+	s.mergeSearchIndexResults(ctx, tenantID, req, merged)
+	s.mergeVectorSearchResults(ctx, tenantID, req, merged)
 
 	for key, candidate := range merged {
 		if candidate.Record.KeyName == "" {
@@ -285,6 +227,74 @@ func (s *Service) collectSearch(ctx context.Context, tenantID int64, req SearchR
 		}
 	}
 	return rankCandidates(merged, req.Limit), nil
+}
+
+func (s *Service) mergeSearchIndexResults(ctx context.Context, tenantID int64, req SearchRequest, merged map[string]SearchCandidate) {
+	if s.search == nil {
+		return
+	}
+	results, err := s.search.Search(ctx, req.Query, req.Limit*3)
+	if err != nil {
+		return
+	}
+	keys := make([]string, 0, len(results))
+	for _, result := range results {
+		key := result.Metadata["key_name"]
+		if key == "" || !matchesIndexMetadata(result.Metadata, tenantID, req.Prefix) {
+			continue
+		}
+		keys = append(keys, key)
+		candidate := merged[key]
+		candidate.Score += result.Score
+		if candidate.Snippet == "" {
+			candidate.Snippet = result.Snippet
+		}
+		merged[key] = candidate
+	}
+	s.hydrateCandidates(ctx, tenantID, keys, merged)
+}
+
+func (s *Service) mergeVectorSearchResults(ctx context.Context, tenantID int64, req SearchRequest, merged map[string]SearchCandidate) {
+	if !s.enableVectorSearch || s.vector == nil {
+		return
+	}
+	instruction := embedding.FormatQueryInput(s.embeddingConfig, embedding.UseCaseTransitQuery, req.Query, "")
+	vectors, err := s.embedFn(ctx, s.embeddingConfig, []string{instruction.Input})
+	if err != nil || len(vectors) != 1 {
+		return
+	}
+	filter := map[string]string{"kind": "transit", "tenant_id": strconv.FormatInt(tenantID, 10)}
+	results, err := s.vector.SimilaritySearch(ctx, vectors[0], req.Limit*3, filter)
+	if err != nil {
+		return
+	}
+	keys := make([]string, 0, len(results))
+	for _, result := range results {
+		key := result.Metadata["key_name"]
+		if key == "" || !matchesIndexMetadata(result.Metadata, tenantID, req.Prefix) {
+			continue
+		}
+		keys = append(keys, key)
+		candidate := merged[key]
+		candidate.Score += result.Score
+		merged[key] = candidate
+	}
+	s.hydrateCandidates(ctx, tenantID, keys, merged)
+}
+
+func (s *Service) hydrateCandidates(ctx context.Context, tenantID int64, keys []string, merged map[string]SearchCandidate) {
+	if len(keys) == 0 {
+		return
+	}
+	records, err := s.store.Get(ctx, tenantID, keys)
+	if err != nil {
+		return
+	}
+	for _, record := range records {
+		candidate := merged[record.KeyName]
+		candidate.Record = record
+		merged[record.KeyName] = candidate
+	}
 }
 
 func rankCandidates(merged map[string]SearchCandidate, limit int) []SearchCandidate {
@@ -334,6 +344,14 @@ func (s *Service) indexRecord(ctx context.Context, record Record) error {
 		}
 	}
 	return nil
+}
+
+func (s *Service) ingestMagma(ctx context.Context, record Record) error {
+	if s == nil || s.magmaSink == nil {
+		return nil
+	}
+	_, err := s.magmaSink.IngestTransitRecord(ctx, record)
+	return err
 }
 
 func (s *Service) removeIndex(ctx context.Context, tenantID int64, key string) error {

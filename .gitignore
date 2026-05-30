@@ -78,6 +78,7 @@ playground-artifacts
 /agentd
 /agent
 /openapi
+/plans
 docker-compose.matrixfold.yml
 docs/backend-rewrite.md
 mcp.yaml
@@ -88,3 +89,4 @@ docs/manifold_codeqa_implementation_plan_v1.md
 docs/manifold_agent_shared_memory_plan.md
 docs/shared_belief_memory_implementation_plan.md
 docs/shared-belief-memory-for-agentic-systems.md
+docs/forge_plan.md

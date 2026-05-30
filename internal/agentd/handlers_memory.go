@@ -45,12 +45,14 @@ type debugMemorySessionResponse struct {
 // debugMemoryEvolvingResponse exposes evolving/ReMem state for observability.
 type debugMemoryEvolvingResponse struct {
 	Enabled      bool                       `json:"enabled"`
+	EnableRAG    bool                       `json:"enableRAG"`
 	TotalEntries int                        `json:"totalEntries"`
 	TopK         int                        `json:"topK"`
 	MaxSize      int                        `json:"maxSize"`
 	WindowSize   int                        `json:"windowSize"`
 	RecentWindow []*memory.MemoryEntry      `json:"recentWindow"`
 	LastQuery    string                     `json:"lastQuery,omitempty"`
+	Search       memory.SearchDiagnostics   `json:"search"`
 	Retrieved    []memory.ScoredMemoryEntry `json:"retrieved,omitempty"`
 }
 
@@ -89,12 +91,6 @@ func (a *app) debugMemoryHandler() http.HandlerFunc {
 			return
 		}
 
-		// Normalize the path so that both /debug/memory and /api/debug/memory
-		// prefixes are supported. The router already wires both prefixes to this
-		// handler, but without this normalization a request like
-		//   /api/debug/memory/evolving
-		// would not match the /debug/memory prefix below, leading to a 404 even
-		// though the route is correctly registered.
 		basePath := "/debug/memory"
 		if strings.HasPrefix(r.URL.Path, "/api/debug/memory") {
 			basePath = "/api/debug/memory"
@@ -347,9 +343,18 @@ func (a *app) handleDebugMemoryPlan(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *app) debugMemoryTargetProvider(ctx context.Context, owner int64, sessionID string, target chatDispatchTarget) (llm.Provider, string, int, int, error) {
-	descriptor, ok := a.describeChatTarget(target, sessionID, "", "", "", owner)
+	descriptor, ok := a.describeChatTarget(chatTargetDescribeRequest{
+		Target:         target,
+		SessionID:      sessionID,
+		Owner:          owner,
+		MemorySettings: defaultChatMemoryRunSettings(),
+	})
 	if !ok {
-		build := a.buildOrchestratorChatEngine(ctx, owner, sessionID, "", "", "", nil)
+		build := a.buildOrchestratorChatEngine(ctx, chatEngineBuildRequest{
+			SessionID:      sessionID,
+			Owner:          owner,
+			MemorySettings: defaultChatMemoryRunSettings(),
+		})
 		if build.Err != nil {
 			statusCode := build.StatusCode
 			if statusCode == 0 {
@@ -441,6 +446,7 @@ func (a *app) handleDebugMemoryEvolving(w http.ResponseWriter, r *http.Request) 
 	if sessionID == "" {
 		sessionID = "default"
 	}
+	sessionID = normalizeClientChatSessionID(sessionID)
 
 	em := a.getOrCreateEvolvingMemoryForSession(userID, sessionID)
 	if em == nil {
@@ -448,10 +454,10 @@ func (a *app) handleDebugMemoryEvolving(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Base snapshot
 	entries := em.ExportMemories()
 	resp := debugMemoryEvolvingResponse{
 		Enabled:      true,
+		EnableRAG:    em.RAGEnabled(),
 		TotalEntries: len(entries),
 		TopK:         em.TopK(),
 		MaxSize:      em.MaxSize(),
@@ -462,8 +468,9 @@ func (a *app) handleDebugMemoryEvolving(w http.ResponseWriter, r *http.Request) 
 	q := strings.TrimSpace(r.URL.Query().Get("query"))
 	if q != "" {
 		resp.LastQuery = q
-		if scored, err := em.SearchWithScores(r.Context(), q); err == nil {
+		if scored, diag, err := em.SearchWithDiagnostics(r.Context(), q); err == nil {
 			resp.Retrieved = scored
+			resp.Search = diag
 		}
 	}
 
@@ -502,6 +509,7 @@ func (a *app) handleDebugMemoryExplain(w http.ResponseWriter, r *http.Request) {
 	if sessionID == "" {
 		sessionID = "default"
 	}
+	sessionID = normalizeClientChatSessionID(sessionID)
 
 	em := a.getOrCreateEvolvingMemoryForSession(userID, sessionID)
 	if em == nil {

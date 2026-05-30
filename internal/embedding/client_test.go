@@ -16,7 +16,7 @@ func TestEmbedText_HeadersMapAuthorization(t *testing.T) {
 			t.Fatalf("expected Authorization header Token abc, got %q", got)
 		}
 		// return minimal valid response
-		resp := map[string]interface{}{"data": []map[string]interface{}{{"embedding": []float32{0.1}}}}
+		resp := map[string]any{"data": []map[string]any{{"embedding": []float32{0.1}}}}
 		b, _ := json.Marshal(resp)
 		w.Write(b)
 	}))
@@ -34,7 +34,7 @@ func TestEmbedText_LegacyAuthorization(t *testing.T) {
 		if got := r.Header.Get("Authorization"); got != "Bearer secret" {
 			t.Fatalf("expected Authorization header Bearer secret, got %q", got)
 		}
-		resp := map[string]interface{}{"data": []map[string]interface{}{{"embedding": []float32{0.1}}}}
+		resp := map[string]any{"data": []map[string]any{{"embedding": []float32{0.1}}}}
 		b, _ := json.Marshal(resp)
 		w.Write(b)
 	}))
@@ -56,7 +56,7 @@ func TestEmbedText_MixedHeadersPrecedence(t *testing.T) {
 		if got := r.Header.Get("Authorization"); got != "Bearer s" {
 			t.Fatalf("expected Authorization header Bearer s, got %q", got)
 		}
-		resp := map[string]interface{}{"data": []map[string]interface{}{{"embedding": []float32{0.1}}}}
+		resp := map[string]any{"data": []map[string]any{{"embedding": []float32{0.1}}}}
 		b, _ := json.Marshal(resp)
 		w.Write(b)
 	}))

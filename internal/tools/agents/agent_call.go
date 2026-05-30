@@ -34,6 +34,17 @@ type AgentCallTool struct {
 	defaultTimeout time.Duration
 }
 
+type agentCallArgs struct {
+	AgentName      string        `json:"agent_name"`
+	Prompt         string        `json:"prompt"`
+	History        []llm.Message `json:"history"`
+	EnableTools    *bool         `json:"enable_tools"`
+	MaxSteps       int           `json:"max_steps"`
+	TimeoutSeconds int           `json:"timeout_seconds"`
+	ProjectID      string        `json:"project_id"`
+	UserID         int64         `json:"user_id"`
+}
+
 func NewAgentCallTool(reg tools.Registry, specReg *specialists.Registry, wsMgr workspaces.WorkspaceManager) *AgentCallTool {
 	return &AgentCallTool{reg: reg, specReg: specReg, wsMgr: wsMgr, defaultSys: "You are a helpful assistant.", defaultMaxSteps: 8}
 }
@@ -105,88 +116,71 @@ func (t *AgentCallTool) JSONSchema() map[string]any {
 }
 
 func (t *AgentCallTool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
-	var args struct {
-		AgentName      string        `json:"agent_name"`
-		Prompt         string        `json:"prompt"`
-		History        []llm.Message `json:"history"`
-		EnableTools    *bool         `json:"enable_tools"`
-		MaxSteps       int           `json:"max_steps"`
-		TimeoutSeconds int           `json:"timeout_seconds"`
-		ProjectID      string        `json:"project_id"`
-		UserID         int64         `json:"user_id"`
-	}
+	var args agentCallArgs
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return nil, err
 	}
 
-	dispatchCtx := ctx
-	if pid := strings.TrimSpace(args.ProjectID); pid != "" && t.wsMgr != nil {
-		ws, err := t.wsMgr.Checkout(ctx, args.UserID, pid, "")
-		if err != nil {
-			if err == workspaces.ErrInvalidProjectID {
-				return map[string]any{"ok": false, "error": "invalid project_id"}, nil
-			}
-			if err == workspaces.ErrProjectNotFound {
-				return map[string]any{"ok": false, "error": "project not found (project_id must match the project directory/ID)"}, nil
-			}
-			return map[string]any{"ok": false, "error": fmt.Sprintf("workspace checkout failed: %v", err)}, nil
-		}
-		if ws.BaseDir != "" {
-			dispatchCtx = sandbox.WithBaseDir(ctx, ws.BaseDir)
-		}
+	dispatchCtx, response, err := t.dispatchContext(ctx, args)
+	if err != nil || response != nil {
+		return response, err
 	}
-
-	// Resolve provider and tool registry view
-	var prov llm.Provider
-	var toolsReg tools.Registry
-	var system string
-
-	toolsReg = t.reg
-	system = t.defaultSys
-
-	// Prefer provider from context when present
-	if p := tools.ProviderFromContext(ctx); p != nil {
-		prov = p
+	if response := t.callSpecialist(ctx, dispatchCtx, args); response != nil {
+		return response, nil
 	}
+	return t.callLocalAgent(ctx, dispatchCtx, args)
+}
 
-	// If a specialist/agent name is provided, use its configured provider and tools view
-	if name := args.AgentName; name != "" && t.specReg != nil {
-		if a, ok := t.specReg.Get(name); ok && a != nil {
-			// Note: The specialist's Inference method already handles system prompt composition
-			// via buildMessages which includes its configured System field.
-			// The System field should already have default instructions prepended during registry initialization.
-			observability.LoggerWithTrace(ctx).Info().Str("agent_call", name).Msg("agent_call_specialist_infer")
-			out, err := a.Inference(dispatchCtx, args.Prompt, args.History)
-			if err != nil {
-				return map[string]any{"ok": false, "agent": name, "error": err.Error()}, nil
-			}
-			return map[string]any{"ok": true, "agent": name, "output": out}, nil
-		}
+func (t *AgentCallTool) dispatchContext(ctx context.Context, args agentCallArgs) (context.Context, any, error) {
+	pid := strings.TrimSpace(args.ProjectID)
+	if pid == "" || t.wsMgr == nil {
+		return ctx, nil, nil
 	}
+	ws, err := t.wsMgr.Checkout(ctx, args.UserID, pid, "")
+	if err != nil {
+		return ctx, workspaceCheckoutError(err), nil
+	}
+	if ws.BaseDir == "" {
+		return ctx, nil, nil
+	}
+	return sandbox.WithBaseDir(ctx, ws.BaseDir), nil, nil
+}
 
-	// Fallback to running a local agent engine with the current provider and tool registry
-	if prov = tools.ProviderFromContext(ctx); prov == nil {
+func workspaceCheckoutError(err error) map[string]any {
+	if err == workspaces.ErrInvalidProjectID {
+		return map[string]any{"ok": false, "error": "invalid project_id"}
+	}
+	if err == workspaces.ErrProjectNotFound {
+		return map[string]any{"ok": false, "error": "project not found (project_id must match the project directory/ID)"}
+	}
+	return map[string]any{"ok": false, "error": fmt.Sprintf("workspace checkout failed: %v", err)}
+}
+
+func (t *AgentCallTool) callSpecialist(ctx, dispatchCtx context.Context, args agentCallArgs) map[string]any {
+	name := args.AgentName
+	if name == "" || t.specReg == nil {
+		return nil
+	}
+	a, ok := t.specReg.Get(name)
+	if !ok || a == nil {
+		return nil
+	}
+	observability.LoggerWithTrace(ctx).Info().Str("agent_call", name).Msg("agent_call_specialist_infer")
+	out, err := a.Inference(dispatchCtx, args.Prompt, args.History)
+	if err != nil {
+		return map[string]any{"ok": false, "agent": name, "error": err.Error()}
+	}
+	return map[string]any{"ok": true, "agent": name, "output": out}
+}
+
+func (t *AgentCallTool) callLocalAgent(ctx, dispatchCtx context.Context, args agentCallArgs) (any, error) {
+	prov := tools.ProviderFromContext(ctx)
+	if prov == nil {
 		return map[string]any{"ok": false, "error": "no llm provider available for agent_call"}, nil
 	}
-	maxSteps := args.MaxSteps
-	if maxSteps <= 0 {
-		maxSteps = t.defaultMaxSteps
-	}
-	if args.EnableTools != nil && !*args.EnableTools {
-		toolsReg = tools.NewRegistry()
-	} else if toolsReg == nil {
-		toolsReg = tools.NewRegistry()
-	}
-	eng := &agent.Engine{LLM: prov, Tools: toolsReg, MaxSteps: maxSteps, System: prompts.EnsureMemoryInstructions(system)}
-	eng.AttachTokenizer(prov, nil)
-	runCtx := ctx
-	if args.TimeoutSeconds > 0 {
-		var cancel context.CancelFunc
-		runCtx, cancel = context.WithTimeout(dispatchCtx, time.Duration(args.TimeoutSeconds)*time.Second)
-		defer cancel()
-	} else if _, has := ctx.Deadline(); !has && t.defaultTimeout > 0 {
-		var cancel context.CancelFunc
-		runCtx, cancel = context.WithTimeout(dispatchCtx, t.defaultTimeout)
+	eng := t.newEngine(prov, args)
+	runCtx, cancel := t.runContext(ctx, dispatchCtx, args.TimeoutSeconds)
+	if cancel != nil {
 		defer cancel()
 	}
 	observability.LoggerWithTrace(ctx).Info().Str("agent_call", args.AgentName).Msg("agent_call_start")
@@ -196,4 +190,30 @@ func (t *AgentCallTool) Call(ctx context.Context, raw json.RawMessage) (any, err
 		return map[string]any{"ok": false, "agent": args.AgentName, "error": err.Error()}, nil
 	}
 	return map[string]any{"ok": true, "agent": args.AgentName, "output": out}, nil
+}
+
+func (t *AgentCallTool) newEngine(prov llm.Provider, args agentCallArgs) *agent.Engine {
+	maxSteps := args.MaxSteps
+	if maxSteps <= 0 {
+		maxSteps = t.defaultMaxSteps
+	}
+	toolsReg := t.reg
+	if args.EnableTools != nil && !*args.EnableTools {
+		toolsReg = tools.NewRegistry()
+	} else if toolsReg == nil {
+		toolsReg = tools.NewRegistry()
+	}
+	eng := &agent.Engine{LLM: prov, Tools: toolsReg, MaxSteps: maxSteps, System: prompts.EnsureMemoryInstructions(t.defaultSys)}
+	eng.AttachTokenizer(prov, nil)
+	return eng
+}
+
+func (t *AgentCallTool) runContext(ctx, dispatchCtx context.Context, timeoutSeconds int) (context.Context, context.CancelFunc) {
+	if timeoutSeconds > 0 {
+		return context.WithTimeout(dispatchCtx, time.Duration(timeoutSeconds)*time.Second)
+	}
+	if _, has := ctx.Deadline(); !has && t.defaultTimeout > 0 {
+		return context.WithTimeout(dispatchCtx, t.defaultTimeout)
+	}
+	return dispatchCtx, nil
 }

@@ -273,6 +273,12 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusConflict
 		} else if errors.Is(err, playground.ErrUnknownExperiment) {
 			status = http.StatusNotFound
+		} else if errors.Is(err, playground.ErrSpecialistNotFound) {
+			status = http.StatusNotFound
+		} else if errors.Is(err, playground.ErrSpecialistPaused) {
+			status = http.StatusBadRequest
+		} else if errors.Is(err, playground.ErrSpecialistRunnerUnavailable) {
+			status = http.StatusServiceUnavailable
 		}
 		respondError(w, status, err)
 		return
@@ -316,6 +322,12 @@ func statusFromError(err error) int {
 	switch {
 	case errors.Is(err, registry.ErrPromptExists):
 		return http.StatusConflict
+	case errors.Is(err, playground.ErrSpecialistNotFound):
+		return http.StatusNotFound
+	case errors.Is(err, playground.ErrSpecialistPaused):
+		return http.StatusBadRequest
+	case errors.Is(err, playground.ErrSpecialistRunnerUnavailable):
+		return http.StatusServiceUnavailable
 	default:
 		return http.StatusInternalServerError
 	}

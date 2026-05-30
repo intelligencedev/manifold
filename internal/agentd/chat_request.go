@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
 	"manifold/internal/sandbox"
@@ -14,31 +15,39 @@ import (
 )
 
 type chatRunRequest struct {
-	Prompt           string `json:"prompt"`
-	SessionID        string `json:"session_id,omitempty"`
-	EphemeralSession bool   `json:"ephemeral_session,omitempty"`
-	ProjectID        string `json:"project_id,omitempty"`
-	ObjectiveID      string `json:"objective_id,omitempty"`
-	RoomID           string `json:"room_id,omitempty"`
-	RouteTarget      string `json:"route_target,omitempty"`
-	SystemPrompt     string `json:"system_prompt,omitempty"`
-	Image            bool   `json:"image,omitempty"`
-	ImageSize        string `json:"image_size,omitempty"`
+	Prompt                string `json:"prompt"`
+	SessionID             string `json:"session_id,omitempty"`
+	AssistantMessageID    string `json:"assistant_message_id,omitempty"`
+	EphemeralSession      bool   `json:"ephemeral_session,omitempty"`
+	ProjectID             string `json:"project_id,omitempty"`
+	ObjectiveID           string `json:"objective_id,omitempty"`
+	RoomID                string `json:"room_id,omitempty"`
+	RouteTarget           string `json:"route_target,omitempty"`
+	SystemPrompt          string `json:"system_prompt,omitempty"`
+	Image                 bool   `json:"image,omitempty"`
+	ImageSize             string `json:"image_size,omitempty"`
+	EvolvingMemoryEnabled *bool  `json:"evolving_memory_enabled,omitempty"`
+	BeliefMemoryEnabled   *bool  `json:"belief_memory_enabled,omitempty"`
 }
 
 func (req *chatRunRequest) UnmarshalJSON(data []byte) error {
 	type rawChatRunRequest struct {
-		Prompt           string `json:"prompt"`
-		SessionID        string `json:"session_id,omitempty"`
-		EphemeralSession bool   `json:"ephemeral_session,omitempty"`
-		ProjectID        string `json:"project_id,omitempty"`
-		ObjectiveID      string `json:"objective_id,omitempty"`
-		RoomID           string `json:"room_id,omitempty"`
-		RouteTarget      string `json:"route_target,omitempty"`
-		BotID            string `json:"bot_id,omitempty"`
-		SystemPrompt     string `json:"system_prompt,omitempty"`
-		Image            bool   `json:"image,omitempty"`
-		ImageSize        string `json:"image_size,omitempty"`
+		Prompt                      string `json:"prompt"`
+		SessionID                   string `json:"session_id,omitempty"`
+		AssistantMessageID          string `json:"assistant_message_id,omitempty"`
+		EphemeralSession            bool   `json:"ephemeral_session,omitempty"`
+		ProjectID                   string `json:"project_id,omitempty"`
+		ObjectiveID                 string `json:"objective_id,omitempty"`
+		RoomID                      string `json:"room_id,omitempty"`
+		RouteTarget                 string `json:"route_target,omitempty"`
+		BotID                       string `json:"bot_id,omitempty"`
+		SystemPrompt                string `json:"system_prompt,omitempty"`
+		Image                       bool   `json:"image,omitempty"`
+		ImageSize                   string `json:"image_size,omitempty"`
+		EvolvingMemoryEnabled       *bool  `json:"evolvingMemoryEnabled,omitempty"`
+		LegacyEvolvingMemoryEnabled *bool  `json:"evolving_memory_enabled,omitempty"`
+		BeliefMemoryEnabled         *bool  `json:"beliefMemoryEnabled,omitempty"`
+		LegacyBeliefMemoryEnabled   *bool  `json:"belief_memory_enabled,omitempty"`
 	}
 	var decoded rawChatRunRequest
 	if err := json.Unmarshal(data, &decoded); err != nil {
@@ -46,6 +55,7 @@ func (req *chatRunRequest) UnmarshalJSON(data []byte) error {
 	}
 	req.Prompt = decoded.Prompt
 	req.SessionID = decoded.SessionID
+	req.AssistantMessageID = decoded.AssistantMessageID
 	req.EphemeralSession = decoded.EphemeralSession
 	req.ProjectID = decoded.ProjectID
 	req.ObjectiveID = decoded.ObjectiveID
@@ -57,6 +67,14 @@ func (req *chatRunRequest) UnmarshalJSON(data []byte) error {
 	req.SystemPrompt = decoded.SystemPrompt
 	req.Image = decoded.Image
 	req.ImageSize = decoded.ImageSize
+	req.EvolvingMemoryEnabled = decoded.EvolvingMemoryEnabled
+	if req.EvolvingMemoryEnabled == nil {
+		req.EvolvingMemoryEnabled = decoded.LegacyEvolvingMemoryEnabled
+	}
+	req.BeliefMemoryEnabled = decoded.BeliefMemoryEnabled
+	if req.BeliefMemoryEnabled == nil {
+		req.BeliefMemoryEnabled = decoded.LegacyBeliefMemoryEnabled
+	}
 	return nil
 }
 
@@ -66,16 +84,25 @@ type chatDispatchTarget struct {
 }
 
 func (req *chatRunRequest) normalize() {
-	req.SessionID = strings.TrimSpace(req.SessionID)
-	if req.SessionID == "" {
-		req.SessionID = "default"
-	}
+	req.SessionID = normalizeClientChatSessionID(req.SessionID)
+	req.AssistantMessageID = strings.TrimSpace(req.AssistantMessageID)
 	req.ProjectID = strings.TrimSpace(req.ProjectID)
 	req.ObjectiveID = strings.TrimSpace(req.ObjectiveID)
 	req.RoomID = strings.TrimSpace(req.RoomID)
 	req.RouteTarget = strings.TrimSpace(req.RouteTarget)
 	req.SystemPrompt = strings.TrimSpace(req.SystemPrompt)
 	req.ImageSize = strings.TrimSpace(req.ImageSize)
+}
+
+func normalizeClientChatSessionID(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		id = "default"
+	}
+	if _, err := uuid.Parse(id); err == nil {
+		return id
+	}
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(id)).String()
 }
 
 func resolveChatDispatchTarget(query url.Values) chatDispatchTarget {

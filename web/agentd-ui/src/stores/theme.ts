@@ -1,8 +1,6 @@
 import { computed, onScopeDispose, ref, watch } from "vue";
 import { defineStore } from "pinia";
 import {
-  defaultDarkTheme,
-  defaultLightTheme,
   getTheme,
   isThemeId,
   resolveSystemTheme,
@@ -27,7 +25,7 @@ function applyTheme(theme: ThemeDefinition) {
   const root = document.documentElement;
   const body = document.body;
   root.dataset.theme = theme.id;
-  body.classList.toggle("theme-obsdash", theme.id === "obsdash-dark");
+  body.classList.toggle("theme-sodium", theme.id === "halo-sodium");
   root.style.colorScheme = theme.appearance;
   Object.entries(theme.tokens).forEach(([token, value]) => {
     root.style.setProperty(`--color-${token}`, value);
@@ -96,7 +94,7 @@ export const useThemeStore = defineStore("theme", () => {
   }
 
   function cycleTheme() {
-    const order: ThemeChoice[] = ["obsdash-dark", defaultDarkTheme];
+    const order: ThemeChoice[] = ["halo-dark", "halo-light", "halo-sodium"];
     const currentIndex = order.indexOf(selection.value);
     const next = order[(currentIndex + 1) % order.length];
     selection.value = next;

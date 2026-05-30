@@ -99,10 +99,6 @@ func extensionVersion(name string, pgMajor int) (string, bool) {
 	return v, ok
 }
 
-// ---------------------------------------------------------------------------
-// Remote download path
-// ---------------------------------------------------------------------------
-
 // acquireExtension downloads and installs an extension package from the
 // configured base URL. Package naming convention:
 //
@@ -259,10 +255,6 @@ func mapExtensionPath(name, binariesPath string) (string, bool) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Local system discovery (fallback)
-// ---------------------------------------------------------------------------
-
 // installFromSystem attempts to copy extension files from a system-level
 // PostgreSQL installation.
 func installFromSystem(binariesPath, name string, pgMajor int) error {
@@ -362,10 +354,6 @@ func installFromLinuxSystem(binariesPath, name string, pgMajor int) error {
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// Extension metadata helpers
-// ---------------------------------------------------------------------------
-
 // extensionLibNames returns the expected shared library file names.
 func extensionLibNames(name string) []string {
 	ext := ".so"
@@ -428,10 +416,6 @@ func platformIdentifiers() (osName, archName string) {
 	}
 	return
 }
-
-// ---------------------------------------------------------------------------
-// File utilities
-// ---------------------------------------------------------------------------
 
 // copyDirContents copies all regular files from src into dst.
 func copyDirContents(src, dst string) error {

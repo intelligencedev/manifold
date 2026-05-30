@@ -192,7 +192,7 @@ func decodeStoredMemoryEntry(record storedMemoryEntry) (*memory.MemoryEntry, err
 		}
 	}
 
-	metadata := map[string]interface{}{}
+	metadata := map[string]any{}
 	if len(record.Metadata) > 0 {
 		if err := json.Unmarshal(record.Metadata, &metadata); err != nil {
 			return nil, fmt.Errorf("unmarshal metadata: %w", err)

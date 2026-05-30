@@ -32,10 +32,7 @@ func ExpandWithGraph(ctx context.Context, g GraphFacade, fused []RetrievedItem, 
 		// pass-through
 		return fused, diag
 	}
-	top := opt.TopN
-	if top > len(fused) {
-		top = len(fused)
-	}
+	top := min(opt.TopN, len(fused))
 
 	// Index existing items and scores for quick checks
 	byID := make(map[string]RetrievedItem, len(fused))
@@ -43,7 +40,6 @@ func ExpandWithGraph(ctx context.Context, g GraphFacade, fused []RetrievedItem, 
 		byID[it.ID] = it
 	}
 
-	// Collect expansions
 	maxPer := opt.MaxPerSeed
 	if maxPer <= 0 {
 		maxPer = 3
@@ -66,7 +62,7 @@ func ExpandWithGraph(ctx context.Context, g GraphFacade, fused []RetrievedItem, 
 	}
 
 	// We expand only via HAS_CHUNK (Doc->Chunk) for now. Future: MENTIONS, REFERS_TO.
-	for i := 0; i < top; i++ {
+	for i := range top {
 		seed := fused[i]
 		// Derive doc id from chunk id if possible
 		docID := deriveDocID(seed.ID, seed.Metadata)

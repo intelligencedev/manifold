@@ -1,5 +1,5 @@
 ARG NODE_IMAGE=node:22.16.0-bookworm-slim
-ARG GO_IMAGE=golang:1.25.0-bookworm
+ARG GO_IMAGE=golang:1.26.3-bookworm
 
 
 FROM ${NODE_IMAGE} AS ui-base

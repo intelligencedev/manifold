@@ -59,7 +59,6 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) { //n
 		return nil, err
 	}
 
-	// Defaults
 	kind := textsplitters.Kind(args.Kind)
 	if kind == "" {
 		kind = textsplitters.KindFixed
@@ -72,10 +71,7 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) { //n
 	if size <= 0 {
 		size = 100
 	}
-	overlap := args.Overlap
-	if overlap < 0 {
-		overlap = 0
-	}
+	overlap := max(args.Overlap, 0)
 
 	cfg := textsplitters.Config{Kind: kind}
 	switch kind {

@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -16,7 +14,6 @@ import (
 
 	"manifold/internal/agent"
 	"manifold/internal/auth"
-	"manifold/internal/llm"
 	persist "manifold/internal/persistence"
 	"manifold/internal/sandbox"
 	"manifold/internal/workspaces"
@@ -39,6 +36,7 @@ func (t *agentStreamTracer) Trace(ev agent.AgentTrace) {
 	payload := map[string]any{
 		"type":            ev.Type,
 		"agent":           ev.Agent,
+		"team":            ev.Team,
 		"model":           ev.Model,
 		"call_id":         ev.CallID,
 		"parent_call_id":  ev.ParentCallID,
@@ -166,622 +164,6 @@ func (a *app) chatSessionsHandler() http.HandlerFunc {
 	}
 }
 
-func (a *app) chatSessionDetailHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var (
-			userID  *int64
-			isAdmin bool
-		)
-		if a.cfg.Auth.Enabled {
-			u, ok := auth.CurrentUser(r.Context())
-			if !ok {
-				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
-			id, admin, err := resolveChatAccess(r.Context(), a.authStore, u)
-			if err != nil {
-				log.Error().Err(err).Msg("resolve_chat_access")
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			userID, isAdmin = id, admin
-		} else {
-			isAdmin = true
-		}
-		_ = isAdmin
-		rest := strings.TrimPrefix(r.URL.Path, "/api/chat/sessions/")
-		rest = strings.Trim(rest, "/")
-		if rest == "" {
-			http.NotFound(w, r)
-			return
-		}
-		parts := strings.Split(rest, "/")
-		id := parts[0]
-		subresource := ""
-		subresourceID := ""
-		if len(parts) >= 2 {
-			subresource = parts[1]
-		}
-		if len(parts) >= 3 {
-			subresourceID = parts[2]
-		}
-		switch subresource {
-		case "messages":
-			setChatCORSHeaders(w, r, "GET, DELETE, OPTIONS")
-		case "activities":
-			setChatCORSHeaders(w, r, "GET, OPTIONS")
-		case "title":
-			setChatCORSHeaders(w, r, "POST, OPTIONS")
-		default:
-			setChatCORSHeaders(w, r, "GET, PATCH, DELETE, OPTIONS")
-		}
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		if subresource == "activities" {
-			if r.Method != http.MethodGet {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			if a.activityStore == nil {
-				http.Error(w, "specialist activity unavailable", http.StatusServiceUnavailable)
-				return
-			}
-			if _, err := a.chatStore.GetSession(r.Context(), userID, id); err != nil {
-				if errors.Is(err, persist.ErrForbidden) {
-					http.Error(w, "forbidden", http.StatusForbidden)
-					return
-				}
-				if errors.Is(err, persist.ErrNotFound) {
-					http.NotFound(w, r)
-					return
-				}
-				log.Error().Err(err).Str("session", id).Msg("get_chat_session_for_activities")
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			activities, err := a.activityStore.ListSessionActivities(r.Context(), userID, id)
-			if err != nil {
-				log.Error().Err(err).Str("session", id).Msg("list_chat_activities")
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			if err := json.NewEncoder(w).Encode(activities); err != nil {
-				log.Error().Err(err).Msg("encode_chat_activities")
-			}
-			return
-		}
-		if subresource == "messages" {
-			if subresourceID != "" {
-				if r.Method != http.MethodDelete {
-					http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-					return
-				}
-				// Load messages to determine summary impact and related tool outputs.
-				msgs, err := a.chatStore.ListMessages(r.Context(), userID, id, 0)
-				if err != nil {
-					if errors.Is(err, persist.ErrForbidden) {
-						http.Error(w, "forbidden", http.StatusForbidden)
-						return
-					}
-					if errors.Is(err, persist.ErrNotFound) {
-						http.NotFound(w, r)
-						return
-					}
-					log.Error().Err(err).Str("session", id).Msg("list_chat_messages")
-					http.Error(w, "internal server error", http.StatusInternalServerError)
-					return
-				}
-				msgIndex := -1
-				var target persist.ChatMessage
-				for i, m := range msgs {
-					if m.ID == subresourceID {
-						msgIndex = i
-						target = m
-						break
-					}
-				}
-				if msgIndex == -1 {
-					http.NotFound(w, r)
-					return
-				}
-				sess, err := a.chatStore.GetSession(r.Context(), userID, id)
-				if err != nil {
-					if errors.Is(err, persist.ErrForbidden) {
-						http.Error(w, "forbidden", http.StatusForbidden)
-						return
-					}
-					if errors.Is(err, persist.ErrNotFound) {
-						http.NotFound(w, r)
-						return
-					}
-					log.Error().Err(err).Str("session", id).Msg("get_chat_session")
-					http.Error(w, "internal server error", http.StatusInternalServerError)
-					return
-				}
-				relatedMessageIDs := relatedToolMessageIDs(msgs, target)
-				resetSummary := sess.SummarizedCount > 0 && msgIndex < sess.SummarizedCount
-				if atomicStore, ok := a.chatStore.(atomicChatTurnDeleteStore); ok {
-					if err := atomicStore.DeleteMessageWithRelated(r.Context(), userID, id, subresourceID, relatedMessageIDs, resetSummary); err != nil {
-						if errors.Is(err, persist.ErrForbidden) {
-							http.Error(w, "forbidden", http.StatusForbidden)
-							return
-						}
-						if errors.Is(err, persist.ErrNotFound) {
-							http.NotFound(w, r)
-							return
-						}
-						log.Error().Err(err).Str("session", id).Msg("delete_chat_message")
-						http.Error(w, "internal server error", http.StatusInternalServerError)
-						return
-					}
-
-					w.WriteHeader(http.StatusNoContent)
-					return
-				}
-
-				// Delete target message first.
-				if err := a.chatStore.DeleteMessage(r.Context(), userID, id, subresourceID); err != nil {
-					if errors.Is(err, persist.ErrForbidden) {
-						http.Error(w, "forbidden", http.StatusForbidden)
-						return
-					}
-					if errors.Is(err, persist.ErrNotFound) {
-						http.NotFound(w, r)
-						return
-					}
-					log.Error().Err(err).Str("session", id).Msg("delete_chat_message")
-					http.Error(w, "internal server error", http.StatusInternalServerError)
-					return
-				}
-
-				// Remove related tool outputs if the assistant message contained tool calls.
-				if len(relatedMessageIDs) > 0 {
-					relatedSet := make(map[string]struct{}, len(relatedMessageIDs))
-					for _, relatedID := range relatedMessageIDs {
-						relatedSet[relatedID] = struct{}{}
-					}
-					for _, m := range msgs {
-						if _, ok := relatedSet[m.ID]; ok {
-							_ = a.chatStore.DeleteMessage(r.Context(), userID, id, m.ID)
-						}
-					}
-				}
-
-				// If the deleted message was part of the summarized range, clear summary.
-				if resetSummary {
-					if err := a.chatStore.UpdateSummary(r.Context(), userID, id, "", 0); err != nil {
-						log.Error().Err(err).Str("session", id).Msg("reset_chat_summary")
-					}
-				}
-
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-
-			if r.Method == http.MethodDelete {
-				afterID := strings.TrimSpace(r.URL.Query().Get("after"))
-				if afterID == "" {
-					http.Error(w, "missing after", http.StatusBadRequest)
-					return
-				}
-				inclusive := false
-				switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("inclusive"))) {
-				case "true", "1", "yes", "y":
-					inclusive = true
-				}
-
-				msgs, err := a.chatStore.ListMessages(r.Context(), userID, id, 0)
-				if err != nil {
-					if errors.Is(err, persist.ErrForbidden) {
-						http.Error(w, "forbidden", http.StatusForbidden)
-						return
-					}
-					if errors.Is(err, persist.ErrNotFound) {
-						http.NotFound(w, r)
-						return
-					}
-					log.Error().Err(err).Str("session", id).Msg("list_chat_messages")
-					http.Error(w, "internal server error", http.StatusInternalServerError)
-					return
-				}
-				msgIndex := -1
-				var target persist.ChatMessage
-				for i, m := range msgs {
-					if m.ID == afterID {
-						msgIndex = i
-						target = m
-						break
-					}
-				}
-				if msgIndex == -1 {
-					http.NotFound(w, r)
-					return
-				}
-				sess, err := a.chatStore.GetSession(r.Context(), userID, id)
-				if err != nil {
-					if errors.Is(err, persist.ErrForbidden) {
-						http.Error(w, "forbidden", http.StatusForbidden)
-						return
-					}
-					if errors.Is(err, persist.ErrNotFound) {
-						http.NotFound(w, r)
-						return
-					}
-					log.Error().Err(err).Str("session", id).Msg("get_chat_session")
-					http.Error(w, "internal server error", http.StatusInternalServerError)
-					return
-				}
-
-				relatedMessageIDs := []string(nil)
-				if inclusive {
-					relatedMessageIDs = relatedToolMessageIDs(msgs, target)
-				}
-				remainingCount := msgIndex + 1
-				if inclusive {
-					remainingCount = msgIndex
-				}
-				resetSummary := sess.SummarizedCount > remainingCount
-				if atomicStore, ok := a.chatStore.(atomicChatTurnDeleteStore); ok {
-					if err := atomicStore.DeleteMessagesAfterWithRelated(r.Context(), userID, id, afterID, inclusive, relatedMessageIDs, resetSummary); err != nil {
-						if errors.Is(err, persist.ErrForbidden) {
-							http.Error(w, "forbidden", http.StatusForbidden)
-							return
-						}
-						if errors.Is(err, persist.ErrNotFound) {
-							http.NotFound(w, r)
-							return
-						}
-						log.Error().Err(err).Str("session", id).Msg("delete_chat_messages_after")
-						http.Error(w, "internal server error", http.StatusInternalServerError)
-						return
-					}
-
-					w.WriteHeader(http.StatusNoContent)
-					return
-				}
-
-				if err := a.chatStore.DeleteMessagesAfter(r.Context(), userID, id, afterID, inclusive); err != nil {
-					if errors.Is(err, persist.ErrForbidden) {
-						http.Error(w, "forbidden", http.StatusForbidden)
-						return
-					}
-					if errors.Is(err, persist.ErrNotFound) {
-						http.NotFound(w, r)
-						return
-					}
-					log.Error().Err(err).Str("session", id).Msg("delete_chat_messages_after")
-					http.Error(w, "internal server error", http.StatusInternalServerError)
-					return
-				}
-
-				// Remove related tool outputs if the target assistant message contained tool calls.
-				if inclusive {
-					if len(relatedMessageIDs) > 0 {
-						relatedSet := make(map[string]struct{}, len(relatedMessageIDs))
-						for _, relatedID := range relatedMessageIDs {
-							relatedSet[relatedID] = struct{}{}
-						}
-						for _, m := range msgs {
-							if _, ok := relatedSet[m.ID]; ok {
-								_ = a.chatStore.DeleteMessage(r.Context(), userID, id, m.ID)
-							}
-						}
-					}
-				}
-
-				if resetSummary {
-					if err := a.chatStore.UpdateSummary(r.Context(), userID, id, "", 0); err != nil {
-						log.Error().Err(err).Str("session", id).Msg("reset_chat_summary")
-					}
-				}
-
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-
-			if r.Method != http.MethodGet {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			limit := 0
-			if raw := r.URL.Query().Get("limit"); raw != "" {
-				if v, err := strconv.Atoi(raw); err == nil && v > 0 {
-					limit = v
-				}
-			}
-			msgs, err := a.chatStore.ListMessages(r.Context(), userID, id, limit)
-			if err != nil {
-				if errors.Is(err, persist.ErrForbidden) {
-					http.Error(w, "forbidden", http.StatusForbidden)
-					return
-				}
-				if errors.Is(err, persist.ErrNotFound) {
-					http.NotFound(w, r)
-					return
-				}
-				log.Error().Err(err).Str("session", id).Msg("list_chat_messages")
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			msgs = hydrateChatMessages(msgs)
-			w.Header().Set("Content-Type", "application/json")
-			if err := json.NewEncoder(w).Encode(msgs); err != nil {
-				log.Error().Err(err).Msg("encode_chat_messages")
-			}
-			return
-		}
-		if subresource == "title" {
-			if r.Method != http.MethodPost {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			defer r.Body.Close()
-			var body struct {
-				Prompt string `json:"prompt"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				http.Error(w, "bad request", http.StatusBadRequest)
-				return
-			}
-			prompt := strings.TrimSpace(body.Prompt)
-			if prompt == "" {
-				http.Error(w, "prompt required", http.StatusBadRequest)
-				return
-			}
-			sess, err := a.chatStore.GetSession(r.Context(), userID, id)
-			if err != nil {
-				if errors.Is(err, persist.ErrForbidden) {
-					http.Error(w, "forbidden", http.StatusForbidden)
-					return
-				}
-				if errors.Is(err, persist.ErrNotFound) {
-					http.NotFound(w, r)
-					return
-				}
-				log.Error().Err(err).Str("session", id).Msg("get_chat_session")
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			if !isDefaultSessionName(sess.Name) {
-				w.Header().Set("Content-Type", "application/json")
-				if err := json.NewEncoder(w).Encode(sess); err != nil {
-					log.Error().Err(err).Msg("encode_chat_session")
-				}
-				return
-			}
-			title, genErr := a.generateChatTitle(r.Context(), prompt)
-			if genErr != nil {
-				log.Warn().Err(genErr).Str("session", id).Msg("chat_title_fallback")
-			}
-			updated, err := a.chatStore.RenameSession(r.Context(), userID, id, title)
-			if err != nil {
-				if errors.Is(err, persist.ErrForbidden) {
-					http.Error(w, "forbidden", http.StatusForbidden)
-					return
-				}
-				if errors.Is(err, persist.ErrNotFound) {
-					http.NotFound(w, r)
-					return
-				}
-				log.Error().Err(err).Str("session", id).Msg("rename_chat_session")
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			if err := json.NewEncoder(w).Encode(updated); err != nil {
-				log.Error().Err(err).Msg("encode_chat_session")
-			}
-			return
-		}
-		switch r.Method {
-		case http.MethodGet:
-			sess, err := a.chatStore.GetSession(r.Context(), userID, id)
-			if err != nil {
-				if errors.Is(err, persist.ErrForbidden) {
-					http.Error(w, "forbidden", http.StatusForbidden)
-					return
-				}
-				if errors.Is(err, persist.ErrNotFound) {
-					http.NotFound(w, r)
-					return
-				}
-				log.Error().Err(err).Str("session", id).Msg("get_chat_session")
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			if err := json.NewEncoder(w).Encode(sess); err != nil {
-				log.Error().Err(err).Msg("encode_chat_session")
-			}
-		case http.MethodPatch:
-			defer r.Body.Close()
-			var body struct {
-				Name string `json:"name"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-				http.Error(w, "bad request", http.StatusBadRequest)
-				return
-			}
-			sess, err := a.chatStore.RenameSession(r.Context(), userID, id, body.Name)
-			if err != nil {
-				if errors.Is(err, persist.ErrForbidden) {
-					http.Error(w, "forbidden", http.StatusForbidden)
-					return
-				}
-				if errors.Is(err, persist.ErrNotFound) {
-					http.NotFound(w, r)
-					return
-				}
-				log.Error().Err(err).Str("session", id).Msg("rename_chat_session")
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			if err := json.NewEncoder(w).Encode(sess); err != nil {
-				log.Error().Err(err).Msg("encode_chat_session")
-			}
-		case http.MethodDelete:
-			if err := a.chatStore.DeleteSession(r.Context(), userID, id); err != nil {
-				if errors.Is(err, persist.ErrForbidden) {
-					http.Error(w, "forbidden", http.StatusForbidden)
-					return
-				}
-				if errors.Is(err, persist.ErrNotFound) {
-					http.NotFound(w, r)
-					return
-				}
-				log.Error().Err(err).Str("session", id).Msg("delete_chat_session")
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			w.WriteHeader(http.StatusNoContent)
-		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		}
-	}
-}
-
-// hydrateChatMessages post-processes persisted messages for client display.
-// It strips JSON wrappers used to preserve tool calls and attaches tool names/args
-// to tool-role messages so the UI can render the tool pane correctly after reload.
-func hydrateChatMessages(raw []persist.ChatMessage) []persist.ChatMessage {
-	out := make([]persist.ChatMessage, 0, len(raw))
-
-	type toolMeta struct {
-		name string
-		args string
-	}
-
-	metaByID := make(map[string]toolMeta)
-
-	for _, msg := range raw {
-		m := msg
-		trimmed := strings.TrimSpace(m.Content)
-
-		if m.Role == "assistant" && strings.HasPrefix(trimmed, "{") {
-			var data struct {
-				Content   string         `json:"content"`
-				ToolCalls []llm.ToolCall `json:"tool_calls"`
-			}
-			if err := json.Unmarshal([]byte(trimmed), &data); err == nil {
-				if data.Content != "" {
-					m.Content = data.Content
-				}
-				for _, tc := range data.ToolCalls {
-					args := strings.TrimSpace(string(tc.Args))
-					metaByID[tc.ID] = toolMeta{name: tc.Name, args: args}
-				}
-				// Assistant messages that only carried tool_calls should not render in the chat pane.
-				if strings.TrimSpace(data.Content) == "" && len(data.ToolCalls) > 0 {
-					continue
-				}
-			}
-		} else if m.Role == "tool" && strings.HasPrefix(trimmed, "{") {
-			var data struct {
-				Content string `json:"content"`
-				ToolID  string `json:"tool_id"`
-			}
-			if err := json.Unmarshal([]byte(trimmed), &data); err == nil {
-				if data.Content != "" {
-					m.Content = data.Content
-				}
-				if data.ToolID != "" {
-					m.ToolID = data.ToolID
-					if meta, ok := metaByID[data.ToolID]; ok {
-						m.Title = meta.name
-						m.ToolArgs = meta.args
-					}
-				}
-			}
-		}
-
-		out = append(out, m)
-	}
-
-	return out
-}
-
-type atomicChatTurnDeleteStore interface {
-	DeleteMessageWithRelated(ctx context.Context, userID *int64, sessionID string, messageID string, relatedMessageIDs []string, resetSummary bool) error
-	DeleteMessagesAfterWithRelated(ctx context.Context, userID *int64, sessionID string, messageID string, inclusive bool, relatedMessageIDs []string, resetSummary bool) error
-}
-
-func relatedToolMessageIDs(msgs []persist.ChatMessage, target persist.ChatMessage) []string {
-	toolIDs := toolCallIDsFromMessage(target)
-	if len(toolIDs) == 0 {
-		return nil
-	}
-	toolSet := make(map[string]struct{}, len(toolIDs))
-	for _, id := range toolIDs {
-		toolSet[id] = struct{}{}
-	}
-	related := make([]string, 0, len(toolSet))
-	seen := make(map[string]struct{})
-	for _, msg := range msgs {
-		if msg.Role != "tool" {
-			continue
-		}
-		toolID := toolIDFromMessage(msg)
-		if _, ok := toolSet[toolID]; !ok {
-			continue
-		}
-		if _, ok := seen[msg.ID]; ok {
-			continue
-		}
-		seen[msg.ID] = struct{}{}
-		related = append(related, msg.ID)
-	}
-	return related
-}
-
-func toolCallIDsFromMessage(msg persist.ChatMessage) []string {
-	if msg.Role != "assistant" {
-		return nil
-	}
-	trimmed := strings.TrimSpace(msg.Content)
-	if !strings.HasPrefix(trimmed, "{") {
-		return nil
-	}
-	var data struct {
-		ToolCalls []llm.ToolCall `json:"tool_calls"`
-	}
-	if err := json.Unmarshal([]byte(trimmed), &data); err != nil {
-		return nil
-	}
-	if len(data.ToolCalls) == 0 {
-		return nil
-	}
-	ids := make([]string, 0, len(data.ToolCalls))
-	for _, tc := range data.ToolCalls {
-		id := strings.TrimSpace(tc.ID)
-		if id != "" {
-			ids = append(ids, id)
-		}
-	}
-	return ids
-}
-
-func toolIDFromMessage(msg persist.ChatMessage) string {
-	if msg.Role != "tool" {
-		return ""
-	}
-	trimmed := strings.TrimSpace(msg.Content)
-	if !strings.HasPrefix(trimmed, "{") {
-		return ""
-	}
-	var data struct {
-		ToolID string `json:"tool_id"`
-	}
-	if err := json.Unmarshal([]byte(trimmed), &data); err != nil {
-		return ""
-	}
-	return strings.TrimSpace(data.ToolID)
-}
-
 func (a *app) agentRunHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		req, ok := prepareChatTransport(w, r, chatTransportOptions{})
@@ -793,18 +175,40 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			return
 		}
 		r = state.Request
+		req = state.RunRequest
 		specOwner := state.Owner
 		req.ObjectiveID = a.resolveChatObjectiveID(r.Context(), specOwner, req)
 		r = r.WithContext(sandbox.WithObjectiveID(r.Context(), req.ObjectiveID))
+		memorySettings := chatMemorySettingsFromRunRequest(req)
 
 		target := resolveChatDispatchTarget(r.URL.Query())
-		_, hasCustomTarget := a.describeChatTarget(target, req.SessionID, req.ProjectID, req.ObjectiveID, req.SystemPrompt, specOwner)
+		_, hasCustomTarget := a.describeChatTarget(chatTargetDescribeRequest{
+			Target:               target,
+			SessionID:            req.SessionID,
+			ProjectID:            req.ProjectID,
+			ObjectiveID:          req.ObjectiveID,
+			SystemPromptOverride: req.SystemPrompt,
+			Owner:                specOwner,
+			MemorySettings:       memorySettings,
+		})
 
 		if a.cfg.OpenAI.APIKey == "" && !hasCustomTarget {
 			a.handleDevMockChat(w, r, req.Prompt)
 			return
 		}
-		if handled := a.handleChatTarget(w, r, target, req.Prompt, req.SessionID, req.ProjectID, req.ObjectiveID, req.EphemeralSession, req.SystemPrompt, state.UserID, specOwner, a.agentRunOrchestratorDescriptor(r.Context(), specOwner, req, state.CheckedOutWorkspace)); handled {
+		if handled := a.handleChatTarget(w, r, chatTargetHandleRequest{
+			Target:               target,
+			Prompt:               req.Prompt,
+			SessionID:            req.SessionID,
+			ProjectID:            req.ProjectID,
+			ObjectiveID:          req.ObjectiveID,
+			EphemeralSession:     req.EphemeralSession,
+			SystemPromptOverride: req.SystemPrompt,
+			UserID:               state.UserID,
+			Owner:                specOwner,
+			Fallback:             a.agentRunOrchestratorDescriptor(r.Context(), specOwner, req, state.CheckedOutWorkspace),
+			MemorySettings:       memorySettings,
+		}); handled {
 			return
 		}
 	}
@@ -840,18 +244,40 @@ func (a *app) promptHandler() http.HandlerFunc {
 			return
 		}
 		r = state.Request
+		req = state.RunRequest
 		specOwner := state.Owner
 		req.ObjectiveID = a.resolveChatObjectiveID(r.Context(), specOwner, req)
 		r = r.WithContext(sandbox.WithObjectiveID(r.Context(), req.ObjectiveID))
+		memorySettings := chatMemorySettingsFromRunRequest(req)
 
 		target := resolveChatDispatchTarget(r.URL.Query())
-		_, hasCustomTarget := a.describeChatTarget(target, req.SessionID, req.ProjectID, req.ObjectiveID, req.SystemPrompt, specOwner)
+		_, hasCustomTarget := a.describeChatTarget(chatTargetDescribeRequest{
+			Target:               target,
+			SessionID:            req.SessionID,
+			ProjectID:            req.ProjectID,
+			ObjectiveID:          req.ObjectiveID,
+			SystemPromptOverride: req.SystemPrompt,
+			Owner:                specOwner,
+			MemorySettings:       memorySettings,
+		})
 
 		if a.cfg.OpenAI.APIKey == "" && !hasCustomTarget {
 			a.handleDevMockChat(w, r, req.Prompt)
 			return
 		}
-		if handled := a.handleChatTarget(w, r, target, req.Prompt, req.SessionID, req.ProjectID, req.ObjectiveID, req.EphemeralSession, req.SystemPrompt, state.UserID, specOwner, a.promptOrchestratorDescriptor(r.Context(), specOwner, req, state.CheckedOutWorkspace)); handled {
+		if handled := a.handleChatTarget(w, r, chatTargetHandleRequest{
+			Target:               target,
+			Prompt:               req.Prompt,
+			SessionID:            req.SessionID,
+			ProjectID:            req.ProjectID,
+			ObjectiveID:          req.ObjectiveID,
+			EphemeralSession:     req.EphemeralSession,
+			SystemPromptOverride: req.SystemPrompt,
+			UserID:               state.UserID,
+			Owner:                specOwner,
+			Fallback:             a.promptOrchestratorDescriptor(r.Context(), specOwner, req, state.CheckedOutWorkspace),
+			MemorySettings:       memorySettings,
+		}); handled {
 			return
 		}
 	}

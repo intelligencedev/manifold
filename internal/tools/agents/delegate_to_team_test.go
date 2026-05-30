@@ -171,6 +171,54 @@ func TestDelegateToTeam_ClearsInheritedClientTimeoutWhenUnset(t *testing.T) {
 	}
 }
 
+func TestDelegateToTeam_ParentCancellationReturnsPromptly(t *testing.T) {
+	t.Parallel()
+
+	requestStarted := make(chan struct{})
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(requestStarted)
+		<-release
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"result":"late"}`))
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	tool := NewDelegateToTeamTool(srv.Client(), srv.URL, 0)
+	raw, _ := json.Marshal(map[string]any{
+		"team":   "cancel-team",
+		"prompt": "long running",
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan map[string]any, 1)
+	go func() {
+		out, err := tool.Call(ctx, raw)
+		if err != nil {
+			done <- map[string]any{"ok": false, "error": err.Error()}
+			return
+		}
+		resp, _ := out.(map[string]any)
+		done <- resp
+	}()
+
+	select {
+	case <-requestStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected delegate_to_team request to start")
+	}
+	cancel()
+
+	select {
+	case resp := <-done:
+		if resp["ok"] != false {
+			t.Fatalf("expected cancelled response payload, got %#v", resp)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected delegate_to_team call to return after cancellation")
+	}
+}
+
 func TestDelegateToTeam_DefaultTimeoutIsApplied(t *testing.T) {
 	t.Parallel()
 

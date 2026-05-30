@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -107,6 +108,44 @@ func TestServiceCRUD(t *testing.T) {
 	}
 }
 
+func TestListProjectsWithUsageOption(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	svc := NewService(tmp, "")
+	userID := int64(13)
+	ctx := context.Background()
+
+	project, err := svc.CreateProject(ctx, userID, "Usage")
+	if err != nil {
+		t.Fatalf("CreateProject error: %v", err)
+	}
+	if err := svc.UploadFile(ctx, userID, project.ID, ".", "notes.txt", strings.NewReader("hello")); err != nil {
+		t.Fatalf("UploadFile error: %v", err)
+	}
+
+	withoutUsage, err := svc.ListProjectsWithUsage(ctx, userID, false)
+	if err != nil {
+		t.Fatalf("ListProjectsWithUsage(false) error: %v", err)
+	}
+	if len(withoutUsage) != 1 {
+		t.Fatalf("expected one project without usage, got: %+v", withoutUsage)
+	}
+	if withoutUsage[0].Bytes != 0 || withoutUsage[0].FileCount != 0 {
+		t.Fatalf("expected empty usage fields, got bytes=%d files=%d", withoutUsage[0].Bytes, withoutUsage[0].FileCount)
+	}
+
+	withUsage, err := svc.ListProjectsWithUsage(ctx, userID, true)
+	if err != nil {
+		t.Fatalf("ListProjectsWithUsage(true) error: %v", err)
+	}
+	if len(withUsage) != 1 {
+		t.Fatalf("expected one project with usage, got: %+v", withUsage)
+	}
+	if withUsage[0].Bytes < 5 || withUsage[0].FileCount < 1 {
+		t.Fatalf("expected computed usage, got bytes=%d files=%d", withUsage[0].Bytes, withUsage[0].FileCount)
+	}
+}
+
 func TestServiceMove(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
@@ -173,7 +212,7 @@ func TestCreateProject_SeedsDefaultSkills(t *testing.T) {
 	t.Parallel()
 	tmp := t.TempDir()
 
-	sourceSkills := filepath.Join(tmp, "source", ".skills")
+	sourceSkills := filepath.Join(tmp, "source", "skills")
 	if err := os.MkdirAll(filepath.Join(sourceSkills, "skill-a", "references"), 0o755); err != nil {
 		t.Fatalf("MkdirAll source skills error: %v", err)
 	}
@@ -197,11 +236,11 @@ func TestCreateProject_SeedsDefaultSkills(t *testing.T) {
 	}
 
 	projectRoot := filepath.Join(tmp, "users", "9", "projects", p.ID)
-	skillFile := filepath.Join(projectRoot, ".skills", "skill-a", "SKILL.md")
+	skillFile := filepath.Join(projectRoot, "skills", "skill-a", "SKILL.md")
 	if _, err := os.Stat(skillFile); err != nil {
 		t.Fatalf("seeded SKILL.md not found: %v", err)
 	}
-	referenceFile := filepath.Join(projectRoot, ".skills", "skill-a", "references", "ref.txt")
+	referenceFile := filepath.Join(projectRoot, "skills", "skill-a", "references", "ref.txt")
 	b, err := os.ReadFile(referenceFile)
 	if err != nil {
 		t.Fatalf("seeded reference file not found: %v", err)
@@ -236,12 +275,68 @@ func TestCreateProject_NoDefaultSkills(t *testing.T) {
 		t.Fatalf("CreateProject error: %v", err)
 	}
 	projectRoot := filepath.Join(tmp, "users", "11", "projects", p.ID)
-	if _, err := os.Stat(filepath.Join(projectRoot, ".skills")); !os.IsNotExist(err) {
-		t.Fatalf("expected no .skills directory, stat err=%v", err)
+	if _, err := os.Stat(filepath.Join(projectRoot, "skills")); !os.IsNotExist(err) {
+		t.Fatalf("expected no skills directory, stat err=%v", err)
 	}
 	if p.SkillsGeneration != 0 {
 		t.Fatalf("expected SkillsGeneration=0, got %d", p.SkillsGeneration)
 	}
+}
+
+func TestProjectSkillsGenerationBumpsForSkillsDirectory(t *testing.T) {
+	t.Parallel()
+	tmp := t.TempDir()
+	svc := NewService(tmp, "")
+	userID := int64(12)
+	ctx := context.TODO()
+
+	p, err := svc.CreateProject(ctx, userID, "Skills")
+	if err != nil {
+		t.Fatalf("CreateProject error: %v", err)
+	}
+	if err := svc.CreateDir(ctx, userID, p.ID, "skills/demo"); err != nil {
+		t.Fatalf("CreateDir error: %v", err)
+	}
+	if got := readSkillsGeneration(t, tmp, userID, p.ID); got != 1 {
+		t.Fatalf("expected skills generation after create dir = 1, got %d", got)
+	}
+	if err := svc.UploadFile(ctx, userID, p.ID, "skills/demo", "SKILL.md", strings.NewReader("---\nname: demo\ndescription: demo\n---\n")); err != nil {
+		t.Fatalf("UploadFile error: %v", err)
+	}
+	if got := readSkillsGeneration(t, tmp, userID, p.ID); got != 2 {
+		t.Fatalf("expected skills generation after upload = 2, got %d", got)
+	}
+	if err := svc.MovePath(ctx, userID, p.ID, "skills/demo/SKILL.md", "skills/demo/RENAMED.md"); err != nil {
+		t.Fatalf("MovePath error: %v", err)
+	}
+	if got := readSkillsGeneration(t, tmp, userID, p.ID); got != 3 {
+		t.Fatalf("expected skills generation after move = 3, got %d", got)
+	}
+	if err := svc.DeleteFile(ctx, userID, p.ID, "skills/demo/RENAMED.md"); err != nil {
+		t.Fatalf("DeleteFile error: %v", err)
+	}
+	if got := readSkillsGeneration(t, tmp, userID, p.ID); got != 4 {
+		t.Fatalf("expected skills generation after delete = 4, got %d", got)
+	}
+}
+
+func readSkillsGeneration(t *testing.T, workdir string, userID int64, projectID string) int64 {
+	t.Helper()
+	metaPath := filepath.Join(workdir, "users", "12", "projects", projectID, ".meta", "project.json")
+	if userID != 12 {
+		metaPath = filepath.Join(workdir, "users", strconv.FormatInt(userID, 10), "projects", projectID, ".meta", "project.json")
+	}
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		t.Fatalf("ReadFile project meta error: %v", err)
+	}
+	var meta struct {
+		SkillsGeneration int64 `json:"skillsGeneration"`
+	}
+	if err := json.Unmarshal(data, &meta); err != nil {
+		t.Fatalf("Unmarshal project meta error: %v", err)
+	}
+	return meta.SkillsGeneration
 }
 
 func TestServiceListProjectsHidesMatrixKindByDefault(t *testing.T) {

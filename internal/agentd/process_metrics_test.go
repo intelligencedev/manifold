@@ -3,6 +3,7 @@ package agentd
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 )
@@ -37,10 +38,10 @@ func TestProcessLogDetailFindsEntryByID(t *testing.T) {
 
 	provider := newProcessLogMetrics(10)
 	now := time.Now().UTC()
-	_, _ = provider.Write([]byte(fmt.Sprintf(`{"time":%q,"level":"info","message":"first"}`,
-		now.Add(-time.Minute).Format(time.RFC3339Nano))))
-	_, _ = provider.Write([]byte(fmt.Sprintf(`{"time":%q,"level":"error","message":"second","request_id":"req-2"}`,
-		now.Format(time.RFC3339Nano))))
+	_, _ = provider.Write(fmt.Appendf(nil, `{"time":%q,"level":"info","message":"first"}`,
+		now.Add(-time.Minute).Format(time.RFC3339Nano)))
+	_, _ = provider.Write(fmt.Appendf(nil, `{"time":%q,"level":"error","message":"second","request_id":"req-2"}`,
+		now.Format(time.RFC3339Nano)))
 
 	logs, _, err := provider.Logs(context.Background(), time.Hour, 10)
 	if err != nil {
@@ -63,10 +64,5 @@ func TestProcessLogDetailFindsEntryByID(t *testing.T) {
 }
 
 func containsString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, want)
 }

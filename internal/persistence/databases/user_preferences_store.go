@@ -33,7 +33,6 @@ func (s *memUserPreferencesStore) Get(ctx context.Context, userID int64) (persis
 	if prefs, ok := s.m[userID]; ok {
 		return prefs, nil
 	}
-	// Return zero-value with user ID set
 	return persistence.UserPreferences{UserID: userID}, nil
 }
 

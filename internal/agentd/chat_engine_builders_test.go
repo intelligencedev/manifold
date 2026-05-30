@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
 	"manifold/internal/agent"
+	"manifold/internal/agent/harness"
 	"manifold/internal/agent/memory"
 	"manifold/internal/config"
 	"manifold/internal/llm"
@@ -19,8 +22,38 @@ import (
 	"manifold/internal/testhelpers"
 	"manifold/internal/tools"
 	tooldiscovery "manifold/internal/tools/discovery"
+	inputrequesttool "manifold/internal/tools/inputrequest"
 	"manifold/internal/workspaces"
 )
+
+func buildSpecialistTestRequest(name, systemPromptOverride, sessionID string, owner int64) chatEngineBuildRequest {
+	return chatEngineBuildRequest{
+		Name:                 name,
+		SystemPromptOverride: systemPromptOverride,
+		SessionID:            sessionID,
+		Owner:                owner,
+		MemorySettings:       defaultChatMemoryRunSettings(),
+	}
+}
+
+func buildTeamTestRequest(name, sessionID string, owner int64) chatEngineBuildRequest {
+	return chatEngineBuildRequest{
+		Name:           name,
+		SessionID:      sessionID,
+		Owner:          owner,
+		MemorySettings: defaultChatMemoryRunSettings(),
+	}
+}
+
+func buildOrchestratorTestRequest(sessionID, systemPromptOverride string, owner int64, workspace *workspaces.Workspace) chatEngineBuildRequest {
+	return chatEngineBuildRequest{
+		SystemPromptOverride: systemPromptOverride,
+		SessionID:            sessionID,
+		Owner:                owner,
+		CheckedOutWorkspace:  workspace,
+		MemorySettings:       defaultChatMemoryRunSettings(),
+	}
+}
 
 func TestBuildSpecialistChatEngineUsesOverrideAndSkills(t *testing.T) {
 	t.Parallel()
@@ -40,7 +73,7 @@ func TestBuildSpecialistChatEngineUsesOverrideAndSkills(t *testing.T) {
 	}
 	app.invalidateSpecialistsCache(ctx, 7)
 
-	result := app.buildSpecialistChatEngine(ctx, "alpha", "override system", "sess-1", "", "", 7)
+	result := app.buildSpecialistChatEngine(ctx, buildSpecialistTestRequest("alpha", "override system", "sess-1", 7))
 	if result.Err != nil {
 		t.Fatalf("buildSpecialistChatEngine: %v", result.Err)
 	}
@@ -58,6 +91,28 @@ func TestBuildSpecialistChatEngineUsesOverrideAndSkills(t *testing.T) {
 	}
 	if result.Engine.Model != "gpt-4.1-mini" {
 		t.Fatalf("unexpected model: %q", result.Engine.Model)
+	}
+}
+
+func TestChatToolRegistryExposesInputRequestWhenAllowListIsNarrow(t *testing.T) {
+	t.Parallel()
+
+	base := tools.NewRegistry()
+	base.Register(inputrequesttool.New())
+	app := &app{
+		cfg:              &config.Config{EnableTools: true},
+		baseToolRegistry: base,
+	}
+
+	reg := app.chatToolRegistry(true, []string{"run_cli"}, nil)
+	names := tools.SchemaNames(reg)
+	if !containsString(names, "request_info") {
+		t.Fatalf("expected request_info to be exposed, got %v", names)
+	}
+
+	disabled := app.chatToolRegistry(false, []string{"request_info"}, nil)
+	if containsString(tools.SchemaNames(disabled), "request_info") {
+		t.Fatal("did not expect request_info when tools are disabled")
 	}
 }
 
@@ -85,7 +140,7 @@ func TestBuildTeamChatEngineBuildsDelegatorAndDefaultPrompt(t *testing.T) {
 		t.Fatalf("upsert team: %v", err)
 	}
 
-	result := app.buildTeamChatEngine(ctx, "ops", "sess-team", "", "", 9)
+	result := app.buildTeamChatEngine(ctx, buildTeamTestRequest("ops", "sess-team", 9))
 	if result.Err != nil {
 		t.Fatalf("buildTeamChatEngine: %v", result.Err)
 	}
@@ -110,7 +165,7 @@ func TestBuildOrchestratorChatEngineUsesOverride(t *testing.T) {
 	t.Parallel()
 
 	app := newChatEngineBuilderTestApp(t)
-	result := app.buildOrchestratorChatEngine(context.Background(), 7, "sess-1", "", "", "override system", nil)
+	result := app.buildOrchestratorChatEngine(context.Background(), buildOrchestratorTestRequest("sess-1", "override system", 7, nil))
 	if result.Err != nil {
 		t.Fatalf("buildOrchestratorChatEngine: %v", result.Err)
 	}
@@ -132,12 +187,169 @@ func TestBuildOrchestratorChatEngineDefaultsMaxSteps(t *testing.T) {
 	app.cfg.MaxSteps = 0
 	app.engine.MaxSteps = 0
 
-	result := app.buildOrchestratorChatEngine(context.Background(), 7, "sess-1", "", "", "", nil)
+	result := app.buildOrchestratorChatEngine(context.Background(), buildOrchestratorTestRequest("sess-1", "", 7, nil))
 	if result.Err != nil {
 		t.Fatalf("buildOrchestratorChatEngine: %v", result.Err)
 	}
 	if result.Engine.MaxSteps != 8 {
 		t.Fatalf("expected default max steps, got %d", result.Engine.MaxSteps)
+	}
+}
+
+func TestBuildChatEnginesCarryHarnessConfig(t *testing.T) {
+	t.Parallel()
+
+	app := newChatEngineBuilderTestApp(t)
+	app.cfg.Harness = config.HarnessConfig{
+		Enabled:           true,
+		Mode:              "workflow",
+		RescueEnabled:     true,
+		MaxRetriesPerStep: 5,
+		MaxToolErrors:     4,
+		TerminalTools:     []string{"agent_response"},
+		RequiredSteps:     []string{"search"},
+		Compact: config.HarnessCompactConfig{
+			Enabled:         true,
+			KeepRecentSteps: 6,
+			PhaseThresholds: []float64{0.5, 0.8},
+		},
+	}
+	app.engine.HarnessEnabled = app.cfg.Harness.Enabled
+	app.engine.HarnessConfig = harnessRunConfig(app.cfg.Harness)
+
+	ctx := context.Background()
+	_, err := app.specStore.Upsert(ctx, 7, persistence.Specialist{
+		Name:        "alpha",
+		Provider:    "openai",
+		Model:       "gpt-4.1-mini",
+		System:      "specialist system",
+		EnableTools: true,
+	})
+	if err != nil {
+		t.Fatalf("upsert specialist: %v", err)
+	}
+	_, err = app.teamStore.Upsert(ctx, 9, persistence.SpecialistTeam{
+		Name: "ops",
+		Orchestrator: persistence.Specialist{
+			Name:        "ops-orchestrator",
+			Provider:    "openai",
+			EnableTools: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("upsert team: %v", err)
+	}
+
+	orchestrator := app.buildOrchestratorChatEngine(ctx, buildOrchestratorTestRequest("sess-1", "", 7, nil))
+	specialist := app.buildSpecialistChatEngine(ctx, buildSpecialistTestRequest("alpha", "", "sess-2", 7))
+	team := app.buildTeamChatEngine(ctx, buildTeamTestRequest("ops", "sess-3", 9))
+
+	for name, result := range map[string]chatEngineBuildResult{
+		"orchestrator": orchestrator,
+		"specialist":   specialist,
+		"team":         team,
+	} {
+		if result.Err != nil {
+			t.Fatalf("%s build error: %v", name, result.Err)
+		}
+		if result.Engine == nil || !result.Engine.HarnessEnabled {
+			t.Fatalf("%s expected harness enabled, got %+v", name, result.Engine)
+		}
+		if result.Engine.HarnessConfig.Mode != harness.ModeWorkflow || result.Engine.HarnessConfig.MaxRetriesPerStep != 5 || result.Engine.HarnessConfig.MaxToolErrors != 4 {
+			t.Fatalf("%s unexpected harness config: %+v", name, result.Engine.HarnessConfig)
+		}
+		if !result.Engine.HarnessConfig.RescueEnabled {
+			t.Fatalf("%s expected rescue enabled", name)
+		}
+		if !reflect.DeepEqual(result.Engine.HarnessConfig.Workflow.RequiredSteps, []string{"search"}) {
+			t.Fatalf("%s unexpected required steps: %+v", name, result.Engine.HarnessConfig.Workflow.RequiredSteps)
+		}
+		if !result.Engine.HarnessConfig.Compact.Enabled || result.Engine.HarnessConfig.Compact.KeepRecentSteps != 6 || !reflect.DeepEqual(result.Engine.HarnessConfig.Compact.PhaseThresholds, []float64{0.5, 0.8}) {
+			t.Fatalf("%s unexpected compact config: %+v", name, result.Engine.HarnessConfig.Compact)
+		}
+	}
+}
+
+func TestBuildChatEnginesApplyPerTargetHarnessOverrides(t *testing.T) {
+	t.Parallel()
+
+	app := newChatEngineBuilderTestApp(t)
+	app.cfg.Harness = config.HarnessConfig{
+		Enabled:       false,
+		Mode:          "guarded_chat",
+		TerminalTools: []string{"agent_response"},
+	}
+	app.engine.HarnessEnabled = app.cfg.Harness.Enabled
+	app.engine.HarnessConfig = harnessRunConfig(app.cfg.Harness)
+
+	ctx := context.Background()
+	override := &persistence.SpecialistHarness{
+		Enabled:           true,
+		Mode:              "workflow",
+		MaxRetriesPerStep: 6,
+		TerminalTools:     []string{"agent_response"},
+		RequiredSteps:     []string{"search"},
+	}
+	_, err := app.specStore.Upsert(ctx, 7, persistence.Specialist{
+		Name:        specialists.OrchestratorName,
+		Provider:    "openai",
+		Model:       "gpt-4.1-mini",
+		EnableTools: true,
+		Harness:     override,
+	})
+	if err != nil {
+		t.Fatalf("upsert orchestrator: %v", err)
+	}
+	_, err = app.specStore.Upsert(ctx, 7, persistence.Specialist{
+		Name:        "alpha",
+		Provider:    "openai",
+		Model:       "gpt-4.1-mini",
+		EnableTools: true,
+		Harness:     override,
+	})
+	if err != nil {
+		t.Fatalf("upsert specialist: %v", err)
+	}
+	app.invalidateSpecialistsCache(ctx, 7)
+	_, err = app.specStore.Upsert(ctx, 9, persistence.Specialist{Name: "member-a", Provider: "openai", Model: "gpt-4.1-mini"})
+	if err != nil {
+		t.Fatalf("upsert team member: %v", err)
+	}
+	_, err = app.teamStore.Upsert(ctx, 9, persistence.SpecialistTeam{
+		Name: "ops",
+		Orchestrator: persistence.Specialist{
+			Name:        "ops-orchestrator",
+			Provider:    "openai",
+			EnableTools: true,
+			Harness:     override,
+		},
+		Members: []string{"member-a"},
+	})
+	if err != nil {
+		t.Fatalf("upsert team: %v", err)
+	}
+
+	orchestrator := app.buildOrchestratorChatEngine(ctx, buildOrchestratorTestRequest("sess-1", "", 7, nil))
+	specialist := app.buildSpecialistChatEngine(ctx, buildSpecialistTestRequest("alpha", "", "sess-2", 7))
+	team := app.buildTeamChatEngine(ctx, buildTeamTestRequest("ops", "sess-3", 9))
+
+	for name, result := range map[string]chatEngineBuildResult{
+		"orchestrator": orchestrator,
+		"specialist":   specialist,
+		"team":         team,
+	} {
+		if result.Err != nil {
+			t.Fatalf("%s build error: %v", name, result.Err)
+		}
+		if result.Engine == nil || !result.Engine.HarnessEnabled {
+			t.Fatalf("%s expected harness override enabled, got %+v", name, result.Engine)
+		}
+		if result.Engine.HarnessConfig.Mode != harness.ModeWorkflow || result.Engine.HarnessConfig.MaxRetriesPerStep != 6 {
+			t.Fatalf("%s unexpected harness override: %+v", name, result.Engine.HarnessConfig)
+		}
+		if !reflect.DeepEqual(result.Engine.HarnessConfig.Workflow.RequiredSteps, []string{"search"}) {
+			t.Fatalf("%s unexpected required steps: %+v", name, result.Engine.HarnessConfig.Workflow.RequiredSteps)
+		}
 	}
 }
 
@@ -164,7 +376,7 @@ func TestBuildSpecialistChatEngineUsesSkillSearchWhenAutoDiscoverEnabled(t *test
 	}
 	app.invalidateSpecialistsCache(ctx, 7)
 
-	result := app.buildSpecialistChatEngine(ctx, "alpha", "", "sess-1", "", "", 7)
+	result := app.buildSpecialistChatEngine(ctx, buildSpecialistTestRequest("alpha", "", "sess-1", 7))
 	if result.Err != nil {
 		t.Fatalf("buildSpecialistChatEngine: %v", result.Err)
 	}
@@ -177,6 +389,9 @@ func TestBuildSpecialistChatEngineUsesSkillSearchWhenAutoDiscoverEnabled(t *test
 	if !containsTool(result.Engine.Tools, "skill_search") {
 		t.Fatalf("expected skill_search tool, got %v", tools.SchemaNames(result.Engine.Tools))
 	}
+	if !containsTool(result.Engine.Tools, "skill_read") {
+		t.Fatalf("expected skill_read tool, got %v", tools.SchemaNames(result.Engine.Tools))
+	}
 }
 
 func TestBuildOrchestratorChatEngineFallsBackToInlineSkillsWhenToolsDisabled(t *testing.T) {
@@ -186,7 +401,7 @@ func TestBuildOrchestratorChatEngineFallsBackToInlineSkillsWhenToolsDisabled(t *
 	app.cfg.AutoDiscover = true
 	app.cfg.EnableTools = false
 	projectDir := skillProjectDir(t, "deploy-runbook", "Deploy the application safely.")
-	result := app.buildOrchestratorChatEngine(context.Background(), 7, "sess-1", "", "", "", &workspaces.Workspace{BaseDir: projectDir})
+	result := app.buildOrchestratorChatEngine(context.Background(), buildOrchestratorTestRequest("sess-1", "", 7, &workspaces.Workspace{BaseDir: projectDir}))
 	if result.Err != nil {
 		t.Fatalf("buildOrchestratorChatEngine: %v", result.Err)
 	}
@@ -198,6 +413,9 @@ func TestBuildOrchestratorChatEngineFallsBackToInlineSkillsWhenToolsDisabled(t *
 	}
 	if containsTool(result.Engine.Tools, "skill_search") {
 		t.Fatalf("did not expect skill_search tool, got %v", tools.SchemaNames(result.Engine.Tools))
+	}
+	if containsTool(result.Engine.Tools, "skill_read") {
+		t.Fatalf("did not expect skill_read tool, got %v", tools.SchemaNames(result.Engine.Tools))
 	}
 }
 
@@ -211,7 +429,7 @@ func TestBuildOrchestratorChatEngineUsesSkillSearchWhenAutoDiscoverEnabled(t *te
 	app.toolIndex = tooldiscovery.NewToolIndex(app.baseToolRegistry.Schemas())
 	projectDir := skillProjectDir(t, "incident-response", "Handle production incidents with a runbook.")
 
-	result := app.buildOrchestratorChatEngine(context.Background(), 7, "sess-1", "", "", "", &workspaces.Workspace{BaseDir: projectDir})
+	result := app.buildOrchestratorChatEngine(context.Background(), buildOrchestratorTestRequest("sess-1", "", 7, &workspaces.Workspace{BaseDir: projectDir}))
 	if result.Err != nil {
 		t.Fatalf("buildOrchestratorChatEngine: %v", result.Err)
 	}
@@ -223,6 +441,32 @@ func TestBuildOrchestratorChatEngineUsesSkillSearchWhenAutoDiscoverEnabled(t *te
 	}
 	if !containsTool(result.Engine.Tools, "skill_search") {
 		t.Fatalf("expected skill_search tool, got %v", tools.SchemaNames(result.Engine.Tools))
+	}
+	if !containsTool(result.Engine.Tools, "skill_read") {
+		t.Fatalf("expected skill_read tool, got %v", tools.SchemaNames(result.Engine.Tools))
+	}
+}
+
+func TestBuildOrchestratorChatEngineUsesInlineSkillsAndSkillReadWhenAutoDiscoverDisabled(t *testing.T) {
+	t.Parallel()
+
+	app := newChatEngineBuilderTestApp(t)
+	app.cfg.AutoDiscover = false
+	app.cfg.EnableTools = true
+	projectDir := skillProjectDir(t, "release-checklist", "Coordinate a production release checklist.")
+
+	result := app.buildOrchestratorChatEngine(context.Background(), buildOrchestratorTestRequest("sess-1", "", 7, &workspaces.Workspace{BaseDir: projectDir}))
+	if result.Err != nil {
+		t.Fatalf("buildOrchestratorChatEngine: %v", result.Err)
+	}
+	if !strings.Contains(result.Engine.UserPromptContext, "## Skills") {
+		t.Fatalf("expected inline skills, got %q", result.Engine.UserPromptContext)
+	}
+	if containsTool(result.Engine.Tools, "skill_search") {
+		t.Fatalf("did not expect skill_search tool, got %v", tools.SchemaNames(result.Engine.Tools))
+	}
+	if !containsTool(result.Engine.Tools, "skill_read") {
+		t.Fatalf("expected skill_read tool, got %v", tools.SchemaNames(result.Engine.Tools))
 	}
 }
 
@@ -255,7 +499,7 @@ func TestBuildTeamChatEngineUsesSkillSearchWhenAutoDiscoverEnabled(t *testing.T)
 		t.Fatalf("upsert team: %v", err)
 	}
 
-	result := app.buildTeamChatEngine(ctx, "ops", "sess-team", "", "", 9)
+	result := app.buildTeamChatEngine(ctx, buildTeamTestRequest("ops", "sess-team", 9))
 	if result.Err != nil {
 		t.Fatalf("buildTeamChatEngine: %v", result.Err)
 	}
@@ -267,6 +511,9 @@ func TestBuildTeamChatEngineUsesSkillSearchWhenAutoDiscoverEnabled(t *testing.T)
 	}
 	if !containsTool(result.Engine.Tools, "skill_search") {
 		t.Fatalf("expected skill_search tool, got %v", tools.SchemaNames(result.Engine.Tools))
+	}
+	if !containsTool(result.Engine.Tools, "skill_read") {
+		t.Fatalf("expected skill_read tool, got %v", tools.SchemaNames(result.Engine.Tools))
 	}
 }
 
@@ -289,7 +536,7 @@ func TestBuildSpecialistChatEngineAttachesSessionEvolvingMemory(t *testing.T) {
 	}
 	app.invalidateSpecialistsCache(ctx, 7)
 
-	result := app.buildSpecialistChatEngine(ctx, "alpha", "", "sess-42", "", "", 7)
+	result := app.buildSpecialistChatEngine(ctx, buildSpecialistTestRequest("alpha", "", "sess-42", 7))
 	if result.Err != nil {
 		t.Fatalf("buildSpecialistChatEngine: %v", result.Err)
 	}
@@ -301,6 +548,67 @@ func TestBuildSpecialistChatEngineAttachesSessionEvolvingMemory(t *testing.T) {
 	}
 	if result.Engine.Delegator == nil {
 		t.Fatal("expected specialist delegator")
+	}
+}
+
+func TestBuildSpecialistChatEngineCanDisableSessionEvolvingMemory(t *testing.T) {
+	t.Parallel()
+
+	app := newChatEngineBuilderTestApp(t)
+	app.evolvingCfg = memory.EvolvingMemoryConfig{LLM: app.llm}
+	app.engine.ReMemEnabled = true
+	ctx := sandbox.WithBaseDir(context.Background(), t.TempDir())
+
+	_, err := app.specStore.Upsert(ctx, 7, persistence.Specialist{
+		Name:        "alpha",
+		Provider:    "openai",
+		Model:       "gpt-4.1-mini",
+		System:      "specialist system",
+		EnableTools: true,
+	})
+	if err != nil {
+		t.Fatalf("upsert specialist: %v", err)
+	}
+	app.invalidateSpecialistsCache(ctx, 7)
+
+	result := app.buildSpecialistChatEngine(ctx, chatEngineBuildRequest{
+		Name:      "alpha",
+		SessionID: "sess-42",
+		Owner:     7,
+		MemorySettings: chatMemoryRunSettings{
+			EvolvingMemoryEnabled: false,
+			BeliefMemoryEnabled:   true,
+		},
+	})
+	if result.Err != nil {
+		t.Fatalf("buildSpecialistChatEngine: %v", result.Err)
+	}
+	if result.Engine.EvolvingMemory != nil || result.Engine.ReMemEnabled || result.Engine.ReMemController != nil {
+		t.Fatalf("expected evolving memory and ReMem disabled, got memory=%v remem=%v controller=%v", result.Engine.EvolvingMemory, result.Engine.ReMemEnabled, result.Engine.ReMemController)
+	}
+	if !result.Engine.DisableEvolvingMemory {
+		t.Fatal("expected DisableEvolvingMemory flag")
+	}
+}
+
+func TestApplyChatMemorySettingsCanDisableBeliefMemory(t *testing.T) {
+	t.Parallel()
+
+	eng := &agent.Engine{
+		BeliefMaxBeliefsPerPrompt: 4,
+		BeliefPromptTokenBudget:   700,
+		BeliefPromotionThreshold:  0.8,
+	}
+	applyChatMemorySettingsToEngine(eng, chatMemoryRunSettings{
+		EvolvingMemoryEnabled: true,
+		BeliefMemoryEnabled:   false,
+	})
+
+	if !eng.DisableBeliefMemory {
+		t.Fatal("expected DisableBeliefMemory flag")
+	}
+	if eng.BeliefMaxBeliefsPerPrompt != 0 || eng.BeliefPromptTokenBudget != 0 || eng.BeliefPromotionThreshold != 0 {
+		t.Fatalf("expected belief runtime settings cleared, got %+v", eng)
 	}
 }
 
@@ -328,7 +636,7 @@ func TestBuildTeamChatEngineAttachesSessionEvolvingMemory(t *testing.T) {
 		t.Fatalf("upsert team: %v", err)
 	}
 
-	result := app.buildTeamChatEngine(ctx, "ops", "sess-team", "", "", 9)
+	result := app.buildTeamChatEngine(ctx, buildTeamTestRequest("ops", "sess-team", 9))
 	if result.Err != nil {
 		t.Fatalf("buildTeamChatEngine: %v", result.Err)
 	}
@@ -366,18 +674,13 @@ func (t staticTool) Call(context.Context, json.RawMessage) (any, error) {
 }
 
 func containsTool(reg tools.Registry, name string) bool {
-	for _, toolName := range tools.SchemaNames(reg) {
-		if toolName == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(tools.SchemaNames(reg), name)
 }
 
 func skillProjectDir(t *testing.T, name, description string) string {
 	t.Helper()
 	projectDir := t.TempDir()
-	skillPath := filepath.Join(projectDir, ".skills", name, "SKILL.md")
+	skillPath := filepath.Join(projectDir, "skills", name, "SKILL.md")
 	if err := os.MkdirAll(filepath.Dir(skillPath), 0o755); err != nil {
 		t.Fatalf("mkdir skills dir: %v", err)
 	}

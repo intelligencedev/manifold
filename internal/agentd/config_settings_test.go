@@ -36,6 +36,13 @@ func TestApplyAgentdSettings_UsesNormalizedAliases(t *testing.T) {
 		DBURL:                               "postgres://dburl",
 		PostgresDSN:                         "postgres://canonical",
 		SummaryPlainTextContextWindowTokens: 8192,
+		EmbedInstructionMode:                "enabled",
+		EmbedInstructionFormat:              "qwen",
+		EmbedRAGQueryInstruction:            "Retrieve relevant passages.",
+		RerankEnabled:                       true,
+		RerankBaseURL:                       "http://localhost:8203",
+		RerankModel:                         "qwen3-reranker-0.6b",
+		RerankInstruction:                   "Classify whether the document matches the query topic",
 	}
 
 	if err := applyAgentdSettings(cfg, settings); err != nil {
@@ -53,6 +60,18 @@ func TestApplyAgentdSettings_UsesNormalizedAliases(t *testing.T) {
 	}
 	if cfg.Summary.PlainTextContextWindowTokens != 8192 {
 		t.Fatalf("expected plain text summary context tokens, got %d", cfg.Summary.PlainTextContextWindowTokens)
+	}
+	if cfg.Embedding.Instructions.Mode != "enabled" || cfg.Embedding.Instructions.RAGQuery != "Retrieve relevant passages." {
+		t.Fatalf("expected embedding instruction settings, got %+v", cfg.Embedding.Instructions)
+	}
+	if !cfg.Reranking.Enabled || cfg.Reranking.BaseURL != "http://localhost:8203" || cfg.Reranking.Model != "qwen3-reranker-0.6b" {
+		t.Fatalf("expected reranking settings, got %+v", cfg.Reranking)
+	}
+	if cfg.Reranking.Instruction != "Classify whether the document matches the query topic" {
+		t.Fatalf("expected reranking instruction, got %q", cfg.Reranking.Instruction)
+	}
+	if currentAgentdSettings(cfg).RerankInstruction != "Classify whether the document matches the query topic" {
+		t.Fatalf("expected GET projection to include reranking instruction")
 	}
 }
 
@@ -78,6 +97,13 @@ func TestApplyAgentdSettingsYAML_UsesNormalizedAliases(t *testing.T) {
 		PostgresDSN:                         "postgres://canonical",
 		SummaryPlainTextContextWindowTokens: 8192,
 		BlockBinaries:                       "git, rg",
+		EmbedInstructionMode:                "enabled",
+		EmbedInstructionFormat:              "qwen",
+		EmbedEvolvingMemoryQueryInstruction: "Retrieve relevant memories.",
+		RerankEnabled:                       true,
+		RerankBaseURL:                       "http://localhost:8203",
+		RerankModel:                         "qwen3-reranker-0.6b",
+		RerankInstruction:                   "Classify whether the document matches the query topic",
 	})
 
 	web, ok := root["web"].(map[string]any)
@@ -99,5 +125,20 @@ func TestApplyAgentdSettingsYAML_UsesNormalizedAliases(t *testing.T) {
 	binaries, ok := execCfg["blockBinaries"].([]string)
 	if !ok || len(binaries) != 2 || binaries[0] != "git" || binaries[1] != "rg" {
 		t.Fatalf("expected split block binaries, got %#v", execCfg["blockBinaries"])
+	}
+	embeddingCfg, ok := root["embedding"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected embedding config in YAML map")
+	}
+	instructions, ok := embeddingCfg["instructions"].(map[string]any)
+	if !ok || instructions["mode"] != "enabled" || instructions["evolvingMemoryQuery"] != "Retrieve relevant memories." {
+		t.Fatalf("expected embedding instructions in YAML map, got %#v", embeddingCfg["instructions"])
+	}
+	rerankingCfg, ok := root["reranking"].(map[string]any)
+	if !ok || rerankingCfg["enabled"] != true || rerankingCfg["baseURL"] != "http://localhost:8203" || rerankingCfg["model"] != "qwen3-reranker-0.6b" {
+		t.Fatalf("expected reranking config in YAML map, got %#v", root["reranking"])
+	}
+	if rerankingCfg["instruction"] != "Classify whether the document matches the query topic" {
+		t.Fatalf("expected reranking instruction in YAML map, got %#v", root["reranking"])
 	}
 }

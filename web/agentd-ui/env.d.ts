@@ -11,7 +11,9 @@ declare module "*.vue" {
 }
 
 interface ImportMetaEnv {
-  readonly VITE_AGENT_API_BASE_URL: string;
+  readonly VITE_AGENT_API_BASE_URL?: string;
+  readonly VITE_AGENTD_BASE_URL?: string;
+  readonly VITE_DEBUG_SSE?: string;
   readonly VITE_MANIFOLD_FEATURE_GATE?: string;
 }
 

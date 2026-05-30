@@ -14,6 +14,68 @@ func (em *EvolvingMemory) ExportMemories() []*MemoryEntry {
 	return em.snapshotEntriesLocked()
 }
 
+// RebuildEmbeddings recomputes embeddings for existing memories using the
+// current retrieval text recipe. It is intended for maintenance/backfill after
+// changing embedding models or retrieval text composition.
+func (em *EvolvingMemory) RebuildEmbeddings(ctx context.Context) error {
+	if em == nil || !em.enableRAG {
+		return nil
+	}
+	em.mu.RLock()
+	entries := em.snapshotEntriesLocked()
+	em.mu.RUnlock()
+	if len(entries) == 0 {
+		return nil
+	}
+
+	rebuilt := make(map[string][]float32, len(entries))
+	for _, entry := range entries {
+		if entry == nil || strings.TrimSpace(entry.ID) == "" {
+			continue
+		}
+		text := retrievalTextForMemory(entry.Input, entry.Output, entry.Feedback, entry.Summary, entry.StrategyCard)
+		vecs, err := em.embedFn(ctx, em.embedCfg, []string{text})
+		if err != nil {
+			return err
+		}
+		if len(vecs) == 0 {
+			continue
+		}
+		rebuilt[entry.ID] = normalizeVector(vecs[0])
+	}
+	if len(rebuilt) == 0 {
+		return nil
+	}
+
+	em.mu.Lock()
+	for _, entry := range em.entries {
+		if entry == nil {
+			continue
+		}
+		vec, ok := rebuilt[entry.ID]
+		if !ok {
+			continue
+		}
+		entry.Embedding = vec
+		if entry.Metadata == nil {
+			entry.Metadata = make(map[string]any)
+		}
+		entry.Metadata["embedding_enabled"] = true
+		entry.Metadata["embedding_text_basis"] = memoryEmbeddingTextBasis
+		entry.Metadata["embedding_text_length"] = len(retrievalTextForMemory(entry.Input, entry.Output, entry.Feedback, entry.Summary, entry.StrategyCard))
+		entry.Metadata["has_embedding"] = true
+		delete(entry.Metadata, "embedding_error")
+		em.markDirtyLocked(entry.ID)
+	}
+	entriesSnapshot := em.snapshotEntriesLocked()
+	em.mu.Unlock()
+
+	if em.store != nil {
+		em.persistEntriesAsync(entriesSnapshot)
+	}
+	return nil
+}
+
 func (em *EvolvingMemory) shouldPromoteToUserScopeLocked(entry *MemoryEntry) bool {
 	if entry == nil || entry.Scope == MemoryScopeUser || em.promotionAccessThreshold <= 0 {
 		return false

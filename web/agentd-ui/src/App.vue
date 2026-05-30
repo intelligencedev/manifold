@@ -1,93 +1,83 @@
 <template>
-  <div
-    :class="[
-      'relative h-screen min-w-[1280px] overflow-hidden bg-background text-foreground',
-      isObsDash ? 'theme-obsdash' : '',
-    ]"
-  >
-    <div
-      v-if="isObsDash"
-      class="pointer-events-none absolute inset-0 opacity-90"
-    ></div>
-    <div
-      v-if="isObsDash"
-      class="pointer-events-none absolute inset-0 bg-grain mix-blend-soft-light opacity-35"
-    ></div>
+  <AppShell :inspector="false">
+    <template #rail>
+      <IconRail />
+    </template>
 
-    <div class="relative z-10 flex h-full flex-col">
-      <Topbar>
-        <template #logo>
-          <div class="flex items-center gap-3 min-w-0">
-            <img
-              :src="manifoldLogo"
-              alt="Manifold logo"
-              class="h-10 w-10 rounded object-contain"
-            />
-            <div class="min-w-0">
-              <p class="text-base font-semibold leading-none">Manifold</p>
-            </div>
-          </div>
-        </template>
-
-        <template #nav>
-          <RouterLink
-            v-for="item in navigation"
-            :key="item.to"
-            :to="item.to"
-            :class="navClass(item.to)"
-            :aria-current="isActive(item.to) ? 'page' : undefined"
-          >
-            {{ item.label }}
-          </RouterLink>
-        </template>
-
+    <template #topbar>
+      <BreadcrumbTopbar :title="sectionTitle" :crumb="sectionCrumb">
         <template #actions>
-          <div class="hidden items-center gap-2 sm:flex"></div>
-          <div class="ml-1">
-            <AccountButton :username="user?.name || user?.email" />
-          </div>
-        </template>
-      </Topbar>
-
-      <div class="md:hidden px-1.5 pt-1 pb-0.5">
-        <div class="flex items-center gap-2 overflow-x-auto text-sm">
-          <RouterLink
-            v-for="item in navigation"
-            :key="item.to"
-            :to="item.to"
-            :class="navClass(item.to, true)"
-            :aria-current="isActive(item.to) ? 'page' : undefined"
+          <button
+            ref="commandTriggerRef"
+            type="button"
+            class="halo-focus rounded-md border border-[rgb(var(--line-strong))] bg-surface px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground hover:bg-surface-muted hover:text-foreground"
+            aria-label="Open command bar"
+            @click="openCommand"
           >
-            {{ item.label }}
-          </RouterLink>
-        </div>
-      </div>
+            ⌘K
+          </button>
+          <ThemeToggle />
+          <AccountButton :username="user?.name || user?.email" />
+        </template>
+      </BreadcrumbTopbar>
+    </template>
 
-      <main
-        class="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden px-1.5 pb-1.5 pt-1.5 md:px-3 md:pb-3 md:pt-2.5"
-      >
-        <RouterView />
-      </main>
-    </div>
-  </div>
+    <RouterView />
+    <MCommandBar v-if="commandOpen" @close="closeCommand" />
+  </AppShell>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
-import { RouterLink, RouterView, useRoute } from "vue-router";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { RouterView, useRoute } from "vue-router";
 import AccountButton from "@/components/AccountButton.vue";
-import Topbar from "@/components/ui/Topbar.vue";
-import manifoldLogo from "@/assets/images/manifold_logo.png";
-import { useThemeStore } from "@/stores/theme";
+import ThemeToggle from "@/components/ThemeToggle.vue";
+import AppShell from "@/components/ui/AppShell.vue";
+import BreadcrumbTopbar from "@/components/ui/BreadcrumbTopbar.vue";
+import IconRail from "@/components/ui/IconRail.vue";
+import MCommandBar from "@/components/ui/MCommandBar.vue";
 
-const themeStore = useThemeStore();
 const route = useRoute();
-const isObsDash = computed(() => themeStore.resolvedThemeId === "obsdash-dark");
 
 const user = ref<{ name?: string; email?: string; picture?: string } | null>(
   null,
 );
+const commandOpen = ref(false);
+const commandTriggerRef = ref<HTMLButtonElement | null>(null);
+
+const metaSource = computed(() => {
+  const matched = [...route.matched]
+    .reverse()
+    .find((record) => record.meta?.title || record.meta?.purpose);
+  return matched?.meta ?? route.meta;
+});
+
+const sectionTitle = computed(() =>
+  String(metaSource.value.title ?? metaSource.value.label ?? "Manifold"),
+);
+
+const sectionCrumb = computed(() => {
+  const purpose = metaSource.value.purpose;
+  return purpose ? String(purpose) : undefined;
+});
+
+function openCommand() {
+  commandOpen.value = true;
+}
+
+function closeCommand() {
+  commandOpen.value = false;
+}
+
+function handleGlobalKeydown(event: KeyboardEvent) {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    openCommand();
+  }
+}
+
 onMounted(async () => {
+  window.addEventListener("keydown", handleGlobalKeydown);
   try {
     const res = await fetch("/api/me", { credentials: "include" });
     if (res.ok) user.value = await res.json();
@@ -101,51 +91,8 @@ onMounted(async () => {
   }
 });
 
-interface NavigationItem {
-  label: string;
-  to: string;
-}
-
-const betaNavigation: NavigationItem[] =
-  import.meta.env.VITE_MANIFOLD_FEATURE_GATE === "beta"
-    ? [
-        { label: "Code QA", to: "/codeqa" },
-        { label: "Beliefs", to: "/beliefs" },
-      ]
-    : [];
-
-const navigation: NavigationItem[] = [
-  { label: "Overview", to: "/" },
-  { label: "Projects", to: "/projects" },
-  { label: "Specialists", to: "/specialists" },
-  { label: "Chat", to: "/chat" },
-  { label: "Pulse", to: "/pulse" },
-  { label: "Playground", to: "/playground" },
-  { label: "Flow", to: "/flow" },
-  ...betaNavigation,
-  { label: "Settings", to: "/settings" },
-];
-
-function isActive(path: string) {
-  return route.path === path || route.path.startsWith(`${path}/`);
-}
-
-function navClass(path: string, dense = false) {
-  const base = [
-    "inline-flex items-center justify-center rounded-full border transition-colors whitespace-nowrap",
-    dense
-      ? "px-3 py-2 text-xs"
-      : "px-3 py-2 text-sm min-h-[38px] min-w-[42px] gap-2",
-  ];
-  if (isActive(path)) {
-    base.push(
-      "border-white/12 bg-surface-muted/80 text-foreground shadow-[0_12px_40px_rgba(0,0,0,0.30)]",
-    );
-  } else {
-    base.push(
-      "border-transparent text-subtle-foreground hover:border-white/10 hover:text-foreground hover:bg-surface-muted/60",
-    );
-  }
-  return base;
-}
+onBeforeUnmount(() => {
+  window.removeEventListener("keydown", handleGlobalKeydown);
+  commandTriggerRef.value = null;
+});
 </script>

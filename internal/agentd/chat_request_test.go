@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"manifold/internal/config"
 	"manifold/internal/sandbox"
 	"manifold/internal/workspaces"
@@ -44,8 +46,8 @@ func TestChatRunRequestNormalize(t *testing.T) {
 
 	req.normalize()
 
-	if req.SessionID != "default" {
-		t.Fatalf("expected default session, got %q", req.SessionID)
+	if req.SessionID != normalizeClientChatSessionID("default") {
+		t.Fatalf("expected normalized default session, got %q", req.SessionID)
 	}
 	if req.ProjectID != "project-1" {
 		t.Fatalf("expected trimmed project id, got %q", req.ProjectID)
@@ -64,6 +66,28 @@ func TestChatRunRequestNormalize(t *testing.T) {
 	}
 	if req.ImageSize != "1024x1024" {
 		t.Fatalf("expected trimmed image size, got %q", req.ImageSize)
+	}
+}
+
+func TestNormalizeClientChatSessionID(t *testing.T) {
+	t.Parallel()
+
+	defaultID := normalizeClientChatSessionID("default")
+	if defaultID == "default" || defaultID == "" {
+		t.Fatalf("expected default alias to map to a UUID, got %q", defaultID)
+	}
+	if _, err := uuid.Parse(defaultID); err != nil {
+		t.Fatalf("expected default alias to map to a UUID, got %q: %v", defaultID, err)
+	}
+	if got := normalizeClientChatSessionID("  default  "); got != defaultID {
+		t.Fatalf("expected trimmed default alias to map deterministically, got %q want %q", got, defaultID)
+	}
+	if got := normalizeClientChatSessionID("alias-1"); got != normalizeClientChatSessionID("alias-1") {
+		t.Fatalf("expected alias mapping to be deterministic")
+	}
+	const uuidID = "11111111-1111-4111-8111-111111111111"
+	if got := normalizeClientChatSessionID(uuidID); got != uuidID {
+		t.Fatalf("expected UUID to pass through unchanged, got %q", got)
 	}
 }
 
@@ -171,5 +195,20 @@ func TestChatRunRequestUnmarshalAcceptsLegacyBotID(t *testing.T) {
 	}
 	if req.RouteTarget != "@legacy:matrix.example.com" {
 		t.Fatalf("expected route target from legacy bot_id, got %q", req.RouteTarget)
+	}
+}
+
+func TestChatRunRequestUnmarshalMemorySettings(t *testing.T) {
+	t.Parallel()
+
+	var req chatRunRequest
+	if err := json.Unmarshal([]byte(`{"prompt":"hello","evolving_memory_enabled":false,"beliefMemoryEnabled":true}`), &req); err != nil {
+		t.Fatalf("unmarshal memory settings: %v", err)
+	}
+	if req.EvolvingMemoryEnabled == nil || *req.EvolvingMemoryEnabled {
+		t.Fatalf("expected evolving memory false, got %#v", req.EvolvingMemoryEnabled)
+	}
+	if req.BeliefMemoryEnabled == nil || !*req.BeliefMemoryEnabled {
+		t.Fatalf("expected belief memory true, got %#v", req.BeliefMemoryEnabled)
 	}
 }

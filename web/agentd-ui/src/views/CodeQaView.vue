@@ -29,7 +29,7 @@
     <!-- Inline launch form: only visible on demand, single compact row. -->
     <form
       v-if="formOpen"
-      class="grid grid-cols-[2fr_2fr_1fr_1fr_auto] gap-3 rounded-xl border border-border/60 bg-surface-muted/30 p-4"
+      class="grid grid-cols-[2fr_2fr_1fr_1fr_auto] gap-3 rounded-md border border-border/60 bg-surface-muted/30 p-4"
       @submit.prevent="launchRun"
     >
       <label class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-subtle-foreground">
@@ -87,7 +87,7 @@
     <!-- Two-column working surface: runs rail + run detail. -->
     <div class="grid min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)] gap-5">
       <!-- Runs rail -->
-      <aside class="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border/60 bg-surface-muted/20">
+      <aside class="flex min-h-0 flex-col overflow-hidden rounded-md border border-border/60 bg-surface-muted/20">
         <div class="flex items-center justify-between border-b border-border/60 px-4 py-3">
           <h2 class="text-[11px] font-semibold uppercase tracking-[0.22em] text-subtle-foreground">
             Runs
@@ -135,7 +135,7 @@
       <!-- Run detail -->
       <div
         v-if="selectedRun"
-        class="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border/60 bg-surface-muted/20"
+        class="flex min-h-0 flex-col overflow-hidden rounded-md border border-border/60 bg-surface-muted/20"
       >
         <!-- Detail header: identity + status + key metrics -->
         <div class="border-b border-border/60 px-5 py-4">
@@ -290,7 +290,7 @@
                   </p>
                 </div>
                 <span
-                  class="rounded-full border border-border/60 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-subtle-foreground"
+                  class="rounded-full border border-border/60 px-2 py-0.5 text-[10px] font-mono uppercase tracking-[0.12em] text-faint-foreground"
                 >
                   {{ judge.swap_applied ? "swap" : "direct" }}
                 </span>
@@ -395,7 +395,7 @@
       <!-- Empty detail placeholder -->
       <div
         v-else
-        class="flex min-h-0 items-center justify-center rounded-xl border border-dashed border-border/60 bg-surface-muted/20 px-6 text-sm text-subtle-foreground"
+        class="flex min-h-0 items-center justify-center rounded-md border border-dashed border-border/60 bg-surface-muted/20 px-6 text-sm text-subtle-foreground"
       >
         Select a run from the list, or start a new one.
       </div>

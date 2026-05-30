@@ -20,7 +20,7 @@ func TestMemoryMatrixMessageStoreAppendAndPrune(t *testing.T) {
 	store := newMemoryMatrixMessageStore()
 	ctx := context.Background()
 
-	for idx := 0; idx < 5; idx++ {
+	for idx := range 5 {
 		_, err := store.Append(ctx, persistence.MatrixMessage{
 			RoomID:    "!room:test",
 			EventID:   "$event-" + string(rune('a'+idx)),

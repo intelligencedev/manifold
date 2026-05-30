@@ -10,7 +10,6 @@ import (
 func AssembleResults(ctx context.Context, g GraphFacade, rr Reranker, plan QueryPlan, opt RetrieveOptions, fused []RetrievedItem) ([]RetrievedItem, map[string]any, error) {
 	debug := map[string]any{}
 
-	// Graph expansion
 	items := fused
 	if opt.GraphAugment && g != nil {
 		geOpt := GraphExpandOptions{TopN: min(opt.K, 10), MaxPerSeed: 3, Hops: 1, Boost: 0.01}
@@ -29,11 +28,7 @@ func AssembleResults(ctx context.Context, g GraphFacade, rr Reranker, plan Query
 		}
 	}
 
-	// Reranking
-	if opt.Rerank {
-		if rr == nil {
-			rr = NoopReranker{}
-		}
+	if opt.Rerank && rr != nil {
 		t0 := time.Now()
 		out, err := rr.Rerank(ctx, plan.Query, items)
 		if err != nil {
@@ -43,7 +38,6 @@ func AssembleResults(ctx context.Context, g GraphFacade, rr Reranker, plan Query
 		debug["rerank_ms"] = time.Since(t0).Milliseconds()
 	}
 
-	// Prune to K
 	k := opt.K
 	if k <= 0 {
 		k = 10

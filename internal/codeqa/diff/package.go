@@ -23,7 +23,22 @@ func NewPackager(runner codeqa.CommandRunner, opts codeqa.Options) *Packager {
 	return &Packager{runner: runner, opts: opts}
 }
 
-func (p *Packager) Build(ctx context.Context, repoPath string, baseRef string, headRef string, includeRepoContext bool, maxDiffBytes int, maxChangedFiles int) (codeqa.DiffBundle, error) {
+type BuildRequest struct {
+	RepoPath           string
+	BaseRef            string
+	HeadRef            string
+	IncludeRepoContext bool
+	MaxDiffBytes       int
+	MaxChangedFiles    int
+}
+
+func (p *Packager) Build(ctx context.Context, req BuildRequest) (codeqa.DiffBundle, error) {
+	repoPath := req.RepoPath
+	baseRef := req.BaseRef
+	headRef := req.HeadRef
+	includeRepoContext := req.IncludeRepoContext
+	maxDiffBytes := req.MaxDiffBytes
+	maxChangedFiles := req.MaxChangedFiles
 	if strings.TrimSpace(baseRef) == "" {
 		baseRef = "HEAD~1"
 	}

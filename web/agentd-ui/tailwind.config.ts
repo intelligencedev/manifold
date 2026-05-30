@@ -4,7 +4,7 @@ export default {
   content: ["index.html", "./src/**/*.{vue,js,ts,jsx,tsx}"],
   theme: {
     borderWidth: {
-      DEFAULT: "1.5px",
+      DEFAULT: "1px",
       0: "0",
       1: "1px",
       2: "2px",
@@ -43,6 +43,11 @@ export default {
         "danger-foreground":
           "rgb(var(--color-danger-foreground) / <alpha-value>)",
       },
+      fontFamily: {
+        display: ['"Space Grotesk"', "system-ui", "sans-serif"],
+        sans: ['"Hanken Grotesk"', "system-ui", "sans-serif"],
+        mono: ['"JetBrains Mono"', "ui-monospace", "monospace"],
+      },
       borderColor: {
         DEFAULT: "rgb(var(--color-border) / <alpha-value>)",
       },
@@ -53,8 +58,11 @@ export default {
         2: "4px",
         3: "6px",
         4: "9px",
-        5: "14px",
-        6: "20px",
+        5: "9px",
+        6: "13px",
+        sm: "6px",
+        md: "9px",
+        lg: "13px",
       },
       boxShadow: {
         0: "none",
@@ -79,28 +87,10 @@ export default {
     },
   },
   plugins: [
-    function ({ addUtilities, theme }: any) {
+    function ({ addUtilities }: any) {
       addUtilities({
         ".etched-light": { boxShadow: "inset 0 1px 0 rgba(0,0,0,0.04)" },
         ".etched-dark": { boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03)" },
-        ".bg-grain": {
-          backgroundImage: "url(/assets/noise.png)",
-          mixBlendMode: "soft-light",
-          opacity: "0.35",
-        },
-        ".glass-surface": {
-          padding: "16px",
-          background:
-            "rgb(var(--color-surface) / 0.79)",
-          border: "1px solid rgba(255,255,255,0.08)",
-          boxShadow: `${theme("boxShadow.3")}, inset 0 1px 0 rgba(255,255,255,0.04)`,
-          backdropFilter: "blur(18px)",
-          WebkitBackdropFilter: "blur(18px)",
-        },
-        ".pill-glow": {
-          boxShadow:
-            "0 0 0 1px rgba(var(--color-accent), 0.35), 0 10px 34px rgba(var(--color-accent), 0.18), 0 1px 0 rgba(255,255,255,0.08)",
-        },
       });
     },
   ],

@@ -18,7 +18,7 @@ var (
 )
 
 // Store is a placeholder for transcripts/state persistence.
-type Store interface{}
+type Store any
 
 // UserPreferences represents a user's persistent settings.
 type UserPreferences struct {
@@ -45,9 +45,9 @@ type PulseRoom struct {
 	Enabled              bool      `json:"enabled"`
 	Revision             int64     `json:"revision"`
 	ActiveClaimToken     string    `json:"activeClaimToken,omitempty"`
-	ActiveClaimUntil     time.Time `json:"activeClaimUntil,omitempty"`
-	LastPulseAttemptAt   time.Time `json:"lastPulseAttemptAt,omitempty"`
-	LastPulseCompletedAt time.Time `json:"lastPulseCompletedAt,omitempty"`
+	ActiveClaimUntil     time.Time `json:"activeClaimUntil"`
+	LastPulseAttemptAt   time.Time `json:"lastPulseAttemptAt"`
+	LastPulseCompletedAt time.Time `json:"lastPulseCompletedAt"`
 	LastPulseSummary     string    `json:"lastPulseSummary,omitempty"`
 	LastPulseError       string    `json:"lastPulseError,omitempty"`
 	CreatedAt            time.Time `json:"createdAt"`
@@ -64,9 +64,9 @@ type PulseTask struct {
 	ScheduleType      string    `json:"scheduleType,omitempty"`
 	IntervalSeconds   int       `json:"intervalSeconds"`
 	SpecificTime      string    `json:"specificTime,omitempty"`
-	SpecificAt        time.Time `json:"specificAt,omitempty"`
+	SpecificAt        time.Time `json:"specificAt"`
 	Enabled           bool      `json:"enabled"`
-	LastRunAt         time.Time `json:"lastRunAt,omitempty"`
+	LastRunAt         time.Time `json:"lastRunAt"`
 	LastResultSummary string    `json:"lastResultSummary,omitempty"`
 	CreatedAt         time.Time `json:"createdAt"`
 	UpdatedAt         time.Time `json:"updatedAt"`
@@ -82,6 +82,16 @@ type ReactiveClaim struct {
 	ExpiresAt      time.Time `json:"expiresAt"`
 }
 
+type RoomPulseCompletion struct {
+	RoomID      string
+	RouteTarget string
+	Token       string
+	CompletedAt time.Time
+	Summary     string
+	Error       string
+	DueTaskIDs  []string
+}
+
 // PulseStore persists room-scoped automation tasks used by the Matrix pulse loop.
 type PulseStore interface {
 	Init(ctx context.Context) error
@@ -94,7 +104,7 @@ type PulseStore interface {
 	DeleteTask(ctx context.Context, roomID, routeTarget, taskID string) error
 	ClaimRoom(ctx context.Context, roomID, routeTarget, token string, leaseUntil time.Time) (bool, error)
 	ClearRoomClaim(ctx context.Context, roomID, routeTarget string) error
-	CompleteRoomPulse(ctx context.Context, roomID, routeTarget, token string, completedAt time.Time, summary, pulseErr string, dueTaskIDs []string) error
+	CompleteRoomPulse(ctx context.Context, completion RoomPulseCompletion) error
 }
 
 type MatrixMessage struct {
@@ -116,7 +126,7 @@ type MatrixMessage struct {
 type MatrixRoomStats struct {
 	RoomID         string    `json:"roomId"`
 	MessageCount   int       `json:"messageCount"`
-	LastActivityAt time.Time `json:"lastActivityAt,omitempty"`
+	LastActivityAt time.Time `json:"lastActivityAt"`
 	LastSender     string    `json:"lastSender,omitempty"`
 }
 
@@ -148,17 +158,44 @@ type Specialist struct {
 	Model       string `json:"model"`
 	// SummaryContextWindowTokens overrides the summary context window size (in tokens)
 	// for this specialist. Zero means use the global fallback.
-	SummaryContextWindowTokens int               `json:"summaryContextWindowTokens"`
-	EnableTools                bool              `json:"enableTools"`
-	ImageGeneration            bool              `json:"imageGeneration"`
-	AutoDiscover               *bool             `json:"autoDiscover,omitempty"`
-	Paused                     bool              `json:"paused"`
-	AllowTools                 []string          `json:"allowTools"`
-	ReasoningEffort            string            `json:"reasoningEffort"`
-	System                     string            `json:"system"`
-	ExtraHeaders               map[string]string `json:"extraHeaders"`
-	ExtraParams                map[string]any    `json:"extraParams"`
-	Teams                      []string          `json:"teams,omitempty"`
+	SummaryContextWindowTokens int                `json:"summaryContextWindowTokens"`
+	EnableTools                bool               `json:"enableTools"`
+	ImageGeneration            bool               `json:"imageGeneration"`
+	AutoDiscover               *bool              `json:"autoDiscover,omitempty"`
+	Paused                     bool               `json:"paused"`
+	AllowTools                 []string           `json:"allowTools"`
+	ReasoningEffort            string             `json:"reasoningEffort"`
+	System                     string             `json:"system"`
+	ExtraHeaders               map[string]string  `json:"extraHeaders"`
+	ExtraParams                map[string]any     `json:"extraParams"`
+	Teams                      []string           `json:"teams,omitempty"`
+	Harness                    *SpecialistHarness `json:"harness,omitempty"`
+}
+
+// SpecialistHarness stores per-specialist Forge harness overrides.
+type SpecialistHarness struct {
+	Enabled           bool                                       `json:"enabled"`
+	Mode              string                                     `json:"mode"`
+	RescueEnabled     bool                                       `json:"rescueEnabled"`
+	MaxRetriesPerStep int                                        `json:"maxRetriesPerStep"`
+	MaxToolErrors     int                                        `json:"maxToolErrors"`
+	TerminalTools     []string                                   `json:"terminalTools"`
+	RequiredSteps     []string                                   `json:"requiredSteps"`
+	ToolPrerequisites map[string][]SpecialistHarnessPrerequisite `json:"toolPrerequisites"`
+	Compact           SpecialistHarnessCompact                   `json:"compact"`
+}
+
+// SpecialistHarnessPrerequisite requires one successful tool call before another tool can run.
+type SpecialistHarnessPrerequisite struct {
+	Tool     string `json:"tool"`
+	MatchArg string `json:"matchArg"`
+}
+
+// SpecialistHarnessCompact stores per-specialist harness compaction overrides.
+type SpecialistHarnessCompact struct {
+	Enabled         bool      `json:"enabled"`
+	KeepRecentSteps int       `json:"keepRecentSteps"`
+	PhaseThresholds []float64 `json:"phaseThresholds"`
 }
 
 // SpecialistTeam represents a team of specialists with a unique orchestrator config.
@@ -201,16 +238,19 @@ const (
 
 // ChatSession represents a persisted conversation with metadata for display.
 type ChatSession struct {
-	ID                 string    `json:"id"`
-	Name               string    `json:"name"`
-	Kind               string    `json:"kind"`
-	UserID             *int64    `json:"userId,omitempty"`
-	CreatedAt          time.Time `json:"createdAt"`
-	UpdatedAt          time.Time `json:"updatedAt"`
-	LastMessagePreview string    `json:"lastMessagePreview"`
-	Model              string    `json:"model"`
-	Summary            string    `json:"summary"`
-	SummarizedCount    int       `json:"summarizedCount"`
+	ID                    string    `json:"id"`
+	Name                  string    `json:"name"`
+	Kind                  string    `json:"kind"`
+	UserID                *int64    `json:"userId,omitempty"`
+	CreatedAt             time.Time `json:"createdAt"`
+	UpdatedAt             time.Time `json:"updatedAt"`
+	LastMessagePreview    string    `json:"lastMessagePreview"`
+	Model                 string    `json:"model"`
+	Summary               string    `json:"summary"`
+	SummarizedCount       int       `json:"summarizedCount"`
+	ProjectID             string    `json:"projectId,omitempty"`
+	EvolvingMemoryEnabled bool      `json:"evolvingMemoryEnabled"`
+	BeliefMemoryEnabled   bool      `json:"beliefMemoryEnabled"`
 }
 
 // ChatMessage is a single turn within a chat session.
@@ -226,6 +266,15 @@ type ChatMessage struct {
 	ToolID   string `json:"toolId,omitempty"`
 }
 
+type ChatDeleteAfterRequest struct {
+	UserID            *int64
+	SessionID         string
+	MessageID         string
+	Inclusive         bool
+	RelatedMessageIDs []string
+	ResetSummary      bool
+}
+
 // ChatStore persists chat sessions and messages.
 type ChatStore interface {
 	Init(ctx context.Context) error
@@ -237,6 +286,8 @@ type ChatStore interface {
 	CreateSession(ctx context.Context, userID *int64, name string) (ChatSession, error)
 	CreateSessionKind(ctx context.Context, userID *int64, name string, kind string) (ChatSession, error)
 	RenameSession(ctx context.Context, userID *int64, id, name string) (ChatSession, error)
+	SetSessionProject(ctx context.Context, userID *int64, id, projectID string) (ChatSession, error)
+	SetSessionMemorySettings(ctx context.Context, userID *int64, id string, evolvingMemoryEnabled bool, beliefMemoryEnabled bool) (ChatSession, error)
 	DeleteSession(ctx context.Context, userID *int64, id string) error
 	ListMessages(ctx context.Context, userID *int64, sessionID string, limit int) ([]ChatMessage, error)
 	DeleteMessage(ctx context.Context, userID *int64, sessionID string, messageID string) error
@@ -258,24 +309,26 @@ type SpecialistActivityEntry struct {
 
 // SpecialistActivityRecord persists the visible activity for a delegated specialist.
 type SpecialistActivityRecord struct {
-	ID               string                    `json:"id"`
-	SessionID        string                    `json:"sessionId"`
-	UserID           *int64                    `json:"userId,omitempty"`
-	RunID            string                    `json:"runId,omitempty"`
-	CallID           string                    `json:"callId"`
-	ParentCallID     string                    `json:"parentCallId,omitempty"`
-	Agent            string                    `json:"agent"`
-	Model            string                    `json:"model,omitempty"`
-	Prompt           string                    `json:"prompt,omitempty"`
-	Depth            int                       `json:"depth"`
-	Status           string                    `json:"status"`
-	Content          string                    `json:"content,omitempty"`
-	Entries          []SpecialistActivityEntry `json:"entries,omitempty"`
-	ThoughtSummaries []string                  `json:"thoughtSummaries,omitempty"`
-	Error            string                    `json:"error,omitempty"`
-	StartedAt        time.Time                 `json:"startedAt"`
-	UpdatedAt        time.Time                 `json:"updatedAt"`
-	FinishedAt       *time.Time                `json:"finishedAt,omitempty"`
+	ID                 string                    `json:"id"`
+	SessionID          string                    `json:"sessionId"`
+	UserID             *int64                    `json:"userId,omitempty"`
+	RunID              string                    `json:"runId,omitempty"`
+	AssistantMessageID string                    `json:"assistantMessageId,omitempty"`
+	CallID             string                    `json:"callId"`
+	ParentCallID       string                    `json:"parentCallId,omitempty"`
+	Agent              string                    `json:"agent"`
+	Team               string                    `json:"team,omitempty"`
+	Model              string                    `json:"model,omitempty"`
+	Prompt             string                    `json:"prompt,omitempty"`
+	Depth              int                       `json:"depth"`
+	Status             string                    `json:"status"`
+	Content            string                    `json:"content,omitempty"`
+	Entries            []SpecialistActivityEntry `json:"entries,omitempty"`
+	ThoughtSummaries   []string                  `json:"thoughtSummaries,omitempty"`
+	Error              string                    `json:"error,omitempty"`
+	StartedAt          time.Time                 `json:"startedAt"`
+	UpdatedAt          time.Time                 `json:"updatedAt"`
+	FinishedAt         *time.Time                `json:"finishedAt,omitempty"`
 }
 
 // SpecialistActivityStore persists delegated specialist activity history per session.
@@ -291,7 +344,7 @@ type SpecialistActivityStore interface {
 type FlowV2WorkflowRecord struct {
 	UserID    int64               `json:"user_id"`
 	Workflow  flow.Workflow       `json:"workflow"`
-	Canvas    flow.WorkflowCanvas `json:"canvas,omitempty"`
+	Canvas    flow.WorkflowCanvas `json:"canvas"`
 	CreatedAt time.Time           `json:"created_at"`
 	UpdatedAt time.Time           `json:"updated_at"`
 }
@@ -321,7 +374,6 @@ type MCPServer struct {
 	KeepAliveSeconds int               `json:"keepAliveSeconds"`
 	Disabled         bool              `json:"disabled"`
 
-	// OAuth fields
 	OAuthProvider     string    `json:"oauthProvider"`
 	OAuthClientID     string    `json:"oauthClientId"`
 	OAuthClientSecret string    `json:"oauthClientSecret"`
@@ -399,8 +451,6 @@ type ProjectsStore interface {
 	// Delete removes a project and all associated file index entries.
 	Delete(ctx context.Context, userID int64, projectID string) error
 
-	// --- File Index Operations (optional, for fast directory listing) ---
-
 	// IndexFile upserts a file entry in the project file index.
 	IndexFile(ctx context.Context, f ProjectFile) error
 
@@ -410,9 +460,6 @@ type ProjectsStore interface {
 	// RemoveFileIndexPrefix removes all file entries under a path prefix (for directory deletes).
 	RemoveFileIndexPrefix(ctx context.Context, projectID, pathPrefix string) error
 
-	// ListFiles returns file entries directly under the given path (non-recursive).
-	// If path is "." or "", returns root directory entries.
-	// Results are sorted: directories first, then by name.
 	ListFiles(ctx context.Context, projectID, path string) ([]ProjectFile, error)
 
 	// GetFile retrieves a single file index entry by exact path.

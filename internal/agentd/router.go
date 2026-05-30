@@ -8,6 +8,16 @@ import (
 func newRouter(a *app) *http.ServeMux {
 	mux := http.NewServeMux()
 
+	registerDocsRoutes(mux, a)
+	registerAuthRoutes(mux, a)
+	registerCoreAPIRoutes(mux, a)
+	registerAgentRoutes(mux, a)
+	registerMCPRoutes(mux, a)
+	registerDebugRoutes(mux, a)
+	return mux
+}
+
+func registerDocsRoutes(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("/openapi.json", a.openapiSpecHandler())
 	mux.HandleFunc("/api/openapi.json", a.openapiSpecHandler())
 	mux.HandleFunc("/api-docs", a.openapiDocsHandler())
@@ -19,7 +29,9 @@ func newRouter(a *app) *http.ServeMux {
 		mux.Handle("/api/v1/playground", a.playgroundHandler)
 		mux.Handle("/api/v1/playground/", a.playgroundHandler)
 	}
+}
 
+func registerAuthRoutes(mux *http.ServeMux, a *app) {
 	if a.cfg.Auth.Enabled && a.authProvider != nil {
 		mux.HandleFunc("/auth/login", a.authLoginHandler())
 		mux.HandleFunc("/auth/callback", a.authCallbackHandler())
@@ -30,7 +42,13 @@ func newRouter(a *app) *http.ServeMux {
 	// User preferences endpoints (available with or without auth)
 	mux.HandleFunc("/api/me/preferences", a.userPreferencesHandler())
 	mux.HandleFunc("/api/me/preferences/project", a.setActiveProjectHandler())
+	if a.cfg.Auth.Enabled && a.authStore != nil {
+		mux.HandleFunc("/api/users", a.usersHandler())
+		mux.HandleFunc("/api/users/", a.userDetailHandler())
+	}
+}
 
+func registerCoreAPIRoutes(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "ok")
 	})
@@ -45,9 +63,22 @@ func newRouter(a *app) *http.ServeMux {
 	mux.HandleFunc("/api/codeqa/runs", a.codeQARunsHandler())
 	mux.HandleFunc("/api/codeqa/runs/", a.codeQARunDetailHandler())
 
+	mux.HandleFunc("/api/durable/tasks", a.durableTasksHandler())
+	mux.HandleFunc("/api/durable/tasks/", a.durableTaskDetailHandler())
+	mux.HandleFunc("/api/durable/events", a.durableEventsHandler())
+	mux.HandleFunc("/api/durable/queues", a.durableQueuesHandler())
+
 	mux.HandleFunc("/api/runs", a.runsHandler())
+	mux.HandleFunc("/api/runs/", a.runTimelineHandler())
 	mux.HandleFunc("/api/chat/sessions", a.chatSessionsHandler())
 	mux.HandleFunc("/api/chat/sessions/", a.chatSessionDetailHandler())
+	mux.HandleFunc("/api/chat/input-requests/", a.chatInputRequestHandler())
+	mux.HandleFunc("/api/fleet/state", a.fleetStateHandler())
+	mux.HandleFunc("/api/fleet/events", a.fleetEventsHandler())
+	mux.HandleFunc("/api/trust/budgets", a.trustBudgetsHandler())
+	mux.HandleFunc("/api/trust/budgets/", a.trustBudgetActionHandler())
+	mux.HandleFunc("/api/constitution/versions", a.constitutionVersionsHandler())
+	mux.HandleFunc("/api/constitution/versions/", a.constitutionVersionActionHandler())
 	if a.cfg.Transit.Enabled {
 		mux.HandleFunc("/api/transit/memories", a.transitMemoriesHandler())
 		mux.HandleFunc("/api/transit/memories/", a.transitMemoryDetailHandler())
@@ -55,11 +86,6 @@ func newRouter(a *app) *http.ServeMux {
 		mux.HandleFunc("/api/transit/recent", a.transitRecentHandler())
 		mux.HandleFunc("/api/transit/search", a.transitSearchHandler())
 		mux.HandleFunc("/api/transit/discover", a.transitDiscoverHandler())
-	}
-
-	if a.cfg.Auth.Enabled && a.authStore != nil {
-		mux.HandleFunc("/api/users", a.usersHandler())
-		mux.HandleFunc("/api/users/", a.userDetailHandler())
 	}
 
 	mux.HandleFunc("/api/status", a.statusHandler())
@@ -82,24 +108,27 @@ func newRouter(a *app) *http.ServeMux {
 	mux.HandleFunc("/api/flows/v2/validate", a.flowV2ValidateHandler())
 	mux.HandleFunc("/api/flows/v2/run", a.flowV2RunHandler())
 	mux.HandleFunc("/api/flows/v2/runs/", a.flowV2RunEventsHandler())
+}
 
+func registerAgentRoutes(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("/agent/run", a.agentRunHandler())
 	mux.HandleFunc("/agent/vision", a.agentVisionHandler())
 	mux.HandleFunc("/api/prompt", a.promptHandler())
+	mux.HandleFunc("/v1/chat/completions", a.openAIChatCompletionsProxyHandler())
 
 	mux.HandleFunc("/audio/", a.audioServeHandler())
 	mux.HandleFunc("/stt", a.sttHandler())
+}
 
+func registerMCPRoutes(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("/api/mcp/servers", a.mcpServersHandler())
 	mux.HandleFunc("/api/mcp/servers/", a.mcpServerDetailHandler())
 	mux.HandleFunc("/api/mcp/oauth/start", a.mcpOAuthStartHandler())
 	mux.HandleFunc("/api/mcp/oauth/bootstrap", a.mcpOAuthBootstrapHandler())
 	mux.HandleFunc("/api/mcp/oauth/callback", a.mcpOAuthCallbackHandler())
+}
 
-	// Debug/observability endpoints for chat + evolving memory.
-	// Expose both /debug/memory and /api/debug/memory so that the Vue
-	// frontend (which is configured with a "/api" base URL) can reach
-	// the same handler without special-casing its client.
+func registerDebugRoutes(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("/debug/memory", a.debugMemoryHandler())
 	mux.HandleFunc("/debug/memory/", a.debugMemoryHandler())
 	mux.HandleFunc("/api/debug/memory", a.debugMemoryHandler())
@@ -108,6 +137,6 @@ func newRouter(a *app) *http.ServeMux {
 	mux.HandleFunc("/debug/beliefs/", a.debugBeliefsHandler())
 	mux.HandleFunc("/api/debug/beliefs", a.debugBeliefsHandler())
 	mux.HandleFunc("/api/debug/beliefs/", a.debugBeliefsHandler())
-
-	return mux
+	mux.HandleFunc("/api/beliefs", a.debugBeliefsHandler())
+	mux.HandleFunc("/api/beliefs/", a.debugBeliefsHandler())
 }

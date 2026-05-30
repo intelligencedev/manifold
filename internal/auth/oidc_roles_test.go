@@ -1,13 +1,13 @@
 package auth
 
+import "slices"
+
 import "testing"
 
 func requireRole(t *testing.T, roles []string, want string) {
 	t.Helper()
-	for _, r := range roles {
-		if r == want {
-			return
-		}
+	if slices.Contains(roles, want) {
+		return
 	}
 	t.Fatalf("expected role %q in %v", want, roles)
 }

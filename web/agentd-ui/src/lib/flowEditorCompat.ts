@@ -25,10 +25,12 @@ export function flowToolToEditorTool(tool: FlowV2Tool): FlowEditorTool {
   };
 }
 
-export function workflowToListEntry(workflow: Pick<
-  FlowEditorWorkflow,
-  "intent" | "description" | "keywords" | "project_id"
->): WorkflowListEntry {
+export function workflowToListEntry(
+  workflow: Pick<
+    FlowEditorWorkflow,
+    "intent" | "description" | "keywords" | "project_id"
+  >,
+): WorkflowListEntry {
   return {
     intent: workflow.intent,
     description: workflow.description,
@@ -64,7 +66,7 @@ export function flowV2ToEditorWorkflow(
     for (const [key, binding] of Object.entries(node.inputs ?? {})) {
       if (!binding || typeof binding !== "object") continue;
       if (typeof binding.expression === "string" && binding.expression.trim()) {
-        args[key] = expressionToLegacy(binding.expression);
+        args[key] = normalizeExpression(binding.expression);
       } else if (Object.prototype.hasOwnProperty.call(binding, "literal")) {
         args[key] = binding.literal;
       }
@@ -114,8 +116,12 @@ export function flowV2ToEditorWorkflow(
                 x: Number(node?.x ?? 0),
                 y: Number(node?.y ?? 0),
                 width: typeof node?.width === "number" ? node.width : undefined,
-                height: typeof node?.height === "number" ? node.height : undefined,
-                collapsed: typeof node?.collapsed === "boolean" ? node.collapsed : undefined,
+                height:
+                  typeof node?.height === "number" ? node.height : undefined,
+                collapsed:
+                  typeof node?.collapsed === "boolean"
+                    ? node.collapsed
+                    : undefined,
                 label: typeof node?.label === "string" ? node.label : undefined,
               },
             ]),
@@ -213,10 +219,14 @@ export function editorWorkflowToFlowV2(
               {
                 x: layout.x,
                 y: layout.y,
-                width: typeof layout.width === "number" ? layout.width : undefined,
+                width:
+                  typeof layout.width === "number" ? layout.width : undefined,
                 height:
                   typeof layout.height === "number" ? layout.height : undefined,
-                collapsed: typeof layout.collapsed === "boolean" ? layout.collapsed : undefined,
+                collapsed:
+                  typeof layout.collapsed === "boolean"
+                    ? layout.collapsed
+                    : undefined,
                 label: layout.label || undefined,
               },
             ]),
@@ -259,10 +269,6 @@ function legacyToExpression(value: string): string | undefined {
     if (nodeId && rest) return `={{$node.${nodeId}.output.${rest}}}`;
   }
   return `={{$run.input.${path}}}`;
-}
-
-function expressionToLegacy(expression: string): string {
-  return normalizeExpression(expression);
 }
 
 function normalizeExpr(expression: string): string {

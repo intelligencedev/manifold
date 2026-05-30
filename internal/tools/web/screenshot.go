@@ -54,51 +54,84 @@ func (t *screenshotTool) JSONSchema() map[string]any {
 }
 
 func (t *screenshotTool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
-	var args struct {
-		URL           string `json:"url"`
-		Width         int    `json:"width"`
-		Height        int    `json:"height"`
-		TimeoutSecond int    `json:"timeout_seconds"`
-		FullPage      *bool  `json:"full_page"`
-		OutputPath    string `json:"output_path"`
-	}
+	var args screenshotArgs
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return nil, err
 	}
 	if args.URL == "" {
 		return map[string]any{"ok": false, "error": "missing url"}, nil
 	}
-	if args.Width <= 0 {
-		args.Width = defaultScreenshotWidth
-	}
-	if args.Height <= 0 {
-		args.Height = defaultScreenshotHeight
-	}
-	timeout := 15 * time.Second
-	if args.TimeoutSecond > 0 {
-		timeout = time.Duration(args.TimeoutSecond) * time.Second
-	}
-	full := true
-	if args.FullPage != nil {
-		full = *args.FullPage
-	}
+	args = args.withDefaults()
 
-	// Enforce that tools run inside a selected project by requiring a base dir
-	// set on the context (see sandbox.WithBaseDir). This prevents writing
-	// outside the current project's filesystem area.
 	base, ok := sandbox.BaseDirFromContext(ctx)
 	if !ok || base == "" {
 		return map[string]any{"ok": false, "error": "no project base directory in context; screenshot tool must run inside a project"}, nil
 	}
 
-	// Create an allocator and browser context with timeout. Launch a real (non-headless)
-	// browser by overriding the headless flag. Optionally set the browser executable
-	// from the CHROME_PATH environment variable.
+	png, err := capturePageScreenshot(ctx, args)
+	if err != nil {
+		return map[string]any{"ok": false, "error": err.Error()}, nil
+	}
+	path, err := saveScreenshot(base, args.OutputPath, png)
+	if err != nil {
+		return map[string]any{"ok": false, "error": err.Error()}, nil
+	}
+
+	b64 := base64.StdEncoding.EncodeToString(png)
+	return map[string]any{"ok": true, "content_type": "image/png", "png_base64": b64, "size": len(png), "path": path}, nil
+}
+
+type screenshotArgs struct {
+	URL           string `json:"url"`
+	Width         int    `json:"width"`
+	Height        int    `json:"height"`
+	TimeoutSecond int    `json:"timeout_seconds"`
+	FullPage      *bool  `json:"full_page"`
+	OutputPath    string `json:"output_path"`
+}
+
+func (a screenshotArgs) withDefaults() screenshotArgs {
+	if a.Width <= 0 {
+		a.Width = defaultScreenshotWidth
+	}
+	if a.Height <= 0 {
+		a.Height = defaultScreenshotHeight
+	}
+	return a
+}
+
+func (a screenshotArgs) timeout() time.Duration {
+	if a.TimeoutSecond > 0 {
+		return time.Duration(a.TimeoutSecond) * time.Second
+	}
+	return 15 * time.Second
+}
+
+func (a screenshotArgs) fullPage() bool {
+	return a.FullPage == nil || *a.FullPage
+}
+
+func capturePageScreenshot(ctx context.Context, args screenshotArgs) ([]byte, error) {
+	allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx, screenshotAllocatorOptions(args)...)
+	defer cancelAlloc()
+	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
+	defer cancelBrowser()
+	runCtx, cancelRun := context.WithTimeout(browserCtx, args.timeout())
+	defer cancelRun()
+
+	var png []byte
+	tasks := screenshotTasks(args, &png)
+	if err := chromedp.Run(runCtx, tasks); err != nil {
+		return nil, err
+	}
+	return png, nil
+}
+
+func screenshotAllocatorOptions(args screenshotArgs) []chromedp.ExecAllocatorOption {
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", false),
 		chromedp.Flag("disable-gpu", false),
 		chromedp.Flag("start-maximized", true),
-		// Request fullscreen/kiosk where supported so the browser opens maximized/fullscreen
 		chromedp.Flag("start-fullscreen", true),
 		chromedp.Flag("kiosk", true),
 		chromedp.Flag("window-size", fmt.Sprintf("%d,%d", args.Width, args.Height)),
@@ -106,19 +139,10 @@ func (t *screenshotTool) Call(ctx context.Context, raw json.RawMessage) (any, er
 	if p := os.Getenv("CHROME_PATH"); p != "" {
 		opts = append(opts, chromedp.ExecPath(p))
 	}
+	return opts
+}
 
-	allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx, opts...)
-	defer cancelAlloc()
-
-	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
-	defer cancelBrowser()
-
-	runCtx, cancelRun := context.WithTimeout(browserCtx, timeout)
-	defer cancelRun()
-
-	var png []byte
-	var err error
-
+func screenshotTasks(args screenshotArgs, png *[]byte) chromedp.Tasks {
 	tasks := chromedp.Tasks{
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			windowID, _, err := browser.GetWindowForTarget().Do(ctx)
@@ -131,40 +155,31 @@ func (t *screenshotTool) Call(ctx context.Context, raw json.RawMessage) (any, er
 		chromedp.Navigate(args.URL),
 		chromedp.WaitReady("body", chromedp.ByQuery),
 	}
-	if full {
-		tasks = append(tasks, captureFullPageScreenshot(&png, args.Height))
-	} else {
-		tasks = append(tasks, chromedp.CaptureScreenshot(&png))
+	if args.fullPage() {
+		return append(tasks, captureFullPageScreenshot(png, args.Height))
 	}
+	return append(tasks, chromedp.CaptureScreenshot(png))
+}
 
-	if err = chromedp.Run(runCtx, tasks); err != nil {
-		return map[string]any{"ok": false, "error": err.Error()}, nil
-	}
-
-	// Save to disk. Default to web_screenshot.png if not provided. Only allow
-	// paths that remain under the project's base directory.
-	out := args.OutputPath
+func saveScreenshot(base, outputPath string, png []byte) (string, error) {
+	out := outputPath
 	if out == "" {
 		out = "web_screenshot.png"
 	}
-	// Sanitize and ensure the output path remains under base
 	rel, err := sandbox.SanitizeArg(base, out)
 	if err != nil {
-		return map[string]any{"ok": false, "error": fmt.Sprintf("invalid output_path: %v", err)}, nil
+		return "", fmt.Errorf("invalid output_path: %v", err)
 	}
 	fullPath := filepath.Clean(filepath.Join(base, rel))
-	// Ensure destination directory exists
 	if dir := filepath.Dir(fullPath); dir != "" {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return map[string]any{"ok": false, "error": fmt.Sprintf("failed to create dirs: %v", err)}, nil
+			return "", fmt.Errorf("failed to create dirs: %v", err)
 		}
 	}
 	if err := os.WriteFile(fullPath, png, 0o644); err != nil {
-		return map[string]any{"ok": false, "error": fmt.Sprintf("failed to write file: %v", err)}, nil
+		return "", fmt.Errorf("failed to write file: %v", err)
 	}
-
-	b64 := base64.StdEncoding.EncodeToString(png)
-	return map[string]any{"ok": true, "content_type": "image/png", "png_base64": b64, "size": len(png), "path": fullPath}, nil
+	return fullPath, nil
 }
 
 type pageScreenshotMetrics struct {
@@ -234,7 +249,9 @@ func captureFullPageScreenshot(res *[]byte, fallbackViewportHeight int) chromedp
 			return fmt.Errorf("encode stitched screenshot: %w", err)
 		}
 		*res = output.Bytes()
-		_, _ = scrollPageTo(ctx, 0)
+		if _, err := scrollPageTo(ctx, 0); err != nil {
+			return fmt.Errorf("reset scroll after stitched screenshot: %w", err)
+		}
 		return nil
 	})
 }

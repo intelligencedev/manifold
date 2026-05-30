@@ -4,13 +4,17 @@ import (
 	"context"
 	"manifold/internal/agent"
 	"manifold/internal/agent/belief"
+	"manifold/internal/agent/memory"
+	"manifold/internal/config"
 	"manifold/internal/embedding"
 	llmproviders "manifold/internal/llm/providers"
+	"manifold/internal/persistence"
 	"manifold/internal/policy"
 	"manifold/internal/rag/retrieve"
 	"manifold/internal/specialists"
 	agenttools "manifold/internal/tools/agents"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 )
@@ -30,71 +34,82 @@ func (a *app) cloneEngine() *agent.Engine {
 // cloneEngineForUser returns a shallow copy of the base engine with user-specific
 // orchestrator settings applied (particularly the tool allowlist). This enables
 // per-user orchestrator configurations.
-func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID, projectID, objectiveID string) *agent.Engine {
+func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID, projectID, objectiveID string, settingsOpt ...chatMemoryRunSettings) *agent.Engine {
 	eng := a.cloneEngine()
 	if eng == nil {
 		return nil
 	}
+	settings := withChatMemorySettings(settingsOpt)
 	a.configureBeliefRunState(eng, userID, sessionID, projectID, objectiveID, "orchestrator")
 
-	// Ensure the specialists catalog in the system prompt is user-scoped.
-	// The base engine prompt is composed with the system (user=0) specialists
-	// registry; without this override, non-system users can see system specialists.
-	//
-	// Do this before applying any per-user orchestrator overlay so we can build a
-	// base prompt with the correct catalog.
 	if a.cfg.Auth.Enabled && userID != systemUserID {
 		eng.System = a.composeSystemPromptForUser(ctx, userID)
 		eng.UserPromptContext = a.composeUserPromptContextForUser(ctx, userID)
 	}
 
-	em := a.attachSessionEvolvingMemory(eng, userID, sessionID)
-
-	// Look up user's orchestrator overlay
+	em := a.attachSessionEvolvingMemory(eng, userID, sessionID, settings.EvolvingMemoryEnabled)
 	if a.cfg.Auth.Enabled && userID != systemUserID {
-		sp, ok, err := a.specStore.GetByName(ctx, userID, specialists.OrchestratorName)
-		if err == nil && ok {
-			// Apply user's LLM overrides (provider/model/extra params).
-			llmCfg, provider := specialists.ApplyLLMClientOverride(a.cfg.LLMClient, sp)
-			userCfg := *a.cfg
-			userCfg.LLMClient = llmCfg
-			if provider == "" || provider == "openai" || provider == "local" {
-				userCfg.OpenAI = llmCfg.OpenAI
-			}
-			if userLLM, err := llmproviders.Build(userCfg, a.httpClient); err != nil {
-				log.Warn().Err(err).Msg("failed to build per-user llm provider")
-			} else {
-				eng.LLM = userLLM
-			}
-			currentModel := strings.TrimSpace(sp.Model)
-			if currentModel == "" {
-				switch provider {
-				case "anthropic":
-					currentModel = strings.TrimSpace(llmCfg.Anthropic.Model)
-				case "google":
-					currentModel = strings.TrimSpace(llmCfg.Google.Model)
-				default:
-					currentModel = strings.TrimSpace(llmCfg.OpenAI.Model)
-				}
-			}
-			if currentModel != "" {
-				eng.Model = currentModel
-			}
-
-			// Apply user's tool configuration
-			eng.Tools = a.chatToolRegistry(sp.EnableTools, sp.AllowTools, sp.AutoDiscover)
-
-			// Apply user's system prompt if set.
-			// This should preserve the user-scoped specialists catalog.
-			if sp.System != "" {
-				eng.System = a.composeSystemPromptForUserWithOverride(ctx, userID, sp.System)
-				eng.UserPromptContext = a.composeUserPromptContextForUser(ctx, userID)
-			}
-		}
+		a.applyUserOrchestratorOverlay(ctx, eng, userID)
 	}
 
-	// Create a per-request delegator so ask_agent/agent_call uses the
-	// user-specific specialists registry (including tool allowlists).
+	delegator := a.newRunDelegator(ctx, eng, userID, em, settings)
+	eng.Delegator = delegator
+	eng.TeamDelegator = a
+
+	return eng
+}
+
+func (a *app) applyUserOrchestratorOverlay(ctx context.Context, eng *agent.Engine, userID int64) {
+	sp, ok, err := a.specStore.GetByName(ctx, userID, specialists.OrchestratorName)
+	if err != nil || !ok {
+		return
+	}
+	a.applyUserOrchestratorLLM(eng, sp)
+	eng.Tools = a.chatToolRegistry(sp.EnableTools, sp.AllowTools, sp.AutoDiscover)
+	if sp.Harness != nil {
+		harnessCfg := harnessOverrideConfig(a.cfg.Harness, harnessConfigFromPersist(sp.Harness))
+		eng.HarnessEnabled = harnessCfg.Enabled
+		eng.HarnessConfig = harnessRunConfig(harnessCfg)
+	}
+	if sp.System != "" {
+		eng.System = a.composeSystemPromptForUserWithOverride(ctx, userID, sp.System)
+		eng.UserPromptContext = a.composeUserPromptContextForUser(ctx, userID)
+	}
+}
+
+func (a *app) applyUserOrchestratorLLM(eng *agent.Engine, sp persistence.Specialist) {
+	llmCfg, provider := specialists.ApplyLLMClientOverride(a.cfg.LLMClient, sp)
+	userCfg := *a.cfg
+	userCfg.LLMClient = llmCfg
+	if provider == "" || provider == "openai" || provider == "local" {
+		userCfg.OpenAI = llmCfg.OpenAI
+	}
+	if userLLM, err := llmproviders.Build(userCfg, a.httpClient); err != nil {
+		log.Warn().Err(err).Msg("failed to build per-user llm provider")
+	} else {
+		eng.LLM = userLLM
+	}
+	if currentModel := currentSpecialistModel(sp, llmCfg, provider); currentModel != "" {
+		eng.Model = currentModel
+	}
+}
+
+func currentSpecialistModel(sp persistence.Specialist, llmCfg config.LLMClientConfig, provider string) string {
+	currentModel := strings.TrimSpace(sp.Model)
+	if currentModel != "" {
+		return currentModel
+	}
+	switch provider {
+	case "anthropic":
+		return strings.TrimSpace(llmCfg.Anthropic.Model)
+	case "google":
+		return strings.TrimSpace(llmCfg.Google.Model)
+	default:
+		return strings.TrimSpace(llmCfg.OpenAI.Model)
+	}
+}
+
+func (a *app) newRunDelegator(ctx context.Context, eng *agent.Engine, userID int64, em *memory.EvolvingMemory, settings chatMemoryRunSettings) *agenttools.Delegator {
 	reg := a.specRegistry
 	if a.cfg.Auth.Enabled && userID != systemUserID {
 		if userReg, err := a.specialistsRegistryForUser(ctx, userID); err == nil && userReg != nil {
@@ -103,18 +118,21 @@ func (a *app) cloneEngineForUser(ctx context.Context, userID int64, sessionID, p
 	}
 	delegator := agenttools.NewDelegator(eng.Tools, reg, a.workspaceManager, a.cfg.MaxSteps)
 	delegator.SetDefaultTimeout(a.cfg.AgentRunTimeoutSeconds)
+	applyChatMemorySettingsToEngine(eng, settings)
+	if eng.DisableEvolvingMemory {
+		em = nil
+	}
 	delegator.SetEvolvingMemory(em)
 	delegator.SetBeliefMemory(eng.BeliefStore)
 	delegator.SetBeliefDistiller(eng.BeliefDistiller)
 	delegator.SetBeliefRetriever(eng.BeliefRetriever, eng.BeliefMaxBeliefsPerPrompt, eng.BeliefPromptTokenBudget)
 	delegator.SetBeliefLifecycle(eng.BeliefGraph, eng.BeliefPromotionThreshold)
 	delegator.SetPolicyEnforcer(eng.PolicyEnforcer)
-	if a.engine != nil && a.engine.ReMemEnabled {
+	delegator.SetTeamDelegator(a)
+	if eng.ReMemEnabled {
 		delegator.ConfigureReMem(a.evolvingCfg.LLM, a.evolvingCfg.Model, a.rememMaxInnerSteps)
 	}
-	eng.Delegator = delegator
-
-	return eng
+	return delegator
 }
 
 func (a *app) configureBeliefRunState(eng *agent.Engine, userID int64, sessionID, projectID, objectiveID, agentRole string) {
@@ -130,6 +148,19 @@ func (a *app) configureBeliefRunState(eng *agent.Engine, userID int64, sessionID
 		eng.BeliefStore = a.mgr.Belief
 		eng.BeliefGraph = a.mgr.Graph
 		eng.BeliefPromotionThreshold = a.cfg.BeliefMemory.PromotionThreshold
+		eng.BeliefLifecyclePolicy = belief.PromotionPolicy{
+			MinEvidenceFor:       a.cfg.BeliefMemory.Lifecycle.MinEvidenceForPromotion,
+			MaxEvidenceAgainst:   a.cfg.BeliefMemory.Lifecycle.MaxEvidenceAgainstPromotion,
+			ConfidenceThreshold:  a.cfg.BeliefMemory.PromotionThreshold,
+			StaleAfter:           durationDays(a.cfg.BeliefMemory.Lifecycle.StaleAfterDays),
+			StaleConfidenceDecay: a.cfg.BeliefMemory.Lifecycle.StaleConfidenceDecay,
+		}
+		eng.BeliefEnforcementPolicy = belief.EnforcementPolicy{
+			AutoEnable:                   a.cfg.BeliefMemory.Enforcement.AutoEnable,
+			SoftPolicyThreshold:          a.cfg.BeliefMemory.Enforcement.SoftPolicyThreshold,
+			HardConstraintThreshold:      a.cfg.BeliefMemory.Enforcement.HardConstraintThreshold,
+			HardConstraintMinEvidenceFor: a.cfg.BeliefMemory.Enforcement.HardConstraintMinEvidenceFor,
+		}
 		if a.cfg.BeliefMemory.EnableDistillation {
 			eng.BeliefDistiller = a.newBeliefDistiller()
 		} else {
@@ -139,16 +170,31 @@ func (a *app) configureBeliefRunState(eng *agent.Engine, userID int64, sessionID
 			base := belief.NewGraphEnrichedRetriever(a.mgr.Belief, a.mgr.Graph, 2)
 			eng.BeliefRetriever = a.applyRAGEvidenceBlend(base)
 			eng.BeliefMaxBeliefsPerPrompt = a.cfg.BeliefMemory.MaxBeliefsPerPrompt
-			eng.BeliefPromptTokenBudget = a.cfg.BeliefMemory.MaxBeliefsPerPrompt * 140
+			eng.BeliefPromptTokenBudget = a.cfg.BeliefMemory.Retrieval.MaxTokensPerPrompt
+			eng.BeliefRetrievalMinConfidence = a.cfg.BeliefMemory.Retrieval.MinConfidence
+			eng.BeliefIncludeContradictions = a.cfg.BeliefMemory.Retrieval.IncludeContradictions
 		} else {
 			eng.BeliefRetriever = nil
 			eng.BeliefMaxBeliefsPerPrompt = 0
 			eng.BeliefPromptTokenBudget = 0
+			eng.BeliefRetrievalMinConfidence = 0
+			eng.BeliefIncludeContradictions = false
 		}
 		if a.cfg.BeliefMemory.EnableConstraintEnforcement && a.transitService != nil {
 			eng.PolicyEnforcer = policy.NewTransitEnforcer(a.transitService)
+			if a.cfg.BeliefMemory.Enforcement.AutoEnable {
+				eng.BeliefPolicySink = beliefPolicySink{service: a.transitService}
+			} else {
+				eng.BeliefPolicySink = nil
+			}
 		} else {
 			eng.PolicyEnforcer = nil
+			eng.BeliefPolicySink = nil
+		}
+		if a.cfg.Magma.Enabled && a.ragService != nil && a.ragService.MagmaService() != nil {
+			eng.BeliefMagmaSink = beliefMagmaSink{service: a.ragService.MagmaService(), workerCount: a.cfg.Magma.Consolidation.WorkerCount}
+		} else {
+			eng.BeliefMagmaSink = nil
 		}
 	} else {
 		eng.BeliefStore = nil
@@ -157,19 +203,47 @@ func (a *app) configureBeliefRunState(eng *agent.Engine, userID int64, sessionID
 		eng.BeliefGraph = nil
 		eng.BeliefMaxBeliefsPerPrompt = 0
 		eng.BeliefPromptTokenBudget = 0
+		eng.BeliefRetrievalMinConfidence = 0
+		eng.BeliefIncludeContradictions = false
 		eng.BeliefPromotionThreshold = 0
+		eng.BeliefLifecyclePolicy = belief.PromotionPolicy{}
+		eng.BeliefEnforcementPolicy = belief.EnforcementPolicy{}
+		eng.BeliefPolicySink = nil
+		eng.BeliefMagmaSink = nil
 		eng.PolicyEnforcer = nil
 	}
 }
 
 func (a *app) newBeliefDistiller() belief.Distiller {
-	if a == nil || a.cfg == nil || strings.TrimSpace(a.cfg.Embedding.BaseURL) == "" || strings.TrimSpace(a.cfg.Embedding.Model) == "" {
+	if a == nil || a.cfg == nil {
 		return belief.SimpleDistiller{}
 	}
 	cfg := a.cfg.Embedding
-	return belief.SimpleDistiller{Embed: func(ctx context.Context, texts []string) ([][]float32, error) {
-		return embedding.EmbedText(ctx, cfg, texts)
-	}}
+	var embed belief.EmbedFunc
+	if strings.TrimSpace(cfg.BaseURL) != "" && strings.TrimSpace(cfg.Model) != "" {
+		embed = func(ctx context.Context, texts []string) ([][]float32, error) {
+			return embedding.EmbedText(ctx, cfg, texts)
+		}
+	}
+	if a.cfg.BeliefMemory.Distillation.Mode == "llm" && a.beliefLLM != nil {
+		return belief.LLMDistiller{Config: belief.LLMDistillerConfig{
+			LLM:                    a.beliefLLM,
+			Model:                  a.beliefModel,
+			MaxCandidates:          a.cfg.BeliefMemory.Distillation.MaxCandidatesPerEpisode,
+			MinCandidateConfidence: a.cfg.BeliefMemory.Distillation.MinCandidateConfidence,
+			AutoApplyMinConfidence: a.cfg.BeliefMemory.Distillation.AutoApplyMinConfidence,
+			DefaultConfidence:      a.cfg.BeliefMemory.DefaultConfidence,
+			Embed:                  embed,
+		}}
+	}
+	return belief.SimpleDistiller{Embed: embed}
+}
+
+func durationDays(days int) time.Duration {
+	if days <= 0 {
+		return 0
+	}
+	return time.Duration(days) * 24 * time.Hour
 }
 
 // applyRAGEvidenceBlend wraps a primary belief Retriever with a RAG-backed
@@ -196,6 +270,7 @@ func (a *app) applyRAGEvidenceBlend(inner belief.Retriever) belief.Retriever {
 				Tenant:         tenant,
 				Filter:         filter,
 				UseRRF:         true,
+				Rerank:         a.cfg.Reranking.Enabled,
 				IncludeSnippet: true,
 				Diversify:      true,
 			})

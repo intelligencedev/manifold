@@ -36,6 +36,8 @@ type IngestOptions struct {
 	Embedding EmbeddingOptions
 	// Graph controls whether/how to upsert nodes and edges.
 	Graph GraphOptions
+	// Magma controls optional MAGMA event ingestion alongside standard RAG.
+	Magma MagmaOptions
 	// ReingestPolicy determines behavior when the document already exists.
 	ReingestPolicy ReingestPolicy
 	// Version allows callers to set or bump a document version explicitly.
@@ -74,6 +76,15 @@ type GraphOptions struct {
 	ExternalRefs map[string]string
 }
 
+// MagmaOptions controls optional multi-graph agentic memory ingestion.
+type MagmaOptions struct {
+	Enabled            bool
+	SessionID          string
+	Graphs             []string
+	ConsolidationModel string
+	TopSemanticK       int
+}
+
 // ReingestPolicy determines how to handle existing documents.
 type ReingestPolicy string
 
@@ -91,6 +102,9 @@ type IngestResponse struct {
 	DocID    string
 	Version  int
 	ChunkIDs []string
+	// MagmaEventID is set when Options.Magma.Enabled stores the document as a
+	// MAGMA event node.
+	MagmaEventID string
 	// Stats captures operational metrics for the ingestion.
 	Stats IngestStats
 	// Warnings captures non-fatal issues encountered.

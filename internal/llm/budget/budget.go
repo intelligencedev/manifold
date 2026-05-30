@@ -49,8 +49,26 @@ const DefaultPerMsgRunes = 64_000
 // If ctxWindow <= 0 the function only applies the per-message truncation and
 // returns. If perMsgRunes <= 0 the per-message truncation step is skipped.
 func Fit(msgs []llm.Message, ctxWindow, reserveBuffer, perMsgRunes int) []llm.Message {
+	protectedPrefixEnd := 0
+	if len(msgs) > 0 && msgs[0].Role == "system" {
+		protectedPrefixEnd = 1
+	}
+	return FitWithProtectedPrefix(msgs, protectedPrefixEnd, ctxWindow, reserveBuffer, perMsgRunes)
+}
+
+// FitWithProtectedPrefix is Fit with an explicit prefix that must not be
+// dropped during the oldest-message eviction pass. Callers use this for
+// cache-boundary prompt layouts where static messages must remain before
+// conversation/tool history.
+func FitWithProtectedPrefix(msgs []llm.Message, protectedPrefixEnd, ctxWindow, reserveBuffer, perMsgRunes int) []llm.Message {
 	if len(msgs) == 0 {
 		return msgs
+	}
+	if protectedPrefixEnd < 0 {
+		protectedPrefixEnd = 0
+	}
+	if protectedPrefixEnd > len(msgs) {
+		protectedPrefixEnd = len(msgs)
 	}
 
 	out := make([]llm.Message, len(msgs))
@@ -84,10 +102,7 @@ func Fit(msgs []llm.Message, ctxWindow, reserveBuffer, perMsgRunes int) []llm.Me
 		return out
 	}
 
-	start := 0
-	if out[0].Role == "system" {
-		start = 1
-	}
+	start := protectedPrefixEnd
 	lastUser := -1
 	for i := len(out) - 1; i >= start; i-- {
 		if out[i].Role == "user" {
@@ -152,10 +167,7 @@ func truncateContent(content string, limit int) string {
 		return string(runes[:limit])
 	}
 	available := limit - len(marker)
-	head := available * 6 / 10
-	if head < 1 {
-		head = 1
-	}
+	head := max(available*6/10, 1)
 	tail := available - head
 	if tail < 1 {
 		tail = 1
@@ -172,9 +184,6 @@ func trimContentTail(content string, runesToRemove int) string {
 	if runesToRemove >= len(runes) {
 		return "[TRUNCATED]"
 	}
-	keep := len(runes) - runesToRemove
-	if keep < 1 {
-		keep = 1
-	}
+	keep := max(len(runes)-runesToRemove, 1)
 	return string(runes[:keep]) + "\n[TRUNCATED]"
 }

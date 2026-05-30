@@ -12,19 +12,21 @@ import (
 )
 
 type chatActivityCollector struct {
-	mu        sync.Mutex
-	sessionID string
-	runID     string
-	userID    *int64
-	records   map[string]persist.SpecialistActivityRecord
+	mu                 sync.Mutex
+	sessionID          string
+	runID              string
+	userID             *int64
+	assistantMessageID string
+	records            map[string]persist.SpecialistActivityRecord
 }
 
-func newChatActivityCollector(sessionID, runID string, userID *int64) *chatActivityCollector {
+func newChatActivityCollector(sessionID, runID string, userID *int64, assistantMessageID string) *chatActivityCollector {
 	return &chatActivityCollector{
-		sessionID: sessionID,
-		runID:     runID,
-		userID:    cloneCollectorUserID(userID),
-		records:   map[string]persist.SpecialistActivityRecord{},
+		sessionID:          sessionID,
+		runID:              runID,
+		userID:             cloneCollectorUserID(userID),
+		assistantMessageID: strings.TrimSpace(assistantMessageID),
+		records:            map[string]persist.SpecialistActivityRecord{},
 	}
 }
 
@@ -40,31 +42,45 @@ func (c *chatActivityCollector) Handle(ev agent.AgentTrace) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	record, ok := c.records[id]
-	if !ok {
-		record = persist.SpecialistActivityRecord{
-			ID:               id,
-			SessionID:        c.sessionID,
-			UserID:           cloneCollectorUserID(c.userID),
-			RunID:            c.runID,
-			CallID:           callID,
-			ParentCallID:     strings.TrimSpace(ev.ParentCallID),
-			Agent:            agentName,
-			Model:            strings.TrimSpace(ev.Model),
-			Prompt:           ev.Content,
-			Depth:            ev.Depth,
-			Status:           "running",
-			Entries:          []persist.SpecialistActivityEntry{},
-			ThoughtSummaries: []string{},
-			StartedAt:        now,
-			UpdatedAt:        now,
-		}
+	record := c.activityRecord(id, callID, agentName, ev, now)
+	updateActivityRecordIdentity(&record, ev, agentName)
+	record.UpdatedAt = now
+	applyActivityEvent(&record, ev, now)
+	c.records[id] = record
+}
+
+func (c *chatActivityCollector) activityRecord(id, callID, agentName string, ev agent.AgentTrace, now time.Time) persist.SpecialistActivityRecord {
+	if record, ok := c.records[id]; ok {
+		return record
 	}
+	return persist.SpecialistActivityRecord{
+		ID:                 id,
+		SessionID:          c.sessionID,
+		UserID:             cloneCollectorUserID(c.userID),
+		RunID:              c.runID,
+		AssistantMessageID: c.assistantMessageID,
+		CallID:             callID,
+		ParentCallID:       strings.TrimSpace(ev.ParentCallID),
+		Agent:              agentName,
+		Team:               strings.TrimSpace(ev.Team),
+		Model:              strings.TrimSpace(ev.Model),
+		Prompt:             ev.Content,
+		Depth:              ev.Depth,
+		Status:             "running",
+		Entries:            []persist.SpecialistActivityEntry{},
+		ThoughtSummaries:   []string{},
+		StartedAt:          now,
+		UpdatedAt:          now,
+	}
+}
+
+func updateActivityRecordIdentity(record *persist.SpecialistActivityRecord, ev agent.AgentTrace, agentName string) {
 	if parent := strings.TrimSpace(ev.ParentCallID); parent != "" {
 		record.ParentCallID = parent
 	}
-	if agentName != "" {
-		record.Agent = agentName
+	record.Agent = agentName
+	if team := strings.TrimSpace(ev.Team); team != "" {
+		record.Team = team
 	}
 	if model := strings.TrimSpace(ev.Model); model != "" {
 		record.Model = model
@@ -72,8 +88,9 @@ func (c *chatActivityCollector) Handle(ev agent.AgentTrace) {
 	if ev.Depth > 0 {
 		record.Depth = ev.Depth
 	}
-	record.UpdatedAt = now
+}
 
+func applyActivityEvent(record *persist.SpecialistActivityRecord, ev agent.AgentTrace, now time.Time) {
 	switch ev.Type {
 	case "agent_start":
 		record.Status = "running"
@@ -122,10 +139,8 @@ func (c *chatActivityCollector) Handle(ev agent.AgentTrace) {
 		record.FinishedAt = &finished
 	case "agent_thought_summary":
 		record.Status = "running"
-		appendThoughtSummary(&record, ev.ThoughtSummary)
+		appendThoughtSummary(record, ev.ThoughtSummary)
 	}
-
-	c.records[id] = record
 }
 
 func (c *chatActivityCollector) Snapshot() []persist.SpecialistActivityRecord {

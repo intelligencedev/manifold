@@ -7,15 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	neturl "net/url"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
 	"manifold/internal/llm"
 	"manifold/internal/observability"
-	"manifold/internal/sandbox"
 )
 
 // DelegateToTeamTool performs a synchronous HTTP call to the local /agent/run endpoint
@@ -26,6 +22,17 @@ type DelegateToTeamTool struct {
 	// defaultTimeout is applied when the parent context has no deadline and
 	// the caller did not specify timeout_ms.
 	defaultTimeout time.Duration
+}
+
+type delegateToTeamArgs struct {
+	Team        string        `json:"team"`
+	Prompt      string        `json:"prompt"`
+	History     []llm.Message `json:"history"`
+	TimeoutMS   int           `json:"timeout_ms"`
+	SessionID   string        `json:"session_id"`
+	ProjectID   string        `json:"project_id"`
+	ObjectiveID string        `json:"objective_id"`
+	RoomID      string        `json:"room_id"`
 }
 
 // NewDelegateToTeamTool constructs a DelegateToTeamTool. If defaultTimeoutSeconds > 0,
@@ -97,17 +104,7 @@ func (t *DelegateToTeamTool) JSONSchema() map[string]any {
 }
 
 func (t *DelegateToTeamTool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
-	var args struct {
-		Team        string        `json:"team"`
-		Prompt      string        `json:"prompt"`
-		History     []llm.Message `json:"history"`
-		TimeoutMS   int           `json:"timeout_ms"`
-		SessionID   string        `json:"session_id"`
-		ProjectID   string        `json:"project_id"`
-		ObjectiveID string        `json:"objective_id"`
-		RoomID      string        `json:"room_id"`
-	}
-	// Handle empty or nil JSON gracefully
+	var args delegateToTeamArgs
 	if len(raw) == 0 {
 		return map[string]any{"ok": false, "error": "empty arguments: team and prompt are required"}, nil
 	}
@@ -121,121 +118,22 @@ func (t *DelegateToTeamTool) Call(ctx context.Context, raw json.RawMessage) (any
 		return map[string]any{"ok": false, "error": "prompt is required"}, nil
 	}
 
-	// Inherit session_id from context if not explicitly provided by the LLM.
-	sessionID := strings.TrimSpace(args.SessionID)
-	fromContext := false
-	ephemeralSession := false
-	if sessionID == "" {
-		if ctxSID, ok := sandbox.SessionIDFromContext(ctx); ok {
-			sessionID = ctxSID
-			fromContext = true
-		}
-	}
-
-	switch {
-	case sessionID == "":
-		sessionID = uuid.NewString()
-		ephemeralSession = true
-	case !fromContext:
-		// Only convert non-UUID values that came from the LLM args, not from context
-		if _, err := uuid.Parse(sessionID); err != nil {
-			// Deterministically map non-UUID identifiers to a UUID so repeated
-			// values anchor to the same chat transcript.
-			sessionID = uuid.NewSHA1(uuid.NameSpaceOID, []byte(sessionID)).String()
-		}
-	}
-
-	// Inherit project_id from context if not explicitly provided by the LLM.
-	projectID := strings.TrimSpace(args.ProjectID)
-	if projectID == "" {
-		if ctxPID, ok := sandbox.ProjectIDFromContext(ctx); ok {
-			projectID = ctxPID
-		}
-	}
-	objectiveID := strings.TrimSpace(args.ObjectiveID)
-	if objectiveID == "" {
-		if ctxOID, ok := sandbox.ObjectiveIDFromContext(ctx); ok {
-			objectiveID = ctxOID
-		}
-	}
-	roomID := strings.TrimSpace(args.RoomID)
-	if roomID == "" {
-		if ctxRID, ok := sandbox.RoomIDFromContext(ctx); ok {
-			roomID = ctxRID
-		}
-	}
-
-	body := map[string]any{"prompt": args.Prompt, "session_id": sessionID}
-	if ephemeralSession {
-		body["ephemeral_session"] = true
-	}
-	if len(args.History) > 0 {
-		body["history"] = args.History
-	}
-	if projectID != "" {
-		body["project_id"] = projectID
-	}
-	if objectiveID != "" {
-		body["objective_id"] = objectiveID
-	}
-	if roomID != "" {
-		body["room_id"] = roomID
-	}
-	b, _ := json.Marshal(body)
-
-	// Build endpoint URL; force non-stream JSON via stream=0; include team name as group param
-	u, _ := neturl.Parse(fmt.Sprintf("%s/agent/run", t.baseURL))
-	q := u.Query()
-	q.Set("stream", "0")
-	q.Set("group", strings.TrimSpace(args.Team))
-	u.RawQuery = q.Encode()
-
-	// Team delegation is a long-running operation. Unlike other tools, we detach
-	// from the parent context's deadline to allow the team to work without timeout.
-	// The team's internal agent runs have their own timeout management. Only apply
-	// a timeout when explicitly requested or when a tool default timeout is set.
-	runCtx := context.WithoutCancel(ctx)
-	if args.TimeoutMS > 0 {
-		var cancel context.CancelFunc
-		runCtx, cancel = context.WithTimeout(runCtx, time.Duration(args.TimeoutMS)*time.Millisecond)
-		defer cancel()
-	} else if t.defaultTimeout > 0 {
-		var cancel context.CancelFunc
-		runCtx, cancel = context.WithTimeout(runCtx, t.defaultTimeout)
+	scope := resolveDelegatedRunScope(ctx, args.SessionID, args.ProjectID, args.ObjectiveID, args.RoomID)
+	endpoint := agentRunURL(t.baseURL, map[string]string{"group": strings.TrimSpace(args.Team)})
+	runCtx, cancel := t.runContext(ctx, args)
+	if cancel != nil {
 		defer cancel()
 	}
 
-	req, err := http.NewRequestWithContext(runCtx, http.MethodPost, u.String(), bytes.NewReader(b))
+	body := delegatedRunBody(args.Prompt, args.History, scope)
+	req, err := http.NewRequestWithContext(runCtx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
+	setDelegatedHeaders(ctx, req)
 
-	// Forward auth cookie from context to authenticate internal service calls.
-	if cookie, ok := sandbox.AuthCookieFromContext(ctx); ok {
-		req.Header.Set("Cookie", cookie)
-	}
-
-	c := *t.httpClient
-	client := &c
-	if args.TimeoutMS > 0 {
-		client.Timeout = time.Duration(args.TimeoutMS) * time.Millisecond
-	} else if t.defaultTimeout > 0 {
-		client.Timeout = t.defaultTimeout
-	} else {
-		// Team delegation is intentionally long-running. Clear any inherited
-		// client timeout so the shared HTTP client cannot silently bound the call.
-		client.Timeout = 0
-	}
-	// Observability: include whether the parent context arrived with a deadline.
-	{
-		log := observability.LoggerWithTrace(ctx)
-		eff := int(client.Timeout / time.Millisecond)
-		_, has := ctx.Deadline()
-		log.Debug().Int("args_timeout_ms", args.TimeoutMS).Int("effective_timeout_ms", eff).Bool("parent_has_deadline", has).Str("endpoint", u.String()).Msg("delegate_to_team_call")
-	}
-
+	client := t.client(args)
+	logDelegateToTeamCall(ctx, client, args.TimeoutMS, endpoint)
 	resp, err := client.Do(req)
 	if err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}, nil
@@ -247,11 +145,36 @@ func (t *DelegateToTeamTool) Call(ctx context.Context, raw json.RawMessage) (any
 	if resp.StatusCode >= 400 {
 		return map[string]any{"ok": false, "status": resp.StatusCode, "error": string(data)}, nil
 	}
-	if rawResult, ok := payload["result"].(string); ok && strings.HasPrefix(strings.TrimSpace(rawResult), "{") {
-		var decoded any
-		if err := json.Unmarshal([]byte(rawResult), &decoded); err == nil {
-			payload["result"] = decoded
-		}
-	}
+	payload = decodeRunPayload(data)
 	return map[string]any{"ok": true, "team": args.Team, "response": payload}, nil
+}
+
+func (t *DelegateToTeamTool) runContext(ctx context.Context, args delegateToTeamArgs) (context.Context, context.CancelFunc) {
+	if args.TimeoutMS > 0 {
+		return context.WithTimeout(ctx, time.Duration(args.TimeoutMS)*time.Millisecond)
+	}
+	if t.defaultTimeout > 0 {
+		return context.WithTimeout(ctx, t.defaultTimeout)
+	}
+	return ctx, nil
+}
+
+func (t *DelegateToTeamTool) client(args delegateToTeamArgs) *http.Client {
+	c := *t.httpClient
+	client := &c
+	if args.TimeoutMS > 0 {
+		client.Timeout = time.Duration(args.TimeoutMS) * time.Millisecond
+	} else if t.defaultTimeout > 0 {
+		client.Timeout = t.defaultTimeout
+	} else {
+		client.Timeout = 0
+	}
+	return client
+}
+
+func logDelegateToTeamCall(ctx context.Context, client *http.Client, timeoutMS int, endpoint string) {
+	log := observability.LoggerWithTrace(ctx)
+	effective := int(client.Timeout / time.Millisecond)
+	_, hasDeadline := ctx.Deadline()
+	log.Debug().Int("args_timeout_ms", timeoutMS).Int("effective_timeout_ms", effective).Bool("parent_has_deadline", hasDeadline).Str("endpoint", endpoint).Msg("delegate_to_team_call")
 }

@@ -35,7 +35,14 @@ func TestPackagerBuildFiltersAndTruncates(t *testing.T) {
 	executor := cli.NewExecutor(config.ExecConfig{MaxCommandSeconds: 30}, repo, 64*1024)
 	runner := codeqa.NewCLICommandRunner(executor, nil)
 	packager := NewPackager(runner, codeqa.Options{DefaultMaxDiffBytes: 40, DefaultMaxChangedFiles: 1, ForbiddenGlobs: []string{"**/*.pem"}})
-	bundle, err := packager.Build(t.Context(), repo, "HEAD~1", "HEAD", true, 40, 1)
+	bundle, err := packager.Build(t.Context(), BuildRequest{
+		RepoPath:           repo,
+		BaseRef:            "HEAD~1",
+		HeadRef:            "HEAD",
+		IncludeRepoContext: true,
+		MaxDiffBytes:       40,
+		MaxChangedFiles:    1,
+	})
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
@@ -74,7 +81,6 @@ func TestRelatedTestCandidatesSupportsMultipleLanguages(t *testing.T) {
 		"src/lib.rs":       nil,
 	}
 	for path, want := range tests {
-		path, want := path, want
 		t.Run(path, func(t *testing.T) {
 			t.Parallel()
 			got := relatedTestCandidates(path)

@@ -2,7 +2,7 @@
   <div class="flex h-full min-h-0 overflow-hidden">
     <!-- Sidebar navigation -->
     <aside
-      class="ap-hairline-r w-60 shrink-0 space-y-4 overflow-y-auto p-4 pr-5"
+      class="halo-hairline-r w-60 shrink-0 space-y-4 overflow-y-auto p-4 pr-5"
     >
       <h1 class="text-lg font-semibold text-foreground">Settings</h1>
       <nav class="space-y-1">
@@ -116,7 +116,7 @@
             <div class="space-y-1">
               <label
                 for="api-url"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >API Base URL</label
               >
               <input
@@ -130,7 +130,7 @@
             <div class="space-y-1">
               <label
                 for="ui-theme"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Theme</label
               >
               <DropdownSelect
@@ -155,7 +155,7 @@
             <div class="space-y-1">
               <label
                 for="otel-service"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Service Name</label
               >
               <input
@@ -168,7 +168,7 @@
             <div class="space-y-1">
               <label
                 for="service-version"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Version</label
               >
               <input
@@ -181,7 +181,7 @@
             <div class="space-y-1">
               <label
                 for="environment"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Environment</label
               >
               <input
@@ -217,7 +217,7 @@
             <div class="space-y-1 col-span-2">
               <label
                 for="summary-model"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Summary Model</label
               >
               <input
@@ -231,7 +231,7 @@
             <div class="space-y-1 col-span-2">
               <label
                 for="summary-url"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Endpoint</label
               >
               <input
@@ -245,7 +245,7 @@
             <div class="space-y-1 col-span-2">
               <label
                 for="summary-reserve-buffer"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Reserve Output Tokens</label
               >
               <input
@@ -264,7 +264,7 @@
             <div class="space-y-1 col-span-2">
               <label
                 for="summary-plain-text-context-window"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Plain Summary Context Window</label
               >
               <input
@@ -294,7 +294,7 @@
             <div class="space-y-1 col-span-3">
               <label
                 for="embed-base"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Base URL</label
               >
               <input
@@ -308,7 +308,7 @@
             <div class="space-y-1">
               <label
                 for="embed-model"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Model</label
               >
               <input
@@ -322,7 +322,7 @@
             <div class="space-y-1">
               <label
                 for="embed-path"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Path</label
               >
               <input
@@ -336,7 +336,7 @@
             <div class="space-y-1">
               <label
                 for="embed-header"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >API Header</label
               >
               <input
@@ -350,7 +350,7 @@
             <div class="space-y-1 col-span-3">
               <label
                 for="embed-key"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >API Key</label
               >
               <input
@@ -362,9 +362,92 @@
               />
             </div>
 
+            <div class="space-y-1">
+              <label
+                for="embed-instruction-mode"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Instruction Mode</label
+              >
+              <DropdownSelect
+                id="embed-instruction-mode"
+                v-model="agentdSettings.embedInstructionMode"
+                :options="embedInstructionModeDropdownOptions"
+                class="w-full"
+              />
+            </div>
+            <div class="space-y-1">
+              <label
+                for="embed-instruction-format"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Instruction Format</label
+              >
+              <DropdownSelect
+                id="embed-instruction-format"
+                v-model="agentdSettings.embedInstructionFormat"
+                :options="embedInstructionFormatDropdownOptions"
+                class="w-full"
+              />
+            </div>
             <div class="space-y-1 col-span-3">
               <label
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                for="embed-default-query-instruction"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Default Query Instruction</label
+              >
+              <textarea
+                id="embed-default-query-instruction"
+                v-model="agentdSettings.embedDefaultQueryInstruction"
+                rows="2"
+                placeholder="Built-in per-surface default"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              ></textarea>
+            </div>
+            <div class="space-y-1 col-span-3">
+              <label
+                for="embed-rag-query-instruction"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >RAG Query Instruction</label
+              >
+              <textarea
+                id="embed-rag-query-instruction"
+                v-model="agentdSettings.embedRagQueryInstruction"
+                rows="2"
+                placeholder="Given a search query, retrieve relevant passages that answer the query."
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              ></textarea>
+            </div>
+            <div class="space-y-1 col-span-3">
+              <label
+                for="embed-memory-query-instruction"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Evolving Memory Query Instruction</label
+              >
+              <textarea
+                id="embed-memory-query-instruction"
+                v-model="agentdSettings.embedEvolvingMemoryQueryInstruction"
+                rows="2"
+                placeholder="Given the current task, retrieve past experiences, lessons, and strategies relevant to the current task."
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              ></textarea>
+            </div>
+            <div class="space-y-1 col-span-3">
+              <label
+                for="embed-transit-query-instruction"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Transit Query Instruction</label
+              >
+              <textarea
+                id="embed-transit-query-instruction"
+                v-model="agentdSettings.embedTransitQueryInstruction"
+                rows="2"
+                placeholder="Given a search query, retrieve relevant stored shared-memory records."
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              ></textarea>
+            </div>
+
+            <div class="space-y-1 col-span-3">
+              <label
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Additional Headers</label
               >
               <div class="space-y-2">
@@ -426,6 +509,105 @@
             </div>
           </div>
         </fieldset>
+        <fieldset class="space-y-4">
+          <legend class="text-sm font-semibold text-foreground">
+            Reranking Provider
+          </legend>
+          <div class="grid gap-4 grid-cols-3">
+            <label class="col-span-3 flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                v-model="agentdSettings.rerankEnabled"
+                class="h-4 w-4 rounded border-border text-accent"
+              />
+              <span>Enabled</span>
+            </label>
+            <div class="space-y-1 col-span-3">
+              <label
+                for="rerank-base"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Base URL</label
+              >
+              <input
+                id="rerank-base"
+                type="url"
+                v-model="agentdSettings.rerankBaseUrl"
+                placeholder="http://localhost:8203"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              />
+            </div>
+            <div class="space-y-1">
+              <label
+                for="rerank-model"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Model</label
+              >
+              <input
+                id="rerank-model"
+                type="text"
+                v-model="agentdSettings.rerankModel"
+                placeholder="qwen3-reranker-0.6b"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              />
+            </div>
+            <div class="space-y-1">
+              <label
+                for="rerank-path"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Path</label
+              >
+              <input
+                id="rerank-path"
+                type="text"
+                v-model="agentdSettings.rerankPath"
+                placeholder="/v1/rerank"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              />
+            </div>
+            <div class="space-y-1">
+              <label
+                for="rerank-header"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >API Header</label
+              >
+              <input
+                id="rerank-header"
+                type="text"
+                v-model="agentdSettings.rerankApiHeader"
+                placeholder="Authorization"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              />
+            </div>
+            <div class="space-y-1 col-span-3">
+              <label
+                for="rerank-key"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >API Key</label
+              >
+              <input
+                id="rerank-key"
+                type="password"
+                autocomplete="off"
+                v-model="agentdSettings.rerankApiKey"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              />
+            </div>
+            <div class="space-y-1 col-span-3">
+              <label
+                for="rerank-instruction"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Instruction</label
+              >
+              <textarea
+                id="rerank-instruction"
+                v-model="agentdSettings.rerankInstruction"
+                rows="2"
+                placeholder="Classify whether the document matches the query topic"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              ></textarea>
+            </div>
+          </div>
+        </fieldset>
       </template>
 
       <!-- Timeouts & Safety -->
@@ -438,7 +620,7 @@
             <div class="space-y-1">
               <label
                 for="timeout-agent"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Agent Run</label
               >
               <input
@@ -452,7 +634,7 @@
             <div class="space-y-1">
               <label
                 for="timeout-stream"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Stream</label
               >
               <input
@@ -466,7 +648,7 @@
             <div class="space-y-1">
               <label
                 for="timeout-workflow"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Workflow</label
               >
               <input
@@ -487,7 +669,7 @@
             <div class="space-y-1 col-span-2">
               <label
                 for="block-binaries"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Block Binaries</label
               >
               <input
@@ -501,7 +683,7 @@
             <div class="space-y-1">
               <label
                 for="max-command"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Max Command</label
               >
               <input
@@ -515,7 +697,7 @@
             <div class="space-y-1">
               <label
                 for="truncate-bytes"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Truncate Bytes</label
               >
               <input
@@ -540,7 +722,7 @@
             <div class="space-y-1 col-span-2">
               <label
                 for="otel-endpoint"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >OTLP Endpoint</label
               >
               <input
@@ -559,7 +741,7 @@
             <div class="space-y-1 col-span-2">
               <label
                 for="log-path"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Log Path</label
               >
               <input
@@ -573,7 +755,7 @@
             <div class="space-y-1">
               <label
                 for="log-level"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Level</label
               >
               <DropdownSelect
@@ -592,7 +774,7 @@
               />
               <label
                 for="log-payloads"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Log LLM Payloads</label
               >
             </div>
@@ -605,7 +787,7 @@
               />
               <label
                 for="log-raw-prompts"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Log Raw LLM Prompts</label
               >
             </div>
@@ -623,7 +805,7 @@
             <div class="space-y-1">
               <label
                 for="searxng-url"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >SearXNG URL</label
               >
               <input
@@ -637,7 +819,7 @@
             <div class="space-y-1">
               <label
                 for="web-searxng-url"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >UI Override</label
               >
               <input
@@ -662,7 +844,7 @@
             <div class="space-y-1">
               <label
                 for="database-url"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >DATABASE_URL</label
               >
               <input
@@ -675,7 +857,7 @@
             <div class="space-y-1">
               <label
                 for="db-url"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >DB_URL</label
               >
               <input
@@ -688,7 +870,7 @@
             <div class="space-y-1">
               <label
                 for="postgres-dsn"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >POSTGRES_DSN</label
               >
               <input
@@ -708,7 +890,7 @@
             <div class="space-y-1">
               <label
                 for="search-backend"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Backend</label
               >
               <input
@@ -722,7 +904,7 @@
             <div class="space-y-1">
               <label
                 for="search-dsn"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >DSN</label
               >
               <input
@@ -735,7 +917,7 @@
             <div class="space-y-1">
               <label
                 for="search-index"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Index</label
               >
               <input
@@ -755,7 +937,7 @@
             <div class="space-y-1">
               <label
                 for="vector-backend"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Backend</label
               >
               <input
@@ -769,7 +951,7 @@
             <div class="space-y-1">
               <label
                 for="vector-dsn"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >DSN</label
               >
               <input
@@ -782,7 +964,7 @@
             <div class="space-y-1">
               <label
                 for="vector-index"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Index</label
               >
               <input
@@ -795,7 +977,7 @@
             <div class="space-y-1">
               <label
                 for="vector-dimensions"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Dimensions</label
               >
               <input
@@ -809,7 +991,7 @@
             <div class="space-y-1">
               <label
                 for="vector-metric"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Metric</label
               >
               <DropdownSelect
@@ -829,7 +1011,7 @@
             <div class="space-y-1">
               <label
                 for="graph-backend"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Backend</label
               >
               <input
@@ -843,7 +1025,7 @@
             <div class="space-y-1">
               <label
                 for="graph-dsn"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >DSN</label
               >
               <input
@@ -957,7 +1139,7 @@
             <div class="space-y-1">
               <label
                 for="server-name"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Server Name</label
               >
               <input
@@ -971,7 +1153,7 @@
             <div class="space-y-1">
               <label
                 for="server-url"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Server URL</label
               >
               <input
@@ -985,7 +1167,7 @@
             <div class="space-y-1">
               <label
                 for="server-oauth-client-id"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >OAuth Client ID (Optional)</label
               >
               <input
@@ -1039,27 +1221,23 @@ import {
 import type { MCPServer, CreateMCPServerRequest } from "@/types/mcp";
 import DropdownSelect from "@/components/DropdownSelect.vue";
 import { useThemeStore } from "@/stores/theme";
-import { defaultDarkTheme, type ThemeId } from "@/theme/themes";
+import type { ThemeChoice } from "@/theme/themes";
 
 const themeStore = useThemeStore();
 
-const supportedThemeIds: ThemeId[] = ["obsdash-dark", defaultDarkTheme];
-
-const selectedThemeId = computed<ThemeId>({
-  get: () => {
-    const id = themeStore.resolvedThemeId;
-    return supportedThemeIds.includes(id) ? id : defaultDarkTheme;
-  },
+const selectedThemeId = computed<ThemeChoice>({
+  get: () => themeStore.selection,
   set: (value) => {
     themeStore.setTheme(value);
   },
 });
 
 const themeDropdownOptions = computed(() =>
-  supportedThemeIds.map((id) => ({
-    id,
-    label: id === "obsdash-dark" ? "Observability (Dark)" : "Aperture (Dark)",
-    value: id,
+  themeStore.options.map((option) => ({
+    id: option.id,
+    label: option.label,
+    description: option.description,
+    value: option.id,
   })),
 );
 
@@ -1083,6 +1261,20 @@ const defaultAgentdSettings: AgentdSettings = {
   embedApiHeader: "Authorization",
   embedApiHeaders: {},
   embedPath: "/v1/embeddings",
+  embedInstructionMode: "auto",
+  embedInstructionFormat: "qwen",
+  embedDefaultQueryInstruction: "",
+  embedRagQueryInstruction: "",
+  embedEvolvingMemoryQueryInstruction: "",
+  embedTransitQueryInstruction: "",
+  rerankEnabled: false,
+  rerankBaseUrl: "http://localhost:8203",
+  rerankModel: "qwen3-reranker-0.6b",
+  rerankInstruction: "Classify whether the document matches the query topic",
+  rerankApiKey: "",
+  rerankApiHeader: "Authorization",
+  rerankApiHeaders: {},
+  rerankPath: "/v1/rerank",
   agentRunTimeoutSeconds: 0,
   streamRunTimeoutSeconds: 0,
   workflowTimeoutSeconds: 0,
@@ -1142,6 +1334,8 @@ function removeEmbedHeader(key: string) {
 
 const logLevelOptions = ["trace", "debug", "info", "warn", "error"];
 const vectorMetricOptions = ["cosine", "dot", "euclidean"];
+const embedInstructionModeOptions = ["auto", "enabled", "disabled"];
+const embedInstructionFormatOptions = ["qwen"];
 
 const logLevelDropdownOptions = logLevelOptions.map((level) => ({
   id: level,
@@ -1153,6 +1347,20 @@ const vectorMetricDropdownOptions = vectorMetricOptions.map((metric) => ({
   label: metric,
   value: metric,
 }));
+const embedInstructionModeDropdownOptions = embedInstructionModeOptions.map(
+  (mode) => ({
+    id: mode,
+    label: mode,
+    value: mode,
+  }),
+);
+const embedInstructionFormatDropdownOptions = embedInstructionFormatOptions.map(
+  (format) => ({
+    id: format,
+    label: format,
+    value: format,
+  }),
+);
 
 type NumericSettingKey =
   | "summaryPlainTextContextWindowTokens"
@@ -1164,7 +1372,11 @@ type NumericSettingKey =
   | "outputTruncateBytes"
   | "vectorDimensions";
 
-type BooleanSettingKey = "summaryEnabled" | "logPayloads" | "logRawPrompts";
+type BooleanSettingKey =
+  | "summaryEnabled"
+  | "rerankEnabled"
+  | "logPayloads"
+  | "logRawPrompts";
 
 const numericSettingKeys: NumericSettingKey[] = [
   "summaryPlainTextContextWindowTokens",
@@ -1178,6 +1390,7 @@ const numericSettingKeys: NumericSettingKey[] = [
 ];
 const booleanSettingKeys: BooleanSettingKey[] = [
   "summaryEnabled",
+  "rerankEnabled",
   "logPayloads",
   "logRawPrompts",
 ];

@@ -33,6 +33,7 @@ type MemoryEvent struct {
 	DurationMs    int64
 	MemorySize    int
 	RelevanceInfo map[string]float64 // memory_id -> similarity score (if available)
+	Search        SearchDiagnostics
 }
 
 // MemoryCallbacks allow embedding the memory system into higher-level
@@ -110,15 +111,15 @@ type StructuredFeedback struct {
 // MemoryEntry represents a structured experience from task execution.
 // Implements the paper's m_i = h(x_i, ŷ_i, f_i) abstraction.
 type MemoryEntry struct {
-	ID        string                 `json:"id"`
-	Input     string                 `json:"input"`     // x_i: task/query
-	Output    string                 `json:"output"`    // ŷ_i: model's answer
-	Feedback  string                 `json:"feedback"`  // f_i: success/failure signal (legacy)
-	Summary   string                 `json:"summary"`   // distilled lesson
-	RawTrace  string                 `json:"raw_trace"` // optional detailed reasoning
-	Embedding []float32              `json:"embedding"` // for retrieval
-	Metadata  map[string]interface{} `json:"metadata"`  // timestamp, domain, task_id, etc.
-	CreatedAt time.Time              `json:"created_at"`
+	ID        string         `json:"id"`
+	Input     string         `json:"input"`     // x_i: task/query
+	Output    string         `json:"output"`    // ŷ_i: model's answer
+	Feedback  string         `json:"feedback"`  // f_i: success/failure signal (legacy)
+	Summary   string         `json:"summary"`   // distilled lesson
+	RawTrace  string         `json:"raw_trace"` // optional detailed reasoning
+	Embedding []float32      `json:"embedding"` // for retrieval
+	Metadata  map[string]any `json:"metadata"`  // timestamp, domain, task_id, etc.
+	CreatedAt time.Time      `json:"created_at"`
 
 	// Enhanced fields from paper review
 	StructuredFeedback *StructuredFeedback `json:"structured_feedback,omitempty"` // Detailed feedback
@@ -148,6 +149,24 @@ type MemoryScoreExplanation struct {
 	Composite     float64      `json:"composite"`
 	MMRPenalty    float64      `json:"mmrPenalty"`
 	FinalScore    float64      `json:"finalScore"`
+}
+
+// SearchDiagnostics describes how a memory search was executed. It is kept
+// small so it can be returned by debug APIs and attached to MemoryEvents.
+type SearchDiagnostics struct {
+	EnableRAG                   bool   `json:"enableRAG"`
+	Mode                        string `json:"mode"`
+	VectorCandidates            int    `json:"vectorCandidates"`
+	KeywordCandidates           int    `json:"keywordCandidates"`
+	UsedServerVector            bool   `json:"usedServerVector"`
+	UsedKeywordStore            bool   `json:"usedKeywordStore"`
+	EmbeddingInstructionUsed    bool   `json:"embeddingInstructionUsed"`
+	EmbeddingInstructionApplied bool   `json:"embeddingInstructionApplied"`
+	EmbeddingInstructionUseCase string `json:"embeddingInstructionUseCase,omitempty"`
+	EmbeddingInstructionFormat  string `json:"embeddingInstructionFormat,omitempty"`
+	EmbeddingInstructionMode    string `json:"embeddingInstructionMode,omitempty"`
+	EmbeddingInstructionSource  string `json:"embeddingInstructionSource,omitempty"`
+	EmbeddingError              string `json:"embeddingError,omitempty"`
 }
 
 // RankingWeights controls how dense similarity is blended with memory quality,
@@ -205,6 +224,13 @@ type EvolvingMemoryJanitorStore interface {
 	DeleteExpired(ctx context.Context, before time.Time) (int64, error)
 }
 
+// EvolvingMemoryMagmaSink mirrors evolved memories into an agentic long-term
+// memory backend. It is intentionally defined in this package to avoid coupling
+// EvolvingMemory to a concrete MAGMA implementation.
+type EvolvingMemoryMagmaSink interface {
+	IngestEvolvingMemory(ctx context.Context, userID int64, sessionID string, entry *MemoryEntry) (string, error)
+}
+
 // EvolvingMemory implements the Search → Synthesis → Evolve loop from the paper.
 // It provides:
 // - R: retrieval function (top-k similarity search)
@@ -249,6 +275,7 @@ type EvolvingMemory struct {
 	pendingPersist []*MemoryEntry
 	dirtyIDs       map[string]struct{}
 	deletedIDs     map[string]struct{}
+	magmaSink      EvolvingMemoryMagmaSink
 
 	callbacks *MemoryCallbacks
 }
@@ -287,6 +314,9 @@ func (em *EvolvingMemory) MaxSize() int { return em.maxSize }
 // WindowSize returns the sliding window size used by ExpRecent.
 func (em *EvolvingMemory) WindowSize() int { return em.windowSz }
 
+// RAGEnabled reports whether embedding/vector retrieval is enabled.
+func (em *EvolvingMemory) RAGEnabled() bool { return em.enableRAG }
+
 // EvolvingMemoryConfig configures the evolving memory system.
 type EvolvingMemoryConfig struct {
 	EmbeddingConfig config.EmbeddingConfig
@@ -319,6 +349,7 @@ type EvolvingMemoryConfig struct {
 	UserID          int64
 	SessionID       string
 	PersistDebounce time.Duration
+	MagmaSink       EvolvingMemoryMagmaSink
 
 	Callbacks *MemoryCallbacks
 }

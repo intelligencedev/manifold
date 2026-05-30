@@ -109,10 +109,3 @@ func CheckReachability(ctx context.Context, cfg config.EmbeddingConfig) error {
 	}
 	return nil
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

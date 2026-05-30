@@ -38,5 +38,6 @@ func (a *LLMAdapter) Complete(ctx context.Context, req Request) (Response, error
 		Tokens:       len(msg.Content) / 4,
 		Latency:      0,
 		ProviderName: a.Name(),
+		Model:        model,
 	}, nil
 }

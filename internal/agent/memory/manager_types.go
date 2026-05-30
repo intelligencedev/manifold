@@ -1,8 +1,6 @@
 package memory
 
 import (
-	"encoding/json"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -36,52 +34,6 @@ const compactionContinuationRule = "When continuing from prior context (includin
 type dualSummary struct {
 	Compaction string `json:"compaction,omitempty"` // OpenAI Responses API compaction (encrypted)
 	Plain      string `json:"plain,omitempty"`      // Plain text summary for non-OpenAI models
-}
-
-// encodeDualSummary encodes a dual summary to JSON for storage.
-func encodeDualSummary(ds dualSummary) string {
-	if ds.Compaction == "" && ds.Plain == "" {
-		return ""
-	}
-	raw, err := json.Marshal(ds)
-	if err != nil {
-		return ds.Plain // Fallback to plain if encoding fails
-	}
-	return string(raw)
-}
-
-// decodeDualSummary decodes a stored summary. It handles both the new dual format
-// and legacy single-summary formats (plain text or compaction JSON).
-func decodeDualSummary(summary string) dualSummary {
-	trimmed := strings.TrimSpace(summary)
-	if trimmed == "" {
-		return dualSummary{}
-	}
-
-	// Try to decode as dual summary first
-	var ds dualSummary
-	if strings.HasPrefix(trimmed, "{") {
-		if err := json.Unmarshal([]byte(trimmed), &ds); err == nil {
-			// Check if it looks like a dual summary (has "plain" or "compaction" keys)
-			if ds.Compaction != "" || ds.Plain != "" {
-				return ds
-			}
-		}
-		// Check if it's a legacy compaction summary
-		if _, ok := decodeCompactionSummary(trimmed); ok {
-			return dualSummary{Compaction: trimmed}
-		}
-	}
-
-	// Treat as plain text summary (legacy format)
-	return dualSummary{Plain: trimmed}
-}
-
-// PlainTextSummary returns the plain-text portion of a persisted summary.
-// Dual summaries expose their plain fallback, legacy plain summaries are
-// returned as-is, and compaction-only summaries intentionally resolve to empty.
-func PlainTextSummary(summary string) string {
-	return strings.TrimSpace(decodeDualSummary(summary).Plain)
 }
 
 // SummaryResult contains metadata about summarization that occurred during BuildContext.
@@ -147,8 +99,6 @@ type Manager struct {
 	contextWindowTokens          int
 	compactionUnavailable        atomic.Bool
 }
-
-// Introspection helpers used by debug/observability surfaces.
 
 // ContextWindowTokens returns the approximate context window size (in tokens)
 // used for token budgeting.

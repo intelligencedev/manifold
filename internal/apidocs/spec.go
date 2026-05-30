@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -158,6 +157,7 @@ func buildTags(tagSet map[string]struct{}) []map[string]any {
 		"Media":       "Audio and image media endpoints.",
 		"MCP":         "Model Context Protocol server management APIs.",
 		"Flow":        "Flow v2 APIs.",
+		"Durable":     "Postgres-backed durable task APIs.",
 		"Debug":       "Memory and observability debugging endpoints.",
 		"Playground":  "Prompt, dataset, and experiment playground APIs.",
 	}
@@ -174,6 +174,7 @@ func buildTags(tagSet map[string]struct{}) []map[string]any {
 		"Media",
 		"MCP",
 		"Flow",
+		"Durable",
 		"Debug",
 		"Playground",
 	}
@@ -225,6 +226,7 @@ func pathParamDescription(name string) string {
 		"intent":       "Workflow intent name.",
 		"workflow_id":  "Flow workflow identifier.",
 		"run_id":       "Run identifier.",
+		"task_id":      "Durable task identifier.",
 		"specialist":   "Specialist name.",
 		"promptID":     "Prompt identifier.",
 		"datasetID":    "Dataset identifier.",
@@ -336,15 +338,26 @@ func buildResponses(op operationSpec) map[string]any {
 }
 
 func operationID(method, path string) string {
-	name := strings.Trim(path, "/")
-	if name == "" {
-		name = "root"
+	trimmed := strings.Trim(path, "/")
+	if trimmed == "" {
+		return strings.ToLower(method) + "_root"
 	}
-	name = strings.ReplaceAll(name, "{", "")
-	name = strings.ReplaceAll(name, "}", "")
-	name = operationIDSan.ReplaceAllString(name, "_")
-	name = strings.Trim(name, "_")
-	return strings.ToLower(method) + "_" + strings.ToLower(name)
+	parts := strings.Split(trimmed, "/")
+	cleaned := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.ReplaceAll(part, "{", "")
+		part = strings.ReplaceAll(part, "}", "")
+		part = operationIDSan.ReplaceAllString(part, "_")
+		part = strings.Trim(part, "_")
+		if part == "" {
+			continue
+		}
+		cleaned = append(cleaned, strings.ToLower(part))
+	}
+	if len(cleaned) == 0 {
+		return strings.ToLower(method) + "_root"
+	}
+	return strings.ToLower(method) + "_" + strings.Join(cleaned, "__")
 }
 
 func defaultSuccessCode(method string) int {
@@ -400,340 +413,4 @@ func qp(name, schemaType, description string, required bool) paramSpec {
 		description: description,
 		required:    required,
 	}
-}
-
-func routeCatalog() []routeSpec {
-	routes := []routeSpec{
-		{path: "/healthz", operations: []operationSpec{
-			jsonOp(http.MethodGet, "System", "Health check", false, withDescription("Simple liveness probe.")),
-		}},
-		{path: "/readyz", operations: []operationSpec{
-			jsonOp(http.MethodGet, "System", "Readiness check", false, withDescription("Simple readiness probe.")),
-		}},
-		{path: "/openapi.json", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Docs", "OpenAPI spec", false, withDescription("OpenAPI JSON document for this server."), withSuccess(http.StatusOK)),
-		}},
-		{path: "/api/openapi.json", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Docs", "OpenAPI spec (API alias)", false, withDescription("Alias of /openapi.json."), withSuccess(http.StatusOK)),
-		}},
-		{path: "/api-docs", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Docs", "Interactive API docs", false, withDescription("Swagger UI page."), withResponseMode("html"), withSuccess(http.StatusOK)),
-		}},
-		{path: "/api/docs", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Docs", "Interactive API docs (API alias)", false, withDescription("Alias of /api-docs."), withResponseMode("html"), withSuccess(http.StatusOK)),
-		}},
-		{path: "/auth/login", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Auth", "Start login flow", false, withDescription("Initiates OIDC/OAuth2 login when auth is configured."), withSuccess(http.StatusFound), withResponseMode("none")),
-		}},
-		{path: "/auth/callback", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Auth", "Auth callback", false, withDescription("OIDC/OAuth2 callback endpoint."), withSuccess(http.StatusFound), withResponseMode("none")),
-		}},
-		{path: "/auth/logout", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Auth", "Logout", false, withDescription("Ends local session and may redirect to upstream IdP logout."), withSuccess(http.StatusFound), withResponseMode("none")),
-		}},
-		{path: "/api/me", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Auth", "Current user profile", true),
-		}},
-		{path: "/api/users", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Auth", "List users", true),
-			jsonOp(http.MethodPost, "Auth", "Create user", true, withRequestBody("json"), withSuccess(http.StatusOK)),
-		}},
-		{path: "/api/users/{id}", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Auth", "Get user", true),
-			jsonOp(http.MethodPut, "Auth", "Update user", true, withRequestBody("json")),
-			jsonOp(http.MethodDelete, "Auth", "Delete user", true, withResponseMode("none")),
-		}},
-		{path: "/api/status", operations: []operationSpec{
-			jsonOp(http.MethodGet, "System", "Specialist status", true),
-		}},
-		{path: "/api/runs", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Metrics", "List recent runs", true),
-		}},
-		{path: "/api/metrics/tokens", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Metrics", "Token usage metrics", true, withQuery(
-				qp("window", "string", "Lookback duration (e.g. 1h, 24h, 7d).", false),
-				qp("windowSeconds", "integer", "Lookback window in seconds.", false),
-			)),
-		}},
-		{path: "/api/metrics/memory", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Metrics", "Evolving memory metrics", true, withQuery(
-				qp("window", "string", "Lookback duration (e.g. 1h, 24h, 7d).", false),
-				qp("windowSeconds", "integer", "Lookback window in seconds.", false),
-			)),
-		}},
-		{path: "/api/metrics/traces", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Metrics", "Trace metrics", true, withQuery(
-				qp("window", "string", "Lookback duration.", false),
-				qp("windowSeconds", "integer", "Lookback in seconds.", false),
-				qp("limit", "integer", "Maximum number of traces.", false),
-			)),
-		}},
-		{path: "/api/metrics/logs", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Metrics", "Log metrics", true, withQuery(
-				qp("window", "string", "Lookback duration.", false),
-				qp("windowSeconds", "integer", "Lookback in seconds.", false),
-				qp("limit", "integer", "Maximum number of logs.", false),
-			)),
-		}},
-		{path: "/api/config/agentd", operations: []operationSpec{
-			jsonOp(http.MethodGet, "System", "Get runtime config", true),
-			jsonOp(http.MethodPost, "System", "Update runtime config", true, withRequestBody("json"), withSuccess(http.StatusOK)),
-			jsonOp(http.MethodPut, "System", "Replace runtime config", true, withRequestBody("json"), withSuccess(http.StatusOK)),
-			jsonOp(http.MethodPatch, "System", "Patch runtime config", true, withRequestBody("json"), withSuccess(http.StatusOK)),
-		}},
-		{path: "/agent/run", operations: []operationSpec{
-			jsonOp(http.MethodPost, "Chat", "Run orchestrator agent", true, withRequestBody("json"), withSuccess(http.StatusOK), withResponseMode("sse"), withQuery(
-				qp("specialist", "string", "Force a specific specialist.", false),
-				qp("team", "string", "Route the run through a team orchestrator.", false),
-				qp("group", "string", "Legacy alias of team.", false),
-			)),
-		}},
-		{path: "/agent/vision", operations: []operationSpec{
-			jsonOp(http.MethodPost, "Media", "Run vision prompt with uploaded images", true, withRequestBody("multipart"), withSuccess(http.StatusOK), withResponseMode("sse")),
-		}},
-		{path: "/api/prompt", operations: []operationSpec{
-			jsonOp(http.MethodPost, "Chat", "Run prompt endpoint", true, withRequestBody("json"), withSuccess(http.StatusOK), withResponseMode("sse")),
-		}},
-		{path: "/audio/{filename}", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Media", "Fetch generated audio file", false, withResponseMode("binary"), withSuccess(http.StatusOK)),
-		}},
-		{path: "/stt", operations: []operationSpec{
-			jsonOp(http.MethodPost, "Media", "Speech-to-text transcription", true, withRequestBody("multipart"), withSuccess(http.StatusOK)),
-		}},
-		{path: "/api/me/preferences", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Projects", "Get user preferences", true),
-			jsonOp(http.MethodPut, "Projects", "Update user preferences", true, withRequestBody("json"), withSuccess(http.StatusOK)),
-		}},
-		{path: "/api/me/preferences/project", operations: []operationSpec{
-			jsonOp(http.MethodPost, "Projects", "Set active project", true, withRequestBody("json"), withSuccess(http.StatusOK)),
-		}},
-		{path: "/api/projects", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Projects", "List projects", true),
-			jsonOp(http.MethodPost, "Projects", "Create project", true, withRequestBody("json"), withSuccess(http.StatusCreated)),
-		}},
-		{path: "/api/projects/{project_id}", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Projects", "Get project root listing", true),
-			jsonOp(http.MethodDelete, "Projects", "Delete project", true, withResponseMode("none"), withSuccess(http.StatusNoContent)),
-		}},
-		{path: "/api/projects/{project_id}/archive", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Projects", "Download project archive (.tar.gz)", true, withResponseMode("binary"), withQuery(
-				qp("path", "string", "Optional project subpath (directory or file) to archive.", false),
-			)),
-		}},
-		{path: "/api/projects/{project_id}/tree", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Projects", "List project tree entries", true, withQuery(
-				qp("path", "string", "Directory path to list (default root).", false),
-			)),
-		}},
-		{path: "/api/projects/{project_id}/files", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Projects", "Read file", true, withResponseMode("binary"), withQuery(
-				qp("path", "string", "File path within the project.", true),
-			)),
-			jsonOp(http.MethodPost, "Projects", "Upload/create file", true, withRequestBody("multipart"), withSuccess(http.StatusCreated), withQuery(
-				qp("path", "string", "Target directory path.", false),
-				qp("name", "string", "File name.", false),
-			)),
-			jsonOp(http.MethodDelete, "Projects", "Delete file", true, withResponseMode("none"), withSuccess(http.StatusNoContent), withQuery(
-				qp("path", "string", "File path to remove.", true),
-			)),
-		}},
-		{path: "/api/projects/{project_id}/dirs", operations: []operationSpec{
-			jsonOp(http.MethodPost, "Projects", "Create directory", true, withSuccess(http.StatusCreated), withResponseMode("none"), withQuery(
-				qp("path", "string", "Directory path to create.", true),
-			)),
-		}},
-		{path: "/api/projects/{project_id}/move", operations: []operationSpec{
-			jsonOp(http.MethodPost, "Projects", "Move/rename path", true, withRequestBody("json"), withSuccess(http.StatusNoContent), withResponseMode("none")),
-		}},
-		{path: "/api/chat/sessions", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Chat", "List chat sessions", true),
-			jsonOp(http.MethodPost, "Chat", "Create chat session", true, withRequestBody("json"), withSuccess(http.StatusCreated)),
-		}},
-		{path: "/api/chat/sessions/{session_id}", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Chat", "Get chat session", true),
-			jsonOp(http.MethodPatch, "Chat", "Rename chat session", true, withRequestBody("json"), withSuccess(http.StatusOK)),
-			jsonOp(http.MethodDelete, "Chat", "Delete chat session", true, withSuccess(http.StatusNoContent), withResponseMode("none")),
-		}},
-		{path: "/api/chat/sessions/{session_id}/messages", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Chat", "List chat messages", true, withQuery(
-				qp("limit", "integer", "Optional message limit.", false),
-			)),
-			jsonOp(http.MethodDelete, "Chat", "Delete messages after marker", true, withResponseMode("none"), withSuccess(http.StatusNoContent), withQuery(
-				qp("after", "string", "Delete messages after this message ID.", true),
-				qp("inclusive", "boolean", "Include the marker message in delete.", false),
-			)),
-		}},
-		{path: "/api/chat/sessions/{session_id}/messages/{message_id}", operations: []operationSpec{
-			jsonOp(http.MethodDelete, "Chat", "Delete one chat message", true, withSuccess(http.StatusNoContent), withResponseMode("none")),
-		}},
-		{path: "/api/chat/sessions/{session_id}/title", operations: []operationSpec{
-			jsonOp(http.MethodPost, "Chat", "Generate/apply session title", true, withRequestBody("json"), withSuccess(http.StatusOK)),
-		}},
-		{path: "/api/specialists/defaults", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Specialists", "Get provider defaults", true),
-		}},
-		{path: "/api/specialists", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Specialists", "List specialists", true),
-			jsonOp(http.MethodPost, "Specialists", "Create specialist", true, withRequestBody("json"), withSuccess(http.StatusCreated)),
-		}},
-		{path: "/api/specialists/{name}", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Specialists", "Get specialist", true),
-			jsonOp(http.MethodPut, "Specialists", "Update specialist", true, withRequestBody("json"), withSuccess(http.StatusOK)),
-			jsonOp(http.MethodDelete, "Specialists", "Delete specialist", true, withSuccess(http.StatusNoContent), withResponseMode("none")),
-		}},
-		{path: "/api/teams", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Teams", "List teams", true),
-			jsonOp(http.MethodPost, "Teams", "Create team", true, withRequestBody("json"), withSuccess(http.StatusCreated)),
-		}},
-		{path: "/api/teams/{name}", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Teams", "Get team", true),
-			jsonOp(http.MethodPut, "Teams", "Update team", true, withRequestBody("json"), withSuccess(http.StatusOK)),
-			jsonOp(http.MethodDelete, "Teams", "Delete team", true, withSuccess(http.StatusNoContent), withResponseMode("none")),
-		}},
-		{path: "/api/teams/{name}/members/{specialist}", operations: []operationSpec{
-			jsonOp(http.MethodPut, "Teams", "Add specialist to team", true, withSuccess(http.StatusNoContent), withResponseMode("none")),
-			jsonOp(http.MethodDelete, "Teams", "Remove specialist from team", true, withSuccess(http.StatusNoContent), withResponseMode("none")),
-		}},
-		{path: "/api/flows/v2/tools", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Flow", "List tool schemas for Flow v2", true),
-		}},
-		{path: "/api/flows/v2/workflows", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Flow", "List Flow v2 workflows", true),
-		}},
-		{path: "/api/flows/v2/workflows/{workflow_id}", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Flow", "Get Flow v2 workflow", true),
-			jsonOp(http.MethodPut, "Flow", "Create/update Flow v2 workflow", true, withRequestBody("json"), withSuccess(http.StatusOK)),
-			jsonOp(http.MethodDelete, "Flow", "Delete Flow v2 workflow", true, withSuccess(http.StatusNoContent), withResponseMode("none")),
-		}},
-		{path: "/api/flows/v2/validate", operations: []operationSpec{
-			jsonOp(http.MethodPost, "Flow", "Validate Flow v2 workflow", true, withRequestBody("json"), withSuccess(http.StatusOK)),
-		}},
-		{path: "/api/flows/v2/run", operations: []operationSpec{
-			jsonOp(http.MethodPost, "Flow", "Start Flow v2 run", true, withRequestBody("json"), withSuccess(http.StatusAccepted)),
-		}},
-		{path: "/api/flows/v2/runs/{run_id}/events", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Flow", "Get or stream Flow v2 run events", true, withSuccess(http.StatusOK), withResponseMode("sse")),
-		}},
-		{path: "/api/mcp/servers", operations: []operationSpec{
-			jsonOp(http.MethodGet, "MCP", "List MCP servers", true),
-			jsonOp(http.MethodPost, "MCP", "Create MCP server", true, withRequestBody("json"), withSuccess(http.StatusCreated)),
-		}},
-		{path: "/api/mcp/servers/{name}", operations: []operationSpec{
-			jsonOp(http.MethodPut, "MCP", "Update MCP server", true, withRequestBody("json"), withSuccess(http.StatusOK)),
-			jsonOp(http.MethodDelete, "MCP", "Delete MCP server", true, withSuccess(http.StatusNoContent), withResponseMode("none")),
-		}},
-		{path: "/api/mcp/oauth/start", operations: []operationSpec{
-			jsonOp(http.MethodPost, "MCP", "Start MCP OAuth flow", true, withRequestBody("json"), withSuccess(http.StatusOK)),
-		}},
-		{path: "/api/mcp/oauth/callback", operations: []operationSpec{
-			jsonOp(http.MethodGet, "MCP", "MCP OAuth callback", false, withResponseMode("html"), withSuccess(http.StatusOK)),
-		}},
-		{path: "/debug/memory", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Debug", "Memory debug root", true),
-		}},
-		{path: "/debug/memory/sessions", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Debug", "List debug memory sessions", true),
-		}},
-		{path: "/debug/memory/sessions/{session_id}", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Debug", "Get debug memory session detail", true),
-		}},
-		{path: "/debug/memory/entries", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Debug", "List debug memory entries", true, withQuery(
-				qp("session_id", "string", "Session ID to inspect.", true),
-				qp("limit", "integer", "Optional entry limit.", false),
-			)),
-		}},
-		{path: "/debug/memory/plan", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Debug", "Get derived memory plan", true, withQuery(
-				qp("session_id", "string", "Session ID to inspect.", true),
-			)),
-		}},
-		{path: "/debug/memory/evolving", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Debug", "Get evolving memory debug info", true),
-		}},
-		{path: "/debug/memory/explain", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Debug", "Explain evolving memory search scoring", true, withQuery(
-				qp("query", "string", "Memory search query to explain.", true),
-				qp("session", "string", "Session ID to inspect.", false),
-				qp("user", "integer", "User ID when auth is disabled.", false),
-			)),
-		}},
-		{path: "/api/debug/memory", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Debug", "Memory debug root (API alias)", true),
-		}},
-		{path: "/api/debug/memory/sessions", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Debug", "List debug memory sessions (API alias)", true),
-		}},
-		{path: "/api/debug/memory/sessions/{session_id}", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Debug", "Get debug memory session detail (API alias)", true),
-		}},
-		{path: "/api/debug/memory/entries", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Debug", "List debug memory entries (API alias)", true, withQuery(
-				qp("session_id", "string", "Session ID to inspect.", true),
-				qp("limit", "integer", "Optional entry limit.", false),
-			)),
-		}},
-		{path: "/api/debug/memory/plan", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Debug", "Get derived memory plan (API alias)", true, withQuery(
-				qp("session_id", "string", "Session ID to inspect.", true),
-			)),
-		}},
-		{path: "/api/debug/memory/evolving", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Debug", "Get evolving memory debug info (API alias)", true),
-		}},
-		{path: "/api/debug/memory/explain", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Debug", "Explain evolving memory search scoring (API alias)", true, withQuery(
-				qp("query", "string", "Memory search query to explain.", true),
-				qp("session", "string", "Session ID to inspect.", false),
-				qp("user", "integer", "User ID when auth is disabled.", false),
-			)),
-		}},
-		{path: "/api/v1/playground/prompts", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Playground", "List prompts", false, withQuery(
-				qp("q", "string", "Prompt search query.", false),
-				qp("tag", "string", "Filter by tag.", false),
-				qp("page", "integer", "Page number.", false),
-				qp("per_page", "integer", "Page size.", false),
-			)),
-			jsonOp(http.MethodPost, "Playground", "Create prompt", false, withRequestBody("json"), withSuccess(http.StatusCreated)),
-		}},
-		{path: "/api/v1/playground/prompts/{promptID}", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Playground", "Get prompt", false),
-			jsonOp(http.MethodDelete, "Playground", "Delete prompt", false, withSuccess(http.StatusNoContent), withResponseMode("none")),
-		}},
-		{path: "/api/v1/playground/prompts/{promptID}/versions", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Playground", "List prompt versions", false),
-			jsonOp(http.MethodPost, "Playground", "Create prompt version", false, withRequestBody("json"), withSuccess(http.StatusCreated)),
-		}},
-		{path: "/api/v1/playground/datasets", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Playground", "List datasets", false),
-			jsonOp(http.MethodPost, "Playground", "Create dataset", false, withRequestBody("json"), withSuccess(http.StatusCreated)),
-		}},
-		{path: "/api/v1/playground/datasets/{datasetID}", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Playground", "Get dataset", false),
-			jsonOp(http.MethodPut, "Playground", "Update dataset", false, withRequestBody("json"), withSuccess(http.StatusOK)),
-			jsonOp(http.MethodDelete, "Playground", "Delete dataset", false, withSuccess(http.StatusNoContent), withResponseMode("none")),
-		}},
-		{path: "/api/v1/playground/experiments", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Playground", "List experiments", false),
-			jsonOp(http.MethodPost, "Playground", "Create experiment", false, withRequestBody("json"), withSuccess(http.StatusCreated)),
-		}},
-		{path: "/api/v1/playground/experiments/{experimentID}", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Playground", "Get experiment", false),
-			jsonOp(http.MethodDelete, "Playground", "Delete experiment", false, withSuccess(http.StatusNoContent), withResponseMode("none")),
-		}},
-		{path: "/api/v1/playground/experiments/{experimentID}/runs", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Playground", "List experiment runs", false),
-			jsonOp(http.MethodPost, "Playground", "Start experiment run", false, withSuccess(http.StatusAccepted)),
-		}},
-		{path: "/api/v1/playground/runs/{runID}/results", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Playground", "List run results", false),
-		}},
-	}
-
-	// Keep deterministic ordering if this list is ever appended conditionally.
-	sort.SliceStable(routes, func(i, j int) bool {
-		return routes[i].path < routes[j].path
-	})
-	return routes
 }

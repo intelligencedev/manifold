@@ -45,7 +45,7 @@ func TestPrepareChatTransportDecodesAndNormalizesPostBody(t *testing.T) {
 	if decoded.Prompt != "hello" {
 		t.Fatalf("expected prompt to decode, got %q", decoded.Prompt)
 	}
-	if decoded.SessionID != "default" {
+	if decoded.SessionID != normalizeClientChatSessionID("default") {
 		t.Fatalf("expected normalized default session, got %q", decoded.SessionID)
 	}
 }

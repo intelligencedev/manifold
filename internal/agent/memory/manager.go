@@ -50,8 +50,3 @@ func NewManager(store persistence.ChatStore, provider llm.Provider, cfg Config) 
 	}
 	return m
 }
-
-// BuildContextForProvider assembles the conversation history that should be sent to the
-// orchestrator by combining a persisted summary (if any) with the most recent chat turns.
-// If targetProvider supports native compaction, the manager stores and reuses
-// provider-native compacted state alongside its plain text summary.

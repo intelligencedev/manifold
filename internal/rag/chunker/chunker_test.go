@@ -9,7 +9,7 @@ import (
 
 func genText(words int) string {
 	var b strings.Builder
-	for i := 0; i < words; i++ {
+	for i := range words {
 		if i > 0 {
 			b.WriteByte(' ')
 		}

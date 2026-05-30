@@ -42,7 +42,7 @@ func TestUpsertDocumentAndChunks_FallbackMemory(t *testing.T) {
 	for _, c := range chunks {
 		recs = append(recs, ingest.ChunkRecord{Index: c.Index, Text: c.Text})
 	}
-	ids, err := ingest.UpsertChunksToSearch(ctx, search, in.ID, pre.Language, recs, in, 1)
+	ids, err := ingest.UpsertChunksToSearch(ctx, search, ingest.ChunkIndexRequest{DocID: in.ID, Lang: pre.Language, Chunks: recs, Input: in, Version: 1})
 	if err != nil {
 		t.Fatalf("chunks upsert: %v", err)
 	}
@@ -81,8 +81,8 @@ func (f *fakeChunkSearch) GetByID(_ context.Context, id string) (databases.Searc
 	return r, ok, nil
 }
 func (f *fakeChunkSearch) HasChunksTable(context.Context) (bool, error) { return f.hasTable, nil }
-func (f *fakeChunkSearch) UpsertChunk(_ context.Context, chunkID, docID string, idx int, text string, metadata map[string]string, lang string) error {
-	f.upserts = append(f.upserts, chunkID)
+func (f *fakeChunkSearch) UpsertChunk(_ context.Context, chunk databases.ChunkSearchRow) error {
+	f.upserts = append(f.upserts, chunk.ID)
 	return nil
 }
 
@@ -91,7 +91,7 @@ func TestUpsertChunks_UsesChunkTableWhenAvailable(t *testing.T) {
 	fs := &fakeChunkSearch{hasTable: true, docs: map[string]databases.SearchResult{}}
 	in := ingest.IngestRequest{ID: "doc:test:2", Tenant: "t2"}
 	chunks := []ingest.ChunkRecord{{Index: 0, Text: "a"}, {Index: 1, Text: "b"}}
-	ids, err := ingest.UpsertChunksToSearch(ctx, fs, in.ID, "english", chunks, in, 1)
+	ids, err := ingest.UpsertChunksToSearch(ctx, fs, ingest.ChunkIndexRequest{DocID: in.ID, Lang: "english", Chunks: chunks, Input: in, Version: 1})
 	if err != nil {
 		t.Fatalf("upsert chunks: %v", err)
 	}

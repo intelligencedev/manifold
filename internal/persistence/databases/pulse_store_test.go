@@ -46,7 +46,14 @@ func TestMemPulseStoreClaimAndComplete(t *testing.T) {
 	if !claimed {
 		t.Fatalf("expected claim to succeed")
 	}
-	if err := store.CompleteRoomPulse(ctx, room.RoomID, room.RouteTarget, claimToken, time.Now().UTC(), "completed", "", []string{tasks[0].ID}); err != nil {
+	if err := store.CompleteRoomPulse(ctx, persistence.RoomPulseCompletion{
+		RoomID:      room.RoomID,
+		RouteTarget: room.RouteTarget,
+		Token:       claimToken,
+		CompletedAt: time.Now().UTC(),
+		Summary:     "completed",
+		DueTaskIDs:  []string{tasks[0].ID},
+	}); err != nil {
 		t.Fatalf("complete room pulse: %v", err)
 	}
 

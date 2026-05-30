@@ -3,10 +3,19 @@ package memory
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 )
 
 func (em *EvolvingMemory) Synthesize(ctx context.Context, currentTask string, retrieved []*MemoryEntry) string {
+	scored := make([]ScoredMemoryEntry, 0, len(retrieved))
+	for _, entry := range retrieved {
+		scored = append(scored, ScoredMemoryEntry{Entry: entry})
+	}
+	return em.SynthesizeScored(ctx, currentTask, scored)
+}
+
+func (em *EvolvingMemory) SynthesizeScored(ctx context.Context, currentTask string, retrieved []ScoredMemoryEntry) string {
 	start := time.Now()
 	em.mu.RLock()
 	cb := em.callbacks
@@ -25,30 +34,30 @@ func (em *EvolvingMemory) Synthesize(ctx context.Context, currentTask string, re
 		return ""
 	}
 
-	var result string
-	result += "## Past Relevant Experiences\n\n"
+	var result strings.Builder
+	result.WriteString("## Past Relevant Experiences\n\n")
 
-	successes, cautions := partitionRetrievedByOutcome(retrieved)
+	successes, cautions := partitionScoredRetrievedByOutcome(retrieved)
 	if len(successes) > 0 {
-		result += "## Strategies That Worked\n\n"
+		result.WriteString("## Strategies That Worked\n\n")
 		for i, entry := range successes {
-			result += fmt.Sprintf("### Experience %d\n", i+1)
-			result += formatExperience(entry) + "\n\n"
+			result.WriteString(fmt.Sprintf("### Experience %d\n", i+1))
+			result.WriteString(formatScoredExperience(entry) + "\n\n")
 		}
 	}
 	if len(cautions) > 0 {
-		result += "## Mistakes to Avoid\n\n"
+		result.WriteString("## Mistakes to Avoid\n\n")
 		for i, entry := range cautions {
-			result += fmt.Sprintf("### Experience %d\n", i+1)
-			result += formatExperience(entry) + "\n\n"
+			result.WriteString(fmt.Sprintf("### Experience %d\n", i+1))
+			result.WriteString(formatScoredExperience(entry) + "\n\n")
 		}
 	}
 
 	if cb != nil && cb.OnSynthesized != nil {
 		retrievedIDs := make([]string, 0, len(retrieved))
 		for _, r := range retrieved {
-			if r != nil {
-				retrievedIDs = append(retrievedIDs, r.ID)
+			if r.Entry != nil {
+				retrievedIDs = append(retrievedIDs, r.Entry.ID)
 			}
 		}
 		cb.OnSynthesized(&MemoryEvent{
@@ -56,12 +65,48 @@ func (em *EvolvingMemory) Synthesize(ctx context.Context, currentTask string, re
 			Timestamp:    start,
 			Input:        currentTask,
 			RetrievedIDs: retrievedIDs,
-			OutputSize:   len(result),
+			OutputSize:   len(result.String()),
 			DurationMs:   time.Since(start).Milliseconds(),
 		})
 	}
 
-	return result
+	return result.String()
+}
+
+func partitionScoredRetrievedByOutcome(retrieved []ScoredMemoryEntry) ([]ScoredMemoryEntry, []ScoredMemoryEntry) {
+	successes := make([]ScoredMemoryEntry, 0, len(retrieved))
+	cautions := make([]ScoredMemoryEntry, 0, len(retrieved))
+	for _, item := range retrieved {
+		entry := item.Entry
+		if entry == nil {
+			continue
+		}
+		if entry.StructuredFeedback != nil && entry.StructuredFeedback.Type == FeedbackFailure {
+			cautions = append(cautions, item)
+			continue
+		}
+		if entry.StructuredFeedback != nil && (entry.StructuredFeedback.Type == FeedbackPartial || entry.StructuredFeedback.Type == FeedbackInProgress) {
+			cautions = append(cautions, item)
+			continue
+		}
+		if strings.EqualFold(entry.Feedback, string(FeedbackFailure)) || strings.EqualFold(entry.Feedback, string(FeedbackPartial)) {
+			cautions = append(cautions, item)
+			continue
+		}
+		successes = append(successes, item)
+	}
+	return successes, cautions
+}
+
+func formatScoredExperience(item ScoredMemoryEntry) string {
+	if item.Entry == nil {
+		return ""
+	}
+	s := formatExperience(item.Entry)
+	if item.Score != 0 {
+		s += fmt.Sprintf("**Retrieval Score:** %.3f\n", item.Score)
+	}
+	return s
 }
 
 // formatExperience converts a memory entry into a structured textual block (template S from paper).

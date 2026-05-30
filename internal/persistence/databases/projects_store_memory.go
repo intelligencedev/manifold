@@ -106,7 +106,6 @@ func (s *memProjectsStore) Update(ctx context.Context, p persistence.Project) (p
 		return persistence.Project{}, persistence.ErrRevisionConflict
 	}
 
-	// Update mutable fields
 	existing.Name = p.Name
 	existing.StorageBackend = p.StorageBackend
 	existing.UpdatedAt = time.Now().UTC()
@@ -147,8 +146,6 @@ func (s *memProjectsStore) Delete(ctx context.Context, userID int64, projectID s
 	delete(s.files, projectID)
 	return nil
 }
-
-// --- File Index Operations ---
 
 func (s *memProjectsStore) IndexFile(ctx context.Context, f persistence.ProjectFile) error {
 	s.mu.Lock()

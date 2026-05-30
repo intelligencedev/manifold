@@ -29,6 +29,19 @@ type memChatStore struct {
 
 func (s *memChatStore) Init(ctx context.Context) error { return nil }
 
+func newChatSession(id string, userID *int64, name string, kind string, now time.Time) persistence.ChatSession {
+	return persistence.ChatSession{
+		ID:                    id,
+		Name:                  name,
+		Kind:                  kind,
+		UserID:                copyUserID(userID),
+		CreatedAt:             now,
+		UpdatedAt:             now,
+		EvolvingMemoryEnabled: true,
+		BeliefMemoryEnabled:   true,
+	}
+}
+
 func copyUserID(id *int64) *int64 {
 	if id == nil {
 		return nil
@@ -70,7 +83,7 @@ func (s *memChatStore) EnsureSessionKind(ctx context.Context, userID *int64, id,
 		return sess, nil
 	}
 	now := time.Now().UTC()
-	sess := persistence.ChatSession{ID: id, Name: name, Kind: kind, UserID: copyUserID(userID), CreatedAt: now, UpdatedAt: now}
+	sess := newChatSession(id, userID, name, kind, now)
 	s.sessions[id] = sess
 	s.messages[id] = nil
 	return sess, nil
@@ -129,7 +142,7 @@ func (s *memChatStore) CreateSessionKind(ctx context.Context, userID *int64, nam
 	defer s.mu.Unlock()
 	id := uuid.NewString()
 	now := time.Now().UTC()
-	sess := persistence.ChatSession{ID: id, Name: name, Kind: kind, UserID: copyUserID(userID), CreatedAt: now, UpdatedAt: now}
+	sess := newChatSession(id, userID, name, kind, now)
 	s.sessions[id] = sess
 	s.messages[id] = nil
 	return sess, nil
@@ -149,6 +162,39 @@ func (s *memChatStore) RenameSession(ctx context.Context, userID *int64, id, nam
 		return persistence.ChatSession{}, persistence.ErrForbidden
 	}
 	sess.Name = name
+	sess.UpdatedAt = time.Now().UTC()
+	s.sessions[id] = sess
+	return sess, nil
+}
+
+func (s *memChatStore) SetSessionProject(ctx context.Context, userID *int64, id, projectID string) (persistence.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[id]
+	if !ok {
+		return persistence.ChatSession{}, persistence.ErrNotFound
+	}
+	if !hasAccess(userID, sess.UserID) {
+		return persistence.ChatSession{}, persistence.ErrForbidden
+	}
+	sess.ProjectID = strings.TrimSpace(projectID)
+	sess.UpdatedAt = time.Now().UTC()
+	s.sessions[id] = sess
+	return sess, nil
+}
+
+func (s *memChatStore) SetSessionMemorySettings(ctx context.Context, userID *int64, id string, evolvingMemoryEnabled bool, beliefMemoryEnabled bool) (persistence.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[id]
+	if !ok {
+		return persistence.ChatSession{}, persistence.ErrNotFound
+	}
+	if !hasAccess(userID, sess.UserID) {
+		return persistence.ChatSession{}, persistence.ErrForbidden
+	}
+	sess.EvolvingMemoryEnabled = evolvingMemoryEnabled
+	sess.BeliefMemoryEnabled = beliefMemoryEnabled
 	sess.UpdatedAt = time.Now().UTC()
 	s.sessions[id] = sess
 	return sess, nil
@@ -241,20 +287,20 @@ func (s *memChatStore) DeleteMessage(ctx context.Context, userID *int64, session
 	return nil
 }
 
-func (s *memChatStore) DeleteMessagesAfterWithRelated(ctx context.Context, userID *int64, sessionID string, messageID string, inclusive bool, relatedMessageIDs []string, resetSummary bool) error {
-	if strings.TrimSpace(messageID) == "" {
+func (s *memChatStore) DeleteMessagesAfterWithRelated(ctx context.Context, req persistence.ChatDeleteAfterRequest) error {
+	if strings.TrimSpace(req.MessageID) == "" {
 		return persistence.ErrNotFound
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	sess, msgs, err := s.mustAccessSessionLocked(userID, sessionID)
+	sess, msgs, err := s.mustAccessSessionLocked(req.UserID, req.SessionID)
 	if err != nil {
 		return err
 	}
 	idx := -1
 	for i, msg := range msgs {
-		if msg.ID == messageID {
+		if msg.ID == req.MessageID {
 			idx = i
 			break
 		}
@@ -264,7 +310,7 @@ func (s *memChatStore) DeleteMessagesAfterWithRelated(ctx context.Context, userI
 	}
 
 	cut := idx + 1
-	if inclusive {
+	if req.Inclusive {
 		cut = idx
 	}
 	if cut < 0 {
@@ -274,9 +320,9 @@ func (s *memChatStore) DeleteMessagesAfterWithRelated(ctx context.Context, userI
 		cut = len(msgs)
 	}
 	filtered := append([]persistence.ChatMessage(nil), msgs[:cut]...)
-	if len(relatedMessageIDs) > 0 {
-		relatedSet := make(map[string]struct{}, len(relatedMessageIDs))
-		for _, id := range relatedMessageIDs {
+	if len(req.RelatedMessageIDs) > 0 {
+		relatedSet := make(map[string]struct{}, len(req.RelatedMessageIDs))
+		for _, id := range req.RelatedMessageIDs {
 			id = strings.TrimSpace(id)
 			if id != "" {
 				relatedSet[id] = struct{}{}
@@ -291,8 +337,8 @@ func (s *memChatStore) DeleteMessagesAfterWithRelated(ctx context.Context, userI
 		}
 		filtered = remaining
 	}
-	s.messages[sessionID] = filtered
-	s.finalizeDeleteLocked(sessionID, sess, filtered, resetSummary)
+	s.messages[req.SessionID] = filtered
+	s.finalizeDeleteLocked(req.SessionID, sess, filtered, req.ResetSummary)
 	return nil
 }
 

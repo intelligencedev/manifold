@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, computed, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from "vue";
+import DOMPurify from "dompurify";
+
 import { useProjectsStore } from "@/stores/projects";
 import { projectFileUrl, projectArchiveUrl } from "@/api/client";
 import Panel from "@/components/ui/Panel.vue";
@@ -16,6 +25,7 @@ const newProjectName = ref("");
 const uploadInput = ref<HTMLInputElement | null>(null);
 const treeRef = ref<InstanceType<typeof FileTree> | null>(null);
 const splitPaneRef = ref<HTMLElement | null>(null);
+const markdownPreviewRef = ref<HTMLElement | null>(null);
 const cwd = ref(".");
 const selectedFile = ref<string>("");
 const editorContent = ref("");
@@ -46,20 +56,170 @@ const allowedTextExtensions = [
   ".csv",
 ];
 const isTextFile = computed(() => isTextFilePath(selectedFile.value));
-const isMarkdownFile = computed(() => /\.(md|markdown)$/i.test(selectedFile.value));
-const renderedMarkdown = computed(() => renderMarkdown(editorContent.value));
-const leftPaneStyle = computed(() => ({ flexBasis: `${leftPaneWidth.value}%` }));
-const rightPaneStyle = computed(() => ({ flexBasis: `${100 - leftPaneWidth.value}%` }));
+const isMarkdownFile = computed(() =>
+  /\.(md|markdown)$/i.test(selectedFile.value),
+);
+const renderedMarkdown = computed(() =>
+  renderMarkdown(editorContent.value, { mermaid: true }),
+);
+const leftPaneStyle = computed(() => ({
+  flexBasis: `${leftPaneWidth.value}%`,
+}));
+const rightPaneStyle = computed(() => ({
+  flexBasis: `${100 - leftPaneWidth.value}%`,
+}));
 const previewUrl = computed(() => {
   if (!store.currentProjectId || !selectedFile.value) return "";
   return projectFileUrl(store.currentProjectId, selectedFile.value);
 });
+let mermaidLoad: Promise<typeof import("mermaid").default> | null = null;
+let mermaidRenderRun = 0;
+
+function loadMermaid() {
+  if (!mermaidLoad) {
+    mermaidLoad = import("mermaid").then(({ default: mermaid }) => mermaid);
+  }
+  return mermaidLoad;
+}
+
+function getThemeColor(
+  styles: CSSStyleDeclaration,
+  name: string,
+  fallback: string,
+) {
+  const value = styles.getPropertyValue(name).trim();
+  return value ? `rgb(${value})` : fallback;
+}
+
+function initializeMermaid(mermaid: typeof import("mermaid").default) {
+  const styles = getComputedStyle(document.documentElement);
+  const surface = getThemeColor(styles, "--color-surface", "#ffffff");
+  const surfaceMuted = getThemeColor(
+    styles,
+    "--color-surface-muted",
+    "#f6f7f9",
+  );
+  const foreground = getThemeColor(styles, "--color-foreground", "#111827");
+  const border = getThemeColor(styles, "--color-border", "#9ca3af");
+  const accent = getThemeColor(styles, "--color-accent", "#2563eb");
+
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: "strict",
+    theme: "base",
+    htmlLabels: false,
+    themeVariables: {
+      background: surface,
+      mainBkg: surfaceMuted,
+      nodeBkg: surfaceMuted,
+      primaryColor: surfaceMuted,
+      primaryTextColor: foreground,
+      nodeTextColor: foreground,
+      primaryBorderColor: border,
+      lineColor: border,
+      textColor: foreground,
+      titleColor: foreground,
+      edgeLabelBackground: surface,
+      clusterBkg: surface,
+      clusterBorder: border,
+      secondaryColor: surface,
+      secondaryTextColor: foreground,
+      secondaryBorderColor: border,
+      tertiaryColor: surface,
+      tertiaryTextColor: foreground,
+      tertiaryBorderColor: border,
+      noteBkgColor: surfaceMuted,
+      noteTextColor: foreground,
+      noteBorderColor: accent,
+      fontFamily:
+        "Hanken Grotesk, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+    },
+    flowchart: {
+      htmlLabels: false,
+    },
+  });
+}
+
+function renderMermaidError(container: HTMLElement, source: string) {
+  container.classList.remove("md-mermaid-loading");
+  container.classList.add("md-mermaid-error");
+  const message = document.createElement("div");
+  message.className = "md-mermaid-error-message";
+  message.textContent = "Unable to render Mermaid diagram.";
+  const pre = document.createElement("pre");
+  pre.className = "md-mermaid-source";
+  const code = document.createElement("code");
+  code.textContent = source;
+  pre.appendChild(code);
+  container.replaceChildren(message, pre);
+}
+
+async function renderMermaidDiagrams() {
+  const run = ++mermaidRenderRun;
+  if (!isMarkdownFile.value || previewMode.value !== "markdown") return;
+
+  await nextTick();
+  const root = markdownPreviewRef.value;
+  if (!root || run !== mermaidRenderRun) return;
+
+  const diagrams = Array.from(
+    root.querySelectorAll<HTMLElement>('[data-mermaid-diagram="true"]'),
+  );
+  if (!diagrams.length) return;
+
+  diagrams.forEach((container) => {
+    container.classList.add("md-mermaid-loading");
+  });
+
+  let mermaid: typeof import("mermaid").default;
+  try {
+    mermaid = await loadMermaid();
+  } catch (error) {
+    console.error("failed to load mermaid", error);
+    diagrams.forEach((container) => {
+      const source =
+        container.querySelector(".md-mermaid-source")?.textContent ?? "";
+      renderMermaidError(container, source);
+    });
+    return;
+  }
+
+  initializeMermaid(mermaid);
+
+  for (const [index, container] of diagrams.entries()) {
+    if (run !== mermaidRenderRun || !root.contains(container)) return;
+    const source =
+      container.querySelector(".md-mermaid-source")?.textContent ?? "";
+    if (!source.trim()) continue;
+
+    try {
+      const { svg } = await mermaid.render(
+        `project-mermaid-${run}-${index}`,
+        source,
+      );
+      if (run !== mermaidRenderRun || !root.contains(container)) return;
+      container.classList.remove("md-mermaid-loading");
+      container.classList.add("md-mermaid-rendered");
+      container.innerHTML = DOMPurify.sanitize(svg, {
+        USE_PROFILES: { svg: true, svgFilters: true },
+      });
+    } catch (error) {
+      console.warn("mermaid render failed", error);
+      if (run !== mermaidRenderRun || !root.contains(container)) return;
+      renderMermaidError(container, source);
+    }
+  }
+}
 
 onMounted(() => {
-  void store.refresh().then(() => store.ensureTree(cwd.value));
+  void store.ensureProjects().then(async () => {
+    await store.ensureTree(cwd.value);
+    void store.refresh({ includeUsage: true });
+  });
 });
 
 onBeforeUnmount(() => {
+  mermaidRenderRun += 1;
   stopPaneResize();
 });
 
@@ -324,6 +484,14 @@ watch(
   },
 );
 
+watch(
+  [renderedMarkdown, previewMode],
+  () => {
+    void renderMermaidDiagrams();
+  },
+  { flush: "post" },
+);
+
 function rebasePath(current: string, from: string, to: string) {
   if (!current || current === ".") return current;
   if (current === from) return to;
@@ -379,8 +547,13 @@ function startPaneResize(event: PointerEvent) {
 </script>
 
 <template>
-  <section class="flex min-h-0 flex-1 flex-col space-y-3">
-    <Panel title="Projects" flat :padded="false" class="ap-hairline-b pb-3">
+  <section class="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+    <Panel
+      title="Projects"
+      flat
+      :padded="false"
+      class="halo-hairline-b shrink-0 pb-3"
+    >
       <div class="flex flex-wrap items-center gap-3">
         <div class="flex flex-wrap items-center gap-2">
           <label class="sr-only" for="new-project">New project name</label>
@@ -388,10 +561,10 @@ function startPaneResize(event: PointerEvent) {
             id="new-project"
             v-model="newProjectName"
             placeholder="New project name"
-            class="h-9 w-48 rounded-full border border-white/10 bg-surface/70 px-3 text-sm text-foreground placeholder:text-subtle-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            class="h-9 w-48 rounded-full border border-border bg-surface px-3 text-sm text-foreground placeholder:text-subtle-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
           <button
-            class="inline-flex h-9 items-center justify-center gap-2 rounded-full border border-accent/60 bg-accent/90 px-3 text-sm font-semibold text-accent-foreground shadow-[0_8px_30px_rgba(0,0,0,0.25)] transition hover:bg-accent"
+            class="inline-flex h-9 items-center justify-center gap-2 rounded-full border border-accent/60 bg-accent/90 px-3 text-sm font-semibold text-accent-foreground transition hover:bg-accent"
             @click="createProject"
           >
             Create
@@ -434,8 +607,10 @@ function startPaneResize(event: PointerEvent) {
             >Created
             {{ new Date(current.createdAt).toLocaleDateString() }}</span
           >
-          <Pill tone="neutral" size="sm">{{ current.files }} files</Pill>
-          <Pill tone="neutral" size="sm"
+          <Pill v-if="current.usageLoaded" tone="neutral" size="sm"
+            >{{ current.files }} files</Pill
+          >
+          <Pill v-if="current.usageLoaded" tone="neutral" size="sm"
             >{{ (current.sizeBytes / 1024).toFixed(1) }} KB</Pill
           >
         </div>
@@ -445,16 +620,16 @@ function startPaneResize(event: PointerEvent) {
     <div
       v-if="store.currentProjectId"
       ref="splitPaneRef"
-      class="flex min-h-0 flex-1 flex-row gap-0"
+      class="flex min-h-0 flex-1 flex-row items-stretch gap-0 overflow-hidden"
     >
       <GlassCard
         flat
-        class="flex min-h-0 min-w-0 shrink-0 flex-col p-6 pr-6"
+        class="flex h-full min-h-0 min-w-0 shrink-0 flex-col p-6 pr-6"
         :style="leftPaneStyle"
       >
         <div class="mb-4 flex items-center gap-3">
           <button
-            class="h-9 rounded-full border border-white/10 px-3 text-sm text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
+            class="h-9 rounded-full border border-border px-3 text-sm text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
             @click="() => openDir('.')"
           >
             Root
@@ -462,19 +637,19 @@ function startPaneResize(event: PointerEvent) {
           <div class="truncate text-sm text-faint-foreground">{{ cwd }}</div>
           <div class="ml-auto flex flex-wrap items-center gap-2">
             <button
-              class="h-9 rounded-full border border-white/10 bg-surface/70 px-3 text-sm text-foreground transition hover:border-accent/40 hover:text-accent"
+              class="h-9 rounded-full border border-border bg-surface px-3 text-sm text-foreground transition hover:border-accent/40 hover:text-accent"
               @click="mkdir"
             >
               New Folder
             </button>
             <button
-              class="h-9 rounded-full border border-white/10 bg-surface/70 px-3 text-sm text-foreground transition hover:border-accent/40 hover:text-accent"
+              class="h-9 rounded-full border border-border bg-surface px-3 text-sm text-foreground transition hover:border-accent/40 hover:text-accent"
               @click="createFile"
             >
               New File
             </button>
             <button
-              class="h-9 rounded-full border border-white/10 bg-surface/70 px-3 text-sm text-foreground transition hover:border-accent/40 hover:text-accent"
+              class="h-9 rounded-full border border-border bg-surface px-3 text-sm text-foreground transition hover:border-accent/40 hover:text-accent"
               @click="pickUpload"
             >
               Upload
@@ -514,7 +689,7 @@ function startPaneResize(event: PointerEvent) {
         </div>
       </GlassCard>
 
-      <div class="flex w-4 shrink-0 items-stretch justify-center">
+      <div class="flex w-4 shrink-0 self-stretch items-stretch justify-center">
         <button
           type="button"
           class="projects-splitter"
@@ -529,7 +704,7 @@ function startPaneResize(event: PointerEvent) {
 
       <GlassCard
         flat
-        class="flex min-h-0 min-w-0 shrink-0 flex-col p-6 pl-6"
+        class="flex h-full min-h-0 min-w-0 shrink-0 flex-col p-6 pl-6"
         :style="rightPaneStyle"
       >
         <div
@@ -539,22 +714,26 @@ function startPaneResize(event: PointerEvent) {
             <div class="uppercase tracking-wide">Preview</div>
             <div
               v-if="isMarkdownFile"
-              class="inline-flex items-center rounded-full border border-white/10 bg-surface/70 p-1"
+              class="inline-flex items-center rounded-full border border-border bg-surface p-1"
             >
               <button
                 class="rounded-full px-3 py-1 text-xs font-medium transition"
-                :class="previewMode === 'raw'
-                  ? 'bg-accent/90 text-accent-foreground shadow-[0_6px_20px_rgba(0,0,0,0.2)]'
-                  : 'text-subtle-foreground hover:text-foreground'"
+                :class="
+                  previewMode === 'raw'
+                    ? 'bg-accent/90 text-accent-foreground'
+                    : 'text-subtle-foreground hover:text-foreground'
+                "
                 @click="previewMode = 'raw'"
               >
                 Raw
               </button>
               <button
                 class="rounded-full px-3 py-1 text-xs font-medium transition"
-                :class="previewMode === 'markdown'
-                  ? 'bg-accent/90 text-accent-foreground shadow-[0_6px_20px_rgba(0,0,0,0.2)]'
-                  : 'text-subtle-foreground hover:text-foreground'"
+                :class="
+                  previewMode === 'markdown'
+                    ? 'bg-accent/90 text-accent-foreground'
+                    : 'text-subtle-foreground hover:text-foreground'
+                "
                 @click="previewMode = 'markdown'"
               >
                 Markdown
@@ -599,15 +778,16 @@ function startPaneResize(event: PointerEvent) {
               <textarea
                 v-if="!isMarkdownFile || previewMode === 'raw'"
                 v-model="editorContent"
-                class="min-h-[360px] flex-1 resize-none rounded-3 border border-border bg-surface/70 p-3 text-sm text-foreground shadow-inner focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                class="min-h-[360px] flex-1 resize-none rounded-3 border border-border bg-surface p-3 text-sm text-foreground shadow-inner focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 spellcheck="false"
                 @input="editorDirty = true"
               />
               <div
                 v-else
-                class="project-markdown-surface min-h-[360px] flex-1 rounded-3 border border-border bg-surface/70 shadow-inner"
+                class="project-markdown-surface min-h-[360px] flex-1 rounded-3 border border-border bg-surface shadow-inner"
               >
                 <div
+                  ref="markdownPreviewRef"
                   class="project-markdown scrollbar-inset h-full overflow-auto p-4 text-sm text-foreground"
                   v-html="renderedMarkdown"
                 ></div>
@@ -634,7 +814,11 @@ function startPaneResize(event: PointerEvent) {
       </GlassCard>
     </div>
 
-    <GlassCard v-else flat class="p-6 text-subtle-foreground">
+    <GlassCard
+      v-else
+      flat
+      class="flex min-h-0 flex-1 items-center justify-center p-6 text-subtle-foreground"
+    >
       No project selected. Create one to get started.
     </GlassCard>
 
@@ -647,7 +831,7 @@ function startPaneResize(event: PointerEvent) {
       @keydown.esc.prevent="closeDeleteProjectDialog"
     >
       <div
-        class="w-full max-w-md rounded-4 border border-danger/40 bg-surface p-5 shadow-[0_30px_60px_rgba(0,0,0,0.5)]"
+        class="w-full max-w-md rounded-4 border border-danger/40 bg-surface p-5"
       >
         <h2
           id="delete-project-title"
@@ -676,7 +860,7 @@ function startPaneResize(event: PointerEvent) {
               type="text"
               autocomplete="off"
               spellcheck="false"
-              class="h-9 w-full rounded-full border border-danger/50 bg-surface/70 px-3 text-sm text-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/70"
+              class="h-9 w-full rounded-full border border-danger/50 bg-surface px-3 text-sm text-foreground transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger/70"
               placeholder="Project name"
             />
           </div>
@@ -822,6 +1006,49 @@ function startPaneResize(event: PointerEvent) {
 .project-markdown:deep(pre) {
   margin: 0 0 0.85rem;
   overflow-x: auto;
+}
+
+.project-markdown:deep(.md-mermaid) {
+  margin: 0 0 1rem;
+  overflow-x: auto;
+  border: 1px solid rgb(var(--color-border));
+  border-radius: 0.75rem;
+  background: rgb(var(--color-surface) / 0.76);
+  padding: 1rem;
+}
+
+.project-markdown:deep(.md-mermaid-source) {
+  margin: 0;
+}
+
+.project-markdown:deep(.md-mermaid-loading) {
+  color: rgb(var(--color-subtle-foreground));
+}
+
+.project-markdown:deep(.md-mermaid-rendered svg) {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  color: rgb(var(--color-foreground));
+}
+
+.project-markdown:deep(.md-mermaid-rendered svg text),
+.project-markdown:deep(.md-mermaid-rendered svg .label),
+.project-markdown:deep(.md-mermaid-rendered svg .nodeLabel),
+.project-markdown:deep(.md-mermaid-rendered svg .edgeLabel) {
+  color: rgb(var(--color-foreground)) !important;
+  fill: rgb(var(--color-foreground)) !important;
+}
+
+.project-markdown:deep(.md-mermaid-error) {
+  border-color: rgb(var(--color-danger) / 0.45);
+}
+
+.project-markdown:deep(.md-mermaid-error-message) {
+  margin-bottom: 0.75rem;
+  color: rgb(var(--color-danger));
+  font-weight: 600;
 }
 
 .project-markdown:deep(code) {

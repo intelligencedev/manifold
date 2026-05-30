@@ -57,7 +57,7 @@ Define and configure AI agents, then build your own team of experts.
 
 Configure projects as agent workspaces.
 
-Each project is isolated to its own root path. Agents only load skills from that project's `.skills/` folder, so every project that needs reusable skills must define its own `.skills` directory inside the project root.
+Each project is isolated to its own root path. Agents load project skills from that project's `skills/` folder, and can also discover universal read-only skills from `$HOME/.manifold/skills` and `$HOME/.agents/skills` through dedicated skill tools.
 
 ![projects](docs/img/projects.webp)
 
@@ -88,7 +88,7 @@ For a basic local deployment, you need:
 Optional local tooling is only needed if you are developing Manifold itself:
 
 - Node 22 and `pnpm` for running the frontend outside Docker
-- Go 1.25 for local binary builds
+- Go 1.26.3 for local binary builds
 - Chrome or another Chromium-compatible browser if you plan to use browser-driven tools from a host build
 
 ### Fast path
@@ -145,3 +145,7 @@ make build-manifold FEATURE_GATE=beta
 ```
 
 The build passes `FEATURE_GATE` through to Vite as `VITE_MANIFOLD_FEATURE_GATE`.
+
+### Forge harness
+
+Manifold includes an optional Forge-style guarded agent loop for workflow enforcement, tool-error recovery, and control-flow-safe compaction. It is disabled by default. See [docs/forge_harness.md](./docs/forge_harness.md) for modes, configuration, rollout guidance, and deterministic scenario tests.

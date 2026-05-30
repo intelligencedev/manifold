@@ -24,7 +24,6 @@ var sideLogWriter io.Writer
 
 // InitLogger initializes zerolog with sane defaults. If logPath is non-empty,
 // logs are also written to that file (append mode). If opening the file fails,
-// logs fall back to stdout, and an error is printed to stderr.
 func InitLogger(logPath string, level string) {
 	zerolog.TimeFieldFormat = time.RFC3339Nano
 	var w io.Writer = os.Stdout
@@ -40,7 +39,6 @@ func InitLogger(logPath string, level string) {
 	}
 	currentLogWriter = w // Store for later use by EnableOTelLogging
 	rebuildLoggerOutput()
-	// Parse level
 	level = strings.ToLower(strings.TrimSpace(level))
 	if level == "warning" {
 		level = "warn"

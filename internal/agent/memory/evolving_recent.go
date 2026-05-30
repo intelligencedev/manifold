@@ -1,5 +1,7 @@
 package memory
 
+import "strings"
+
 import "fmt"
 
 func (em *EvolvingMemory) GetRecentWindow() []*MemoryEntry {
@@ -23,11 +25,11 @@ func (em *EvolvingMemory) BuildExpRecentContext() string {
 		return ""
 	}
 
-	var result string
-	result += "## Recent Task History\n\n"
+	var result strings.Builder
+	result.WriteString("## Recent Task History\n\n")
 	for i, entry := range recent {
-		result += fmt.Sprintf("%d. Task: %s | Outcome: %s\n",
-			i+1, truncate(entry.Input, 80), entry.Feedback)
+		result.WriteString(fmt.Sprintf("%d. Task: %s | Outcome: %s\n",
+			i+1, truncate(entry.Input, 80), entry.Feedback))
 	}
-	return result + "\n"
+	return result.String() + "\n"
 }

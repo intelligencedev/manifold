@@ -125,7 +125,7 @@ func (s *stubChatStore) EnsureSessionKind(ctx context.Context, userID *int64, id
 	if strings.TrimSpace(kind) == "" {
 		kind = persistence.ChatSessionKindChat
 	}
-	sess := &persistence.ChatSession{ID: id, Name: name, Kind: kind, CreatedAt: time.Now(), UpdatedAt: time.Now()}
+	sess := &persistence.ChatSession{ID: id, Name: name, Kind: kind, CreatedAt: time.Now(), UpdatedAt: time.Now(), EvolvingMemoryEnabled: true, BeliefMemoryEnabled: true}
 	s.sessions[id] = sess
 	s.messages[id] = nil
 	return *sess, nil
@@ -177,6 +177,27 @@ func (s *stubChatStore) RenameSession(ctx context.Context, userID *int64, id, na
 	defer s.mu.Unlock()
 	if sess, ok := s.sessions[id]; ok {
 		sess.Name = name
+		return *sess, nil
+	}
+	return persistence.ChatSession{}, nil
+}
+
+func (s *stubChatStore) SetSessionProject(ctx context.Context, userID *int64, id, projectID string) (persistence.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sess, ok := s.sessions[id]; ok {
+		sess.ProjectID = strings.TrimSpace(projectID)
+		return *sess, nil
+	}
+	return persistence.ChatSession{}, nil
+}
+
+func (s *stubChatStore) SetSessionMemorySettings(ctx context.Context, userID *int64, id string, evolvingMemoryEnabled bool, beliefMemoryEnabled bool) (persistence.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sess, ok := s.sessions[id]; ok {
+		sess.EvolvingMemoryEnabled = evolvingMemoryEnabled
+		sess.BeliefMemoryEnabled = beliefMemoryEnabled
 		return *sess, nil
 	}
 	return persistence.ChatSession{}, nil
@@ -404,7 +425,7 @@ func TestManagerBuildContextWithCompaction(t *testing.T) {
 
 	now := time.Now().UTC()
 	// Use longer content to ensure proper token counting
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		messages := []persistence.ChatMessage{
 			{Role: "user", Content: "user message with enough content to trigger summarization", CreatedAt: now.Add(time.Duration(i*2) * time.Second)},
 			{Role: "assistant", Content: "assistant message with enough content to trigger summarization", CreatedAt: now.Add(time.Duration(i*2+1) * time.Second)},
@@ -700,7 +721,7 @@ func TestBuildContextForProvider_SummaryTimeoutKeepsPriorState(t *testing.T) {
 	}
 
 	now := time.Now().UTC()
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		messages := []persistence.ChatMessage{
 			{Role: "user", Content: strings.Repeat("user message with enough content to trigger summary ", 8), CreatedAt: now.Add(time.Duration(i*2) * time.Second)},
 			{Role: "assistant", Content: strings.Repeat("assistant message with enough content to trigger summary ", 8), CreatedAt: now.Add(time.Duration(i*2+1) * time.Second)},
@@ -753,7 +774,7 @@ func TestBuildContextForProvider_UsesStricterPlainTextBudgetForNonCompaction(t *
 	}
 
 	now := time.Now().UTC()
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		messages := []persistence.ChatMessage{
 			{Role: "user", Content: "user message with enough content to exceed a small plain-text budget", CreatedAt: now.Add(time.Duration(i*2) * time.Second)},
 			{Role: "assistant", Content: "assistant message with enough content to exceed a small plain-text budget", CreatedAt: now.Add(time.Duration(i*2+1) * time.Second)},
@@ -804,7 +825,7 @@ func TestBuildContextForProvider_CompactionIgnoresIndependentPlainTextTrigger(t 
 	}
 
 	now := time.Now().UTC()
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		messages := []persistence.ChatMessage{
 			{Role: "user", Content: "user message with enough content to exceed a small plain-text budget", CreatedAt: now.Add(time.Duration(i*2) * time.Second)},
 			{Role: "assistant", Content: "assistant message with enough content to exceed a small plain-text budget", CreatedAt: now.Add(time.Duration(i*2+1) * time.Second)},
@@ -849,7 +870,7 @@ func TestManagerBuildContextForcesSummaryWhenTailTooLong(t *testing.T) {
 
 	now := time.Now().UTC()
 	// Keep messages short so we don't hit token-budget summarization.
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		messages := []persistence.ChatMessage{
 			{Role: "user", Content: "u", CreatedAt: now.Add(time.Duration(i*2) * time.Second)},
 			{Role: "assistant", Content: "a", CreatedAt: now.Add(time.Duration(i*2+1) * time.Second)},
@@ -901,7 +922,7 @@ func TestBuildContextForProvider_DoesNotResummarizeAfterReplacingHistory(t *test
 	}
 
 	now := time.Now().UTC()
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		messages := []persistence.ChatMessage{
 			{Role: "user", Content: "u", CreatedAt: now.Add(time.Duration(i*2) * time.Second)},
 			{Role: "assistant", Content: "a", CreatedAt: now.Add(time.Duration(i*2+1) * time.Second)},

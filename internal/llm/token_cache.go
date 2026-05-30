@@ -8,7 +8,6 @@ type TokenCache struct {
 	entries map[string]int
 }
 
-// Get returns a cached token count.
 func (c *TokenCache) Get(text string) (int, bool) {
 	if c == nil {
 		return 0, false

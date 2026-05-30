@@ -23,6 +23,42 @@ const (
 	BeliefStatusRetracted  BeliefStatus = "retracted"
 )
 
+type BeliefKind string
+
+const (
+	BeliefKindFact       BeliefKind = "fact"
+	BeliefKindPreference BeliefKind = "preference"
+	BeliefKindProcedure  BeliefKind = "procedure"
+	BeliefKindConstraint BeliefKind = "constraint"
+	BeliefKindCapability BeliefKind = "capability"
+)
+
+type EnforcementMode string
+
+const (
+	EnforcementNone           EnforcementMode = "none"
+	EnforcementPrompt         EnforcementMode = "prompt"
+	EnforcementSoftPolicy     EnforcementMode = "soft_policy"
+	EnforcementHardConstraint EnforcementMode = "hard_constraint"
+)
+
+type ReviewState string
+
+const (
+	ReviewStateAutoActive       ReviewState = "auto_active"
+	ReviewStateNeedsReview      ReviewState = "needs_review"
+	ReviewStateOperatorApproved ReviewState = "operator_approved"
+	ReviewStateOperatorRejected ReviewState = "operator_rejected"
+)
+
+type CandidateValidationStatus string
+
+const (
+	CandidateValidationAccepted CandidateValidationStatus = "accepted"
+	CandidateValidationQueued   CandidateValidationStatus = "queued"
+	CandidateValidationRejected CandidateValidationStatus = "rejected"
+)
+
 // EvidencePolarity describes whether evidence supports or contradicts a belief.
 type EvidencePolarity string
 
@@ -77,21 +113,25 @@ type Episode struct {
 
 // Belief stores one probabilistic claim at one scope.
 type Belief struct {
-	ID              string         `json:"id"`
-	TenantID        int64          `json:"tenantId"`
-	ScopeID         string         `json:"scopeId"`
-	Statement       string         `json:"statement"`
-	StatementHash   string         `json:"statementHash"`
-	Confidence      float64        `json:"confidence"`
-	EvidenceFor     int            `json:"evidenceFor"`
-	EvidenceAgainst int            `json:"evidenceAgainst"`
-	Status          BeliefStatus   `json:"status"`
-	LastObserved    *time.Time     `json:"lastObserved,omitempty"`
-	ExpiresAt       *time.Time     `json:"expiresAt,omitempty"`
-	Embedding       []float32      `json:"-"`
-	Metadata        map[string]any `json:"metadata,omitempty"`
-	CreatedAt       time.Time      `json:"createdAt"`
-	UpdatedAt       time.Time      `json:"updatedAt"`
+	ID              string          `json:"id"`
+	TenantID        int64           `json:"tenantId"`
+	ScopeID         string          `json:"scopeId"`
+	Statement       string          `json:"statement"`
+	StatementHash   string          `json:"statementHash"`
+	Kind            BeliefKind      `json:"kind"`
+	Enforcement     EnforcementMode `json:"enforcement"`
+	SourceQuality   float64         `json:"sourceQuality"`
+	ReviewState     ReviewState     `json:"reviewState"`
+	Confidence      float64         `json:"confidence"`
+	EvidenceFor     int             `json:"evidenceFor"`
+	EvidenceAgainst int             `json:"evidenceAgainst"`
+	Status          BeliefStatus    `json:"status"`
+	LastObserved    *time.Time      `json:"lastObserved,omitempty"`
+	ExpiresAt       *time.Time      `json:"expiresAt,omitempty"`
+	Embedding       []float32       `json:"-"`
+	Metadata        map[string]any  `json:"metadata,omitempty"`
+	CreatedAt       time.Time       `json:"createdAt"`
+	UpdatedAt       time.Time       `json:"updatedAt"`
 }
 
 // Evidence links a belief to a source that supports or contradicts it.
@@ -154,7 +194,7 @@ type PromotionQuery struct {
 // SearchResult is a scored belief retrieval result.
 type SearchResult struct {
 	Belief Belief  `json:"belief"`
-	Scope  Scope   `json:"scope,omitempty"`
+	Scope  Scope   `json:"scope"`
 	Score  float64 `json:"score"`
 	Reason string  `json:"reason,omitempty"`
 }
@@ -163,9 +203,46 @@ type SearchResult struct {
 type Candidate struct {
 	Statement     string           `json:"statement"`
 	StatementHash string           `json:"statementHash"`
+	Kind          BeliefKind       `json:"kind"`
+	Enforcement   EnforcementMode  `json:"enforcement"`
+	SourceQuality float64          `json:"sourceQuality"`
+	ReviewState   ReviewState      `json:"reviewState"`
 	Confidence    float64          `json:"confidence"`
 	Polarity      EvidencePolarity `json:"polarity"`
 	EvidenceNote  string           `json:"evidenceNote"`
 	Embedding     []float32        `json:"-"`
 	Metadata      map[string]any   `json:"metadata,omitempty"`
+}
+
+type CandidateRecord struct {
+	ID                string                    `json:"id"`
+	TenantID          int64                     `json:"tenantId"`
+	EpisodeID         string                    `json:"episodeId"`
+	ScopeID           string                    `json:"scopeId"`
+	Statement         string                    `json:"statement"`
+	StatementHash     string                    `json:"statementHash"`
+	Kind              BeliefKind                `json:"kind"`
+	Enforcement       EnforcementMode           `json:"enforcement"`
+	Polarity          EvidencePolarity          `json:"polarity"`
+	Confidence        float64                   `json:"confidence"`
+	SourceQuality     float64                   `json:"sourceQuality"`
+	ReviewState       ReviewState               `json:"reviewState"`
+	EvidenceNote      string                    `json:"evidenceNote"`
+	RawPayload        string                    `json:"rawPayload,omitempty"`
+	NormalizedPayload map[string]any            `json:"normalizedPayload,omitempty"`
+	ValidationStatus  CandidateValidationStatus `json:"validationStatus"`
+	RejectionReason   string                    `json:"rejectionReason,omitempty"`
+	AcceptedBeliefID  string                    `json:"acceptedBeliefId,omitempty"`
+	Model             string                    `json:"model,omitempty"`
+	Metadata          map[string]any            `json:"metadata,omitempty"`
+	CreatedAt         time.Time                 `json:"createdAt"`
+	UpdatedAt         time.Time                 `json:"updatedAt"`
+}
+
+type CandidateQuery struct {
+	TenantID         int64                     `json:"tenantId"`
+	EpisodeID        string                    `json:"episodeId,omitempty"`
+	ReviewState      ReviewState               `json:"reviewState,omitempty"`
+	ValidationStatus CandidateValidationStatus `json:"validationStatus,omitempty"`
+	Limit            int                       `json:"limit,omitempty"`
 }

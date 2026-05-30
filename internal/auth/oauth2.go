@@ -22,6 +22,8 @@ const (
 	defaultRedirectFallback = "/auth/login"
 )
 
+var errMissingCodeVerifier = errors.New("missing code verifier")
+
 // OAuth2Options describe how to talk to a non-OIDC OAuth2 provider.
 type OAuth2Options struct {
 	ClientID            string
@@ -145,7 +147,11 @@ func NewOAuth2(ctx context.Context, store *Store, opts OAuth2Options) (*OAuth2, 
 // LoginHandler begins the OAuth2 authorization code flow with PKCE.
 func (o *OAuth2) LoginHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		state, _ := randToken(16)
+		state, err := randToken(16)
+		if err != nil {
+			http.Error(w, "failed to initialize login", http.StatusInternalServerError)
+			return
+		}
 		https := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 		secure := o.tempCookieSecure && https
 		setTempCookie(w, oauth2StateCookie, state, o.stateTTL, secure)
@@ -155,7 +161,11 @@ func (o *OAuth2) LoginHandler() http.HandlerFunc {
 			// Skip PKCE for providers that don't support it well
 			authURL = o.oauth2Config.AuthCodeURL(state)
 		} else {
-			cv, _ := randToken(32)
+			cv, err := randToken(32)
+			if err != nil {
+				http.Error(w, "failed to initialize login", http.StatusInternalServerError)
+				return
+			}
 			challenge := pkceChallenge(cv)
 			setTempCookie(w, oauth2VerifierCookie, cv, o.stateTTL, secure)
 			authURL = o.oauth2Config.AuthCodeURL(
@@ -174,95 +184,25 @@ func (o *OAuth2) CallbackHandler(cookieSecure bool, cookieDomain string) http.Ha
 		code := r.URL.Query().Get("code")
 		state := r.URL.Query().Get("state")
 
-		// Truncate for logging (safely)
-		codePreview := code
-		if len(codePreview) > 8 {
-			codePreview = codePreview[:8]
-		}
-		statePreview := state
-		if len(statePreview) > 8 {
-			statePreview = statePreview[:8]
-		}
-
-		// Log every callback request to detect duplicates/prefetch
-		log.Printf("oauth2 callback: method=%s code=%s... state=%s... purpose=%s sec-purpose=%s",
-			r.Method, codePreview, statePreview,
-			r.Header.Get("Purpose"), r.Header.Get("Sec-Purpose"))
-
-		// Browsers may prefetch/prerender - reject non-user-initiated requests
-		if purpose := r.Header.Get("Purpose"); purpose == "prefetch" || purpose == "prerender" {
-			log.Printf("oauth2 callback: rejecting prefetch/prerender request")
-			http.Error(w, "prefetch not allowed", http.StatusBadRequest)
-			return
-		}
-		if r.Header.Get("Sec-Purpose") == "prefetch" {
-			log.Printf("oauth2 callback: rejecting Sec-Purpose prefetch")
-			http.Error(w, "prefetch not allowed", http.StatusBadRequest)
-			return
-		}
-
-		if state == "" || code == "" {
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return
-		}
-		sc, err := r.Cookie(oauth2StateCookie)
-		if err != nil || sc.Value != state {
-			http.Error(w, "invalid state", http.StatusBadRequest)
+		logOAuth2CallbackRequest(r, code, state)
+		if !o.validateCallbackRequest(w, r, code, state) {
 			return
 		}
 
 		ctx := o.withHTTPClient(r.Context())
-		var tok *oauth2.Token
-		if o.disablePKCE {
-			// Exchange without PKCE verifier
-			tok, err = o.oauth2Config.Exchange(ctx, code)
-		} else {
-			vc, vcErr := r.Cookie(oauth2VerifierCookie)
-			if vcErr != nil || vc.Value == "" {
+		tok, err := o.exchangeCallbackToken(ctx, r, code)
+		if err != nil {
+			if errors.Is(err, errMissingCodeVerifier) {
 				http.Error(w, "missing code verifier", http.StatusBadRequest)
 				return
 			}
-			tok, err = o.oauth2Config.Exchange(ctx, code, oauth2.SetAuthURLParam("code_verifier", vc.Value))
-		}
-		if err != nil {
-			// Log the actual error for debugging - GitHub may reject PKCE or the code may be stale
 			log.Printf("oauth2 exchange failed: %v (provider=%s, redirect=%s)", err, o.providerName, o.oauth2Config.RedirectURL)
 			http.Error(w, fmt.Sprintf("exchange failed: %v", err), http.StatusBadRequest)
 			return
 		}
-		payload, err := o.fetchUserInfo(ctx, tok)
+
+		u, err := o.syncCallbackUser(ctx, w, tok)
 		if err != nil {
-			log.Printf("oauth2 userinfo failed: %v (provider=%s, url=%s)", err, o.providerName, o.userInfoURL)
-			http.Error(w, "userinfo failed", http.StatusBadGateway)
-			return
-		}
-		email := o.stringField(payload, o.emailField)
-		if email == "" {
-			http.Error(w, "email required", http.StatusForbidden)
-			return
-		}
-		if !EmailAllowed(email, o.allowedDomains) {
-			http.Error(w, "email domain not allowed", http.StatusForbidden)
-			return
-		}
-		name := o.stringField(payload, o.nameField)
-		if name == "" {
-			name = email
-		}
-		picture := o.stringField(payload, o.pictureField)
-		subject := o.stringField(payload, o.subjectField)
-		if subject == "" {
-			subject = email
-		}
-		u := &User{Email: email, Name: name, Picture: picture, Provider: o.providerName, Subject: subject}
-		u, err = o.store.UpsertUser(ctx, u)
-		if err != nil {
-			http.Error(w, "user upsert", http.StatusInternalServerError)
-			return
-		}
-		roles := o.rolesFromPayload(payload)
-		if err := o.store.SetUserRoles(ctx, u.ID, roles); err != nil {
-			http.Error(w, "role sync", http.StatusInternalServerError)
 			return
 		}
 		sess, err := o.store.CreateSession(ctx, u.ID)
@@ -270,20 +210,124 @@ func (o *OAuth2) CallbackHandler(cookieSecure bool, cookieDomain string) http.Ha
 			http.Error(w, "session create", http.StatusInternalServerError)
 			return
 		}
-		cookie := &http.Cookie{
-			Name:     o.cookieName,
-			Value:    sess.ID,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   cookieSecure,
-			SameSite: http.SameSiteLaxMode,
-		}
-		if cookieDomain != "" {
-			cookie.Domain = cookieDomain
-		}
-		http.SetCookie(w, cookie)
+		o.setSessionCookie(w, sess.ID, cookieSecure, cookieDomain)
 		http.Redirect(w, r, "/", http.StatusFound)
 	}
+}
+
+func logOAuth2CallbackRequest(r *http.Request, code, state string) {
+	log.Printf("oauth2 callback: method=%s code=%s... state=%s... purpose=%s sec-purpose=%s",
+		r.Method,
+		truncateTokenPreview(code),
+		truncateTokenPreview(state),
+		r.Header.Get("Purpose"),
+		r.Header.Get("Sec-Purpose"))
+}
+
+func truncateTokenPreview(value string) string {
+	if len(value) > 8 {
+		return value[:8]
+	}
+	return value
+}
+
+func (o *OAuth2) validateCallbackRequest(w http.ResponseWriter, r *http.Request, code, state string) bool {
+	if purpose := r.Header.Get("Purpose"); purpose == "prefetch" || purpose == "prerender" {
+		log.Printf("oauth2 callback: rejecting prefetch/prerender request")
+		http.Error(w, "prefetch not allowed", http.StatusBadRequest)
+		return false
+	}
+	if r.Header.Get("Sec-Purpose") == "prefetch" {
+		log.Printf("oauth2 callback: rejecting Sec-Purpose prefetch")
+		http.Error(w, "prefetch not allowed", http.StatusBadRequest)
+		return false
+	}
+	if state == "" || code == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return false
+	}
+	sc, err := r.Cookie(oauth2StateCookie)
+	if err != nil || sc.Value != state {
+		http.Error(w, "invalid state", http.StatusBadRequest)
+		return false
+	}
+	return true
+}
+
+func (o *OAuth2) exchangeCallbackToken(ctx context.Context, r *http.Request, code string) (*oauth2.Token, error) {
+	if o.disablePKCE {
+		return o.oauth2Config.Exchange(ctx, code)
+	}
+	vc, err := r.Cookie(oauth2VerifierCookie)
+	if err != nil || vc.Value == "" {
+		return nil, errMissingCodeVerifier
+	}
+	return o.oauth2Config.Exchange(ctx, code, oauth2.SetAuthURLParam("code_verifier", vc.Value))
+}
+
+func (o *OAuth2) syncCallbackUser(ctx context.Context, w http.ResponseWriter, tok *oauth2.Token) (*User, error) {
+	payload, err := o.fetchUserInfo(ctx, tok)
+	if err != nil {
+		log.Printf("oauth2 userinfo failed: %v (provider=%s, url=%s)", err, o.providerName, o.userInfoURL)
+		http.Error(w, "userinfo failed", http.StatusBadGateway)
+		return nil, err
+	}
+	u, err := o.userFromPayload(w, payload)
+	if err != nil {
+		return nil, err
+	}
+	u, err = o.store.UpsertUser(ctx, u)
+	if err != nil {
+		http.Error(w, "user upsert", http.StatusInternalServerError)
+		return nil, err
+	}
+	if err := o.store.SetUserRoles(ctx, u.ID, o.rolesFromPayload(payload)); err != nil {
+		http.Error(w, "role sync", http.StatusInternalServerError)
+		return nil, err
+	}
+	return u, nil
+}
+
+func (o *OAuth2) userFromPayload(w http.ResponseWriter, payload map[string]any) (*User, error) {
+	email := o.stringField(payload, o.emailField)
+	if email == "" {
+		http.Error(w, "email required", http.StatusForbidden)
+		return nil, errors.New("email required")
+	}
+	if !EmailAllowed(email, o.allowedDomains) {
+		http.Error(w, "email domain not allowed", http.StatusForbidden)
+		return nil, errors.New("email domain not allowed")
+	}
+	name := o.stringField(payload, o.nameField)
+	if name == "" {
+		name = email
+	}
+	subject := o.stringField(payload, o.subjectField)
+	if subject == "" {
+		subject = email
+	}
+	return &User{
+		Email:    email,
+		Name:     name,
+		Picture:  o.stringField(payload, o.pictureField),
+		Provider: o.providerName,
+		Subject:  subject,
+	}, nil
+}
+
+func (o *OAuth2) setSessionCookie(w http.ResponseWriter, sessionID string, secure bool, domain string) {
+	cookie := &http.Cookie{
+		Name:     o.cookieName,
+		Value:    sessionID,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+	}
+	if domain != "" {
+		cookie.Domain = domain
+	}
+	http.SetCookie(w, cookie)
 }
 
 // LogoutHandler deletes the session and clears the cookie, optionally redirecting through the IdP.
@@ -440,7 +484,7 @@ func extractRoles(payload map[string]any, path string) []string {
 			}
 		}
 	case string:
-		for _, part := range strings.Split(v, ",") {
+		for part := range strings.SplitSeq(v, ",") {
 			n := normalizeRoleName(part)
 			if n != "" {
 				result[n] = struct{}{}
@@ -460,8 +504,8 @@ func dig(payload map[string]any, path string) (any, bool) {
 		return nil, false
 	}
 	cur := any(payload)
-	parts := strings.Split(path, ".")
-	for _, part := range parts {
+	parts := strings.SplitSeq(path, ".")
+	for part := range parts {
 		m, ok := cur.(map[string]any)
 		if !ok {
 			return nil, false

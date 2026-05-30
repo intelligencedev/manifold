@@ -115,25 +115,54 @@ type completionResponse struct {
 	} `json:"choices"`
 }
 
+type runConfig struct {
+	args      callArgs
+	endpoint  string
+	model     string
+	apiKey    string
+	total     int
+	batchSize int
+	timeoutMS int
+	aggregate bool
+}
+
 func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
+	cfg, err := t.prepareRunConfig(raw)
+	if err != nil {
+		return map[string]any{"ok": false, "error": err.Error()}, nil
+	}
+
+	successful, errorsOut := t.runParallelCompletions(ctx, cfg)
+	if len(successful) == 0 {
+		return allFailedResponse(cfg.total, errorsOut), nil
+	}
+
+	finalText, method, errorsOut := t.finalResponse(ctx, cfg, successful, errorsOut)
+	scoreCandidates(successful)
+	sort.Slice(successful, func(i, j int) bool { return successful[i].Index < successful[j].Index })
+
+	return successResponse(finalText, method, successful, errorsOut, cfg.total), nil
+}
+
+func (t *Tool) prepareRunConfig(raw json.RawMessage) (runConfig, error) {
 	var args callArgs
 	if err := json.Unmarshal(raw, &args); err != nil {
-		return map[string]any{"ok": false, "error": fmt.Sprintf("invalid arguments: %v", err)}, nil
+		return runConfig{}, fmt.Errorf("invalid arguments: %v", err)
 	}
 	if strings.TrimSpace(args.Prompt) == "" {
-		return map[string]any{"ok": false, "error": "prompt is required"}, nil
+		return runConfig{}, fmt.Errorf("prompt is required")
 	}
 
 	endpoint := t.resolveEndpoint(args)
 	if endpoint == "" {
-		return map[string]any{"ok": false, "error": "endpoint is required (or configure openai.baseURL)"}, nil
+		return runConfig{}, fmt.Errorf("endpoint is required (or configure openai.baseURL)")
 	}
 	model := strings.TrimSpace(args.Model)
 	if model == "" {
 		model = t.defaultModel
 	}
 	if model == "" {
-		return map[string]any{"ok": false, "error": "model is required (or configure openai.model)"}, nil
+		return runConfig{}, fmt.Errorf("model is required (or configure openai.model)")
 	}
 
 	apiKey := strings.TrimSpace(args.APIKey)
@@ -174,90 +203,100 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 	args.MaxTokens = fixedMaxTokens
 
-	cands := make([]candidate, total)
+	return runConfig{
+		args:      args,
+		endpoint:  endpoint,
+		model:     model,
+		apiKey:    apiKey,
+		total:     total,
+		batchSize: batchSize,
+		timeoutMS: timeoutMS,
+		aggregate: aggregate,
+	}, nil
+}
+
+func (t *Tool) runParallelCompletions(ctx context.Context, cfg runConfig) ([]candidate, []string) {
+	cands := make([]candidate, cfg.total)
 	errorsOut := make([]string, 0)
 	errMu := sync.Mutex{}
 	wg := sync.WaitGroup{}
-	sem := make(chan struct{}, batchSize)
+	sem := make(chan struct{}, cfg.batchSize)
 
-	for i := 0; i < total; i++ {
+	for i := 0; i < cfg.total; i++ {
 		i := i
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			select {
-			case sem <- struct{}{}:
-			case <-ctx.Done():
-				errMu.Lock()
-				errorsOut = append(errorsOut, fmt.Sprintf("request %d canceled: %v", i, ctx.Err()))
-				errMu.Unlock()
-				return
-			}
-			defer func() { <-sem }()
-
-			callCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutMS)*time.Millisecond)
-			defer cancel()
-			started := time.Now()
-			text, finish, err := t.callCompletion(callCtx, endpoint, apiKey, requestBody(args, model, args.Prompt, 1))
-			durationMS := time.Since(started).Milliseconds()
+		wg.Go(func() {
+			cand, err := t.runCompletion(ctx, cfg, sem, i)
 			if err != nil {
 				errMu.Lock()
-				errorsOut = append(errorsOut, fmt.Sprintf("request %d failed: %v", i, err))
+				errorsOut = append(errorsOut, err.Error())
 				errMu.Unlock()
 				return
 			}
-			cands[i] = candidate{Index: i, Text: text, FinishReason: finish, DurationMS: durationMS}
-		}()
+			cands[i] = cand
+		})
 	}
 	wg.Wait()
 
-	successful := make([]candidate, 0, total)
+	successful := make([]candidate, 0, cfg.total)
 	for _, c := range cands {
 		if strings.TrimSpace(c.Text) != "" {
 			successful = append(successful, c)
 		}
 	}
-	if len(successful) == 0 {
-		return map[string]any{
-			"ok":     false,
-			"error":  "all parallel completion requests failed",
-			"errors": errorsOut,
-			"stats": map[string]any{
-				"requested":  total,
-				"successful": 0,
-				"failed":     total,
-			},
-		}, nil
-	}
+	return successful, errorsOut
+}
 
+func (t *Tool) runCompletion(ctx context.Context, cfg runConfig, sem chan struct{}, index int) (candidate, error) {
+	select {
+	case sem <- struct{}{}:
+	case <-ctx.Done():
+		return candidate{}, fmt.Errorf("request %d canceled: %v", index, ctx.Err())
+	}
+	defer func() { <-sem }()
+
+	callCtx, cancel := context.WithTimeout(ctx, time.Duration(cfg.timeoutMS)*time.Millisecond)
+	defer cancel()
+
+	started := time.Now()
+	body := requestBody(cfg.args, cfg.model, cfg.args.Prompt, 1)
+	text, finish, err := t.callCompletion(callCtx, cfg.endpoint, cfg.apiKey, body)
+	if err != nil {
+		return candidate{}, fmt.Errorf("request %d failed: %v", index, err)
+	}
+	return candidate{
+		Index:        index,
+		Text:         text,
+		FinishReason: finish,
+		DurationMS:   time.Since(started).Milliseconds(),
+	}, nil
+}
+
+func (t *Tool) finalResponse(ctx context.Context, cfg runConfig, successful []candidate, errorsOut []string) (string, string, []string) {
 	finalText := successful[0].Text
 	aggregationMethod := "first_success"
 
-	if aggregate && len(successful) > 1 {
-		aggModel := strings.TrimSpace(args.AggregationModel)
+	if cfg.aggregate && len(successful) > 1 {
+		aggModel := strings.TrimSpace(cfg.args.AggregationModel)
 		if aggModel == "" {
-			aggModel = model
+			aggModel = cfg.model
 		}
-		aggMaxTokens := args.AggregationMaxTokens
+		aggMaxTokens := cfg.args.AggregationMaxTokens
 		if aggMaxTokens <= 0 {
-			aggMaxTokens = defaultAggMaxTokens
-			if args.MaxTokens > aggMaxTokens {
-				aggMaxTokens = args.MaxTokens
-			}
+			aggMaxTokens = max(cfg.args.MaxTokens, defaultAggMaxTokens)
 		}
 		aggTemp := 0.2
-		if args.AggregationTemperature != nil {
-			aggTemp = *args.AggregationTemperature
+		if cfg.args.AggregationTemperature != nil {
+			aggTemp = *cfg.args.AggregationTemperature
 		}
 
-		synthesisPrompt := buildSynthesisPrompt(args.Prompt, successful)
-		synthArgs := args
+		synthesisPrompt := buildSynthesisPrompt(cfg.args.Prompt, successful)
+		synthArgs := cfg.args
 		synthArgs.MaxTokens = aggMaxTokens
 		synthArgs.Temperature = &aggTemp
 		synthArgs.Stop = nil
 		synthBody := requestBody(synthArgs, aggModel, synthesisPrompt, 1)
 
-		if synthesis, _, err := t.callCompletion(ctx, endpoint, apiKey, synthBody); err == nil && strings.TrimSpace(synthesis) != "" {
+		if synthesis, _, err := t.callCompletion(ctx, cfg.endpoint, cfg.apiKey, synthBody); err == nil && strings.TrimSpace(synthesis) != "" {
 			finalText = synthesis
 			aggregationMethod = "synthesis"
 		} else {
@@ -265,9 +304,7 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 			finalText = best.Text
 			aggregationMethod = "best_candidate"
 			if err != nil {
-				errMu.Lock()
 				errorsOut = append(errorsOut, fmt.Sprintf("aggregation synthesis failed: %v", err))
-				errMu.Unlock()
 			}
 		}
 	} else if len(successful) > 1 {
@@ -275,24 +312,41 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 		finalText = best.Text
 		aggregationMethod = "best_candidate"
 	}
+	return finalText, aggregationMethod, errorsOut
+}
 
+func scoreCandidates(successful []candidate) {
 	for i := range successful {
 		successful[i].Score = scoreCandidate(successful[i].Text)
 	}
-	sort.Slice(successful, func(i, j int) bool { return successful[i].Index < successful[j].Index })
+}
 
+func allFailedResponse(total int, errorsOut []string) map[string]any {
+	return map[string]any{
+		"ok":     false,
+		"error":  "all parallel completion requests failed",
+		"errors": errorsOut,
+		"stats": map[string]any{
+			"requested":  total,
+			"successful": 0,
+			"failed":     total,
+		},
+	}
+}
+
+func successResponse(finalText, method string, candidates []candidate, errorsOut []string, total int) map[string]any {
 	return map[string]any{
 		"ok":                 true,
 		"final_response":     finalText,
-		"aggregation_method": aggregationMethod,
-		"candidates":         successful,
+		"aggregation_method": method,
+		"candidates":         candidates,
 		"errors":             errorsOut,
 		"stats": map[string]any{
 			"requested":  total,
-			"successful": len(successful),
-			"failed":     total - len(successful),
+			"successful": len(candidates),
+			"failed":     total - len(candidates),
 		},
-	}, nil
+	}
 }
 
 func (t *Tool) resolveEndpoint(args callArgs) string {

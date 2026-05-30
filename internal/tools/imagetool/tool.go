@@ -57,123 +57,144 @@ func (t *DescribeTool) JSONSchema() map[string]any {
 }
 
 func (t *DescribeTool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
-	var args struct {
-		Path    string `json:"path"`
-		Prompt  string `json:"prompt"`
-		Model   string `json:"model"`
-		BaseURL string `json:"base_url"`
-	}
+	var args describeImageArgs
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return nil, err
 	}
 
-	// Resolve dynamic base dir from context when present
-	base := sandbox.ResolveBaseDir(ctx, t.Workdir)
-	rel, err := sandbox.SanitizeArg(base, args.Path)
+	imageData, err := readDescribeImage(ctx, t.Workdir, args.Path)
 	if err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}, nil
 	}
-	full := filepath.Join(base, rel)
+
+	sys := "You are a helpful image understanding assistant. Answer concisely and describe visual details, objects, colors, text, and any notable attributes."
+	userContent := describeImagePrompt(args.Prompt)
+	msgs := []llm.Message{{Role: "system", Content: sys}, {Role: "user", Content: userContent}}
+	p := t.provider(ctx, args.BaseURL)
+	model := strings.TrimSpace(args.Model)
+	if model == "" {
+		model = strings.TrimSpace(t.DefaultModel)
+	}
+
+	if openaiClient, ok := p.(*openai.Client); ok {
+		out, err := openaiClient.ChatWithImageAttachment(ctx, msgs, imageData.mime, imageData.base64, nil, model)
+		if err != nil {
+			return map[string]any{"ok": false, "error": err.Error()}, nil
+		}
+		return map[string]any{"ok": true, "output": out.Content}, nil
+	}
+
+	msgs[1].Content = userContent + "\n\n![image](data:" + imageData.mime + ";base64," + imageData.base64 + ")\n"
+	out, err := p.Chat(ctx, msgs, nil, model)
+	if err != nil {
+		return map[string]any{"ok": false, "error": err.Error()}, nil
+	}
+	return map[string]any{"ok": true, "output": out.Content}, nil
+}
+
+type describeImageArgs struct {
+	Path    string `json:"path"`
+	Prompt  string `json:"prompt"`
+	Model   string `json:"model"`
+	BaseURL string `json:"base_url"`
+}
+
+type describeImageData struct {
+	mime   string
+	base64 string
+}
+
+func readDescribeImage(ctx context.Context, workdir, path string) (describeImageData, error) {
+	base := sandbox.ResolveBaseDir(ctx, workdir)
+	rel, err := sandbox.SanitizeArg(base, path)
+	if err != nil {
+		return describeImageData{}, err
+	}
+	content, mime, err := readImageFile(filepath.Join(base, rel))
+	if err != nil {
+		return describeImageData{}, err
+	}
+	resized, mime := resizeDescribeImage(content, mime)
+	return describeImageData{mime: mime, base64: base64.StdEncoding.EncodeToString(resized)}, nil
+}
+
+func readImageFile(full string) ([]byte, string, error) {
 	f, err := os.Open(full)
 	if err != nil {
-		return map[string]any{"ok": false, "error": fmt.Sprintf("open: %v", err)}, nil
+		return nil, "", fmt.Errorf("open: %v", err)
 	}
 	defer f.Close()
-
-	// Read a bounded prefix to sniff content type, then the rest
 	hdr := make([]byte, 512)
 	n, _ := io.ReadFull(f, hdr)
-	// reset to beginning
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
-		return map[string]any{"ok": false, "error": err.Error()}, nil
+		return nil, "", err
 	}
 	content, err := io.ReadAll(f)
 	if err != nil {
-		return map[string]any{"ok": false, "error": err.Error()}, nil
+		return nil, "", err
 	}
-	mime := http.DetectContentType(hdr[:n])
+	return content, http.DetectContentType(hdr[:n]), nil
+}
 
-	// Try to decode and resize the image in memory so the larger dimension is 512px.
-	// If decoding or encoding fails, fall back to the original bytes.
-	resizedBytes := content
-	if strings.HasPrefix(mime, "image/") {
-		if img, format, err := image.Decode(bytes.NewReader(content)); err == nil {
-			w := img.Bounds().Dx()
-			h := img.Bounds().Dy()
-			// compute target size so the smaller dimension becomes 512
-			var tw, th int
-			if w <= h {
-				// width is the smaller dimension -> set width to 512
-				tw = 512
-				th = int(float64(h) * (512.0 / float64(w)))
-				if th < 1 {
-					th = 1
-				}
-			} else {
-				// height is the smaller dimension -> set height to 512
-				th = 512
-				tw = int(float64(w) * (512.0 / float64(h)))
-				if tw < 1 {
-					tw = 1
-				}
-			}
+func resizeDescribeImage(content []byte, mime string) ([]byte, string) {
+	if !strings.HasPrefix(mime, "image/") {
+		return content, mime
+	}
+	img, format, err := image.Decode(bytes.NewReader(content))
+	if err != nil {
+		return content, mime
+	}
+	width, height := describeImageTargetSize(img.Bounds().Dx(), img.Bounds().Dy())
+	if img.Bounds().Dx() == width && img.Bounds().Dy() == height {
+		return content, mime
+	}
+	dst := image.NewRGBA(image.Rect(0, 0, width, height))
+	nearestNeighborScale(dst, img)
+	if encoded, encodedMime := encodeDescribeImage(dst, format); len(encoded) > 0 {
+		return encoded, encodedMime
+	}
+	return content, mime
+}
 
-			// If already the required size, skip resizing
-			if !(w == tw && h == th) {
-				dst := image.NewRGBA(image.Rect(0, 0, tw, th))
-				// Use a simple nearest-neighbor scale to avoid an external dependency.
-				nearestNeighborScale(dst, img)
+func describeImageTargetSize(width, height int) (int, int) {
+	if width <= height {
+		return 512, max(int(float64(height)*(512.0/float64(width))), 1)
+	}
+	return max(int(float64(width)*(512.0/float64(height))), 1), 512
+}
 
-				var buf bytes.Buffer
-				// Try to preserve original format when encoding; fallback to PNG for GIF/unknown
-				switch strings.ToLower(format) {
-				case "jpeg", "jpg":
-					_ = jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 85})
-					mime = "image/jpeg"
-				case "png":
-					_ = png.Encode(&buf, dst)
-					mime = "image/png"
-				case "gif":
-					// gif.Encode will attempt to quantize; encode as GIF but if it fails, fall back to PNG
-					if err := gif.Encode(&buf, dst, nil); err != nil {
-						_ = png.Encode(&buf, dst)
-						mime = "image/png"
-					} else {
-						mime = "image/gif"
-					}
-				default:
-					// unknown: encode as PNG
-					_ = png.Encode(&buf, dst)
-					mime = "image/png"
-				}
-				// only replace resizedBytes if encoding succeeded
-				if buf.Len() > 0 {
-					resizedBytes = buf.Bytes()
-				}
-			}
+func encodeDescribeImage(img image.Image, format string) ([]byte, string) {
+	var buf bytes.Buffer
+	switch strings.ToLower(format) {
+	case "jpeg", "jpg":
+		_ = jpeg.Encode(&buf, img, &jpeg.Options{Quality: 85})
+		return buf.Bytes(), "image/jpeg"
+	case "png":
+		_ = png.Encode(&buf, img)
+		return buf.Bytes(), "image/png"
+	case "gif":
+		if err := gif.Encode(&buf, img, nil); err == nil {
+			return buf.Bytes(), "image/gif"
 		}
 	}
+	buf.Reset()
+	_ = png.Encode(&buf, img)
+	return buf.Bytes(), "image/png"
+}
 
-	b64 := base64.StdEncoding.EncodeToString(resizedBytes)
-
-	// Build messages
-	sys := "You are a helpful image understanding assistant. Answer concisely and describe visual details, objects, colors, text, and any notable attributes."
-	userContent := ""
-	if args.Prompt != "" {
-		userContent = args.Prompt + "\n\n"
-	} else {
-		userContent = "Describe the image below in plain text. Include objects, colors, scene, and any readable text."
+func describeImagePrompt(prompt string) string {
+	if prompt != "" {
+		return prompt + "\n\n"
 	}
-	msgs := []llm.Message{{Role: "system", Content: sys}, {Role: "user", Content: userContent}}
+	return "Describe the image below in plain text. Include objects, colors, scene, and any readable text."
+}
 
-	// Prefer provider from context if the caller (agent/specialist) propagated one.
+func (t *DescribeTool) provider(ctx context.Context, baseURL string) llm.Provider {
 	p := t.Provider
 	if ctxProvider := tools.ProviderFromContext(ctx); ctxProvider != nil {
 		p = ctxProvider
 	}
-	// If caller or config requested a baseURL override, build a new provider using
-	// the supplied factory so the tool uses the correct base URL and headers.
-	baseURL := strings.TrimSpace(args.BaseURL)
+	baseURL = strings.TrimSpace(baseURL)
 	if baseURL == "" {
 		baseURL = strings.TrimSpace(t.DefaultBaseURL)
 	}
@@ -182,27 +203,7 @@ func (t *DescribeTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 			p = np
 		}
 	}
-	model := strings.TrimSpace(args.Model)
-	if model == "" {
-		model = strings.TrimSpace(t.DefaultModel)
-	}
-
-	// Try to use OpenAI-specific image attachment method if available
-	if openaiClient, ok := p.(*openai.Client); ok {
-		out, err := openaiClient.ChatWithImageAttachment(ctx, msgs, mime, b64, nil, model)
-		if err != nil {
-			return map[string]any{"ok": false, "error": err.Error()}, nil
-		}
-		return map[string]any{"ok": true, "output": out.Content}, nil
-	}
-
-	// Fallback to original data URL method for other providers
-	msgs[1].Content = userContent + "\n\n![image](data:" + mime + ";base64," + b64 + ")\n"
-	out, err := p.Chat(ctx, msgs, nil, model)
-	if err != nil {
-		return map[string]any{"ok": false, "error": err.Error()}, nil
-	}
-	return map[string]any{"ok": true, "output": out.Content}, nil
+	return p
 }
 
 // nearestNeighborScale scales src into dst using nearest-neighbor sampling.
@@ -213,13 +214,13 @@ func nearestNeighborScale(dst *image.RGBA, src image.Image) {
 	dw := dst.Bounds().Dx()
 	dh := dst.Bounds().Dy()
 
-	for y := 0; y < dh; y++ {
+	for y := range dh {
 		// compute source y
 		sy := int(float64(y) * float64(sh) / float64(dh))
 		if sy >= sh {
 			sy = sh - 1
 		}
-		for x := 0; x < dw; x++ {
+		for x := range dw {
 			sx := int(float64(x) * float64(sw) / float64(dw))
 			if sx >= sw {
 				sx = sw - 1

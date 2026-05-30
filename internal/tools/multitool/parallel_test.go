@@ -73,7 +73,7 @@ func TestParallelToolExecutesConcurrently(t *testing.T) {
 	}()
 
 	seen := map[string]bool{}
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		select {
 		case label := <-start:
 			seen[label] = true
@@ -176,7 +176,7 @@ func TestParallelToolLimitsConcurrency(t *testing.T) {
 			},
 		}
 	}
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		reg.Register(makeTool(fmt.Sprintf("tool_%d", i)))
 	}
 

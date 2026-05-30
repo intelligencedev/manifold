@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"manifold/internal/agent"
+	"manifold/internal/agent/harness"
 	"manifold/internal/agent/prompts"
 	"manifold/internal/config"
 	"manifold/internal/llm"
@@ -17,6 +18,7 @@ import (
 	"manifold/internal/tools"
 	agenttools "manifold/internal/tools/agents"
 	tooldiscovery "manifold/internal/tools/discovery"
+	inputrequesttool "manifold/internal/tools/inputrequest"
 	"manifold/internal/workspaces"
 )
 
@@ -28,6 +30,17 @@ type chatEngineBuildResult struct {
 	Err             error
 }
 
+type chatEngineBuildRequest struct {
+	Name                 string
+	SystemPromptOverride string
+	SessionID            string
+	ProjectID            string
+	ObjectiveID          string
+	Owner                int64
+	CheckedOutWorkspace  *workspaces.Workspace
+	MemorySettings       chatMemoryRunSettings
+}
+
 func sanitizeImageGenerationBuild(build chatEngineBuildResult) chatEngineBuildResult {
 	if !build.ImageGeneration || build.Engine == nil {
 		return build
@@ -37,15 +50,20 @@ func sanitizeImageGenerationBuild(build chatEngineBuildResult) chatEngineBuildRe
 	build.Engine.Tools = tools.NewRegistry()
 	build.Engine.MaxSteps = 1
 	build.Engine.Delegator = nil
+	build.Engine.TeamDelegator = nil
 	build.Engine.BeliefStore = nil
 	build.Engine.BeliefDistiller = nil
 	build.Engine.BeliefRetriever = nil
 	build.Engine.BeliefGraph = nil
 	build.Engine.PolicyEnforcer = nil
 	build.Engine.EvolvingMemory = nil
+	build.Engine.DisableEvolvingMemory = true
+	build.Engine.DisableBeliefMemory = true
 	build.Engine.ReMemEnabled = false
 	build.Engine.ReMemController = nil
 	build.Engine.SummaryEnabled = false
+	build.Engine.HarnessEnabled = false
+	build.Engine.HarnessConfig = harness.RunConfig{}
 	build.Engine.SkipInitialSummarization = true
 	return build
 }
@@ -57,37 +75,38 @@ func (a *app) chatMaxSteps() int {
 	return 8
 }
 
-func (a *app) buildOrchestratorChatEngine(ctx context.Context, owner int64, sessionID, projectID, objectiveID, systemPromptOverride string, checkedOutWorkspace *workspaces.Workspace) chatEngineBuildResult {
-	eng := a.cloneEngineForUser(ctx, owner, sessionID, projectID, objectiveID)
+func (a *app) buildOrchestratorChatEngine(ctx context.Context, req chatEngineBuildRequest) chatEngineBuildResult {
+	eng := a.cloneEngineForUser(ctx, req.Owner, req.SessionID, req.ProjectID, req.ObjectiveID, req.MemorySettings)
 	if eng == nil {
 		return chatEngineBuildResult{StatusCode: http.StatusServiceUnavailable, Err: fmt.Errorf("agent unavailable")}
 	}
 	if eng.MaxSteps <= 0 {
 		eng.MaxSteps = a.chatMaxSteps()
 	}
-	if override := strings.TrimSpace(systemPromptOverride); override != "" {
-		eng.System = a.composeSystemPromptForUserWithOverride(ctx, owner, override)
+	if override := strings.TrimSpace(req.SystemPromptOverride); override != "" {
+		eng.System = a.composeSystemPromptForUserWithOverride(ctx, req.Owner, override)
 	}
-	enableTools, autoDiscover := a.chatOrchestratorToolConfig(ctx, owner)
+	enableTools, autoDiscover := a.chatOrchestratorToolConfig(ctx, req.Owner)
 	eng.System = a.ensureChatDiscoveryInstructions(eng.System, enableTools, autoDiscover)
 	var skillsContext string
-	eng.Tools, eng.System, skillsContext = a.applyChatSkillsMode(eng.Tools, eng.System, a.chatProjectDir(ctx, checkedOutWorkspace), enableTools, autoDiscover)
+	eng.Tools, eng.System, skillsContext = a.applyChatSkillsMode(eng.Tools, eng.System, a.chatProjectDir(ctx, req.CheckedOutWorkspace), enableTools, autoDiscover)
+	eng.Tools = withChatInputRequestTool(eng.Tools, enableTools)
 	eng.UserPromptContext = combineUserPromptContext(eng.UserPromptContext, skillsContext)
 	return chatEngineBuildResult{Engine: eng, ModelLabel: eng.Model}
 }
 
-func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptOverride, sessionID, projectID, objectiveID string, owner int64) chatEngineBuildResult {
-	reg, err := a.specialistsRegistryForUser(ctx, owner)
+func (a *app) buildSpecialistChatEngine(ctx context.Context, req chatEngineBuildRequest) chatEngineBuildResult {
+	reg, err := a.specialistsRegistryForUser(ctx, req.Owner)
 	if err != nil {
 		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: fmt.Errorf("specialist registry unavailable: %w", err)}
 	}
-	sp, ok := reg.Get(name)
+	sp, ok := reg.Get(req.Name)
 	if !ok || sp == nil {
-		return chatEngineBuildResult{StatusCode: http.StatusNotFound, Err: fmt.Errorf("specialist not found: %s", name)}
+		return chatEngineBuildResult{StatusCode: http.StatusNotFound, Err: fmt.Errorf("specialist not found: %s", req.Name)}
 	}
 	prov := sp.Provider()
 	if prov == nil {
-		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: fmt.Errorf("specialist not configured: %s", name)}
+		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: fmt.Errorf("specialist not configured: %s", req.Name)}
 	}
 
 	toolReg := sp.ToolsRegistry()
@@ -96,12 +115,14 @@ func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptO
 	}
 
 	systemPrompt := prompts.EnsureMemoryInstructions(sp.System)
-	if override := strings.TrimSpace(systemPromptOverride); override != "" {
+	if override := strings.TrimSpace(req.SystemPromptOverride); override != "" {
 		systemPrompt = prompts.EnsureMemoryInstructions(override)
 	}
 	systemPrompt = a.ensureChatDiscoveryInstructions(systemPrompt, sp.EnableTools, sp.AutoDiscover)
 	var skillsContext string
 	toolReg, systemPrompt, skillsContext = a.applyChatSkillsMode(toolReg, systemPrompt, a.chatProjectDir(ctx, nil), sp.EnableTools, sp.AutoDiscover)
+	toolReg = withChatInputRequestTool(toolReg, sp.EnableTools)
+	harnessCfg := harnessOverrideConfig(a.cfg.Harness, sp.Harness)
 
 	eng := &agent.Engine{
 		LLM:                          prov,
@@ -115,9 +136,15 @@ func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptO
 		SummaryReserveBufferTokens:   a.cfg.SummaryReserveBufferTokens,
 		SummaryMinKeepLastMessages:   a.cfg.SummaryMinKeepLastMessages,
 		SummaryMaxSummaryChunkTokens: a.cfg.SummaryMaxSummaryChunkTokens,
+		HarnessEnabled:               harnessCfg.Enabled,
+		HarnessConfig:                harnessRunConfig(harnessCfg),
 	}
-	a.configureBeliefRunState(eng, owner, sessionID, projectID, objectiveID, name)
-	em := a.attachSessionEvolvingMemory(eng, owner, sessionID)
+	a.configureBeliefRunState(eng, req.Owner, req.SessionID, req.ProjectID, req.ObjectiveID, req.Name)
+	em := a.attachSessionEvolvingMemory(eng, req.Owner, req.SessionID, req.MemorySettings.EvolvingMemoryEnabled)
+	applyChatMemorySettingsToEngine(eng, req.MemorySettings)
+	if eng.DisableEvolvingMemory {
+		em = nil
+	}
 	delegator := agenttools.NewDelegator(eng.Tools, reg, a.workspaceManager, a.chatMaxSteps())
 	delegator.SetDefaultTimeout(a.cfg.AgentRunTimeoutSeconds)
 	delegator.SetEvolvingMemory(em)
@@ -126,28 +153,30 @@ func (a *app) buildSpecialistChatEngine(ctx context.Context, name, systemPromptO
 	delegator.SetBeliefRetriever(eng.BeliefRetriever, eng.BeliefMaxBeliefsPerPrompt, eng.BeliefPromptTokenBudget)
 	delegator.SetBeliefLifecycle(eng.BeliefGraph, eng.BeliefPromotionThreshold)
 	delegator.SetPolicyEnforcer(eng.PolicyEnforcer)
+	delegator.SetTeamDelegator(a)
 	if eng.ReMemEnabled {
 		delegator.ConfigureReMem(a.evolvingCfg.LLM, a.evolvingCfg.Model, a.rememMaxInnerSteps)
 	}
 	eng.Delegator = delegator
+	eng.TeamDelegator = a
 
 	return chatEngineBuildResult{
 		Engine:          eng,
-		ModelLabel:      chatModelLabel(name, sp.Model),
+		ModelLabel:      chatModelLabel(req.Name, sp.Model),
 		ImageGeneration: sp.ImageGeneration,
 	}
 }
 
-func (a *app) buildTeamChatEngine(ctx context.Context, name, sessionID, projectID, objectiveID string, owner int64) chatEngineBuildResult {
+func (a *app) buildTeamChatEngine(ctx context.Context, req chatEngineBuildRequest) chatEngineBuildResult {
 	if a.teamStore == nil {
 		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: fmt.Errorf("teams unavailable")}
 	}
-	team, ok, err := a.teamStore.GetByName(ctx, owner, name)
+	team, ok, err := a.teamStore.GetByName(ctx, req.Owner, req.Name)
 	if err != nil {
 		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: fmt.Errorf("failed to load team: %w", err)}
 	}
 	if !ok {
-		return chatEngineBuildResult{StatusCode: http.StatusNotFound, Err: fmt.Errorf("team not found: %s", name)}
+		return chatEngineBuildResult{StatusCode: http.StatusNotFound, Err: fmt.Errorf("team not found: %s", req.Name)}
 	}
 
 	sp := team.Orchestrator
@@ -155,7 +184,7 @@ func (a *app) buildTeamChatEngine(ctx context.Context, name, sessionID, projectI
 		sp.Name = specialists.OrchestratorName
 	}
 
-	teamReg, err := a.buildTeamRegistry(ctx, owner, team)
+	teamReg, err := a.buildTeamRegistry(ctx, req.Owner, team)
 	if err != nil {
 		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: err}
 	}
@@ -182,6 +211,8 @@ func (a *app) buildTeamChatEngine(ctx context.Context, name, sessionID, projectI
 	systemPrompt = a.ensureChatDiscoveryInstructions(systemPrompt, sp.EnableTools, resolvedAutoDiscover)
 	var skillsContext string
 	toolReg, systemPrompt, skillsContext = a.applyChatSkillsMode(toolReg, systemPrompt, a.chatProjectDir(ctx, nil), sp.EnableTools, resolvedAutoDiscover)
+	toolReg = withChatInputRequestTool(toolReg, sp.EnableTools)
+	harnessCfg := harnessOverrideConfig(a.cfg.Harness, harnessConfigFromPersist(sp.Harness))
 	eng := &agent.Engine{
 		LLM:                          userLLM,
 		Tools:                        toolReg,
@@ -194,9 +225,15 @@ func (a *app) buildTeamChatEngine(ctx context.Context, name, sessionID, projectI
 		SummaryReserveBufferTokens:   a.cfg.SummaryReserveBufferTokens,
 		SummaryMinKeepLastMessages:   a.cfg.SummaryMinKeepLastMessages,
 		SummaryMaxSummaryChunkTokens: a.cfg.SummaryMaxSummaryChunkTokens,
+		HarnessEnabled:               harnessCfg.Enabled,
+		HarnessConfig:                harnessRunConfig(harnessCfg),
 	}
-	a.configureBeliefRunState(eng, owner, sessionID, projectID, objectiveID, name)
-	em := a.attachSessionEvolvingMemory(eng, owner, sessionID)
+	a.configureBeliefRunState(eng, req.Owner, req.SessionID, req.ProjectID, req.ObjectiveID, req.Name)
+	em := a.attachSessionEvolvingMemory(eng, req.Owner, req.SessionID, req.MemorySettings.EvolvingMemoryEnabled)
+	applyChatMemorySettingsToEngine(eng, req.MemorySettings)
+	if eng.DisableEvolvingMemory {
+		em = nil
+	}
 	eng.AttachTokenizer(userLLM, nil)
 	delegator := agenttools.NewDelegator(eng.Tools, teamReg, a.workspaceManager, a.chatMaxSteps())
 	delegator.SetDefaultTimeout(a.cfg.AgentRunTimeoutSeconds)
@@ -206,14 +243,16 @@ func (a *app) buildTeamChatEngine(ctx context.Context, name, sessionID, projectI
 	delegator.SetBeliefRetriever(eng.BeliefRetriever, eng.BeliefMaxBeliefsPerPrompt, eng.BeliefPromptTokenBudget)
 	delegator.SetBeliefLifecycle(eng.BeliefGraph, eng.BeliefPromotionThreshold)
 	delegator.SetPolicyEnforcer(eng.PolicyEnforcer)
+	delegator.SetTeamDelegator(a)
 	if eng.ReMemEnabled {
 		delegator.ConfigureReMem(a.evolvingCfg.LLM, a.evolvingCfg.Model, a.rememMaxInnerSteps)
 	}
 	eng.Delegator = delegator
+	eng.TeamDelegator = a
 
 	return chatEngineBuildResult{
 		Engine:     eng,
-		ModelLabel: chatModelLabel(name, currentModel),
+		ModelLabel: chatModelLabel(req.Name, currentModel),
 	}
 }
 
@@ -274,18 +313,21 @@ func (a *app) applyChatSkillsMode(toolReg tools.Registry, systemPrompt, projectD
 	if strings.TrimSpace(projectDir) == "" {
 		return toolReg, systemPrompt, ""
 	}
-	if !enableTools || !autoDiscover {
+	if !enableTools {
 		return toolReg, systemPrompt, prompts.RenderSkillsForProject(projectDir)
 	}
 	cached, err := prompts.CachedSkillsForProject(projectDir)
 	if err != nil || cached == nil || len(cached.Skills) == 0 {
 		return toolReg, systemPrompt, ""
 	}
-	systemPrompt = prompts.EnsureSkillDiscoveryInstructions(systemPrompt)
 	if toolReg == nil {
 		toolReg = tools.NewRegistry()
 	}
-	return tools.NewOverlayRegistry(toolReg, newSkillSearchTool(projectDir)), systemPrompt, ""
+	if !autoDiscover {
+		return tools.NewOverlayRegistry(toolReg, newSkillReadTool(projectDir)), systemPrompt, cached.RenderedPrompt
+	}
+	systemPrompt = prompts.EnsureSkillDiscoveryInstructions(systemPrompt)
+	return tools.NewOverlayRegistry(toolReg, newSkillReadTool(projectDir), newSkillSearchTool(projectDir)), systemPrompt, ""
 }
 
 func combineUserPromptContext(parts ...string) string {
@@ -336,10 +378,23 @@ func (a *app) chatSummaryContextSize(configured int, model string) int {
 
 func (a *app) chatToolRegistry(enableTools bool, allowTools []string, autoDiscover *bool) tools.Registry {
 	resolvedAutoDiscover := a.resolveAutoDiscover(autoDiscover)
+	var reg tools.Registry
 	if resolvedAutoDiscover && enableTools && a.toolIndex != nil {
-		return tooldiscovery.NewDiscoverableRegistry(a.baseToolRegistry, a.toolIndex, allowTools, a.cfg.MaxDiscoveredTools)
+		reg = tooldiscovery.NewDiscoverableRegistry(a.baseToolRegistry, a.toolIndex, allowTools, a.cfg.MaxDiscoveredTools)
+	} else {
+		reg = tools.ApplyTopLevelPolicy(a.baseToolRegistry, enableTools, allowTools)
 	}
-	return tools.ApplyTopLevelPolicy(a.baseToolRegistry, enableTools, allowTools)
+	return withChatInputRequestTool(reg, enableTools)
+}
+
+func withChatInputRequestTool(reg tools.Registry, enableTools bool) tools.Registry {
+	if !enableTools {
+		return reg
+	}
+	if reg == nil {
+		reg = tools.NewRegistry()
+	}
+	return tools.NewOverlayRegistry(reg, inputrequesttool.New())
 }
 
 func chatModelLabel(name, model string) string {

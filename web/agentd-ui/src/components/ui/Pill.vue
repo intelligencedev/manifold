@@ -23,18 +23,22 @@ const props = defineProps({
 });
 
 const toneClasses: Record<PillTone, string> = {
-  accent: "bg-accent/15 text-accent border border-accent/30",
-  neutral: "bg-surface-muted/70 text-subtle-foreground border border-white/10",
-  success: "bg-success/15 text-success border border-success/30",
-  danger: "bg-danger/15 text-danger border border-danger/30",
-  warning: "bg-warning/15 text-warning border border-warning/30",
-  info: "bg-info/15 text-info border border-info/30",
+  accent:
+    "bg-[rgb(124_134_255_/_0.08)] text-[rgb(var(--accent-hi))] border border-[rgb(124_134_255_/_0.3)]",
+  neutral:
+    "bg-surface-muted text-muted-foreground border border-[rgb(var(--line-strong))]",
+  success:
+    "bg-[rgb(70_211_154_/_0.08)] text-success border border-[rgb(70_211_154_/_0.3)]",
+  danger:
+    "bg-[rgb(240_112_95_/_0.08)] text-danger border border-[rgb(240_112_95_/_0.3)]",
+  warning:
+    "bg-[rgb(232_177_74_/_0.08)] text-warning border border-[rgb(232_177_74_/_0.3)]",
+  info: "bg-[rgb(79_214_192_/_0.08)] text-[rgb(var(--data))] border border-[rgb(79_214_192_/_0.3)]",
 };
 
 const classes = computed(() => [
-  "inline-flex items-center gap-1 rounded-full font-semibold leading-none tracking-tight",
-  props.size === "sm" ? "px-2 py-0.5 text-[11px]" : "px-3 py-1 text-xs",
+  "inline-flex items-center gap-1 rounded-[5px] font-mono leading-none tracking-[0.04em]",
+  props.size === "sm" ? "px-2 py-[3px] text-[11px]" : "px-2.5 py-1 text-xs",
   toneClasses[props.tone],
-  props.glow ? "pill-glow" : "",
 ]);
 </script>

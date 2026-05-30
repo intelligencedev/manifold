@@ -7,11 +7,11 @@
       <div class="space-y-1">
         <p
           v-if="eyebrow"
-          class="text-[11px] font-semibold uppercase tracking-wide text-subtle-foreground"
+          class="font-mono text-[11px] uppercase tracking-[0.18em] text-faint-foreground"
         >
           {{ eyebrow }}
         </p>
-        <h2 v-if="title" class="text-lg font-semibold leading-tight">
+        <h2 v-if="title" class="font-display text-xl font-semibold leading-tight">
           {{ title }}
         </h2>
         <p
@@ -28,7 +28,7 @@
 
     <slot />
 
-    <footer v-if="$slots.footer" class="mt-6 border-t border-white/10 pt-4">
+    <footer v-if="$slots.footer" class="mt-6 border-t border-border pt-4">
       <slot name="footer" />
     </footer>
   </component>
@@ -57,11 +57,8 @@ const hasHeader = computed(() =>
 
 const panelClass = computed(() => [
   "relative w-full text-foreground",
-  props.flat
-    ? ""
-    : "glass-surface rounded-[var(--radius-lg,26px)] border border-white/12 shadow-[0_20px_70px_rgba(0,0,0,0.35)]",
-  props.flat ? "" : "supports-[backdrop-filter]:backdrop-blur-xl",
-  props.padded === false ? "p-0" : "p-5 md:p-6",
+  props.flat ? "" : "halo-surface",
+  props.padded === false ? "p-0" : "p-5",
 ]);
 
 const eyebrow = computed(() => props.eyebrow ?? "");

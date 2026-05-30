@@ -17,7 +17,9 @@ type ProjectService interface {
 
 	// ListProjects returns all projects for a user.
 	ListProjects(ctx context.Context, userID int64) ([]Project, error)
+	ListProjectsWithUsage(ctx context.Context, userID int64, includeUsage bool) ([]Project, error)
 	ListProjectsByKind(ctx context.Context, userID int64, kind string) ([]Project, error)
+	ListProjectsByKindWithUsage(ctx context.Context, userID int64, kind string, includeUsage bool) ([]Project, error)
 
 	// ListTree lists entries directly under path within a project.
 	ListTree(ctx context.Context, userID int64, projectID, path string) ([]FileEntry, error)

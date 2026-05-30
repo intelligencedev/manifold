@@ -22,7 +22,6 @@ func TestFromPath(t *testing.T) {
 		"README.md":     "",
 	}
 	for path, want := range tests {
-		path, want := path, want
 		t.Run(path, func(t *testing.T) {
 			t.Parallel()
 			if got := FromPath(path); got != want {

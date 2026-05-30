@@ -55,6 +55,28 @@ func TestFit_DropsOldestUntilBudget(t *testing.T) {
 	}
 }
 
+func TestFitWithProtectedPrefixKeepsStaticPromptPrefix(t *testing.T) {
+	blob := strings.Repeat("y", 16_000)
+	msgs := []llm.Message{
+		{Role: "system", Content: "sys"},
+		{Role: "developer", Content: "stable developer context"},
+		{Role: "assistant", Content: "old assistant"},
+		{Role: "tool", Content: blob, ToolID: "t1"},
+		{Role: "user", Content: "u-final"},
+	}
+
+	out := FitWithProtectedPrefix(msgs, 2, 6_000, 1_000, 0)
+	if len(out) < 3 {
+		t.Fatalf("expected protected prefix and final user, got %#v", out)
+	}
+	if out[0].Content != "sys" || out[1].Content != "stable developer context" {
+		t.Fatalf("protected prefix changed or moved: %#v", out)
+	}
+	if out[len(out)-1].Role != "user" || out[len(out)-1].Content != "u-final" {
+		t.Fatalf("expected final user preserved, got %#v", out)
+	}
+}
+
 func TestFit_TruncatesProtectedUserAsLastResort(t *testing.T) {
 	// Single huge user message that itself exceeds the budget.
 	blob := strings.Repeat("z", 200_000) // ~50k tokens

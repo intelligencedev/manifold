@@ -10,6 +10,7 @@ import (
 type CachedSkills struct {
 	Generation       int64
 	SkillsGeneration int64
+	Fingerprint      string
 	Skills           []Metadata
 	RenderedPrompt   string
 	CachedAt         time.Time
@@ -18,7 +19,7 @@ type CachedSkills struct {
 // Cache provides generation-aware skills caching per project.
 type Cache struct {
 	mu    sync.RWMutex
-	cache map[string]*CachedSkills // key: projectID:generation:skillsGen
+	cache map[string]*CachedSkills // key: projectID:generation:skillsGen:fingerprint
 }
 
 // NewCache builds a skills cache.
@@ -26,14 +27,20 @@ func NewCache() *Cache {
 	return &Cache{cache: make(map[string]*CachedSkills)}
 }
 
-func cacheKey(projectID string, generation, skillsGen int64) string {
-	return fmt.Sprintf("%s:%d:%d", projectID, generation, skillsGen)
+func cacheKey(projectID string, generation, skillsGen int64, fingerprint string) string {
+	return fmt.Sprintf("%s:%d:%d:%s", projectID, generation, skillsGen, fingerprint)
 }
 
 // GetOrLoad returns cached skills for the provided generation or loads them via loader.
 // loader should fetch and render skills for the provided project/generation tuple.
 func (c *Cache) GetOrLoad(projectID string, generation, skillsGen int64, loader func() (*CachedSkills, error)) (*CachedSkills, error) {
-	key := cacheKey(projectID, generation, skillsGen)
+	return c.GetOrLoadWithFingerprint(projectID, generation, skillsGen, "", loader)
+}
+
+// GetOrLoadWithFingerprint returns cached skills for a generation/fingerprint
+// tuple or loads them via loader.
+func (c *Cache) GetOrLoadWithFingerprint(projectID string, generation, skillsGen int64, fingerprint string, loader func() (*CachedSkills, error)) (*CachedSkills, error) {
+	key := cacheKey(projectID, generation, skillsGen, fingerprint)
 
 	c.mu.RLock()
 	if out, ok := c.cache[key]; ok {
@@ -48,6 +55,7 @@ func (c *Cache) GetOrLoad(projectID string, generation, skillsGen int64, loader 
 	}
 	if loaded != nil {
 		loaded.CachedAt = time.Now().UTC()
+		loaded.Fingerprint = fingerprint
 		c.mu.Lock()
 		c.cache[key] = loaded
 		c.mu.Unlock()

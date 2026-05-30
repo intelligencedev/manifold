@@ -8,6 +8,7 @@ import (
 
 	"manifold/internal/agent/belief"
 	"manifold/internal/config"
+	"manifold/internal/durable"
 	"manifold/internal/persistence"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -219,6 +220,11 @@ func initializeDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfi
 		return err
 	}
 
+	m.Durable = durable.NewStore(openOptionalPostgresPool(ctx, cfg.DefaultDSN))
+	if err := initStore(ctx, "durable store", m.Durable); err != nil {
+		return err
+	}
+
 	playgroundDSN := firstNonEmpty(chatDSN, cfg.DefaultDSN)
 	if playgroundDSN != "" {
 		store, err := NewPlaygroundStoreFromDSN(ctx, playgroundDSN)
@@ -332,6 +338,12 @@ func (noopGraph) UpsertEdge(context.Context, string, string, string, map[string]
 }
 func (noopGraph) Neighbors(context.Context, string, string) ([]string, error) { return nil, nil }
 func (noopGraph) GetNode(context.Context, string) (Node, bool)                { return Node{}, false }
+func (noopGraph) TypedUpsertEdge(context.Context, string, string, string, string, map[string]any) error {
+	return nil
+}
+func (noopGraph) TypedNeighbors(context.Context, string, string, string) ([]string, error) {
+	return nil, nil
+}
 
 // helpers
 func firstNonEmpty(vals ...string) string {

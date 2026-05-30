@@ -1,6 +1,7 @@
 package agentd
 
 import (
+	"maps"
 	"net/http"
 	"strings"
 
@@ -25,12 +26,8 @@ func mergeStringMap(base, override map[string]string) map[string]string {
 		return nil
 	}
 	out := make(map[string]string, len(base)+len(override))
-	for key, value := range base {
-		out[key] = value
-	}
-	for key, value := range override {
-		out[key] = value
-	}
+	maps.Copy(out, base)
+	maps.Copy(out, override)
 	return out
 }
 
@@ -39,12 +36,8 @@ func mergeAnyMap(base, override map[string]any) map[string]any {
 		return nil
 	}
 	out := make(map[string]any, len(base)+len(override))
-	for key, value := range base {
-		out[key] = value
-	}
-	for key, value := range override {
-		out[key] = value
-	}
+	maps.Copy(out, base)
+	maps.Copy(out, override)
 	return out
 }
 
@@ -209,6 +202,28 @@ func resolveEvolvingMemoryLLM(cfg *config.Config, mainLLM llmpkg.Provider, summa
 		return summaryLLM, strings.TrimSpace(summaryModel), "summary", nil
 	}
 	return mainLLM, resolveLLMClientModel(cfg.LLMClient), strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider)), nil
+}
+
+func resolveBeliefMemoryLLM(cfg *config.Config, mainLLM llmpkg.Provider, httpClient *http.Client) (llmpkg.Provider, string, string, error) {
+	if cfg == nil {
+		return nil, "", "", nil
+	}
+	if hasLLMClientOverride(cfg.BeliefMemory.LLMClient) {
+		llmCfg := mergeLLMClientConfig(cfg.LLMClient, cfg.BeliefMemory.LLMClient)
+		provider, err := llmproviders.BuildFromLLMClientConfig(llmCfg, httpClient)
+		if err != nil {
+			return nil, "", "", err
+		}
+		return provider, resolveLLMClientModel(llmCfg), strings.ToLower(strings.TrimSpace(llmCfg.Provider)), nil
+	}
+	if mainLLM != nil {
+		return mainLLM, resolveLLMClientModel(cfg.LLMClient), strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider)), nil
+	}
+	provider, err := llmproviders.BuildFromLLMClientConfig(cfg.LLMClient, httpClient)
+	if err != nil {
+		return nil, "", "", err
+	}
+	return provider, resolveLLMClientModel(cfg.LLMClient), strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider)), nil
 }
 
 func buildSummaryLLM(cfg *config.Config, httpClient *http.Client) (llmpkg.Provider, string, error) {

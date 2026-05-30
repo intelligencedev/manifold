@@ -1,10 +1,5 @@
 package databases
 
-// This file documents the Postgres-backed database implementations and their
-// expected extensions and schemas. It exists to keep SQL bootstrap centralized
-// and easy to find. Production deployments should manage migrations with an
-// external tool; our code performs best-effort CREATE IF NOT EXISTS for dev.
-
 /*
 Extensions
 - vector: for pgvector (embeddings)

@@ -1,5 +1,5 @@
 import { computed, type Ref } from "vue";
-import { useQuery } from "@tanstack/vue-query";
+import { keepPreviousData, useQuery } from "@tanstack/vue-query";
 import { fetchTokenMetrics, type TokenMetricsRow } from "@/api/client";
 
 export type MetricsTimeRangeValue = "1h" | "6h" | "12h" | "24h" | "7d" | "30d";
@@ -32,7 +32,7 @@ export function useTokenMetrics(selectedRange: Ref<MetricsTimeRangeValue>) {
   const query = useQuery({
     queryKey: computed(() => ["token-metrics", selectedRange.value]),
     queryFn: () => fetchTokenMetrics({ window: selectedRange.value }),
-    keepPreviousData: true,
+    placeholderData: keepPreviousData,
     staleTime: 60_000,
     refetchInterval: 60_000,
   });

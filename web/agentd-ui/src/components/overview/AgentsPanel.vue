@@ -1,53 +1,61 @@
 <template>
-  <div
-    class="rounded-2xl border border-border/70 bg-surface p-6 shadow-lg flex h-full flex-col overflow-hidden"
-  >
+  <div class="halo-surface flex h-full flex-col overflow-hidden p-5">
     <header class="flex items-center justify-between gap-2">
       <div>
-        <p class="text-xs uppercase tracking-wide text-subtle-foreground">
+        <p class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground">
           Agents
         </p>
-        <h2 class="text-base font-semibold text-foreground">Status</h2>
+        <h2 class="font-display text-xl font-semibold text-foreground">Status</h2>
       </div>
-      <Pill tone="neutral" size="sm">{{
+      <MBadge tone="neutral">{{
         agents.length ? `${agents.length} total` : "None"
-      }}</Pill>
+      }}</MBadge>
     </header>
 
     <p v-if="!agents.length" class="mt-4 text-xs text-faint-foreground">
       No agents reported from the backend yet.
     </p>
 
-    <ul v-else class="mt-4 space-y-2 overflow-y-auto pr-1 text-xs">
-      <li
+    <div v-else class="mt-4 overflow-hidden rounded-lg border border-border">
+      <MRow
         v-for="agent in agents"
         :key="agent.id"
-        class="flex items-center justify-between gap-2 rounded-[14px] border border-white/10 bg-surface-muted/40 px-3 py-2"
       >
-        <div class="min-w-0">
-          <p class="truncate text-xs font-semibold text-foreground">
+        <template #avatar>
+          {{ initials(agent.name || String(agent.id)) }}
+        </template>
+        <template #title>
+          <p class="truncate">
             {{ agent.name || agent.id }}
           </p>
-          <p class="mt-0.5 truncate text-[11px] text-faint-foreground">
+        </template>
+        <template #meta>
+          <p class="truncate">
             {{ agent.model || "Model not set" }}
           </p>
-        </div>
-        <div class="flex flex-col items-end gap-1">
-          <Pill :tone="agentTone(agent.state)" size="sm">{{
-            agent.state || "unknown"
-          }}</Pill>
-          <span class="text-[10px] text-faint-foreground">
+        </template>
+        <template #status>
+          <div class="flex flex-col items-end gap-1">
+            <MStatus
+              :state="statusState(agent.state)"
+              :label="agent.state || 'unknown'"
+              :pulse="agent.state === 'online'"
+            />
+            <span class="font-mono text-[10px] text-faint-foreground">
             {{ formatRelativeTime(agent.updatedAt) }}
-          </span>
-        </div>
-      </li>
-    </ul>
+            </span>
+          </div>
+        </template>
+      </MRow>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from "vue";
-import Pill from "@/components/ui/Pill.vue";
+import MBadge from "@/components/ui/MBadge.vue";
+import MRow from "@/components/ui/MRow.vue";
+import MStatus from "@/components/ui/MStatus.vue";
 
 type Agent = {
   id: string | number;
@@ -60,11 +68,20 @@ type Agent = {
 const props = defineProps<{ agents: Agent[] }>();
 const agents = computed(() => props.agents ?? []);
 
-const agentTone = (state?: string) => {
-  if (state === "online") return "success";
-  if (state === "degraded") return "warning";
+const statusState = (state?: string): "run" | "ok" | "warn" | "danger" | "idle" => {
+  if (state === "online") return "ok";
+  if (state === "degraded") return "warn";
   if (state === "offline") return "danger";
-  return "neutral";
+  return "idle";
+};
+
+const initials = (value: string) => {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
 };
 
 const formatRelativeTime = (value?: string) => {

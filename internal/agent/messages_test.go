@@ -90,7 +90,7 @@ func TestBuildInitialLLMMessagesHistoryAnnotation(t *testing.T) {
 	}
 }
 
-func TestBuildInitialLLMMessagesMovesHistorySystemContextToCurrentUser(t *testing.T) {
+func TestBuildInitialLLMMessagesMovesHistorySystemContextToCurrentRequest(t *testing.T) {
 	hist := []llm.Message{
 		{Role: "system", Content: "Conversation summary (for context only):\nolder summary"},
 		{Role: "user", Content: "previous question"},
@@ -113,11 +113,38 @@ func TestBuildInitialLLMMessagesMovesHistorySystemContextToCurrentUser(t *testin
 	if current.Role != "user" {
 		t.Fatalf("expected current user message, got %#v", current)
 	}
-	if !strings.HasPrefix(current.Content, "Conversation summary (for context only):") {
-		t.Fatalf("expected summary context at top of current user prompt, got %q", current.Content)
+	if !IsRuntimeContextMessage(current) || !strings.Contains(current.Content, "Conversation summary (for context only):") {
+		t.Fatalf("expected summary context on current request, got %q", current.Content)
 	}
 	if !strings.Contains(current.Content, "[CURRENT REQUEST]") || !strings.Contains(current.Content, "current task") {
 		t.Fatalf("expected current request after moved context, got %q", current.Content)
+	}
+}
+
+func TestBuildInitialLLMMessagesRuntimeContextStaysWithCurrentUserAfterToolHistory(t *testing.T) {
+	hist := []llm.Message{
+		{Role: "system", Content: "summary"},
+		{Role: "assistant", Content: "searching", ToolCalls: []llm.ToolCall{{ID: "call_1", Name: "search"}}},
+		{Role: "tool", ToolID: "call_1", Content: "result"},
+	}
+
+	msgs := BuildInitialLLMMessages("static system", "latest", hist)
+	msgs = AddRuntimeContextToCurrentUserMessage(msgs, "memory context")
+
+	if len(msgs) != 4 {
+		t.Fatalf("expected static/tool history/current order, got %#v", msgs)
+	}
+	if msgs[0].Role != "system" {
+		t.Fatalf("expected static system first, got %#v", msgs[0])
+	}
+	if msgs[1].Role != "assistant" || msgs[2].Role != "tool" {
+		t.Fatalf("expected prior tool history before current user, got %#v", msgs)
+	}
+	if msgs[3].Role != "user" || !IsRuntimeContextMessage(msgs[3]) || !strings.Contains(msgs[3].Content, "[CURRENT REQUEST]") {
+		t.Fatalf("expected runtime current user last, got %#v", msgs[3])
+	}
+	if !strings.Contains(msgs[3].Content, "summary") || !strings.Contains(msgs[3].Content, "memory context") {
+		t.Fatalf("expected merged runtime context, got %q", msgs[3].Content)
 	}
 }
 

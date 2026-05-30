@@ -217,7 +217,6 @@ func (s *Store) SetUserRoles(ctx context.Context, userID int64, roles []string) 
 			continue
 		}
 		var roleID int64
-		// Ensure role exists
 		err := tx.QueryRow(ctx, `INSERT INTO roles(name) VALUES($1)
 ON CONFLICT(name) DO UPDATE SET name=EXCLUDED.name
 RETURNING id`, name).Scan(&roleID)

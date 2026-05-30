@@ -109,7 +109,6 @@ func NewFetcher(opts ...Option) *Fetcher {
 		// NOTE: net/http will transparently gzip-decode if we don't set Accept-Encoding ourselves.
 	}
 
-	// Redirect policy
 	checkRedirect := func(req *http.Request, via []*http.Request) error {
 		if o.MaxRedirects <= 0 {
 			if len(via) >= 10 {
@@ -146,6 +145,26 @@ func NewFetcher(opts ...Option) *Fetcher {
 // FetchMarkdown fetches the URL and returns best-effort Markdown content.
 // It never returns nil Result on success; Markdown can be a short stub for non-text types.
 func (f *Fetcher) FetchMarkdown(ctx context.Context, rawURL string) (*Result, error) {
+	req, err := f.newFetchRequest(ctx, rawURL)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := f.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	payload, err := f.readResponse(rawURL, resp)
+	if err != nil {
+		return nil, err
+	}
+	return f.resultFromPayload(payload)
+}
+
+func (f *Fetcher) newFetchRequest(ctx context.Context, rawURL string) (*http.Request, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid url: %w", err)
@@ -158,125 +177,127 @@ func (f *Fetcher) FetchMarkdown(ctx context.Context, rawURL string) (*Result, er
 	if err != nil {
 		return nil, err
 	}
-	// Use a random browser User-Agent if not overridden
-	ua := f.opts.UserAgent
-	if ua == "" && len(f.uaList) > 0 {
-		ua = f.uaList[int(time.Now().UnixNano())%len(f.uaList)]
-	}
-	req.Header.Set("User-Agent", ua)
-	// Set browser-like headers
+	req.Header.Set("User-Agent", f.userAgent())
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
 	// NOTE: Do NOT set Accept-Encoding manually - let Go's HTTP client handle compression automatically
+	return req, nil
+}
 
-	resp, err := f.client.Do(req)
-	if err != nil {
-		return nil, err
+func (f *Fetcher) userAgent() string {
+	if f.opts.UserAgent != "" {
+		return f.opts.UserAgent
 	}
-	defer func() {
-		_ = resp.Body.Close()
-	}()
+	if len(f.uaList) == 0 {
+		return ""
+	}
+	return f.uaList[int(time.Now().UnixNano())%len(f.uaList)]
+}
 
+type fetchPayload struct {
+	rawURL      string
+	finalURL    string
+	status      int
+	contentType string
+	charset     string
+	body        []byte
+	utf8Body    []byte
+	fetchedAt   time.Time
+}
+
+func (f *Fetcher) readResponse(rawURL string, resp *http.Response) (fetchPayload, error) {
 	finalURL := resp.Request.URL.String()
 	ct, cs := parseContentType(resp.Header.Get("Content-Type"))
+	body, err := f.readLimitedBody(resp.Body)
+	if err != nil {
+		return fetchPayload{}, err
+	}
+	utf8Body, err := toUTF8(body, cs)
+	if err != nil {
+		return fetchPayload{}, fmt.Errorf("charset decode: %w", err)
+	}
+	return fetchPayload{
+		rawURL:      rawURL,
+		finalURL:    finalURL,
+		status:      resp.StatusCode,
+		contentType: ct,
+		charset:     cs,
+		body:        body,
+		utf8Body:    utf8Body,
+		fetchedAt:   time.Now(),
+	}, nil
+}
 
-	// Guardrail: cap bytes read
-	limited := io.LimitReader(resp.Body, f.opts.MaxBytes+1)
-	body, err := io.ReadAll(limited)
+func (f *Fetcher) readLimitedBody(body io.Reader) ([]byte, error) {
+	limited := io.LimitReader(body, f.opts.MaxBytes+1)
+	data, err := io.ReadAll(limited)
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
 	}
-	if int64(len(body)) > f.opts.MaxBytes {
+	if int64(len(data)) > f.opts.MaxBytes {
 		return nil, fmt.Errorf("response exceeds max bytes (%d)", f.opts.MaxBytes)
 	}
-
-	// Decode to UTF-8 if needed
-	utf8Body, err := toUTF8(body, cs)
-	if err != nil {
-		return nil, fmt.Errorf("charset decode: %w", err)
-	}
-
-	res := &Result{
-		InputURL:    rawURL,
-		FinalURL:    finalURL,
-		Status:      resp.StatusCode,
-		ContentType: ct,
-		Charset:     cs,
-		FetchedAt:   time.Now(),
-	}
-
-	// Handle by content type
-	switch {
-	case isHTML(ct):
-		// Prefer main article extraction, fallback to full HTML.
-		html := string(utf8Body)
-
-		var (
-			articleHTML string
-			title       string
-			usedRead    bool
-		)
-
-		if f.opts.PreferReadable {
-			base, _ := url.Parse(finalURL)
-			art, rerr := readability.FromReader(strings.NewReader(html), base)
-			if rerr == nil && strings.TrimSpace(art.Content) != "" {
-				articleHTML = art.Content
-				title = strings.TrimSpace(art.Title)
-				usedRead = true
-			}
-		}
-
-		if articleHTML == "" {
-			// No readable content; convert the whole document body.
-			articleHTML = html
-		}
-
-		// Convert HTML → Markdown with absolute links using the final page origin.
-		base := baseOrigin(finalURL)
-		md, mdErr := htmltomarkdown.ConvertString(
-			articleHTML,
-			converter.WithDomain(base),
-		)
-		if mdErr != nil {
-			return nil, fmt.Errorf("html→markdown: %w", mdErr)
-		}
-
-		// Add a title if we have one and it's not already present.
-		if title != "" && !hasLeadingH1(md) {
-			md = "# " + title + "\n\n" + md
-		}
-
-		res.Markdown = strings.TrimSpace(md)
-		res.Title = title
-		res.UsedReadable = usedRead
-		return res, nil
-
-	case strings.HasPrefix(ct, "text/"):
-		// text/plain, text/markdown, text/csv, etc.
-		lang := guessFenceLanguage(ct)
-		res.Markdown = fenced(string(utf8Body), lang)
-		return res, nil
-
-	case ct == "application/json" || strings.HasSuffix(ct, "+json"):
-		res.Markdown = fenced(string(utf8Body), "json")
-		return res, nil
-
-	default:
-		// Binary or unknown: return a short stub + link.
-		name := ct
-		if name == "" {
-			name = "application/octet-stream"
-		}
-		res.Markdown = fmt.Sprintf(
-			"**Downloaded a non-text resource** (`%s`, %d bytes).\n\n[Download original](%s)",
-			name, len(body), finalURL,
-		)
-		return res, nil
-	}
+	return data, nil
 }
 
-// --- helpers ---
+func (f *Fetcher) resultFromPayload(payload fetchPayload) (*Result, error) {
+	res := &Result{
+		InputURL:    payload.rawURL,
+		FinalURL:    payload.finalURL,
+		Status:      payload.status,
+		ContentType: payload.contentType,
+		Charset:     payload.charset,
+		FetchedAt:   payload.fetchedAt,
+	}
+	switch {
+	case isHTML(payload.contentType):
+		return f.htmlResult(res, payload)
+	case strings.HasPrefix(payload.contentType, "text/"):
+		res.Markdown = fenced(string(payload.utf8Body), guessFenceLanguage(payload.contentType))
+	case payload.contentType == "application/json" || strings.HasSuffix(payload.contentType, "+json"):
+		res.Markdown = fenced(string(payload.utf8Body), "json")
+	default:
+		res.Markdown = binaryMarkdown(payload)
+	}
+	return res, nil
+}
+
+func (f *Fetcher) htmlResult(res *Result, payload fetchPayload) (*Result, error) {
+	articleHTML, title, usedRead := f.readableHTML(string(payload.utf8Body), payload.finalURL)
+	md, err := htmltomarkdown.ConvertString(articleHTML, converter.WithDomain(baseOrigin(payload.finalURL)))
+	if err != nil {
+		return nil, fmt.Errorf("html→markdown: %w", err)
+	}
+	if title != "" && !hasLeadingH1(md) {
+		md = "# " + title + "\n\n" + md
+	}
+	res.Markdown = strings.TrimSpace(md)
+	res.Title = title
+	res.UsedReadable = usedRead
+	return res, nil
+}
+
+func (f *Fetcher) readableHTML(html, finalURL string) (string, string, bool) {
+	if f.opts.PreferReadable {
+		base, _ := url.Parse(finalURL)
+		art, err := readability.FromReader(strings.NewReader(html), base)
+		if err == nil && strings.TrimSpace(art.Content) != "" {
+			return art.Content, strings.TrimSpace(art.Title), true
+		}
+	}
+	return html, "", false
+}
+
+func binaryMarkdown(payload fetchPayload) string {
+	name := payload.contentType
+	if name == "" {
+		name = "application/octet-stream"
+	}
+	return fmt.Sprintf(
+		"**Downloaded a non-text resource** (`%s`, %d bytes).\n\n[Download original](%s)",
+		name, len(payload.body), payload.finalURL,
+	)
+}
 
 func parseContentType(h string) (ctype, charset string) {
 	if h == "" {

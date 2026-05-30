@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"time"
 
 	"manifold/internal/auth"
@@ -19,6 +20,12 @@ var (
 	ErrActiveRun = errors.New("playground: experiment already has an active run")
 	// ErrUnknownExperiment is returned when attempting to interact with an experiment that has not been registered.
 	ErrUnknownExperiment = errors.New("playground: unknown experiment")
+	// ErrSpecialistNotFound is returned when a configured specialist runner cannot be found.
+	ErrSpecialistNotFound = errors.New("playground: specialist not found")
+	// ErrSpecialistPaused is returned when a configured specialist runner is paused.
+	ErrSpecialistPaused = errors.New("playground: specialist is paused")
+	// ErrSpecialistRunnerUnavailable is returned when specialist execution is configured but no validator/runner is available.
+	ErrSpecialistRunnerUnavailable = errors.New("playground: specialist runner unavailable")
 )
 
 // Service wires together the playground components and provides a cohesive
@@ -48,22 +55,38 @@ type RunStore interface {
 	DeleteExperiment(ctx context.Context, id string) error
 }
 
+// SpecialistValidator validates experiment specialist execution settings.
+type SpecialistValidator interface {
+	ValidateSpecialist(ctx context.Context, ownerID int64, name string) error
+}
+
 // Config tunes runtime aspects of the service.
 type Config struct {
 	MaxConcurrentShards int
+	SpecialistValidator SpecialistValidator
+}
+
+type Dependencies struct {
+	Registry    *registry.Registry
+	Datasets    *dataset.Service
+	Experiments *experiment.Repository
+	Planner     *experiment.Planner
+	Workers     worker.Executor
+	Evals       *eval.Runner
+	Store       RunStore
 }
 
 // NewService assembles the playground service.
-func NewService(cfg Config, reg *registry.Registry, datasets *dataset.Service, repo *experiment.Repository, planner *experiment.Planner, workers worker.Executor, evals *eval.Runner, store RunStore) *Service {
+func NewService(cfg Config, deps Dependencies) *Service {
 	return &Service{
 		cfg:         cfg,
-		registry:    reg,
-		datasets:    datasets,
-		experiments: repo,
-		planner:     planner,
-		workers:     workers,
-		evals:       evals,
-		store:       store,
+		registry:    deps.Registry,
+		datasets:    deps.Datasets,
+		experiments: deps.Experiments,
+		planner:     deps.Planner,
+		workers:     deps.Workers,
+		evals:       deps.Evals,
+		store:       deps.Store,
 	}
 }
 
@@ -134,11 +157,15 @@ func (s *Service) ListDatasetRows(ctx context.Context, id string) ([]dataset.Row
 
 // CreateExperiment registers an experiment specification and persists it.
 func (s *Service) CreateExperiment(ctx context.Context, spec experiment.ExperimentSpec) (experiment.ExperimentSpec, error) {
+	spec.Execution = experiment.NormalizeExecution(spec.Execution)
 	if u, ok := auth.CurrentUser(ctx); ok && u != nil {
 		spec.OwnerID = u.ID
 		if spec.CreatedBy == "" {
 			spec.CreatedBy = u.Email
 		}
+	}
+	if err := s.validateExecution(ctx, spec.OwnerID, spec.Execution); err != nil {
+		return experiment.ExperimentSpec{}, err
 	}
 	saved, err := s.store.CreateExperiment(ctx, spec)
 	if err != nil {
@@ -177,72 +204,95 @@ func (s *Service) DeleteExperiment(ctx context.Context, id string) error {
 // StartRun plans and executes a run for an experiment. The execution happens
 // synchronously for now; orchestration integration can expand this later.
 func (s *Service) StartRun(ctx context.Context, experimentID string) (Run, error) {
-	spec, ok, err := s.store.GetExperiment(ctx, experimentID)
+	spec, run, err := s.prepareRun(ctx, experimentID)
 	if err != nil {
 		return Run{}, err
 	}
-	if !ok {
-		return Run{}, ErrUnknownExperiment
+	workerResults, err := s.executeRunPlan(ctx, spec, run)
+	if err != nil {
+		return s.failRun(ctx, run, err)
 	}
+	return s.completeRun(ctx, spec, run, workerResults)
+}
+
+func (s *Service) prepareRun(ctx context.Context, experimentID string) (experiment.ExperimentSpec, Run, error) {
+	spec, ok, err := s.store.GetExperiment(ctx, experimentID)
+	if err != nil {
+		return experiment.ExperimentSpec{}, Run{}, err
+	}
+	if !ok {
+		return experiment.ExperimentSpec{}, Run{}, ErrUnknownExperiment
+	}
+	spec.Execution = experiment.NormalizeExecution(spec.Execution)
+	ownerID := spec.OwnerID
+	if u, ok := auth.CurrentUser(ctx); ok && u != nil {
+		ownerID = u.ID
+	}
+	if err := s.validateExecution(ctx, ownerID, spec.Execution); err != nil {
+		return experiment.ExperimentSpec{}, Run{}, err
+	}
+	spec.OwnerID = ownerID
 	s.experiments.Save(spec)
 
 	runs, err := s.store.ListRuns(ctx, experimentID)
 	if err != nil {
-		return Run{}, err
+		return experiment.ExperimentSpec{}, Run{}, err
 	}
 	for _, r := range runs {
 		if r.Status == RunStatusRunning || r.Status == RunStatusPending {
-			return Run{}, ErrActiveRun
+			return experiment.ExperimentSpec{}, Run{}, ErrActiveRun
 		}
 	}
 
 	runID := worker.NewRunID()
 	plan, enrichedSpec, err := s.planRun(ctx, spec)
 	if err != nil {
-		return Run{}, err
+		return experiment.ExperimentSpec{}, Run{}, err
 	}
 	spec = enrichedSpec
 
-	var ownerID int64
-	if u, ok := auth.CurrentUser(ctx); ok && u != nil {
-		ownerID = u.ID
-	}
 	run := Run{
 		ID:           runID,
 		ExperimentID: experimentID,
 		OwnerID:      ownerID,
 		Plan:         plan,
+		Execution:    experiment.CloneExecution(spec.Execution),
 		Status:       RunStatusPending,
 		CreatedAt:    time.Now().UTC(),
 	}
 
 	run, err = s.store.CreateRun(ctx, run)
 	if err != nil {
-		return Run{}, err
+		return experiment.ExperimentSpec{}, Run{}, err
 	}
 
-	// Execute synchronously shard by shard.
 	run.Status = RunStatusRunning
 	run.StartedAt = time.Now().UTC()
 	if err := s.store.UpdateRunStatus(ctx, run.ID, RunStatusRunning, time.Time{}, "", nil); err != nil {
-		return Run{}, err
+		return experiment.ExperimentSpec{}, Run{}, err
 	}
+	return spec, run, nil
+}
 
+func (s *Service) executeRunPlan(ctx context.Context, spec experiment.ExperimentSpec, run Run) ([]worker.Result, error) {
 	var workerResults []worker.Result
 	for _, shard := range run.Plan.Shards {
 		if err := ctx.Err(); err != nil {
-			return s.failRun(ctx, run, err)
+			return nil, err
 		}
 		tasks := worker.TasksFromShard(run.ID, spec, shard)
 		for _, task := range tasks {
 			res, execErr := s.workers.ExecuteTask(ctx, task)
 			if execErr != nil {
-				return s.failRun(ctx, run, execErr)
+				return nil, execErr
 			}
 			workerResults = append(workerResults, res)
 		}
 	}
+	return workerResults, nil
+}
 
+func (s *Service) completeRun(ctx context.Context, spec experiment.ExperimentSpec, run Run, workerResults []worker.Result) (Run, error) {
 	metrics, updatedResults, err := s.evals.Evaluate(ctx, spec, workerResults)
 	if err != nil {
 		return s.failRun(ctx, run, fmt.Errorf("evaluate run: %w", err))
@@ -283,6 +333,17 @@ func (s *Service) planRun(ctx context.Context, spec experiment.ExperimentSpec) (
 		return experiment.RunPlan{}, experiment.ExperimentSpec{}, err
 	}
 	return plan, enriched, nil
+}
+
+func (s *Service) validateExecution(ctx context.Context, ownerID int64, execution *experiment.ExecutionConfig) error {
+	execution = experiment.NormalizeExecution(execution)
+	if execution == nil {
+		return nil
+	}
+	if s.cfg.SpecialistValidator == nil {
+		return ErrSpecialistRunnerUnavailable
+	}
+	return s.cfg.SpecialistValidator.ValidateSpecialist(ctx, ownerID, execution.SpecialistName)
 }
 
 func (s *Service) enrichVariants(ctx context.Context, spec experiment.ExperimentSpec) (experiment.ExperimentSpec, error) {
@@ -334,6 +395,7 @@ func RunResultFromWorker(res worker.Result) RunResult {
 		Tokens:          res.Tokens,
 		Latency:         res.Latency,
 		ProviderName:    res.ProviderName,
+		Execution:       experiment.CloneExecution(res.Execution),
 		Artifacts:       cloneStringMap(res.Artifacts),
 		Scores:          cloneScores(res.Scores),
 		Expected:        res.Expected,
@@ -345,9 +407,7 @@ func cloneScores(in map[string]float64) map[string]float64 {
 		return nil
 	}
 	out := make(map[string]float64, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }
 
@@ -356,8 +416,6 @@ func cloneStringMap(in map[string]string) map[string]string {
 		return nil
 	}
 	out := make(map[string]string, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }

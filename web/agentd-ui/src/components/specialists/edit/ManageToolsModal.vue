@@ -4,13 +4,13 @@
     @keydown="onKeydown"
   >
     <div
-      class="absolute inset-0 bg-surface/70 backdrop-blur-sm"
+      class="absolute inset-0 bg-surface "
       @click="emitCancel"
     ></div>
 
     <div
       ref="panel"
-      class="relative z-10 flex w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-border/70 bg-surface shadow-2xl"
+      class="relative z-10 flex w-full max-w-5xl flex-col overflow-hidden rounded-md border border-border/70 bg-surface"
     >
       <div
         class="flex items-center justify-between border-b border-border/60 px-5 py-4"
@@ -40,7 +40,7 @@
             <div class="flex-1">
               <label
                 for="tools-search"
-                class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Search</label
               >
               <input
@@ -132,7 +132,7 @@
             class="h-full rounded border border-border/60 bg-surface-muted/20 p-4"
           >
             <p
-              class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+              class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
             >
               Details
             </p>

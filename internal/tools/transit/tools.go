@@ -10,6 +10,17 @@ import (
 
 const systemUserID int64 = 0
 
+const keyNamePattern = `^[A-Za-z0-9_./@-]+$`
+
+var keyNameSchema = map[string]any{
+	"type":        "string",
+	"description": "Hierarchical Transit key. Use letters, numbers, _, ., /, @, and - only; avoid spaces and punctuation. Examples: project/demo/brief, objective/123/status.",
+	"pattern":     keyNamePattern,
+	"minLength":   1,
+	"maxLength":   512,
+	"examples":    []any{"project/demo/brief", "objective/123/status"},
+}
+
 type createTool struct{ service *transitdomain.Service }
 type getTool struct{ service *transitdomain.Service }
 type updateTool struct{ service *transitdomain.Service }
@@ -57,7 +68,7 @@ func (t *createTool) JSONSchema() map[string]any {
 						"type":     "object",
 						"required": []string{"keyName", "description", "value"},
 						"properties": map[string]any{
-							"keyName":     map[string]any{"type": "string"},
+							"keyName":     keyNameSchema,
 							"description": map[string]any{"type": "string"},
 							"value":       map[string]any{"type": "string"},
 							"base64":      map[string]any{"type": "boolean"},
@@ -79,7 +90,7 @@ func (t *getTool) JSONSchema() map[string]any {
 			"type":     "object",
 			"required": []string{"keys"},
 			"properties": map[string]any{
-				"keys": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"keys": map[string]any{"type": "array", "items": keyNameSchema},
 			},
 		},
 	}
@@ -93,7 +104,7 @@ func (t *updateTool) JSONSchema() map[string]any {
 			"type":     "object",
 			"required": []string{"keyName", "value"},
 			"properties": map[string]any{
-				"keyName":     map[string]any{"type": "string"},
+				"keyName":     keyNameSchema,
 				"value":       map[string]any{"type": "string"},
 				"base64":      map[string]any{"type": "boolean"},
 				"embed":       map[string]any{"type": "boolean"},
@@ -112,7 +123,7 @@ func (t *deleteTool) JSONSchema() map[string]any {
 			"type":     "object",
 			"required": []string{"keys"},
 			"properties": map[string]any{
-				"keys": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"keys": map[string]any{"type": "array", "items": keyNameSchema},
 			},
 		},
 	}

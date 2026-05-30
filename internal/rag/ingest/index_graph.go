@@ -16,10 +16,14 @@ const (
 
 // UpsertDocAndChunksGraph upserts the Doc node, all Chunk nodes, and HAS_CHUNK edges.
 // It returns the list of chunk IDs created (same order as chunks slice).
-func UpsertDocAndChunksGraph(ctx context.Context, g databases.GraphDB, docID string, pre PreprocessedDoc, in IngestRequest, chunks []ChunkRecord, version int) ([]string, error) {
+func UpsertDocAndChunksGraph(ctx context.Context, g databases.GraphDB, req ChunkIndexRequest, pre PreprocessedDoc) ([]string, error) {
 	if g == nil {
 		return nil, nil
 	}
+	docID := req.DocID
+	in := req.Input
+	chunks := req.Chunks
+	version := req.Version
 
 	// Upsert Doc node with basic props aligned to the data model.
 	dprops := map[string]any{

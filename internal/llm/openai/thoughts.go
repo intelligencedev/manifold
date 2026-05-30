@@ -15,7 +15,6 @@ func extractThoughtSignature(raw string) string {
 	if err := json.Unmarshal([]byte(raw), &m); err != nil {
 		return ""
 	}
-	// Handle both snake_case and camelCase
 	if ec, ok := m["extra_content"].(map[string]any); ok {
 		if g, ok2 := ec["google"].(map[string]any); ok2 {
 			if sig, ok3 := g["thought_signature"].(string); ok3 {
@@ -98,10 +97,7 @@ func trimLeadingSingleLineBreak(value string) string {
 }
 
 func markerSuffixPrefixLen(value, marker string) int {
-	max := len(value)
-	if len(marker) < max {
-		max = len(marker)
-	}
+	max := min(len(marker), len(value))
 	for n := max; n > 0; n-- {
 		if strings.HasSuffix(value, marker[:n]) {
 			return n

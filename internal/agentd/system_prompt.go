@@ -7,8 +7,8 @@ import (
 )
 
 // composeSystemPrompt builds the stable base system prompt (including AGENTS.md,
-// if present). Dynamic specialist catalogs are prepended to the current user
-// prompt so provider system-prompt caches remain effective.
+// if present). Dynamic specialist catalogs are inserted after the static prompt
+// boundary so provider system-prompt caches remain effective.
 func (a *app) composeSystemPrompt() string {
 	base := prompts.DefaultSystemPrompt(a.cfg.Workdir, a.cfg.SystemPrompt)
 	if a.cfg.AutoDiscover {

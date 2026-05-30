@@ -16,7 +16,6 @@ var ErrInvalidProjectID = errors.New("invalid project_id")
 var ErrInvalidSessionID = errors.New("invalid session_id")
 
 // ProjectID checks if a project ID is safe for use in filesystem paths.
-// Returns cleaned project ID and error if validation fails.
 func ProjectID(projectID string) (string, error) {
 	return validatePathSegment(projectID, ErrInvalidProjectID)
 }

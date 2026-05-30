@@ -14,7 +14,7 @@ func TestExpandWithGraph_AddsNeighbors(t *testing.T) {
 	// Setup a small doc with 3 chunks
 	docID := "doc:acme:alpha"
 	_ = g.UpsertNode(ctx, docID, []string{"Doc"}, nil)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		cid := fmt.Sprintf("chunk:%s:%d", docID, i)
 		_ = g.UpsertNode(ctx, cid, []string{"Chunk"}, nil)
 		_ = g.UpsertEdge(ctx, docID, "HAS_CHUNK", cid, nil)
@@ -43,5 +43,49 @@ func TestAssembleResults_NoRerankMatchesOrder(t *testing.T) {
 	}
 	if len(out) != 2 || out[0].ID != "a" || out[1].ID != "b" {
 		t.Fatalf("expected same order, got %#v", out)
+	}
+}
+
+func TestAssembleResults_RerankRequestedWithoutRerankerSkipsStage(t *testing.T) {
+	ctx := context.Background()
+	items := []RetrievedItem{{ID: "a", Score: 2}, {ID: "b", Score: 1}}
+	plan := QueryPlan{Query: "q"}
+	opt := RetrieveOptions{K: 2, GraphAugment: false, Rerank: true}
+	out, debug, err := AssembleResults(ctx, nil, nil, plan, opt, items)
+	if err != nil {
+		t.Fatalf("assemble failed: %v", err)
+	}
+	if len(out) != 2 || out[0].ID != "a" || out[1].ID != "b" {
+		t.Fatalf("expected same order, got %#v", out)
+	}
+	if _, ok := debug["rerank_ms"]; ok {
+		t.Fatalf("did not expect rerank diagnostics when no reranker is configured: %#v", debug)
+	}
+}
+
+type reverseReranker struct{}
+
+func (reverseReranker) Rerank(_ context.Context, _ string, items []RetrievedItem) ([]RetrievedItem, error) {
+	out := append([]RetrievedItem(nil), items...)
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out, nil
+}
+
+func TestAssembleResults_UsesConfiguredReranker(t *testing.T) {
+	ctx := context.Background()
+	items := []RetrievedItem{{ID: "a", Score: 2}, {ID: "b", Score: 1}}
+	plan := QueryPlan{Query: "q"}
+	opt := RetrieveOptions{K: 2, GraphAugment: false, Rerank: true}
+	out, debug, err := AssembleResults(ctx, nil, reverseReranker{}, plan, opt, items)
+	if err != nil {
+		t.Fatalf("assemble failed: %v", err)
+	}
+	if len(out) != 2 || out[0].ID != "b" || out[1].ID != "a" {
+		t.Fatalf("expected reranked order, got %#v", out)
+	}
+	if _, ok := debug["rerank_ms"]; !ok {
+		t.Fatalf("expected rerank diagnostics: %#v", debug)
 	}
 }

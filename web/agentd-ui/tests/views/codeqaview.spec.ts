@@ -77,14 +77,17 @@ describe("CodeQaView", () => {
     routeState.params.runId = "run-1";
     render(CodeQaView);
 
-    expect(await screen.findByText(/Code Quality Control Room/i)).toBeTruthy();
-    expect(await screen.findByText(/Stored Runs/i)).toBeTruthy();
+    expect(await screen.findByText(/Code QA/i)).toBeTruthy();
+    expect((await screen.findAllByText(/Runs/i)).length).toBeGreaterThan(0);
+    await fireEvent.click(await screen.findByRole("tab", { name: /Judges/i }));
     expect(await screen.findByText(/judge-tests/i)).toBeTruthy();
+    await fireEvent.click(await screen.findByRole("tab", { name: /Timeline/i }));
     expect(await screen.findByText(/run started/i)).toBeTruthy();
 
+    await fireEvent.click(screen.getByRole("button", { name: /New run/i }));
     const baseRef = screen.getByPlaceholderText("HEAD~1");
     await fireEvent.update(baseRef, "master");
-    await fireEvent.click(screen.getByRole("button", { name: /Start Code QA/i }));
+    await fireEvent.click(screen.getByRole("button", { name: /Start run/i }));
 
     await waitFor(() => {
       expect(apiMocks.startCodeQARun).toHaveBeenCalledTimes(1);

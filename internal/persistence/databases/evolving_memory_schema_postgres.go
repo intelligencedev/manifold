@@ -106,7 +106,7 @@ func (s *pgEvolvingMemoryStore) initKeywordSchema(ctx context.Context) error {
 	if _, err := s.pool.Exec(ctx, `
 ALTER TABLE evolving_memories
     ADD COLUMN IF NOT EXISTS search_tsv tsvector GENERATED ALWAYS AS (
-        to_tsvector('simple', coalesce(input, '') || ' ' || coalesce(summary, '') || ' ' || coalesce(strategy_card, ''))
+        to_tsvector('simple', coalesce(input, '') || ' ' || coalesce(output, '') || ' ' || coalesce(feedback, '') || ' ' || coalesce(summary, '') || ' ' || coalesce(strategy_card, ''))
     ) STORED`); err != nil {
 		return err
 	}

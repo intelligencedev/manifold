@@ -72,7 +72,6 @@ func NewReMemController(cfg ReMemConfig) *ReMemController {
 	}
 }
 
-// Execute runs the Think-Act-Refine loop for the given task.
 // Returns the final action content and any accumulated reasoning trace.
 //
 // ReMem is a memory-preparation step. It reasons about retrieved memories and
@@ -96,7 +95,6 @@ func (rc *ReMemController) Execute(ctx context.Context, task string, _ []llm.Too
 	for step := 0; step < rc.maxInnerSteps; step++ {
 		log.Debug().Int("inner_step", step).Msg("remem_inner_step")
 
-		// Build prompt with task, memories, and reasoning trace
 		prompt := rc.buildPrompt(task, retrieved, reasoningTrace)
 
 		// Call LLM. ReMem responses are pure JSON, never tool calls, so we
@@ -236,33 +234,33 @@ func (rc *ReMemController) forceFinalAct(ctx context.Context, task string, retri
 
 // buildPrompt constructs the prompt for each ReMem inner step.
 func (rc *ReMemController) buildPrompt(task string, retrieved []*MemoryEntry, trace []string) string {
-	var prompt string
+	var prompt strings.Builder
 
 	// Add retrieved memories
 	if len(retrieved) > 0 {
-		prompt += "## Relevant Memories\n\n"
+		prompt.WriteString("## Relevant Memories\n\n")
 		for i, entry := range retrieved {
-			prompt += fmt.Sprintf("### Memory %d (ID: %s)\n", i+1, entry.ID)
-			prompt += formatExperience(entry) + "\n"
+			prompt.WriteString(fmt.Sprintf("### Memory %d (ID: %s)\n", i+1, entry.ID))
+			prompt.WriteString(formatExperience(entry) + "\n")
 		}
-		prompt += "\n"
+		prompt.WriteString("\n")
 	}
 
 	// Add reasoning trace so far
 	if len(trace) > 0 {
-		prompt += "## Your Reasoning So Far\n\n"
+		prompt.WriteString("## Your Reasoning So Far\n\n")
 		for i, t := range trace {
-			prompt += fmt.Sprintf("%d. %s\n", i+1, t)
+			prompt.WriteString(fmt.Sprintf("%d. %s\n", i+1, t))
 		}
-		prompt += "\n"
+		prompt.WriteString("\n")
 	}
 
 	// Add current task
-	prompt += fmt.Sprintf("## Current Task\n\n%s\n\n", task)
+	prompt.WriteString(fmt.Sprintf("## Current Task\n\n%s\n\n", task))
 
-	prompt += "Respond with JSON following the schema described in the system prompt. Keep THINK content to concise operational notes, not hidden chain-of-thought."
+	prompt.WriteString("Respond with JSON following the schema described in the system prompt. Keep THINK content to concise operational notes, not hidden chain-of-thought.")
 
-	return prompt
+	return prompt.String()
 }
 
 // reMemSystemPrompt returns the system prompt for ReMem mode.
@@ -344,9 +342,9 @@ Rules:
 - Do not include secrets, credentials, private user data, or transient one-off details.
 - Return only the strategy card, max 100 words.`
 
-	traceText := ""
+	var traceText strings.Builder
 	for i, t := range trace {
-		traceText += fmt.Sprintf("%d. %s\n", i+1, truncate(t, 150))
+		traceText.WriteString(fmt.Sprintf("%d. %s\n", i+1, truncate(t, 150)))
 	}
 
 	user := fmt.Sprintf(`Task: %s
@@ -355,9 +353,8 @@ Output: %s
 Reasoning trace:
 %s
 
-
 Produce the strategy card.`,
-		truncate(task, 200), feedback, truncate(output, 300), traceText)
+		truncate(task, 200), feedback, truncate(output, 300), traceText.String())
 
 	msgs := []llm.Message{
 		{Role: "system", Content: sys},

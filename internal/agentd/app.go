@@ -6,12 +6,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"manifold/internal/agent"
 	"manifold/internal/agent/memory"
 	"manifold/internal/auth"
 	codeqaservice "manifold/internal/codeqa/service"
 	"manifold/internal/config"
+	"manifold/internal/constitution"
+	"manifold/internal/durable"
 	"manifold/internal/embeddedpg"
+	"manifold/internal/fleet"
 	llmpkg "manifold/internal/llm"
 	"manifold/internal/matrixgw"
 	"manifold/internal/mcpclient"
@@ -22,7 +27,9 @@ import (
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
 	tooldiscovery "manifold/internal/tools/discovery"
+	terminaltool "manifold/internal/tools/terminal"
 	transitdomain "manifold/internal/transit"
+	"manifold/internal/trust"
 	"manifold/internal/workspaces"
 )
 
@@ -46,21 +53,29 @@ type app struct {
 	specRegMu          sync.RWMutex
 	userSpecRegs       map[int64]*specialists.Registry
 	summaryLLM         llmpkg.Provider
+	durableStore       durable.Store
+	durableClient      *durable.Client
+	durableRegistry    *durable.Registry
+	durableWorker      *durable.Worker
 	flowV2             *flowV2Runtime
 	codeQARuntime      *codeQARuntime
 	codeQAService      *codeqaservice.Service
+	terminalManager    *terminaltool.Manager
 	evolvingMu         sync.RWMutex
 	userEvolving       map[int64]map[string]*memory.EvolvingMemory
 	evolvingLastUsed   map[int64]map[string]time.Time
 	evolvingCfg        memory.EvolvingMemoryConfig
 	evolvingSessionTTL time.Duration
 	rememMaxInnerSteps int
+	beliefLLM          llmpkg.Provider
+	beliefModel        string
 	engine             *agent.Engine
 	chatStore          persist.ChatStore
 	matrixMessageStore persist.MatrixMessageStore
 	activityStore      persist.SpecialistActivityStore
 	chatMemory         *memory.Manager
 	runs               *runStore
+	inputRequests      *inputRequestBroker
 	playgroundHandler  http.Handler
 	projectsService    projects.ProjectService
 	workspaceManager   workspaces.WorkspaceManager
@@ -85,6 +100,10 @@ type app struct {
 	ragService         *ragservice.Service
 	matrixGateway      *matrixgw.Service
 	pulseRuntime       *pulseRuntime
+	fleetBus           *fleet.Bus
+	trustService       *trust.Service
+	constitutionSvc    *constitution.Service
+	extraPools         []*pgxpool.Pool
 }
 
 type tokenMetricsProvider interface {
@@ -146,7 +165,3 @@ func (a vectorIndexerAdapter) SimilaritySearch(ctx context.Context, vector []flo
 	}
 	return out, nil
 }
-
-// cloneEngine returns a shallow copy of the base orchestrator engine so that
-// per-request callbacks (OnDelta/OnTool/etc) don't race across concurrent
-// requests. Callers can safely mutate the returned engine without affecting

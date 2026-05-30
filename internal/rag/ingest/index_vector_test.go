@@ -8,6 +8,23 @@ import (
 	"manifold/internal/rag/embedder"
 )
 
+type captureIngestEmbedder struct {
+	texts []string
+}
+
+func (c *captureIngestEmbedder) EmbedBatch(_ context.Context, texts []string) ([][]float32, error) {
+	c.texts = append(c.texts, texts...)
+	out := make([][]float32, len(texts))
+	for i := range texts {
+		out[i] = []float32{1, 0}
+	}
+	return out, nil
+}
+
+func (c *captureIngestEmbedder) Name() string               { return "capture" }
+func (c *captureIngestEmbedder) Dimension() int             { return 2 }
+func (c *captureIngestEmbedder) Ping(context.Context) error { return nil }
+
 func TestUpsertChunkEmbeddings_MemoryVector(t *testing.T) {
 	ctx := context.Background()
 	vec := databases.NewMemoryVector()
@@ -15,7 +32,7 @@ func TestUpsertChunkEmbeddings_MemoryVector(t *testing.T) {
 	in := IngestRequest{ID: "doc:acme:1", Tenant: "acme", Source: "test"}
 	chunks := []ChunkRecord{{Index: 0, Text: "hello world"}, {Index: 1, Text: "goodbye"}}
 
-	n, err := UpsertChunkEmbeddings(ctx, vec, emb, in.ID, "english", chunks, in, 1)
+	n, err := UpsertChunkEmbeddings(ctx, vec, emb, ChunkIndexRequest{DocID: in.ID, Lang: "english", Chunks: chunks, Input: in, Version: 1})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -37,5 +54,20 @@ func TestUpsertChunkEmbeddings_MemoryVector(t *testing.T) {
 	}
 	if res[0].ID != "chunk:"+in.ID+":0" {
 		t.Fatalf("expected top result chunk 0, got %s", res[0].ID)
+	}
+}
+
+func TestUpsertChunkEmbeddings_EmbedsRawChunkText(t *testing.T) {
+	ctx := context.Background()
+	vec := databases.NewMemoryVector()
+	emb := &captureIngestEmbedder{}
+	in := IngestRequest{ID: "doc:acme:1", Tenant: "acme"}
+	chunks := []ChunkRecord{{Index: 0, Text: "hello world"}}
+
+	if _, err := UpsertChunkEmbeddings(ctx, vec, emb, ChunkIndexRequest{DocID: in.ID, Lang: "english", Chunks: chunks, Input: in, Version: 1}); err != nil {
+		t.Fatalf("UpsertChunkEmbeddings() error = %v", err)
+	}
+	if len(emb.texts) != 1 || emb.texts[0] != "hello world" {
+		t.Fatalf("expected raw chunk text, got %#v", emb.texts)
 	}
 }

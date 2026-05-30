@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"manifold/internal/agent/memory"
 	"manifold/internal/llm"
 	"manifold/internal/policy"
 	"manifold/internal/tools"
@@ -13,6 +14,48 @@ import (
 
 type recordingTool struct {
 	called bool
+}
+
+func TestRunWithReMemInjectsSoftPolicyContext(t *testing.T) {
+	t.Parallel()
+
+	provider := &captureMessageProvider{}
+	em := memory.NewEvolvingMemory(memory.EvolvingMemoryConfig{
+		LLM: provider,
+	})
+	eng := &Engine{
+		LLM:            provider,
+		Tools:          tools.NewRegistry(),
+		MaxSteps:       1,
+		System:         "base system",
+		UserID:         7,
+		ProjectID:      "project-1",
+		AgentRole:      "orchestrator",
+		EvolvingMemory: em,
+		ReMemEnabled:   true,
+		ReMemController: memory.NewReMemController(memory.ReMemConfig{
+			LLM:           provider,
+			Memory:        em,
+			MaxInnerSteps: 1,
+		}),
+		PolicyEnforcer: policy.NewStaticEnforcer([]policy.Record{{
+			ID:            "prefer-review",
+			Scope:         policy.ScopeProject,
+			TenantID:      7,
+			ProjectID:     "project-1",
+			Severity:      policy.SeveritySoft,
+			Statement:     "Prefer reviewer confirmation before deployment.",
+			ApprovalState: policy.ApprovalApproved,
+			Targets:       policy.TargetSelector{Roles: []string{"orchestrator"}},
+		}}),
+	}
+
+	if _, _, err := eng.runWithReMem(context.Background(), "deploy", nil, false); err != nil {
+		t.Fatalf("runWithReMem returned error: %v", err)
+	}
+	if len(provider.messages) < 2 || provider.messages[1].Role != "user" || !strings.Contains(provider.messages[1].Content, "## Runtime Policy Context") || !strings.Contains(provider.messages[1].Content, "Prefer reviewer confirmation") {
+		t.Fatalf("expected soft policy context in ReMem user prompt, got %#v", provider.messages)
+	}
 }
 
 func (t *recordingTool) Name() string { return "write_file" }

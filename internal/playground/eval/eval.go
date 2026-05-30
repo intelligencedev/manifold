@@ -3,6 +3,7 @@ package eval
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 
 	"manifold/internal/playground/experiment"
@@ -89,9 +90,7 @@ func (r *Runner) Evaluate(ctx context.Context, spec experiment.ExperimentSpec, r
 			if updated[idx].Scores == nil {
 				updated[idx].Scores = make(map[string]float64)
 			}
-			for metric, val := range scores {
-				updated[idx].Scores[metric] = val
-			}
+			maps.Copy(updated[idx].Scores, scores)
 		}
 		for metric, value := range outcome.Aggregate {
 			aggregates[metric] += value * weight

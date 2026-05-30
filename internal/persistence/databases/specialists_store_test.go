@@ -73,3 +73,39 @@ func TestMemSpecStoreUpsertReplacesAPIKeyWhenProvided(t *testing.T) {
 		t.Fatalf("expected api key to be replaced, got %q", saved.APIKey)
 	}
 }
+
+func TestMemSpecStoreRoundTripsHarnessOverride(t *testing.T) {
+	t.Parallel()
+
+	store := &memSpecStore{m: map[int64]map[string]persistence.Specialist{}}
+	ctx := context.Background()
+	userID := int64(9)
+	_, err := store.Upsert(ctx, userID, persistence.Specialist{
+		Name:     "planner",
+		Provider: "openai",
+		Harness: &persistence.SpecialistHarness{
+			Enabled:       true,
+			Mode:          "workflow",
+			TerminalTools: []string{"agent_response"},
+			RequiredSteps: []string{"search"},
+			ToolPrerequisites: map[string][]persistence.SpecialistHarnessPrerequisite{
+				"fetch": {{Tool: "search", MatchArg: "query"}},
+			},
+			Compact: persistence.SpecialistHarnessCompact{Enabled: true, KeepRecentSteps: 5},
+		},
+	})
+	if err != nil {
+		t.Fatalf("upsert failed: %v", err)
+	}
+
+	got, ok, err := store.GetByName(ctx, userID, "planner")
+	if err != nil || !ok {
+		t.Fatalf("get failed: ok=%v err=%v", ok, err)
+	}
+	if got.Harness == nil || !got.Harness.Enabled || got.Harness.Mode != "workflow" {
+		t.Fatalf("unexpected harness config: %+v", got.Harness)
+	}
+	if got.Harness.ToolPrerequisites["fetch"][0].MatchArg != "query" {
+		t.Fatalf("unexpected prerequisites: %+v", got.Harness.ToolPrerequisites)
+	}
+}

@@ -76,7 +76,7 @@
       </form>
 
       <!-- Versions sidebar -->
-      <aside class="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border/60 bg-surface/60">
+      <aside class="flex min-h-0 flex-col overflow-hidden rounded-md border border-border/60 bg-surface">
         <div class="flex shrink-0 items-center justify-between border-b border-border/60 px-4 py-2.5">
           <h3 class="text-sm font-semibold">Versions</h3>
           <span class="text-xs text-subtle-foreground">{{ versions.length }} total</span>

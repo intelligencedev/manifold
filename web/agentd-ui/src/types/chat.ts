@@ -16,6 +16,33 @@ export interface ChatAttachment {
   text?: string;
 }
 
+export interface ChatInputRequestChoice {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+export interface ChatInputRequest {
+  id: string;
+  question: string;
+  reason?: string;
+  choices: ChatInputRequestChoice[];
+  allowFreeText: boolean;
+  multiple: boolean;
+  agent?: string;
+  team?: string;
+  model?: string;
+  callId?: string;
+  parentCallId?: string;
+  depth?: number;
+  status: "pending" | "answered" | "cancelled" | "error";
+  answer?: string;
+  choiceIds?: string[];
+  error?: string;
+  createdAt: string;
+  answeredAt?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: ChatRole;
@@ -38,6 +65,7 @@ export interface ChatMessage {
   model?: string;
   activityToolTitle?: string;
   activityThoughtSummary?: string;
+  inputRequests?: ChatInputRequest[];
 }
 
 export interface ChatSessionMeta {
@@ -48,11 +76,14 @@ export interface ChatSessionMeta {
   lastMessagePreview?: string;
   messageCount?: number;
   model?: string;
+  projectId?: string;
+  evolvingMemoryEnabled?: boolean;
+  beliefMemoryEnabled?: boolean;
 }
 
 export interface AgentTraceEntry {
   id: string;
-  type: "message" | "tool" | "error";
+  type: "message" | "tool" | "error" | "input_request";
   role?: ChatRole;
   title?: string;
   content?: string;
@@ -63,8 +94,10 @@ export interface AgentTraceEntry {
 
 export interface AgentThread {
   callId: string;
+  assistantMessageId?: string;
   parentCallId?: string;
   agent?: string;
+  team?: string;
   model?: string;
   prompt?: string;
   depth: number;
@@ -92,9 +125,11 @@ export interface SpecialistActivityRecord {
   sessionId: string;
   userId?: number;
   runId?: string;
+  assistantMessageId?: string;
   callId: string;
   parentCallId?: string;
   agent: string;
+  team?: string;
   model?: string;
   prompt?: string;
   depth: number;

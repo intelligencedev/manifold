@@ -156,7 +156,6 @@ func (s *Service) CreateProjectKind(_ context.Context, userID int64, name string
 	if err := ensureDir(root, 0o755); err != nil {
 		return Project{}, err
 	}
-	// Write metadata
 	if err := ensureDir(filepath.Join(root, ".meta"), 0o755); err != nil {
 		return Project{}, err
 	}
@@ -165,7 +164,7 @@ func (s *Service) CreateProjectKind(_ context.Context, userID int64, name string
 	// Seed helper files (best-effort)
 	_ = os.WriteFile(filepath.Join(root, "README.md"), []byte("# Project\n\nThis directory is managed by the platform.\n"), 0o644)
 	if strings.TrimSpace(s.defaultSkillsDir) != "" {
-		if err := copyDir(s.defaultSkillsDir, filepath.Join(root, ".skills")); err == nil {
+		if err := copyDir(s.defaultSkillsDir, filepath.Join(root, "skills")); err == nil {
 			meta.SkillsGeneration = 1
 		}
 	}
@@ -192,10 +191,18 @@ func (s *Service) DeleteProject(_ context.Context, userID int64, projectID strin
 
 // ListProjects lists all projects for a user, computing size and file count.
 func (s *Service) ListProjects(_ context.Context, userID int64) ([]Project, error) {
-	return s.ListProjectsByKind(context.Background(), userID, ProjectKindChat)
+	return s.ListProjectsWithUsage(context.Background(), userID, true)
+}
+
+func (s *Service) ListProjectsWithUsage(_ context.Context, userID int64, includeUsage bool) ([]Project, error) {
+	return s.ListProjectsByKindWithUsage(context.Background(), userID, ProjectKindChat, includeUsage)
 }
 
 func (s *Service) ListProjectsByKind(_ context.Context, userID int64, kind string) ([]Project, error) {
+	return s.ListProjectsByKindWithUsage(context.Background(), userID, kind, true)
+}
+
+func (s *Service) ListProjectsByKindWithUsage(_ context.Context, userID int64, kind string, includeUsage bool) ([]Project, error) {
 	kind = normalizeProjectKind("", kind)
 	base := s.userRoot(userID)
 	entries, err := os.ReadDir(base)
@@ -224,8 +231,10 @@ func (s *Service) ListProjectsByKind(_ context.Context, userID int64, kind strin
 		if normalizeProjectKind(p.Name, p.Kind) != kind {
 			continue
 		}
-		bytes, files := s.computeUsage(root)
-		p.Bytes, p.FileCount = bytes, files
+		if includeUsage {
+			bytes, files := s.computeUsage(root)
+			p.Bytes, p.FileCount = bytes, files
+		}
 		out = append(out, p)
 	}
 	// Sort by UpdatedAt desc then Name
@@ -388,7 +397,7 @@ func (s *Service) UploadFile(_ context.Context, userID int64, projectID, path, n
 		return err
 	}
 	fullRel := filepath.ToSlash(filepath.Join(rel, name))
-	bumpSkills := strings.HasPrefix(fullRel, ".skills/") || fullRel == ".skills"
+	bumpSkills := strings.HasPrefix(fullRel, "skills/") || fullRel == "skills"
 	s.writeUpdatedAt(userID, projectID, time.Now().UTC(), true, bumpSkills)
 	return nil
 }
@@ -433,7 +442,7 @@ func (s *Service) DeleteFile(_ context.Context, userID int64, projectID, path st
 		}
 	}
 	fullRel := filepath.ToSlash(rel)
-	bumpSkills := strings.HasPrefix(fullRel, ".skills/") || fullRel == ".skills"
+	bumpSkills := strings.HasPrefix(fullRel, "skills/") || fullRel == "skills"
 	s.writeUpdatedAt(userID, projectID, time.Now().UTC(), true, bumpSkills)
 	return nil
 }
@@ -488,7 +497,7 @@ func (s *Service) MovePath(_ context.Context, userID int64, projectID, from, to 
 	}
 	fullSrc := filepath.ToSlash(srcRel)
 	fullDst := filepath.ToSlash(dstRel)
-	bumpSkills := strings.HasPrefix(fullSrc, ".skills/") || strings.HasPrefix(fullDst, ".skills/") || fullSrc == ".skills" || fullDst == ".skills"
+	bumpSkills := strings.HasPrefix(fullSrc, "skills/") || strings.HasPrefix(fullDst, "skills/") || fullSrc == "skills" || fullDst == "skills"
 	s.writeUpdatedAt(userID, projectID, time.Now().UTC(), true, bumpSkills)
 	return nil
 }
@@ -508,7 +517,7 @@ func (s *Service) CreateDir(_ context.Context, userID int64, projectID, path str
 		return err
 	}
 	fullRel := filepath.ToSlash(rel)
-	bumpSkills := strings.HasPrefix(fullRel, ".skills/") || fullRel == ".skills"
+	bumpSkills := strings.HasPrefix(fullRel, "skills/") || fullRel == "skills"
 	s.writeUpdatedAt(userID, projectID, time.Now().UTC(), true, bumpSkills)
 	return nil
 }

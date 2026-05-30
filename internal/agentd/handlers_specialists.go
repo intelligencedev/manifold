@@ -3,6 +3,7 @@ package agentd
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"strings"
 	"time"
@@ -205,7 +206,6 @@ func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.
 		defaultProvider = "openai"
 	}
 	baseModel, baseURL, baseKey, baseHeaders, baseParams := a.providerDefaults(defaultProvider)
-	// Start from global defaults
 	out := persist.Specialist{
 		ID:                         0,
 		UserID:                     userID,
@@ -261,6 +261,9 @@ func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.
 		}
 		if sp.ExtraParams != nil {
 			out.ExtraParams = copyAnyMap(sp.ExtraParams)
+		}
+		if sp.Harness != nil {
+			out.Harness = sp.Harness
 		}
 	}
 	return out
@@ -360,9 +363,7 @@ func copyStringMap(in map[string]string) map[string]string {
 		return map[string]string{}
 	}
 	out := make(map[string]string, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }
 
@@ -371,9 +372,7 @@ func copyAnyMap(in map[string]any) map[string]any {
 		return map[string]any{}
 	}
 	out := make(map[string]any, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
+	maps.Copy(out, in)
 	return out
 }
 
@@ -398,6 +397,8 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 		}
 	}
 	a.engine.Model = currentModel
+	a.engine.HarnessEnabled = a.cfg.Harness.Enabled
+	a.engine.HarnessConfig = harnessRunConfig(a.cfg.Harness)
 
 	if a.cfg.AutoDiscover && a.cfg.EnableTools && a.toolIndex != nil {
 		a.toolRegistry = tooldiscovery.NewDiscoverableRegistry(a.baseToolRegistry, a.toolIndex, a.cfg.ToolAllowList, a.cfg.MaxDiscoveredTools)
@@ -424,6 +425,7 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 		Provider:                   provider,
 		ExtraParams:                sp.ExtraParams,
 		SummaryContextWindowTokens: sp.SummaryContextWindowTokens,
+		Harness:                    sp.Harness,
 	}
 	switch provider {
 	case "anthropic":
@@ -461,9 +463,4 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 		Strs("tools", names).
 		Msg("tool_registry_contents_updated")
 	return nil
-}
-
-func boolPtr(value bool) *bool {
-	v := value
-	return &v
 }

@@ -2,8 +2,9 @@
   <div class="relative">
     <button
       ref="btnRef"
+      type="button"
       @click="onToggle"
-      class="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium hover:bg-surface-muted/60"
+      class="halo-focus flex items-center gap-2 rounded-md border border-transparent px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-surface-muted hover:text-foreground"
     >
       <img
         v-if="avatar"
@@ -13,7 +14,7 @@
       />
       <span
         v-else
-        class="inline-flex h-6 w-6 items-center justify-center rounded-full bg-accent/20 text-accent"
+        class="inline-flex h-6 w-6 items-center justify-center rounded-[7px] bg-[rgb(var(--accent-dim))] font-mono text-[11px] text-[rgb(var(--accent-hi))]"
         >U</span
       >
       <span class="hidden sm:inline">{{ username || "Account" }}</span>
@@ -34,18 +35,19 @@
     <Teleport to="body">
       <div
         v-if="open"
-        class="fixed w-48 rounded-md border border-border/70 bg-surface py-1 shadow-lg z-50"
+        class="fixed z-50 w-48 rounded-md border border-border bg-surface py-1"
         :style="menuStyle"
       >
         <a
           href="/api/me"
-          class="block px-4 py-2 text-sm hover:bg-surface-muted/60"
+          class="block px-4 py-2 text-sm text-muted-foreground hover:bg-surface-muted hover:text-foreground"
           >Profile</a
         >
         <!-- Use a JS navigation to force a full-page redirect so the backend can set cookies and redirect correctly -->
         <button
+          type="button"
           @click="onLogout"
-          class="w-full text-left block px-4 py-2 text-sm hover:bg-surface-muted/60"
+          class="block w-full px-4 py-2 text-left text-sm text-muted-foreground hover:bg-surface-muted hover:text-foreground"
         >
           Logout
         </button>

@@ -4,16 +4,29 @@ import (
 	"context"
 	"manifold/internal/llm"
 	"manifold/internal/observability"
-
-	"go.opentelemetry.io/otel/trace"
 )
 
-func (e *Engine) runWithReMem(ctx context.Context, userInput string, history []llm.Message) (string, error) {
+func (e *Engine) runWithReMem(ctx context.Context, userInput string, history []llm.Message, stream bool) (string, []string, error) {
 	log := observability.LoggerWithTrace(ctx)
+	if e.DisableEvolvingMemory || e.ReMemController == nil {
+		msgs := BuildInitialLLMMessages(e.System, userInput, history)
+		if e != nil && e.SummaryEnabled && !e.consumeSkipInitialSummarization() {
+			msgs = e.maybeSummarize(ctx, msgs)
+		}
+		msgs = AddRuntimeContextToCurrentUserMessage(msgs, e.UserPromptContext)
+		msgs = e.augmentWithPolicyContext(ctx, userInput, msgs)
+		msgs = e.augmentWithBeliefMemory(ctx, userInput, msgs)
+		if e != nil && !e.DisableEvolvingMemory && e.EvolvingMemory != nil {
+			msgs = e.augmentWithMemory(ctx, userInput, msgs)
+		}
+		if stream {
+			final, err := e.runStreamLoop(ctx, msgs)
+			return final, nil, err
+		}
+		final, err := e.runLoop(ctx, msgs)
+		return final, nil, err
+	}
 
-	// Execute ReMem controller (internal memory reasoning/refinement).
-	// ReMem does not dispatch tools; the tool schema argument is preserved on
-	// the signature for compatibility but is ignored by the controller.
 	_, reasoningTrace, err := e.ReMemController.Execute(ctx, userInput, nil)
 	if err != nil {
 		log.Error().Err(err).Msg("remem_execute_failed")
@@ -25,39 +38,40 @@ func (e *Engine) runWithReMem(ctx context.Context, userInput string, history []l
 
 	// Now run the main agent loop with (potentially refined) memories
 	msgs := BuildInitialLLMMessages(e.System, userInput, history)
-	msgs = PrependToCurrentUserMessage(msgs, e.UserPromptContext)
-	msgs = e.augmentWithBeliefMemory(ctx, userInput, msgs)
-
-	// Augment with evolving memory (which may have been refined by ReMem)
-	if e.EvolvingMemory != nil {
-		msgs = e.augmentWithMemory(ctx, userInput, msgs)
-	}
-
 	// Possibly summarize older history
 	if e.SummaryEnabled && !e.consumeSkipInitialSummarization() {
 		msgs = e.maybeSummarize(ctx, msgs)
 	}
+	msgs = AddRuntimeContextToCurrentUserMessage(msgs, e.UserPromptContext)
+	msgs = e.augmentWithPolicyContext(ctx, userInput, msgs)
+	msgs = e.augmentWithBeliefMemory(ctx, userInput, msgs)
 
-	// Run the streaming loop to generate actual response (preserves streaming behavior)
+	// Augment with evolving memory (which may have been refined by ReMem)
+	if !e.DisableEvolvingMemory && e.EvolvingMemory != nil {
+		msgs = e.augmentWithMemory(ctx, userInput, msgs)
+	}
+
+	if e.HarnessEnabled {
+		cfg := e.effectiveHarnessConfig()
+		log.Info().Str("mode", string(cfg.Mode)).Bool("stream", stream).Msg("remem_continuing_with_harness_loop")
+		var final string
+		var err error
+		if stream {
+			final, err = e.runHarnessStreamLoop(ctx, msgs)
+		} else {
+			final, err = e.runHarnessLoop(ctx, msgs)
+		}
+		if err != nil {
+			return "", reasoningTrace, err
+		}
+		return final, reasoningTrace, nil
+	}
+
+	// Run the streaming loop to generate actual response (preserves existing ReMem behavior)
 	final, err := e.runStreamLoop(ctx, msgs)
 	if err != nil {
-		return "", err
+		return "", reasoningTrace, err
 	}
 
-	// Store the experience with reasoning trace AFTER we have the actual response
-	feedback := "success" // default; in practice could be derived from evaluation
-	log.Info().Str("user_input", userInput).Int("reasoning_steps", len(reasoningTrace)).Msg("remem_store_experience_triggered")
-	bgCtx := context.Background()
-	if span := trace.SpanFromContext(ctx); span != nil {
-		bgCtx = trace.ContextWithSpanContext(bgCtx, span.SpanContext())
-	}
-	go func(ctx context.Context, input, resp, fb string, traceMsgs []string) {
-		if storeErr := e.ReMemController.StoreExperience(ctx, input, resp, fb, traceMsgs); storeErr != nil {
-			log.Error().Err(storeErr).Str("feedback", fb).Msg("remem_store_experience_failed")
-			return
-		}
-		log.Info().Str("feedback", fb).Int("reasoning_steps", len(traceMsgs)).Msg("remem_experience_stored")
-	}(bgCtx, userInput, final, feedback, reasoningTrace)
-
-	return final, nil
+	return final, reasoningTrace, nil
 }

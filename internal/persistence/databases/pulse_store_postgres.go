@@ -423,7 +423,7 @@ WHERE room_id = $1 AND route_target = $2
 	return nil
 }
 
-func (s *pgPulseStore) CompleteRoomPulse(ctx context.Context, roomID, routeTarget, token string, completedAt time.Time, summary, pulseErr string, dueTaskIDs []string) error {
+func (s *pgPulseStore) CompleteRoomPulse(ctx context.Context, completion persistence.RoomPulseCompletion) error {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return err
@@ -440,21 +440,21 @@ SET active_claim_token = NULL,
     updated_at = NOW(),
     revision = revision + 1
 WHERE room_id = $1 AND route_target = $6 AND active_claim_token = $2
-`, strings.TrimSpace(roomID), strings.TrimSpace(token), completedAt.UTC(), summary, pulseErr, strings.TrimSpace(routeTarget))
+`, strings.TrimSpace(completion.RoomID), strings.TrimSpace(completion.Token), completion.CompletedAt.UTC(), completion.Summary, completion.Error, strings.TrimSpace(completion.RouteTarget))
 	if err != nil {
 		return err
 	}
 	if cmd.RowsAffected() == 0 {
 		return persistence.ErrRevisionConflict
 	}
-	if len(dueTaskIDs) > 0 {
+	if len(completion.DueTaskIDs) > 0 {
 		if _, err := tx.Exec(ctx, `
 UPDATE pulse_tasks
 SET last_run_at = $3,
     last_result_summary = NULLIF($4, ''),
     updated_at = NOW()
 WHERE room_id = $1 AND route_target = $5 AND id = ANY($2)
-`, strings.TrimSpace(roomID), dueTaskIDs, completedAt.UTC(), summary, strings.TrimSpace(routeTarget)); err != nil {
+`, strings.TrimSpace(completion.RoomID), completion.DueTaskIDs, completion.CompletedAt.UTC(), completion.Summary, strings.TrimSpace(completion.RouteTarget)); err != nil {
 			return err
 		}
 	}

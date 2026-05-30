@@ -1,6 +1,6 @@
 module manifold
 
-go 1.25.0
+go 1.26.3
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.43.0
@@ -9,6 +9,7 @@ require (
 	github.com/chromedp/cdproto v0.0.0-20250724212937-08a3db8b4327
 	github.com/chromedp/chromedp v0.14.2
 	github.com/coreos/go-oidc/v3 v3.17.0
+	github.com/creack/pty v1.1.24
 	github.com/fergusstrange/embedded-postgres v1.34.0
 	github.com/go-shiori/go-readability v0.0.0-20251205110129-5db1dc9836f0
 	github.com/google/uuid v1.6.0
@@ -21,6 +22,7 @@ require (
 	github.com/rs/zerolog v1.34.0
 	github.com/stretchr/testify v1.11.1
 	github.com/yuin/goldmark v1.7.13
+	go.opencensus.io v0.24.0
 	go.opentelemetry.io/contrib/instrumentation/host v0.67.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.67.0
 	go.opentelemetry.io/otel v1.43.0
@@ -99,7 +101,6 @@ require (
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.43.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.10.0 // indirect

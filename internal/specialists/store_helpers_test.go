@@ -49,7 +49,24 @@ func TestConfigsFromStore(t *testing.T) {
 
 	list := []persistence.Specialist{
 		{Name: OrchestratorName},
-		{Name: "alpha", Provider: "google", Description: "desc", Model: "model", AutoDiscover: boolPtrStore(true)},
+		{
+			Name:         "alpha",
+			Provider:     "google",
+			Description:  "desc",
+			Model:        "model",
+			AutoDiscover: boolPtrStore(true),
+			Harness: &persistence.SpecialistHarness{
+				Enabled:           true,
+				Mode:              "workflow",
+				MaxRetriesPerStep: 6,
+				TerminalTools:     []string{"agent_response"},
+				RequiredSteps:     []string{"search"},
+				ToolPrerequisites: map[string][]persistence.SpecialistHarnessPrerequisite{
+					"fetch": {{Tool: "search", MatchArg: "query"}},
+				},
+				Compact: persistence.SpecialistHarnessCompact{Enabled: true, KeepRecentSteps: 5, PhaseThresholds: []float64{0.5, 0.8}},
+			},
+		},
 	}
 
 	out := ConfigsFromStore(list)
@@ -61,6 +78,13 @@ func TestConfigsFromStore(t *testing.T) {
 	require.Equal(t, "model", out[0].Model)
 	require.NotNil(t, out[0].AutoDiscover)
 	require.True(t, *out[0].AutoDiscover)
+	require.NotNil(t, out[0].Harness)
+	require.True(t, out[0].Harness.Enabled)
+	require.Equal(t, "workflow", out[0].Harness.Mode)
+	require.Equal(t, 6, out[0].Harness.MaxRetriesPerStep)
+	require.Equal(t, []string{"search"}, out[0].Harness.RequiredSteps)
+	require.Equal(t, "query", out[0].Harness.ToolPrerequisites["fetch"][0].MatchArg)
+	require.Equal(t, []float64{0.5, 0.8}, out[0].Harness.Compact.PhaseThresholds)
 }
 
 func TestSeedStore(t *testing.T) {
@@ -71,7 +95,16 @@ func TestSeedStore(t *testing.T) {
 	}
 	defaults := []config.SpecialistConfig{
 		{Name: "alpha", Provider: "openai"},
-		{Name: "beta", Provider: "anthropic", Description: "seeded"},
+		{
+			Name:        "beta",
+			Provider:    "anthropic",
+			Description: "seeded",
+			Harness: &config.HarnessConfig{
+				Enabled:       true,
+				Mode:          "guarded_chat",
+				TerminalTools: []string{"agent_response"},
+			},
+		},
 		{Name: "  "},
 	}
 
@@ -82,6 +115,8 @@ func TestSeedStore(t *testing.T) {
 	require.Equal(t, "beta", store.upserts[0].Name)
 	require.Equal(t, "anthropic", store.upserts[0].Provider)
 	require.Equal(t, "seeded", store.upserts[0].Description)
+	require.NotNil(t, store.upserts[0].Harness)
+	require.Equal(t, "guarded_chat", store.upserts[0].Harness.Mode)
 }
 
 func TestSeedStore_ListError(t *testing.T) {

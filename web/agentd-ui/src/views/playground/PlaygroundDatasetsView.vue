@@ -16,7 +16,7 @@
       <header class="mb-4">
         <h2 class="text-lg font-semibold">Upload Dataset</h2>
         <p class="text-sm text-subtle-foreground">
-          Provide metadata and JSON rows for quick experiments.
+          Provide metadata and rows for quick experiments.
         </p>
       </header>
       <div class="flex-1 overflow-auto overscroll-contain pr-1">
@@ -47,7 +47,23 @@
             ></textarea>
           </label>
           <label class="col-span-2 text-sm">
-            <span class="text-subtle-foreground mb-1">Rows (JSON array)</span>
+            <span class="text-subtle-foreground mb-1">Import file</span>
+            <input
+              type="file"
+              accept=".json,.jsonl,.ndjson,.csv,application/json,text/csv"
+              class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              @change="handleFileImport"
+            />
+            <span class="mt-1 block text-xs text-subtle-foreground">
+              Upload JSON, JSONL, or CSV. CSV headers named id, inputs,
+              expected, meta, and split are reserved; all other columns become
+              inputs.
+            </span>
+          </label>
+          <label class="col-span-2 text-sm">
+            <span class="text-subtle-foreground mb-1"
+              >Rows (normalized JSON)</span
+            >
             <textarea
               v-model="form.rows"
               rows="6"
@@ -81,9 +97,7 @@
         v-if="!selectedDatasetId"
         class="flex h-full min-h-0 flex-1 flex-col overflow-hidden"
       >
-        <header
-          class="mb-4 flex items-center justify-between gap-2"
-        >
+        <header class="mb-4 flex items-center justify-between gap-2">
           <div>
             <h2 class="text-lg font-semibold">Datasets</h2>
             <p class="text-sm text-subtle-foreground">
@@ -173,7 +187,7 @@
       >
         <!-- Sticky header row -->
         <header
-          class="ap-hairline-b sticky top-0 z-10 grid grid-cols-[1fr_auto] items-start gap-3 pb-3"
+          class="halo-hairline-b sticky top-0 z-10 grid grid-cols-[1fr_auto] items-start gap-3 pb-3"
         >
           <div class="flex items-start gap-3">
             <button
@@ -231,7 +245,7 @@
             <!-- Properties card (left) -->
             <div class="col-span-4 flex min-h-0 flex-col">
               <div
-                class="flex h-full min-h-0 flex-col rounded-xl border border-border/60 bg-surface-muted/30"
+                class="flex h-full min-h-0 flex-col rounded-md border border-border/60 bg-surface-muted/30"
               >
                 <div
                   class="border-b border-border/60 px-4 py-3 text-sm font-medium"
@@ -269,7 +283,7 @@
                 </div>
                 <!-- Sticky save bar for symmetry -->
                 <div
-                  class="sticky bottom-0 flex items-center gap-3 border-t border-border/60 bg-surface/90 p-3 backdrop-blur"
+                  class="sticky bottom-0 flex items-center gap-3 border-t border-border/60 bg-surface p-3 "
                 >
                   <button
                     type="button"
@@ -296,7 +310,7 @@
             <!-- Rows card (right) -->
             <div class="col-span-8 flex min-h-0 flex-col">
               <div
-                class="flex h-full min-h-0 flex-col rounded-xl border border-border/60 bg-surface-muted/30"
+                class="flex h-full min-h-0 flex-col rounded-md border border-border/60 bg-surface-muted/30"
               >
                 <!-- Toolbar -->
                 <div
@@ -434,6 +448,10 @@
 import { computed, onMounted, reactive, ref, watch } from "vue";
 import type { Dataset, DatasetRow } from "@/api/playground";
 import { usePlaygroundStore } from "@/stores/playground";
+import {
+  formatRowsForEditor,
+  parseDatasetRows,
+} from "@/lib/playgroundDatasetImport";
 
 const store = usePlaygroundStore();
 const form = reactive({ name: "", description: "", tags: "", rows: "" });
@@ -455,7 +473,10 @@ const rowPreviewLimit = 50;
 const baseRows = computed(() => selectedDataset.value?.rows ?? []);
 const jsonEditorState = computed(() => {
   try {
-    return { rows: prepareRows(editRowsJson.value), error: "" as string };
+    return {
+      rows: parseDatasetRows(editRowsJson.value, { format: "json" }),
+      error: "" as string,
+    };
   } catch (err) {
     if (!editRowsJson.value.trim()) {
       return { rows: [] as DatasetRow[], error: "" as string };
@@ -573,7 +594,7 @@ async function deleteDataset(id: string) {
 async function handleCreate() {
   createError.value = "";
   try {
-    const normalized = prepareRows(form.rows);
+    const normalized = parseDatasetRows(form.rows, { format: "json" });
     const tags = parseTags(form.tags);
     await store.addDataset(
       { name: form.name, description: form.description, tags },
@@ -590,6 +611,43 @@ async function handleCreate() {
   }
 }
 
+async function handleFileImport(event: Event) {
+  createError.value = "";
+  createStatus.value = "";
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) {
+    return;
+  }
+  try {
+    const text = await readFileText(file);
+    const rows = parseDatasetRows(text, { filename: file.name });
+    if (rows.length === 0) {
+      throw new Error("Dataset file contains no rows.");
+    }
+    form.rows = formatRowsForEditor(rows);
+    createStatus.value = `Imported ${rows.length} row${rows.length === 1 ? "" : "s"} from ${file.name}.`;
+  } catch (err) {
+    createError.value = extractErr(err, "Failed to import dataset file.");
+  } finally {
+    input.value = "";
+  }
+}
+
+function readFileText(file: File): Promise<string> {
+  if (typeof file.text === "function") {
+    return file.text();
+  }
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () =>
+      reject(reader.error ?? new Error("Failed to read file."));
+    reader.onload = () =>
+      resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.readAsText(file);
+  });
+}
+
 async function handleUpdate() {
   if (!selectedDatasetId.value) {
     return;
@@ -597,7 +655,7 @@ async function handleUpdate() {
   detailError.value = "";
   detailStatus.value = "";
   try {
-    const normalized = prepareRows(editRowsJson.value);
+    const normalized = parseDatasetRows(editRowsJson.value, { format: "json" });
     const tags = parseTags(editForm.tags);
     const dataset = await store.saveDataset(
       selectedDatasetId.value,
@@ -639,60 +697,11 @@ function resetEditForm() {
   editRowsJson.value = "";
 }
 
-function prepareRows(input: string): DatasetRow[] {
-  const trimmed = input.trim();
-  if (!trimmed) {
-    return [];
-  }
-  let parsed: any;
-  try {
-    parsed = JSON.parse(trimmed);
-  } catch (err) {
-    throw new Error("Rows must be valid JSON");
-  }
-  if (!Array.isArray(parsed)) {
-    throw new Error("Rows must be an array");
-  }
-  return parsed.map((row: any, idx: number) => normalizeRow(row, idx));
-}
-
-function normalizeRow(row: any, idx: number): DatasetRow {
-  const id =
-    typeof row?.id === "string" && row.id.trim().length > 0
-      ? row.id
-      : `row-${idx + 1}`;
-  const inputs =
-    row && typeof row === "object" && !Array.isArray(row) && row.inputs
-      ? row.inputs
-      : row;
-  return {
-    id,
-    inputs,
-    expected: row?.expected,
-    meta: row?.meta,
-    split:
-      typeof row?.split === "string" && row.split.trim().length > 0
-        ? row.split
-        : "train",
-  };
-}
-
 function parseTags(value: string): string[] {
   return value
     .split(",")
     .map((t) => t.trim())
     .filter(Boolean);
-}
-
-function formatRowsForEditor(rows: DatasetRow[]): string {
-  if (!rows.length) {
-    return "[]";
-  }
-  try {
-    return JSON.stringify(rows, null, 2);
-  } catch (err) {
-    return "[]";
-  }
 }
 
 function formatForPreview(value: unknown): string {

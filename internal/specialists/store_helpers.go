@@ -38,6 +38,7 @@ func ConfigsFromStore(list []persistence.Specialist) []config.SpecialistConfig {
 			System:                     s.System,
 			ExtraHeaders:               s.ExtraHeaders,
 			ExtraParams:                s.ExtraParams,
+			Harness:                    harnessConfigFromStore(s.Harness),
 		})
 	}
 	return out
@@ -54,17 +55,27 @@ func ConfigsOrDefaults(defaults []config.SpecialistConfig, list []persistence.Sp
 
 // NewRegistryFromStore builds a registry from persisted specialists when the
 // store query succeeds, or from the provided defaults otherwise.
-func NewRegistryFromStore(base config.LLMClientConfig, defaults []config.SpecialistConfig, list []persistence.Specialist, err error, httpClient *http.Client, toolsReg tools.Registry, workdir string) *Registry {
-	return NewRegistryWithWorkdir(base, ConfigsOrDefaults(defaults, list, err), httpClient, toolsReg, workdir)
+type StoreRegistryRequest struct {
+	Base       config.LLMClientConfig
+	Defaults   []config.SpecialistConfig
+	List       []persistence.Specialist
+	Err        error
+	HTTPClient *http.Client
+	Tools      tools.Registry
+	Workdir    string
+}
+
+func NewRegistryFromStore(req StoreRegistryRequest) *Registry {
+	return NewRegistryWithWorkdir(req.Base, ConfigsOrDefaults(req.Defaults, req.List, req.Err), req.HTTPClient, req.Tools, req.Workdir)
 }
 
 // ReplaceFromStore refreshes an existing registry from persisted specialists
 // when available, or from defaults otherwise.
-func ReplaceFromStore(reg *Registry, base config.LLMClientConfig, defaults []config.SpecialistConfig, list []persistence.Specialist, err error, httpClient *http.Client, toolsReg tools.Registry) {
+func ReplaceFromStore(reg *Registry, req StoreRegistryRequest) {
 	if reg == nil {
 		return
 	}
-	reg.ReplaceFromConfigs(base, ConfigsOrDefaults(defaults, list, err), httpClient, toolsReg)
+	reg.ReplaceFromConfigs(req.Base, ConfigsOrDefaults(req.Defaults, req.List, req.Err), req.HTTPClient, req.Tools)
 }
 
 // SeedStore persists default specialists that are missing from the store.
@@ -109,6 +120,7 @@ func SeedStore(ctx context.Context, store persistence.SpecialistsStore, userID i
 			System:                     sc.System,
 			ExtraHeaders:               sc.ExtraHeaders,
 			ExtraParams:                sc.ExtraParams,
+			Harness:                    harnessConfigToStore(sc.Harness),
 		})
 		if err != nil {
 			return err
@@ -120,4 +132,70 @@ func SeedStore(ctx context.Context, store persistence.SpecialistsStore, userID i
 
 func isOrchestrator(name string) bool {
 	return strings.EqualFold(strings.TrimSpace(name), OrchestratorName)
+}
+
+func harnessConfigFromStore(in *persistence.SpecialistHarness) *config.HarnessConfig {
+	if in == nil {
+		return nil
+	}
+	out := &config.HarnessConfig{
+		Enabled:           in.Enabled,
+		Mode:              in.Mode,
+		RescueEnabled:     in.RescueEnabled,
+		MaxRetriesPerStep: in.MaxRetriesPerStep,
+		MaxToolErrors:     in.MaxToolErrors,
+		TerminalTools:     append([]string(nil), in.TerminalTools...),
+		RequiredSteps:     append([]string(nil), in.RequiredSteps...),
+		ToolPrerequisites: make(map[string][]config.HarnessPrerequisite, len(in.ToolPrerequisites)),
+		Compact: config.HarnessCompactConfig{
+			Enabled:         in.Compact.Enabled,
+			KeepRecentSteps: in.Compact.KeepRecentSteps,
+			PhaseThresholds: append([]float64(nil), in.Compact.PhaseThresholds...),
+		},
+	}
+	for tool, prereqs := range in.ToolPrerequisites {
+		for _, prereq := range prereqs {
+			out.ToolPrerequisites[tool] = append(out.ToolPrerequisites[tool], config.HarnessPrerequisite{
+				Tool:     prereq.Tool,
+				MatchArg: prereq.MatchArg,
+			})
+		}
+	}
+	if len(out.ToolPrerequisites) == 0 {
+		out.ToolPrerequisites = nil
+	}
+	return out
+}
+
+func harnessConfigToStore(in *config.HarnessConfig) *persistence.SpecialistHarness {
+	if in == nil {
+		return nil
+	}
+	out := &persistence.SpecialistHarness{
+		Enabled:           in.Enabled,
+		Mode:              in.Mode,
+		RescueEnabled:     in.RescueEnabled,
+		MaxRetriesPerStep: in.MaxRetriesPerStep,
+		MaxToolErrors:     in.MaxToolErrors,
+		TerminalTools:     append([]string(nil), in.TerminalTools...),
+		RequiredSteps:     append([]string(nil), in.RequiredSteps...),
+		ToolPrerequisites: make(map[string][]persistence.SpecialistHarnessPrerequisite, len(in.ToolPrerequisites)),
+		Compact: persistence.SpecialistHarnessCompact{
+			Enabled:         in.Compact.Enabled,
+			KeepRecentSteps: in.Compact.KeepRecentSteps,
+			PhaseThresholds: append([]float64(nil), in.Compact.PhaseThresholds...),
+		},
+	}
+	for tool, prereqs := range in.ToolPrerequisites {
+		for _, prereq := range prereqs {
+			out.ToolPrerequisites[tool] = append(out.ToolPrerequisites[tool], persistence.SpecialistHarnessPrerequisite{
+				Tool:     prereq.Tool,
+				MatchArg: prereq.MatchArg,
+			})
+		}
+	}
+	if len(out.ToolPrerequisites) == 0 {
+		out.ToolPrerequisites = nil
+	}
+	return out
 }

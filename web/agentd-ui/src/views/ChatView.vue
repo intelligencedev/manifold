@@ -87,7 +87,7 @@
               </template>
               <template v-else-if="renamingSessionId === session.id">
                 <input
-                  ref="renameInput"
+                  :ref="setRenameInput"
                   v-model="renamingName"
                   type="text"
                   class="w-full rounded bg-surface px-2 py-1 text-xs text-foreground outline-none focus:ring-0 focus:border-accent focus-visible:shadow-outline"
@@ -211,10 +211,10 @@
                 </svg>
               </button>
             </span>
-            <div class="flex items-center gap-2 -mt-1.5">
-              <div class="flex flex-col items-start gap-1">
+            <div class="flex items-center gap-3" aria-label="Conversation settings">
+              <div class="flex items-center gap-1.5">
                 <span
-                  class="ml-1 text-[10px] font-medium leading-none text-faint-foreground"
+                  class="text-[11px] font-medium text-subtle-foreground"
                 >
                   Project
                 </span>
@@ -224,8 +224,68 @@
                   size="xs"
                   title="Project for this conversation"
                   aria-label="Project"
-                  class="min-w-[180px]"
+                  class="min-w-[160px]"
                 />
+              </div>
+              <span class="h-4 w-px bg-border/60" aria-hidden="true"></span>
+              <div
+                class="flex items-center gap-3"
+                aria-label="Memory controls"
+              >
+                <label
+                  class="inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium leading-none text-subtle-foreground"
+                  title="Enable evolving memory and ReMem for this conversation"
+                >
+                  <input
+                    type="checkbox"
+                    class="sr-only"
+                    :checked="evolvingMemoryEnabled"
+                    :disabled="!activeSessionId || isStreaming || activeMemorySettingsSaving"
+                    aria-label="Evolving memory"
+                    @change="setSessionMemorySetting('evolving', $event)"
+                  />
+                  <span
+                    class="relative h-4 w-7 rounded-full border transition-colors"
+                    :class="
+                      evolvingMemoryEnabled
+                        ? 'border-accent bg-accent'
+                        : 'border-border bg-surface'
+                    "
+                  >
+                    <span
+                      class="absolute top-0.5 h-2.5 w-2.5 rounded-full bg-background shadow-1 transition-transform"
+                      :class="evolvingMemoryEnabled ? 'translate-x-3.5' : 'translate-x-0.5'"
+                    ></span>
+                  </span>
+                  <span>Memory</span>
+                </label>
+                <label
+                  class="inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium leading-none text-subtle-foreground"
+                  title="Enable belief memory for this conversation"
+                >
+                  <input
+                    type="checkbox"
+                    class="sr-only"
+                    :checked="beliefMemoryEnabled"
+                    :disabled="!activeSessionId || isStreaming || activeMemorySettingsSaving"
+                    aria-label="Belief memory"
+                    @change="setSessionMemorySetting('belief', $event)"
+                  />
+                  <span
+                    class="relative h-4 w-7 rounded-full border transition-colors"
+                    :class="
+                      beliefMemoryEnabled
+                        ? 'border-accent bg-accent'
+                        : 'border-border bg-surface'
+                    "
+                  >
+                    <span
+                      class="absolute top-0.5 h-2.5 w-2.5 rounded-full bg-background shadow-1 transition-transform"
+                      :class="beliefMemoryEnabled ? 'translate-x-3.5' : 'translate-x-0.5'"
+                    ></span>
+                  </span>
+                  <span>Beliefs</span>
+                </label>
               </div>
               <!-- Render mode dropdown retained for future use.
               <div class="flex flex-col items-start gap-1">
@@ -249,13 +309,13 @@
 
         <div
           ref="messagesPane"
-          class="flex-1 min-h-0 space-y-5 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-4 pb-3"
+          class="flex-1 min-h-0 space-y-5 overflow-y-auto overflow-x-hidden overscroll-contain px-8 py-4 pb-3 xl:px-12"
           @scroll="handleMessagesScroll"
           @click="handleMarkdownClick"
         >
           <div
             v-if="!chatMessages.length"
-            class="ap-card flex h-full flex-col items-center justify-center gap-2 rounded-5 border border-dashed border-border bg-surface p-8 text-center text-sm text-subtle-foreground"
+            class="flex h-full flex-col items-center justify-center gap-2 p-8 text-center text-sm text-muted-foreground"
           >
             <p class="text-xl font-medium text-foreground">
               Hello {{ displayUsername }}. Ready to dive in?
@@ -265,34 +325,37 @@
           <div
             v-for="message in chatMessages"
             :key="message.id"
-            class="group/msg relative flex w-full flex-col"
-            :class="message.role === 'user' ? 'items-end' : 'items-center'"
+            class="group/msg relative w-full"
           >
             <article
-              class="relative w-full max-w-[72ch] rounded-[var(--radius,18px)] p-5"
-              :class="message.role === 'user' ? 'glass-surface border border-white/12' : ''"
+              :class="[
+                'relative min-w-0',
+                message.role === 'user'
+                  ? 'ml-auto max-w-[62%] rounded-lg border border-border/70 bg-surface-muted/50 px-4 py-3'
+                  : 'py-1 pr-6',
+              ]"
             >
               <header class="flex flex-wrap items-center gap-2">
                 <template v-if="message.role === 'assistant'">
                   <span
-                    class="rounded-full bg-accent/10 px-2 py-1 text-xs font-semibold text-accent"
+                    class="rounded-[5px] border border-[rgb(124_134_255_/_0.3)] bg-[rgb(124_134_255_/_0.08)] px-2 py-[3px] font-mono text-[11px] text-[rgb(var(--accent-hi))]"
                   >
                     {{ agentNameFor(message) }}
                   </span>
                 </template>
                 <span
                   v-else
-                  class="rounded-full bg-surface-muted px-2 py-1 text-xs font-semibold text-muted-foreground"
+                  class="rounded-[5px] border border-[rgb(var(--line-strong))] bg-surface-muted px-2 py-[3px] font-mono text-[11px] text-muted-foreground"
                 >
                   {{ labelForRole(message.role) }}
                 </span>
                 <span
                   v-if="shouldShowResponseTimer(message)"
-                  class="inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[11px] font-semibold tabular-nums"
+                  class="inline-flex items-center gap-1 rounded-[5px] border px-2 py-[3px] font-mono text-[11px] tabular-nums"
                   :class="
                     message.streaming
-                      ? 'border-accent/30 bg-accent/10 text-accent'
-                      : 'border-border/60 bg-surface-muted/40 text-faint-foreground'
+                      ? 'border-[rgb(124_134_255_/_0.3)] bg-[rgb(124_134_255_/_0.08)] text-[rgb(var(--accent-hi))]'
+                      : 'border-border bg-surface-muted text-faint-foreground'
                   "
                   :title="
                     message.streaming
@@ -304,10 +367,10 @@
                 </span>
                 <span
                   v-if="message.streaming"
-                  class="flex items-center gap-1 text-xs text-accent"
+                  class="flex items-center gap-1 font-mono text-[11px] uppercase tracking-[0.08em] text-[rgb(var(--accent-hi))]"
                 >
                   <span
-                    class="h-1.5 w-1.5 animate-pulse rounded-full bg-accent"
+                    class="halo-pulse h-1.5 w-1.5 rounded-full bg-accent"
                   ></span>
                   Streaming
                 </span>
@@ -324,12 +387,12 @@
               >
                 <!-- Parallel specialist activity (sub-agents invoked concurrently) -->
                 <div
-                  v-if="message.id === lastAssistantId && visibleParticipantActivityItems.length > 0"
+                  v-if="visibleParticipantActivityItemsForMessage(message.id).length > 0"
                   class="parallel-activity-grid"
-                  :class="visibleParticipantActivityItems.length <= 2 ? 'parallel-activity-grid--row' : 'parallel-activity-grid--col'"
+                  :class="visibleParticipantActivityItemsForMessage(message.id).length <= 2 ? 'parallel-activity-grid--row' : 'parallel-activity-grid--col'"
                 >
                   <div
-                    v-for="thread in visibleParticipantActivityItems"
+                    v-for="thread in visibleParticipantActivityItemsForMessage(message.id)"
                     :key="thread.id"
                     class="parallel-activity-card"
                   >
@@ -479,6 +542,112 @@
                 <p v-if="message.title" class="font-semibold text-foreground">
                   {{ message.title }}
                 </p>
+                <div
+                  v-if="message.inputRequests?.length"
+                  class="input-request-list"
+                >
+                  <form
+                    v-for="request in message.inputRequests"
+                    :key="request.id"
+                    class="input-request-card"
+                    :class="inputRequestCardClasses(request)"
+                    @submit.prevent="submitInputRequest(message, request)"
+                  >
+                    <div class="input-request-header">
+                      <div class="min-w-0">
+                        <p class="input-request-kicker">
+                          {{ inputRequestStatusLabel(request) }}
+                        </p>
+                        <p class="input-request-agent">
+                          {{ request.agent || agentNameFor(message) }}
+                        </p>
+                      </div>
+                      <span
+                        v-if="request.status === 'pending'"
+                        class="input-request-live-dot"
+                      ></span>
+                    </div>
+                    <p class="input-request-question">
+                      {{ request.question }}
+                    </p>
+                    <p v-if="request.reason" class="input-request-reason">
+                      {{ request.reason }}
+                    </p>
+
+                    <div
+                      v-if="request.choices.length && isInputRequestRespondable(request)"
+                      class="input-request-choices"
+                    >
+                      <label
+                        v-for="choice in request.choices"
+                        :key="choice.id"
+                        class="input-request-choice"
+                      >
+                        <input
+                          :type="request.multiple ? 'checkbox' : 'radio'"
+                          :name="inputRequestFieldName(message, request)"
+                          :checked="inputRequestChoiceSelected(message, request, choice.id)"
+                          :disabled="isInputRequestSubmitting(message, request)"
+                          @change="toggleInputRequestChoice(message, request, choice.id)"
+                        />
+                        <span class="min-w-0">
+                          <span class="input-request-choice-label">
+                            {{ choice.label }}
+                          </span>
+                          <span
+                            v-if="choice.description"
+                            class="input-request-choice-description"
+                          >
+                            {{ choice.description }}
+                          </span>
+                        </span>
+                      </label>
+                    </div>
+
+                    <textarea
+                      v-if="request.allowFreeText && isInputRequestRespondable(request)"
+                      v-model="inputRequestDrafts[inputRequestKey(message, request)]"
+                      class="input-request-textarea"
+                      rows="3"
+                      placeholder="Type your response..."
+                      :disabled="isInputRequestSubmitting(message, request)"
+                    ></textarea>
+
+                    <p
+                      v-if="inputRequestLocalError(message, request) || request.error"
+                      class="input-request-error"
+                    >
+                      {{ inputRequestLocalError(message, request) || request.error }}
+                    </p>
+
+                    <div
+                      v-if="request.status === 'answered'"
+                      class="input-request-answer"
+                    >
+                      <span class="input-request-answer-label">Answered</span>
+                      <span class="input-request-answer-text">
+                        {{ inputRequestAnswerSummary(request) }}
+                      </span>
+                    </div>
+
+                    <div
+                      v-if="isInputRequestRespondable(request)"
+                      class="input-request-actions"
+                    >
+                      <button
+                        type="submit"
+                        class="input-request-submit"
+                        :disabled="!canSubmitInputRequest(message, request)"
+                      >
+                        {{
+                          isInputRequestSubmitting(message, request)
+                            ? "Submitting..."
+                            : "Continue"
+                        }}
+                      </button>
+                    </div>
+                  </form>
+                </div>
                 <pre
                   v-if="message.toolArgs"
                   class="whitespace-pre-wrap rounded-4 border border-border bg-surface-muted/60 p-3 text-xs text-subtle-foreground"
@@ -533,6 +702,7 @@
             <!-- Action toolbar: outside article, visible only on hover -->
             <div
               class="flex items-center gap-1 text-xs text-subtle-foreground mt-1 opacity-0 group-hover/msg:opacity-100 transition-opacity duration-150"
+              :class="message.role === 'user' ? 'justify-end pr-1' : ''"
             >
               <button
                 v-if="message.role === 'assistant'"
@@ -593,7 +763,7 @@
 
         <button
           type="button"
-          class="absolute bottom-28 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 rounded-full bg-surface px-3 py-2 text-xs font-semibold text-foreground shadow-2 ring-1 ring-border/50 transform transition-all duration-200"
+          class="absolute bottom-28 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 rounded-full bg-surface px-3 py-2 text-xs font-semibold text-foreground ring-1 ring-border/50 transform transition-all duration-200"
           :class="
             showScrollToBottom
               ? 'pointer-events-auto opacity-100 translate-y-0'
@@ -605,7 +775,7 @@
           <span>Scroll to latest</span>
         </button>
 
-        <footer class="ap-hairline-b px-4 pt-2 pb-4">
+        <footer class="px-4 pb-4 pt-2">
           <form
             class="space-y-3"
             @submit.prevent="sendCurrentPrompt"
@@ -620,11 +790,11 @@
               contact an administrator.
             </p>
             <div
-              class="ap-input chat-prompt-input relative rounded-4 bg-surface-muted/70 p-3 etched-dark"
+              class="halo-surface chat-prompt-input relative p-3"
             >
               <div
                 v-if="mentionMenuOpen"
-                class="absolute bottom-full left-3 mb-2 w-72 overflow-hidden rounded-4 border border-border bg-surface shadow-3 ring-1 ring-border/50 z-20"
+                class="absolute bottom-full left-3 mb-2 w-72 overflow-hidden rounded-4 border border-border bg-surface ring-1 ring-border/50 z-20"
               >
                 <div class="max-h-60 overflow-y-auto py-1">
                   <button
@@ -663,11 +833,13 @@
                   rows="1"
                   class="flex-1 min-w-0 resize-none bg-transparent py-1.5 text-sm leading-6 text-foreground outline-none placeholder:text-faint-foreground"
                   :placeholder="
-                    projectSelected
+                    hasPendingInputRequest
+                      ? 'Answer the request above to continue.'
+                      : projectSelected
                       ? 'Message the agent...'
                       : 'Select a project to enable the chat.'
                   "
-                  :disabled="!projectSelected"
+                  :disabled="!projectSelected || hasPendingInputRequest"
                   @keydown="handleComposerKeydown"
                   @input="handleComposerInput"
                   @keyup="handleComposerKeyup"
@@ -692,13 +864,13 @@
                     class="inline-flex h-8 w-8 items-center justify-center rounded-3 focus-visible:shadow-outline"
                     title="Attach files"
                     aria-label="Attach files"
-                    :disabled="!projectSelected"
+                    :disabled="!projectSelected || hasPendingInputRequest"
                     :class="
-                      !projectSelected
+                      !projectSelected || hasPendingInputRequest
                         ? 'opacity-50 cursor-not-allowed text-foreground/40'
                         : 'text-foreground/80 hover:text-accent'
                     "
-                    @click="projectSelected ? fileInput?.click() : undefined"
+                    @click="projectSelected && !hasPendingInputRequest ? fileInput?.click() : undefined"
                   >
                     <SolarPaperclip2Bold class="h-5 w-5" />
                   </button>
@@ -711,11 +883,14 @@
                       isRecording
                         ? 'text-danger hover:text-danger/90'
                         : 'text-foreground/80 hover:text-accent',
-                      isStreaming || !canUseMic || !projectSelected
+                      isStreaming ||
+                      !canUseMic ||
+                      !projectSelected ||
+                      hasPendingInputRequest
                         ? 'opacity-50 cursor-not-allowed'
                         : '',
                     ]"
-                    :disabled="isStreaming || !canUseMic || !projectSelected"
+                    :disabled="isStreaming || !canUseMic || !projectSelected || hasPendingInputRequest"
                     :title="
                       isRecording ? 'Stop recording' : 'Record voice prompt'
                     "
@@ -735,11 +910,11 @@
                       imagePrompt
                         ? 'bg-accent/20 text-accent hover:bg-accent/30'
                         : 'text-foreground/80 hover:text-accent',
-                      isStreaming || !projectSelected
+                      isStreaming || !projectSelected || hasPendingInputRequest
                         ? 'opacity-50 cursor-not-allowed'
                         : '',
                     ]"
-                    :disabled="isStreaming || !projectSelected"
+                    :disabled="isStreaming || !projectSelected || hasPendingInputRequest"
                     title="Generate image response"
                     aria-label="Generate image response"
                     @click="imagePrompt = !imagePrompt"
@@ -757,21 +932,21 @@
                         : 'bg-accent text-accent-foreground hover:bg-accent/90',
                     ]"
                     :title="
-                      isStreaming && (draft.trim() || pendingAttachments.length)
+                      isStreaming && !hasPendingInputRequest && (draft.trim() || pendingAttachments.length)
                         ? 'Send message'
                         : isStreaming
                           ? 'Stop generating'
                           : 'Send message'
                     "
                     :aria-label="
-                      isStreaming && (draft.trim() || pendingAttachments.length)
+                      isStreaming && !hasPendingInputRequest && (draft.trim() || pendingAttachments.length)
                         ? 'Send message'
                         : isStreaming
                           ? 'Stop generating'
                           : 'Send message'
                     "
                     @click="
-                      isStreaming && (draft.trim() || pendingAttachments.length)
+                      isStreaming && !hasPendingInputRequest && (draft.trim() || pendingAttachments.length)
                         ? sendCurrentPrompt()
                         : isStreaming
                           ? stopStreaming()
@@ -841,7 +1016,7 @@
         @click.self="closeImageModal"
       >
         <div
-          class="relative max-h-[90vh] max-w-[90vw] rounded-5 bg-surface p-4 shadow-3 ring-1 ring-border/60"
+          class="relative max-h-[90vh] max-w-[90vw] rounded-5 bg-surface p-4 ring-1 ring-border/60"
         >
           <button
             type="button"
@@ -874,7 +1049,7 @@
         @keydown.esc.prevent="closeDeleteSessionDialog"
       >
         <div
-          class="w-full max-w-md rounded-5 bg-surface p-5 shadow-3 ring-1 ring-border/60"
+          class="w-full max-w-md rounded-5 bg-surface p-5 ring-1 ring-border/60"
         >
           <h2
             id="delete-session-title"
@@ -929,7 +1104,7 @@
         @click.self="closeBulkDeleteDialog"
         @keydown.esc.prevent="closeBulkDeleteDialog"
       >
-        <div class="w-full max-w-md rounded-5 bg-surface p-5 shadow-3 ring-1 ring-border/60">
+        <div class="w-full max-w-md rounded-5 bg-surface p-5 ring-1 ring-border/60">
           <h2 id="bulk-delete-title" class="text-base font-semibold text-danger">
             Delete {{ selectedSessionIds.length }} Conversation{{ selectedSessionIds.length === 1 ? '' : 's' }}
           </h2>
@@ -1023,12 +1198,6 @@
                         </span>
                         <span class="participant-status">
                           {{ participantStatusLabel(participant.name) }}
-                        </span>
-                        <span
-                          v-if="participantActivityItems(participant.name).length"
-                          class="participant-activity-action"
-                        >
-                          View activity
                         </span>
                       </button>
                   </li>
@@ -1175,6 +1344,7 @@ import axios from "axios";
 import type {
   AgentThread,
   ChatAttachment,
+  ChatInputRequest,
   ChatMessage,
   ChatSessionMeta,
   ChatRole,
@@ -1255,19 +1425,60 @@ onMounted(() => {
 });
 const projects = computed(() => proj.projects);
 const selectedProjectBySession = ref<Record<string, string>>({});
+
+function hasSelectedProjectOverride(sessionId: string) {
+  return Object.prototype.hasOwnProperty.call(
+    selectedProjectBySession.value,
+    sessionId,
+  );
+}
+
+function projectIdForSession(sessionId: string) {
+  return (
+    sessions.value.find((session) => session.id === sessionId)?.projectId || ""
+  ).trim();
+}
+
+function setSelectedProjectOverride(sessionId: string, projectId: string | null) {
+  const next = { ...selectedProjectBySession.value };
+  if (projectId === null) delete next[sessionId];
+  else next[sessionId] = projectId;
+  selectedProjectBySession.value = next;
+}
+
 const selectedProjectId = computed({
   get: () => {
     const sessionId = activeSessionId.value;
     if (!sessionId) return "";
-    return selectedProjectBySession.value[sessionId] || "";
+    if (hasSelectedProjectOverride(sessionId)) {
+      return selectedProjectBySession.value[sessionId] || "";
+    }
+    return projectIdForSession(sessionId);
   },
   set: (v: string) => {
     const sessionId = activeSessionId.value;
     if (!sessionId) return;
-    selectedProjectBySession.value = {
-      ...selectedProjectBySession.value,
-      [sessionId]: v,
-    };
+    const projectId = (v || "").trim();
+    const previousProjectId = selectedProjectId.value;
+    if (previousProjectId === projectId) return;
+    setSelectedProjectOverride(sessionId, projectId);
+    void chat
+      .updateSessionProject(sessionId, projectId)
+      .then(() => {
+        if (selectedProjectBySession.value[sessionId] === projectId) {
+          setSelectedProjectOverride(sessionId, null);
+        }
+      })
+      .catch((error) => {
+        if (selectedProjectBySession.value[sessionId] === projectId) {
+          const storedProjectId = projectIdForSession(sessionId);
+          setSelectedProjectOverride(
+            sessionId,
+            previousProjectId === storedProjectId ? null : previousProjectId,
+          );
+        }
+        console.warn("Failed to persist chat session project:", error);
+      });
   },
 });
 const sessions = computed(() => chat.sessions);
@@ -1308,6 +1519,10 @@ const textAttachments = computed(() =>
   pendingAttachments.value.filter((a) => a.kind === "text"),
 );
 const filesByAttachment: Map<string, File> = new Map();
+const inputRequestDrafts = ref<Record<string, string>>({});
+const inputRequestSelections = ref<Record<string, string[]>>({});
+const inputRequestSubmitting = ref<Record<string, boolean>>({});
+const inputRequestErrors = ref<Record<string, string>>({});
 // Render mode for streamed responses: 'markdown' (default) or 'html'
 const renderMode = ref<"markdown" | "html">("markdown");
 // Toggle to request image generation from providers that support it (e.g., Google Gemini)
@@ -1367,11 +1582,23 @@ const teamsByName = computed(() => {
 
 // Transform projects data for dropdown
 const projectOptions = computed<DropdownOption[]>(() => {
-  const projectEntries = projects.value.map((project) => ({
+  const projectEntries: DropdownOption[] = projects.value.map((project) => ({
     id: project.id,
     label: project.name,
     value: project.id,
   }));
+  const lockedProjectID = selectedProjectId.value;
+  if (
+    lockedProjectID &&
+    !projectEntries.some((project) => project.value === lockedProjectID)
+  ) {
+    projectEntries.unshift({
+      id: lockedProjectID,
+      label: `${lockedProjectID} (missing)`,
+      value: lockedProjectID,
+      disabled: true,
+    });
+  }
   if (!projectEntries.length) {
     return [{ id: "", label: "no project available", value: "" }];
   }
@@ -1385,21 +1612,6 @@ const projectOptions = computed<DropdownOption[]>(() => {
     ...projectEntries,
   ];
 });
-
-watch(
-  [activeSessionId, projects],
-  ([sessionId, projectList]) => {
-    if (!sessionId) return;
-    if (selectedProjectBySession.value[sessionId]) return;
-    const fallback = projectList[0]?.id;
-    if (!fallback) return;
-    selectedProjectBySession.value = {
-      ...selectedProjectBySession.value,
-      [sessionId]: fallback,
-    };
-  },
-  { immediate: true },
-);
 
 // Transform render mode options for dropdown
 const renderModeOptions = computed<DropdownOption[]>(() => [
@@ -1581,7 +1793,10 @@ watch([selectedTeam, selectedSpecialist, selectedTeamMembers], () => {
     selectedSpecialist.value = "orchestrator";
   }
 });
-const projectSelected = computed(() => Boolean(selectedProjectId.value));
+const projectSelected = computed(() => {
+  const projectID = selectedProjectId.value;
+  return Boolean(projectID && projects.value.some((p) => p.id === projectID));
+});
 const requiresProjectSelection = computed(() => !projectSelected.value);
 
 function httpStatus(error: unknown): number | null {
@@ -1700,6 +1915,24 @@ const activeMessages = computed(() => chat.activeMessages);
 const chatMessages = computed(() => chat.chatMessages);
 const toolMessages = computed(() => chat.toolMessages);
 const activeThoughtSummaries = computed(() => chat.activeThoughtSummaries);
+const memorySettingsSavingBySession = ref<Record<string, boolean>>({});
+const activeMemorySettingsSaving = computed(() => {
+  const sessionId = activeSessionId.value;
+  return Boolean(sessionId && memorySettingsSavingBySession.value[sessionId]);
+});
+const evolvingMemoryEnabled = computed(
+  () => activeSession.value?.evolvingMemoryEnabled ?? true,
+);
+const beliefMemoryEnabled = computed(
+  () => activeSession.value?.beliefMemoryEnabled ?? true,
+);
+const hasPendingInputRequest = computed(() =>
+  activeMessages.value.some((message) =>
+    (message.inputRequests || []).some((request) =>
+      isInputRequestRespondable(request),
+    ),
+  ),
+);
 const toolActivityMsById = ref<Record<string, number>>({});
 const activeSummaryEvent = computed(() => chat.activeSummaryEvent);
 const sessionAgentDefaults = computed(() =>
@@ -1810,7 +2043,9 @@ function shouldShowResponseTimer(message: ChatMessage) {
 type ActivityStatus = "running" | "done" | "error" | "idle";
 type SpecialistActivityItem = {
   id: string;
+  assistantMessageId?: string;
   name: string;
+  team?: string;
   model: string;
   status: ActivityStatus;
   statusLabel: string;
@@ -1889,10 +2124,16 @@ function activityItemFromThread(thread: AgentThread): SpecialistActivityItem {
   const name = (thread.agent || "Delegated agent").trim() || "Delegated agent";
   const status = thread.status as ActivityStatus;
   const toolEntries = thread.entries.filter((entry) => entry.type === "tool");
+  const team = (thread.team || "").trim() || undefined;
   return {
-    id: thread.callId,
+    assistantMessageId: thread.assistantMessageId,
+    id: [thread.assistantMessageId, thread.callId].filter(Boolean).join(":"),
     name,
-    model: (thread.model || "").trim(),
+    team,
+    model:
+      team && name.toLowerCase() === "orchestrator"
+        ? [team, (thread.model || "").trim()].filter(Boolean).join(" / ")
+        : (thread.model || "").trim(),
     status,
     statusLabel: activityStateLabel(status),
     description: activityDescriptionForThread(thread),
@@ -1946,23 +2187,42 @@ function orchestratorActivityItem(): SpecialistActivityItem {
   };
 }
 
-const runActivityItems = computed<SpecialistActivityItem[]>(() => {
-  const items = agentThreads.value.map(activityItemFromThread);
-  const shouldShowOrchestrator =
-    activeThoughtSummaries.value.length > 0 ||
-    (isStreaming.value && items.length === 0);
-  if (shouldShowOrchestrator) items.unshift(orchestratorActivityItem());
-
+function sortActivityItems(items: SpecialistActivityItem[]) {
   return items.sort((a, b) => {
     if (a.status === "running" && b.status !== "running") return -1;
     if (a.status !== "running" && b.status === "running") return 1;
     return b.updatedAt - a.updatedAt;
   });
-});
+}
+
+function runActivityItemsForMessage(messageId: string) {
+  if (!messageId) return [];
+  const items = agentThreads.value
+    .filter((thread) => thread.assistantMessageId === messageId)
+    .map(activityItemFromThread);
+  const isLastAssistantMessage = messageId === lastAssistantId.value;
+  const shouldShowOrchestrator =
+    isLastAssistantMessage &&
+    (activeThoughtSummaries.value.length > 0 ||
+      (isStreaming.value && items.length === 0));
+  if (shouldShowOrchestrator) items.unshift(orchestratorActivityItem());
+
+  return sortActivityItems(items);
+}
+
+const runActivityItems = computed<SpecialistActivityItem[]>(() =>
+  runActivityItemsForMessage(lastAssistantId.value),
+);
 
 const visibleParticipantActivityItems = computed(() =>
   runActivityItems.value.filter((item) => !item.isOrchestrator),
 );
+
+function visibleParticipantActivityItemsForMessage(messageId: string) {
+  return runActivityItemsForMessage(messageId).filter(
+    (item) => !item.isOrchestrator,
+  );
+}
 
 const runActivityCounts = computed(() => {
   const counts = { running: 0, done: 0, error: 0, idle: 0 };
@@ -2039,6 +2299,159 @@ function shouldShowDirectActivity(message: ChatMessage) {
 
 function shouldShowDirectThought(message: ChatMessage) {
   return Boolean(message.activityThoughtSummary);
+}
+
+function inputRequestKey(message: ChatMessage, request: ChatInputRequest) {
+  return `${message.id}:${request.id}`;
+}
+
+function inputRequestFieldName(message: ChatMessage, request: ChatInputRequest) {
+  return `input-request-${inputRequestKey(message, request)}`;
+}
+
+function isInputRequestRespondable(request: ChatInputRequest) {
+  return request.status === "pending" || request.status === "error";
+}
+
+function inputRequestStatusLabel(request: ChatInputRequest) {
+  switch (request.status) {
+    case "answered":
+      return "Response submitted";
+    case "cancelled":
+      return "Request cancelled";
+    case "error":
+      return "Response required";
+    default:
+      return "Response required";
+  }
+}
+
+function inputRequestCardClasses(request: ChatInputRequest) {
+  return {
+    "input-request-card--answered": request.status === "answered",
+    "input-request-card--cancelled": request.status === "cancelled",
+    "input-request-card--error": request.status === "error",
+  };
+}
+
+function inputRequestSelection(
+  message: ChatMessage,
+  request: ChatInputRequest,
+) {
+  const key = inputRequestKey(message, request);
+  return inputRequestSelections.value[key] || request.choiceIds || [];
+}
+
+function inputRequestChoiceSelected(
+  message: ChatMessage,
+  request: ChatInputRequest,
+  choiceId: string,
+) {
+  return inputRequestSelection(message, request).includes(choiceId);
+}
+
+function toggleInputRequestChoice(
+  message: ChatMessage,
+  request: ChatInputRequest,
+  choiceId: string,
+) {
+  if (!isInputRequestRespondable(request)) return;
+  const key = inputRequestKey(message, request);
+  const current = inputRequestSelection(message, request);
+  let next: string[];
+  if (request.multiple) {
+    next = current.includes(choiceId)
+      ? current.filter((id) => id !== choiceId)
+      : [...current, choiceId];
+  } else {
+    next = [choiceId];
+  }
+  inputRequestSelections.value = {
+    ...inputRequestSelections.value,
+    [key]: next,
+  };
+  inputRequestErrors.value = { ...inputRequestErrors.value, [key]: "" };
+}
+
+function inputRequestDraft(message: ChatMessage, request: ChatInputRequest) {
+  return inputRequestDrafts.value[inputRequestKey(message, request)] || "";
+}
+
+function isInputRequestSubmitting(
+  message: ChatMessage,
+  request: ChatInputRequest,
+) {
+  return Boolean(inputRequestSubmitting.value[inputRequestKey(message, request)]);
+}
+
+function inputRequestLocalError(
+  message: ChatMessage,
+  request: ChatInputRequest,
+) {
+  return inputRequestErrors.value[inputRequestKey(message, request)] || "";
+}
+
+function canSubmitInputRequest(
+  message: ChatMessage,
+  request: ChatInputRequest,
+) {
+  if (!isInputRequestRespondable(request)) return false;
+  if (isInputRequestSubmitting(message, request)) return false;
+  const selected = inputRequestSelection(message, request);
+  const text = inputRequestDraft(message, request).trim();
+  if (request.choices.length && selected.length > 0) return true;
+  if (request.allowFreeText && text) return true;
+  return false;
+}
+
+function inputRequestAnswerSummary(request: ChatInputRequest) {
+  const labels = (request.choiceIds || [])
+    .map((id) => request.choices.find((choice) => choice.id === id)?.label || id)
+    .filter(Boolean);
+  const parts = [...labels];
+  if (request.answer) parts.push(request.answer);
+  return parts.join(", ") || "Response submitted";
+}
+
+async function submitInputRequest(
+  message: ChatMessage,
+  request: ChatInputRequest,
+) {
+  const key = inputRequestKey(message, request);
+  if (!activeSessionId.value || !canSubmitInputRequest(message, request)) {
+    return;
+  }
+  inputRequestSubmitting.value = {
+    ...inputRequestSubmitting.value,
+    [key]: true,
+  };
+  inputRequestErrors.value = { ...inputRequestErrors.value, [key]: "" };
+  try {
+    await chat.submitInputRequest(
+      activeSessionId.value,
+      message.id,
+      request.id,
+      inputRequestDraft(message, request),
+      inputRequestSelection(message, request),
+    );
+    const drafts = { ...inputRequestDrafts.value };
+    const selections = { ...inputRequestSelections.value };
+    delete drafts[key];
+    delete selections[key];
+    inputRequestDrafts.value = drafts;
+    inputRequestSelections.value = selections;
+  } catch (error) {
+    inputRequestErrors.value = {
+      ...inputRequestErrors.value,
+      [key]:
+        error instanceof Error ? error.message : "Failed to submit response",
+    };
+  } finally {
+    inputRequestSubmitting.value = {
+      ...inputRequestSubmitting.value,
+      [key]: false,
+    };
+  }
 }
 
 // --- Collapsible activity panel per message ---
@@ -2350,44 +2763,56 @@ watch(
   { flush: "post" },
 );
 
-watch(sessions, (next) => {
-  const keep = new Set(next.map((s) => s.id));
-  const current = selectedSpecialistBySession.value;
-  let changed = false;
-  const pruned: Record<string, string> = {};
-  for (const [id, value] of Object.entries(current)) {
-    if (keep.has(id)) {
-      pruned[id] = value;
-    } else {
-      changed = true;
+watch(
+  sessions,
+  (next) => {
+    const keep = new Set(next.map((s) => s.id));
+    const current = selectedSpecialistBySession.value;
+    let changed = false;
+    const pruned: Record<string, string> = {};
+    for (const [id, value] of Object.entries(current)) {
+      if (keep.has(id)) {
+        pruned[id] = value;
+      } else {
+        changed = true;
+      }
     }
-  }
-  if (changed) selectedSpecialistBySession.value = pruned;
+    if (changed) selectedSpecialistBySession.value = pruned;
 
-  const teamCurrent = selectedTeamBySession.value;
-  let teamChanged = false;
-  const teamPruned: Record<string, string> = {};
-  for (const [id, value] of Object.entries(teamCurrent)) {
-    if (keep.has(id)) {
-      teamPruned[id] = value;
-    } else {
-      teamChanged = true;
+    const teamCurrent = selectedTeamBySession.value;
+    let teamChanged = false;
+    const teamPruned: Record<string, string> = {};
+    for (const [id, value] of Object.entries(teamCurrent)) {
+      if (keep.has(id)) {
+        teamPruned[id] = value;
+      } else {
+        teamChanged = true;
+      }
     }
-  }
-  if (teamChanged) selectedTeamBySession.value = teamPruned;
+    if (teamChanged) selectedTeamBySession.value = teamPruned;
 
-  const projectCurrent = selectedProjectBySession.value;
-  let projectChanged = false;
-  const projectPruned: Record<string, string> = {};
-  for (const [id, value] of Object.entries(projectCurrent)) {
-    if (keep.has(id)) {
-      projectPruned[id] = value;
-    } else {
-      projectChanged = true;
+    const projectCurrent = selectedProjectBySession.value;
+    let projectChanged = false;
+    const projectPruned: Record<string, string> = {};
+    for (const session of next) {
+      if (!hasSelectedProjectOverride(session.id)) continue;
+      const overrideProjectID = projectCurrent[session.id] || "";
+      if (overrideProjectID === (session.projectId || "").trim()) {
+        projectChanged = true;
+        continue;
+      }
+      projectPruned[session.id] = overrideProjectID;
     }
-  }
-  if (projectChanged) selectedProjectBySession.value = projectPruned;
-});
+    for (const id of Object.keys(projectCurrent)) {
+      if (!keep.has(id)) {
+        projectChanged = true;
+        break;
+      }
+    }
+    if (projectChanged) selectedProjectBySession.value = projectPruned;
+  },
+  { immediate: true },
+);
 
 watch(
   () =>
@@ -2469,8 +2894,10 @@ watch(activeSessionId, (sessionId) => {
 watch(renamingSessionId, (value) => {
   if (!value) return;
   nextTick(() => {
-    renameInput.value?.focus();
-    renameInput.value?.select();
+    const input = renameInput.value;
+    if (!(input instanceof HTMLInputElement)) return;
+    input.focus();
+    input.select();
   });
 });
 
@@ -2710,7 +3137,33 @@ function cancelRename() {
   renamingName.value = "";
 }
 
+async function setSessionMemorySetting(
+  target: "evolving" | "belief",
+  event: Event,
+) {
+  const sessionId = activeSessionId.value;
+  const checked = Boolean((event.target as HTMLInputElement | null)?.checked);
+  if (!sessionId || isStreaming.value) return;
+  memorySettingsSavingBySession.value = {
+    ...memorySettingsSavingBySession.value,
+    [sessionId]: true,
+  };
+  try {
+    await chat.updateSessionMemorySettings(sessionId, {
+      evolvingMemoryEnabled: target === "evolving" ? checked : undefined,
+      beliefMemoryEnabled: target === "belief" ? checked : undefined,
+    });
+  } catch (error) {
+    console.warn("Failed to persist chat memory settings:", error);
+  } finally {
+    const { [sessionId]: _removed, ...rest } =
+      memorySettingsSavingBySession.value;
+    memorySettingsSavingBySession.value = rest;
+  }
+}
+
 async function sendCurrentPrompt() {
+  if (hasPendingInputRequest.value) return;
   await sendPrompt(draft.value);
 }
 
@@ -2722,9 +3175,18 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
   // New prompt: ensure any prior timer intervals are stopped before we start a new stream.
   stopAllResponseTimers();
 
-  autoScrollEnabled.value = true;
-  draft.value = options.echoUser === false ? draft.value : "";
+  const previousDraft = draft.value;
   try {
+    const sessionId = activeSessionId.value;
+    const projectId = selectedProjectId.value.trim();
+    if (sessionId && projectId) {
+      void chat.updateSessionProject(sessionId, projectId).catch((error) => {
+        console.warn("Failed to persist chat session project:", error);
+      });
+    }
+
+    autoScrollEnabled.value = true;
+    draft.value = options.echoUser === false ? draft.value : "";
     const attachmentsToSend = [...pendingAttachments.value];
     const filesByAttachmentSnapshot = new Map(filesByAttachment);
     if (attachmentsToSend.some((att) => att.kind === "image")) {
@@ -2759,7 +3221,9 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
         specialist,
         routingSpecialist,
         teamName,
-        projectId: selectedProjectId.value || undefined,
+        projectId: projectId || undefined,
+        evolvingMemoryEnabled: evolvingMemoryEnabled.value,
+        beliefMemoryEnabled: beliefMemoryEnabled.value,
         image: imagePrompt.value,
         imageSize: "1K",
         agentName,
@@ -2767,7 +3231,10 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
       },
     );
   } catch (error) {
-    // handled in store
+    if (options.echoUser !== false) {
+      draft.value = previousDraft;
+    }
+    console.warn("Failed to send chat prompt:", error);
   } finally {
     pendingAttachments.value = [];
     filesByAttachment.clear();
@@ -2789,11 +3256,18 @@ async function regenerateAssistant(message: ChatMessage) {
       : undefined;
   const teamName = selectedTeam.value || undefined;
   const { agentName, agentModel } = resolveAgentContext();
+  const sessionId = activeSessionId.value;
+  const projectId = selectedProjectId.value.trim();
+  if (sessionId && projectId) {
+    await chat.updateSessionProject(sessionId, projectId);
+  }
   await chat.regenerateAssistant({
     specialist,
     routingSpecialist,
     teamName,
-    projectId: selectedProjectId.value,
+    projectId,
+    evolvingMemoryEnabled: evolvingMemoryEnabled.value,
+    beliefMemoryEnabled: beliefMemoryEnabled.value,
     agentName,
     agentModel,
     messageId: message.id,
@@ -3561,6 +4035,180 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   line-height: 1.5;
 }
 
+.input-request-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.input-request-card {
+  border-radius: 0.5rem;
+  border: 1px solid rgb(var(--color-warning) / 0.55);
+  background: rgb(var(--color-warning) / 0.1);
+  padding: 0.85rem;
+  box-shadow: 0 16px 32px -28px rgb(0 0 0 / 0.75);
+}
+
+.input-request-card--answered {
+  border-color: rgb(var(--color-success) / 0.45);
+  background: rgb(var(--color-success) / 0.09);
+}
+
+.input-request-card--cancelled,
+.input-request-card--error {
+  border-color: rgb(var(--color-danger) / 0.45);
+}
+
+.input-request-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.input-request-kicker {
+  color: rgb(var(--color-warning));
+  font-size: 0.64rem;
+  font-weight: 850;
+  letter-spacing: 0;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.input-request-agent {
+  margin-top: 0.16rem;
+  color: rgb(var(--color-subtle-foreground));
+  font-size: 0.72rem;
+  line-height: 1.25;
+}
+
+.input-request-live-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-top: 0.2rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgb(var(--color-warning));
+  box-shadow: 0 0 0 4px rgb(var(--color-warning) / 0.16);
+  animation: activityPulse 1.2s ease-in-out infinite;
+}
+
+.input-request-question {
+  margin-top: 0.7rem;
+  color: rgb(var(--color-foreground));
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.input-request-reason {
+  margin-top: 0.35rem;
+  color: rgb(var(--color-subtle-foreground));
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.input-request-choices {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.input-request-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgb(var(--color-border) / 0.58);
+  background: rgb(var(--color-surface) / 0.68);
+  padding: 0.55rem 0.65rem;
+  color: rgb(var(--color-foreground));
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.input-request-choice input {
+  margin-top: 0.18rem;
+  accent-color: rgb(var(--color-accent));
+}
+
+.input-request-choice-label {
+  display: block;
+  font-weight: 700;
+}
+
+.input-request-choice-description {
+  display: block;
+  margin-top: 0.12rem;
+  color: rgb(var(--color-subtle-foreground));
+  font-size: 0.72rem;
+}
+
+.input-request-textarea {
+  margin-top: 0.75rem;
+  width: 100%;
+  resize: vertical;
+  border-radius: 0.5rem;
+  border: 1px solid rgb(var(--color-border) / 0.7);
+  background: rgb(var(--color-surface) / 0.78);
+  color: rgb(var(--color-foreground));
+  font-size: 0.82rem;
+  line-height: 1.45;
+  outline: none;
+  padding: 0.65rem;
+}
+
+.input-request-textarea:focus {
+  border-color: rgb(var(--color-accent) / 0.75);
+}
+
+.input-request-error {
+  margin-top: 0.5rem;
+  color: rgb(var(--color-danger));
+  font-size: 0.74rem;
+  font-weight: 650;
+}
+
+.input-request-answer {
+  display: flex;
+  gap: 0.45rem;
+  margin-top: 0.65rem;
+  color: rgb(var(--color-subtle-foreground));
+  font-size: 0.78rem;
+}
+
+.input-request-answer-label {
+  color: rgb(var(--color-success));
+  font-weight: 800;
+}
+
+.input-request-answer-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.input-request-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
+}
+
+.input-request-submit {
+  border-radius: 999px;
+  border: 1px solid rgb(var(--color-accent) / 0.55);
+  background: rgb(var(--color-accent));
+  color: rgb(var(--color-accent-foreground));
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1;
+  padding: 0.58rem 0.9rem;
+}
+
+.input-request-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .activity-detail-empty {
   padding: 0.75rem;
   border: 1px dashed rgb(var(--color-border) / 0.65);
@@ -3734,15 +4382,6 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   text-overflow: ellipsis;
 }
 
-.participant-activity-action {
-  flex: 0 0 auto;
-  color: rgb(var(--color-accent));
-  font-size: 0.66rem;
-  font-weight: 700;
-  line-height: 1.25;
-  white-space: nowrap;
-}
-
 .activity-modal-backdrop {
   position: fixed;
   inset: 0;
@@ -3752,7 +4391,6 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   justify-content: center;
   padding: 1.5rem;
   background: rgb(0 0 0 / 0.62);
-  backdrop-filter: blur(8px);
 }
 
 .activity-modal {
@@ -4014,12 +4652,12 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   font-size: 1.5rem;
 }
 
-.chat-modern .chat-prompt-input.ap-input {
+.chat-modern .chat-prompt-input.halo-surface {
   border: 1px solid rgb(255 255 255 / 0.12);
 }
 
-.chat-modern .chat-prompt-input.ap-input:focus-within,
-.chat-modern .chat-prompt-input.ap-input:focus {
+.chat-modern .chat-prompt-input.halo-surface:focus-within,
+.chat-modern .chat-prompt-input.halo-surface:focus {
   border-color: rgb(255 255 255 / 0.12);
 }
 

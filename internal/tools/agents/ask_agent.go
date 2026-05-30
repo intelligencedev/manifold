@@ -7,11 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	neturl "net/url"
-	"strings"
 	"time"
-
-	"github.com/google/uuid"
 
 	"manifold/internal/llm"
 	"manifold/internal/observability"
@@ -28,6 +24,17 @@ type AskAgentTool struct {
 	// the caller did not specify timeout_ms. Intended to honor
 	// AGENT_RUN_TIMEOUT_SECONDS for non-stream /agent/run.
 	defaultTimeout time.Duration
+}
+
+type askAgentArgs struct {
+	To          string        `json:"to"`
+	Prompt      string        `json:"prompt"`
+	History     []llm.Message `json:"history"`
+	TimeoutMS   int           `json:"timeout_ms"`
+	SessionID   string        `json:"session_id"`
+	ProjectID   string        `json:"project_id"`
+	ObjectiveID string        `json:"objective_id"`
+	RoomID      string        `json:"room_id"`
 }
 
 // NewAskAgentTool constructs an AskAgentTool. If defaultTimeoutSeconds > 0,
@@ -99,17 +106,7 @@ func (t *AskAgentTool) JSONSchema() map[string]any {
 }
 
 func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
-	var args struct {
-		To          string        `json:"to"`
-		Prompt      string        `json:"prompt"`
-		History     []llm.Message `json:"history"`
-		TimeoutMS   int           `json:"timeout_ms"`
-		SessionID   string        `json:"session_id"`
-		ProjectID   string        `json:"project_id"`
-		ObjectiveID string        `json:"objective_id"`
-		RoomID      string        `json:"room_id"`
-	}
-	// Handle empty or nil JSON gracefully
+	var args askAgentArgs
 	if len(raw) == 0 {
 		return map[string]any{"ok": false, "error": "empty arguments: prompt is required"}, nil
 	}
@@ -117,136 +114,67 @@ func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 		return map[string]any{"ok": false, "error": fmt.Sprintf("invalid arguments: %v", err)}, nil
 	}
 
-	// Inherit session_id from context if not explicitly provided by the LLM.
-	// This allows delegated agents to share the same conversation context.
-	sessionID := strings.TrimSpace(args.SessionID)
-	fromContext := false
-	ephemeralSession := false
-	if sessionID == "" {
-		if ctxSID, ok := sandbox.SessionIDFromContext(ctx); ok {
-			sessionID = ctxSID
-			fromContext = true
-		}
-	}
-
-	switch {
-	case sessionID == "":
-		sessionID = uuid.NewString()
-		ephemeralSession = true
-	case !fromContext:
-		// Only convert non-UUID values that came from the LLM args, not from context
-		if _, err := uuid.Parse(sessionID); err != nil {
-			// Deterministically map non-UUID identifiers to a UUID so repeated
-			// values anchor to the same chat transcript.
-			sessionID = uuid.NewSHA1(uuid.NameSpaceOID, []byte(sessionID)).String()
-		}
-	}
-
-	// Inherit project_id from context if not explicitly provided by the LLM.
-	// This ensures delegated agents operate within the same project sandbox.
-	projectID := strings.TrimSpace(args.ProjectID)
-	if projectID == "" {
-		if ctxPID, ok := sandbox.ProjectIDFromContext(ctx); ok {
-			projectID = ctxPID
-		}
-	}
-	objectiveID := strings.TrimSpace(args.ObjectiveID)
-	if objectiveID == "" {
-		if ctxOID, ok := sandbox.ObjectiveIDFromContext(ctx); ok {
-			objectiveID = ctxOID
-		}
-	}
-	roomID := strings.TrimSpace(args.RoomID)
-	if roomID == "" {
-		if ctxRID, ok := sandbox.RoomIDFromContext(ctx); ok {
-			roomID = ctxRID
-		}
-	}
-
-	body := map[string]any{"prompt": args.Prompt, "session_id": sessionID}
-	if ephemeralSession {
-		body["ephemeral_session"] = true
-	}
-	if len(args.History) > 0 {
-		body["history"] = args.History
-	}
-	if projectID != "" {
-		body["project_id"] = projectID
-	}
-	if objectiveID != "" {
-		body["objective_id"] = objectiveID
-	}
-	if roomID != "" {
-		body["room_id"] = roomID
-	}
-	b, _ := json.Marshal(body)
-	// Build endpoint URL; force non-stream JSON via stream=0; include specialist when provided
-	u, _ := neturl.Parse(fmt.Sprintf("%s/agent/run", t.baseURL))
-	q := u.Query()
-	q.Set("stream", "0")
-	if args.To != "" {
-		q.Set("specialist", args.To)
-	}
-	u.RawQuery = q.Encode()
-
-	// Determine effective context: prefer parent deadline; otherwise, use
-	// tool default timeout to honor AGENT_RUN_TIMEOUT_SECONDS for non-stream.
-	runCtx := ctx
-	if _, hasDeadline := ctx.Deadline(); !hasDeadline && t.defaultTimeout > 0 && args.TimeoutMS <= 0 {
-		var cancel context.CancelFunc
-		runCtx, cancel = context.WithTimeout(ctx, t.defaultTimeout)
+	scope := resolveDelegatedRunScope(ctx, args.SessionID, args.ProjectID, args.ObjectiveID, args.RoomID)
+	endpoint := agentRunURL(t.baseURL, map[string]string{"specialist": args.To})
+	runCtx, cancel := t.runContext(ctx, args)
+	if cancel != nil {
 		defer cancel()
 	}
 
-	req, err := http.NewRequestWithContext(runCtx, http.MethodPost, u.String(), bytes.NewReader(b))
+	body := delegatedRunBody(args.Prompt, args.History, scope)
+	req, err := http.NewRequestWithContext(runCtx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
+	setDelegatedHeaders(ctx, req)
 
-	// Forward auth cookie from context to authenticate internal service calls.
-	if cookie, ok := sandbox.AuthCookieFromContext(ctx); ok {
-		req.Header.Set("Cookie", cookie)
-	}
-
-	client := t.httpClient
-	// Apply explicit per-call timeout if provided. If not provided and no
-	// parent deadline, apply the tool default.
-	if args.TimeoutMS > 0 {
-		c := *t.httpClient
-		c.Timeout = time.Duration(args.TimeoutMS) * time.Millisecond
-		client = &c
-	} else if _, hasDeadline := ctx.Deadline(); !hasDeadline && t.defaultTimeout > 0 {
-		c := *t.httpClient
-		c.Timeout = t.defaultTimeout
-		client = &c
-	}
-	// Observability: log effective timeout and whether parent had deadline
-	{
-		log := observability.LoggerWithTrace(ctx)
-		eff := int(client.Timeout / time.Millisecond)
-		_, has := ctx.Deadline()
-		log.Debug().Int("args_timeout_ms", args.TimeoutMS).Int("effective_timeout_ms", eff).Bool("parent_has_deadline", has).Str("endpoint", u.String()).Msg("ask_agent_call")
-	}
+	client := t.client(args, ctx)
+	logAskAgentCall(ctx, client, args.TimeoutMS, endpoint)
 	resp, err := client.Do(req)
 	if err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}, nil
 	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
-	var payload map[string]any
-	_ = json.Unmarshal(data, &payload)
 	if resp.StatusCode >= 400 {
 		return map[string]any{"ok": false, "status": resp.StatusCode, "error": string(data)}, nil
 	}
-	// If result is a JSON-encoded string, best-effort decode it so callers
-	// receive structured results rather than double-encoded payloads.
-	if raw, ok := payload["result"].(string); ok && strings.HasPrefix(strings.TrimSpace(raw), "{") {
-		var decoded any
-		if err := json.Unmarshal([]byte(raw), &decoded); err == nil {
-			payload["result"] = decoded
-		}
-	}
+	payload := decodeRunPayload(data)
 	return map[string]any{"ok": true, "to": args.To, "response": payload}, nil
+}
+
+func (t *AskAgentTool) runContext(ctx context.Context, args askAgentArgs) (context.Context, context.CancelFunc) {
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline && t.defaultTimeout > 0 && args.TimeoutMS <= 0 {
+		return context.WithTimeout(ctx, t.defaultTimeout)
+	}
+	return ctx, nil
+}
+
+func setDelegatedHeaders(ctx context.Context, req *http.Request) {
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	if cookie, ok := sandbox.AuthCookieFromContext(ctx); ok {
+		req.Header.Set("Cookie", cookie)
+	}
+}
+
+func (t *AskAgentTool) client(args askAgentArgs, ctx context.Context) *http.Client {
+	if args.TimeoutMS > 0 {
+		c := *t.httpClient
+		c.Timeout = time.Duration(args.TimeoutMS) * time.Millisecond
+		return &c
+	}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline && t.defaultTimeout > 0 {
+		c := *t.httpClient
+		c.Timeout = t.defaultTimeout
+		return &c
+	}
+	return t.httpClient
+}
+
+func logAskAgentCall(ctx context.Context, client *http.Client, timeoutMS int, endpoint string) {
+	log := observability.LoggerWithTrace(ctx)
+	effective := int(client.Timeout / time.Millisecond)
+	_, hasDeadline := ctx.Deadline()
+	log.Debug().Int("args_timeout_ms", timeoutMS).Int("effective_timeout_ms", effective).Bool("parent_has_deadline", hasDeadline).Str("endpoint", endpoint).Msg("ask_agent_call")
 }

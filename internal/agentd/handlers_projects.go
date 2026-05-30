@@ -18,6 +18,7 @@ import (
 
 	"manifold/internal/auth"
 	persist "manifold/internal/persistence"
+	"manifold/internal/projects"
 	"manifold/internal/workspaces"
 )
 
@@ -68,7 +69,8 @@ func (a *app) projectsHandler() http.HandlerFunc {
 		}
 		switch r.Method {
 		case http.MethodGet:
-			list, err := a.projectsService.ListProjects(r.Context(), userID)
+			includeUsage := r.URL.Query().Get("usage") != "false"
+			list, err := a.projectsService.ListProjectsWithUsage(r.Context(), userID, includeUsage)
 			if err != nil {
 				log.Error().Err(err).Msg("list_projects")
 				http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -77,12 +79,13 @@ func (a *app) projectsHandler() http.HandlerFunc {
 			out := make([]map[string]any, 0, len(list))
 			for _, p := range list {
 				out = append(out, map[string]any{
-					"id":        p.ID,
-					"name":      p.Name,
-					"createdAt": p.CreatedAt,
-					"updatedAt": p.UpdatedAt,
-					"sizeBytes": p.Bytes,
-					"files":     p.FileCount,
+					"id":          p.ID,
+					"name":        p.Name,
+					"createdAt":   p.CreatedAt,
+					"updatedAt":   p.UpdatedAt,
+					"sizeBytes":   p.Bytes,
+					"files":       p.FileCount,
+					"usageLoaded": includeUsage,
 				})
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -143,39 +146,8 @@ func (a *app) projectDetailHandler() http.HandlerFunc {
 		}
 		projectID = cleanPID
 		if len(parts) == 1 {
-			switch r.Method {
-			case http.MethodDelete:
-				if err := a.projectsService.DeleteProject(r.Context(), userID, projectID); err != nil {
-					log.Error().Err(err).Str("project", projectID).Msg("delete_project")
-					http.Error(w, "internal server error", http.StatusInternalServerError)
-					return
-				}
-				w.WriteHeader(http.StatusNoContent)
-				return
-			case http.MethodGet:
-				entries, err := a.projectsService.ListTree(r.Context(), userID, projectID, ".")
-				if err != nil {
-					log.Error().Err(err).Str("project", projectID).Msg("list_tree_root")
-					http.Error(w, "not found", http.StatusNotFound)
-					return
-				}
-				rows := make([]map[string]any, 0, len(entries))
-				for _, e := range entries {
-					rows = append(rows, map[string]any{
-						"name":      e.Name,
-						"path":      e.Path,
-						"isDir":     e.Type == "dir",
-						"sizeBytes": e.Size,
-						"modTime":   e.ModTime,
-					})
-				}
-				w.Header().Set("Content-Type", "application/json")
-				_ = json.NewEncoder(w).Encode(map[string]any{"entries": rows})
-				return
-			default:
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
+			a.handleProjectRootDetail(w, r, userID, projectID)
+			return
 		}
 
 		if len(parts) < 2 {
@@ -184,162 +156,228 @@ func (a *app) projectDetailHandler() http.HandlerFunc {
 		}
 		switch parts[1] {
 		case "archive":
-			if r.Method != http.MethodGet {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			a.streamProjectArchive(w, r, userID, projectID)
+			a.handleProjectArchive(w, r, userID, projectID)
 			return
 		case "tree":
-			if r.Method != http.MethodGet {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			p := r.URL.Query().Get("path")
-			entries, err := a.projectsService.ListTree(r.Context(), userID, projectID, p)
-			if err != nil {
-				log.Error().Err(err).Str("project", projectID).Str("path", p).Msg("list_tree")
-				http.Error(w, "not found", http.StatusNotFound)
-				return
-			}
-			rows := make([]map[string]any, 0, len(entries))
-			for _, e := range entries {
-				rows = append(rows, map[string]any{
-					"name":      e.Name,
-					"path":      e.Path,
-					"isDir":     e.Type == "dir",
-					"sizeBytes": e.Size,
-					"modTime":   e.ModTime,
-				})
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{"entries": rows})
+			a.handleProjectTree(w, r, userID, projectID)
 			return
 		case "files":
-			switch r.Method {
-			case http.MethodGet:
-				p := r.URL.Query().Get("path")
-				if p == "" {
-					http.Error(w, "missing path", http.StatusBadRequest)
-					return
-				}
-				rc, err := a.projectsService.ReadFile(r.Context(), userID, projectID, p)
-				if err != nil {
-					log.Error().Err(err).Str("project", projectID).Str("path", p).Msg("read_file")
-					http.Error(w, "not found", http.StatusNotFound)
-					return
-				}
-				defer rc.Close()
-				var sniff [512]byte
-				n, _ := io.ReadFull(rc, sniff[:])
-				ct := "application/octet-stream"
-				if ext := filepath.Ext(p); ext != "" {
-					if mt := mime.TypeByExtension(ext); mt != "" {
-						ct = mt
-					}
-				}
-				if ct == "application/octet-stream" && n > 0 {
-					ct = http.DetectContentType(sniff[:n])
-				}
-				w.Header().Set("Content-Type", ct)
-				if n > 0 {
-					_, _ = w.Write(sniff[:n])
-				}
-				if _, err := io.Copy(w, rc); err != nil {
-					log.Error().Err(err).Str("project", projectID).Str("path", p).Msg("stream_file")
-				}
-			case http.MethodPost:
-				p := r.URL.Query().Get("path")
-				name := r.URL.Query().Get("name")
-				ct := r.Header.Get("Content-Type")
-				if strings.HasPrefix(strings.ToLower(ct), "multipart/") {
-					if err := r.ParseMultipartForm(64 << 20); err != nil {
-						http.Error(w, "bad request", http.StatusBadRequest)
-						return
-					}
-					file, fh, err := r.FormFile("file")
-					if err != nil {
-						http.Error(w, "bad request", http.StatusBadRequest)
-						return
-					}
-					defer file.Close()
-					if name == "" {
-						name = r.FormValue("name")
-						if name == "" && fh != nil {
-							name = fh.Filename
-						}
-					}
-					if err := a.projectsService.UploadFile(r.Context(), userID, projectID, p, name, file); err != nil {
-						log.Error().Err(err).Str("project", projectID).Str("path", p).Str("name", name).Msg("upload_file")
-						http.Error(w, "error", http.StatusBadRequest)
-						return
-					}
-					w.WriteHeader(http.StatusCreated)
-					return
-				}
-				if name == "" {
-					http.Error(w, "missing name", http.StatusBadRequest)
-					return
-				}
-				if !isAllowedTextFile(name) {
-					http.Error(w, "unsupported file type", http.StatusBadRequest)
-					return
-				}
-				if err := a.projectsService.UploadFile(r.Context(), userID, projectID, p, name, r.Body); err != nil {
-					log.Error().Err(err).Str("project", projectID).Str("path", p).Str("name", name).Msg("upload_file_raw")
-					http.Error(w, "error", http.StatusBadRequest)
-					return
-				}
-				w.WriteHeader(http.StatusCreated)
-			case http.MethodDelete:
-				p := r.URL.Query().Get("path")
-				if err := a.projectsService.DeleteFile(r.Context(), userID, projectID, p); err != nil {
-					log.Error().Err(err).Str("project", projectID).Str("path", p).Msg("delete_file")
-					http.Error(w, "error", http.StatusBadRequest)
-					return
-				}
-				w.WriteHeader(http.StatusNoContent)
-			default:
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			}
+			a.handleProjectFiles(w, r, userID, projectID)
 			return
 		case "dirs":
-			if r.Method != http.MethodPost {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			p := r.URL.Query().Get("path")
-			if err := a.projectsService.CreateDir(r.Context(), userID, projectID, p); err != nil {
-				log.Error().Err(err).Str("project", projectID).Str("path", p).Msg("create_dir")
-				http.Error(w, "error", http.StatusBadRequest)
-				return
-			}
-			w.WriteHeader(http.StatusCreated)
+			a.handleProjectDirCreate(w, r, userID, projectID)
 			return
 		case "move":
-			if r.Method != http.MethodPost {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			defer r.Body.Close()
-			var in struct {
-				From string `json:"from"`
-				To   string `json:"to"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-				http.Error(w, "bad request", http.StatusBadRequest)
-				return
-			}
-			if err := a.projectsService.MovePath(r.Context(), userID, projectID, in.From, in.To); err != nil {
-				log.Error().Err(err).Str("project", projectID).Str("from", in.From).Str("to", in.To).Msg("move_path")
-				http.Error(w, "error", http.StatusBadRequest)
-				return
-			}
-			w.WriteHeader(http.StatusNoContent)
+			a.handleProjectMove(w, r, userID, projectID)
 			return
 		}
 		http.NotFound(w, r)
 	}
+}
+
+func (a *app) handleProjectRootDetail(w http.ResponseWriter, r *http.Request, userID int64, projectID string) {
+	switch r.Method {
+	case http.MethodDelete:
+		if err := a.projectsService.DeleteProject(r.Context(), userID, projectID); err != nil {
+			log.Error().Err(err).Str("project", projectID).Msg("delete_project")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	case http.MethodGet:
+		a.writeProjectTree(w, r, userID, projectID, ".", "list_tree_root")
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (a *app) handleProjectArchive(w http.ResponseWriter, r *http.Request, userID int64, projectID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	a.streamProjectArchive(w, r, userID, projectID)
+}
+
+func (a *app) handleProjectTree(w http.ResponseWriter, r *http.Request, userID int64, projectID string) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	a.writeProjectTree(w, r, userID, projectID, r.URL.Query().Get("path"), "list_tree")
+}
+
+func (a *app) writeProjectTree(w http.ResponseWriter, r *http.Request, userID int64, projectID string, path string, logMessage string) {
+	entries, err := a.projectsService.ListTree(r.Context(), userID, projectID, path)
+	if err != nil {
+		log.Error().Err(err).Str("project", projectID).Str("path", path).Msg(logMessage)
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"entries": projectTreeRows(entries)})
+}
+
+func projectTreeRows(entries []projects.FileEntry) []map[string]any {
+	rows := make([]map[string]any, 0, len(entries))
+	for _, e := range entries {
+		rows = append(rows, map[string]any{
+			"name":      e.Name,
+			"path":      e.Path,
+			"isDir":     e.Type == "dir",
+			"sizeBytes": e.Size,
+			"modTime":   e.ModTime,
+		})
+	}
+	return rows
+}
+
+func (a *app) handleProjectFiles(w http.ResponseWriter, r *http.Request, userID int64, projectID string) {
+	switch r.Method {
+	case http.MethodGet:
+		a.handleProjectFileRead(w, r, userID, projectID)
+	case http.MethodPost:
+		a.handleProjectFileUpload(w, r, userID, projectID)
+	case http.MethodDelete:
+		a.handleProjectFileDelete(w, r, userID, projectID)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (a *app) handleProjectFileRead(w http.ResponseWriter, r *http.Request, userID int64, projectID string) {
+	p := r.URL.Query().Get("path")
+	if p == "" {
+		http.Error(w, "missing path", http.StatusBadRequest)
+		return
+	}
+	rc, err := a.projectsService.ReadFile(r.Context(), userID, projectID, p)
+	if err != nil {
+		log.Error().Err(err).Str("project", projectID).Str("path", p).Msg("read_file")
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	defer rc.Close()
+	streamProjectFile(w, rc, p, projectID)
+}
+
+func streamProjectFile(w http.ResponseWriter, rc io.Reader, path, projectID string) {
+	var sniff [512]byte
+	n, _ := io.ReadFull(rc, sniff[:])
+	w.Header().Set("Content-Type", projectFileContentType(path, sniff[:n]))
+	if n > 0 {
+		_, _ = w.Write(sniff[:n])
+	}
+	if _, err := io.Copy(w, rc); err != nil {
+		log.Error().Err(err).Str("project", projectID).Str("path", path).Msg("stream_file")
+	}
+}
+
+func projectFileContentType(path string, sniff []byte) string {
+	ct := "application/octet-stream"
+	if ext := filepath.Ext(path); ext != "" {
+		if mt := mime.TypeByExtension(ext); mt != "" {
+			ct = mt
+		}
+	}
+	if ct == "application/octet-stream" && len(sniff) > 0 {
+		ct = http.DetectContentType(sniff)
+	}
+	return ct
+}
+
+func (a *app) handleProjectFileUpload(w http.ResponseWriter, r *http.Request, userID int64, projectID string) {
+	p := r.URL.Query().Get("path")
+	name := r.URL.Query().Get("name")
+	if strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/") {
+		a.handleProjectMultipartUpload(w, r, userID, projectID, p, name)
+		return
+	}
+	if name == "" {
+		http.Error(w, "missing name", http.StatusBadRequest)
+		return
+	}
+	if !isAllowedTextFile(name) {
+		http.Error(w, "unsupported file type", http.StatusBadRequest)
+		return
+	}
+	if err := a.projectsService.UploadFile(r.Context(), userID, projectID, p, name, r.Body); err != nil {
+		log.Error().Err(err).Str("project", projectID).Str("path", p).Str("name", name).Msg("upload_file_raw")
+		http.Error(w, "error", http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (a *app) handleProjectMultipartUpload(w http.ResponseWriter, r *http.Request, userID int64, projectID, path, name string) {
+	if err := r.ParseMultipartForm(64 << 20); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	file, fh, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+	if name == "" {
+		name = r.FormValue("name")
+		if name == "" && fh != nil {
+			name = fh.Filename
+		}
+	}
+	if err := a.projectsService.UploadFile(r.Context(), userID, projectID, path, name, file); err != nil {
+		log.Error().Err(err).Str("project", projectID).Str("path", path).Str("name", name).Msg("upload_file")
+		http.Error(w, "error", http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (a *app) handleProjectFileDelete(w http.ResponseWriter, r *http.Request, userID int64, projectID string) {
+	p := r.URL.Query().Get("path")
+	if err := a.projectsService.DeleteFile(r.Context(), userID, projectID, p); err != nil {
+		log.Error().Err(err).Str("project", projectID).Str("path", p).Msg("delete_file")
+		http.Error(w, "error", http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (a *app) handleProjectDirCreate(w http.ResponseWriter, r *http.Request, userID int64, projectID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	p := r.URL.Query().Get("path")
+	if err := a.projectsService.CreateDir(r.Context(), userID, projectID, p); err != nil {
+		log.Error().Err(err).Str("project", projectID).Str("path", p).Msg("create_dir")
+		http.Error(w, "error", http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+}
+
+func (a *app) handleProjectMove(w http.ResponseWriter, r *http.Request, userID int64, projectID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	defer r.Body.Close()
+	var in struct {
+		From string `json:"from"`
+		To   string `json:"to"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if err := a.projectsService.MovePath(r.Context(), userID, projectID, in.From, in.To); err != nil {
+		log.Error().Err(err).Str("project", projectID).Str("from", in.From).Str("to", in.To).Msg("move_path")
+		http.Error(w, "error", http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *app) projectsCORS(w http.ResponseWriter, r *http.Request, methods string) {
@@ -394,36 +432,44 @@ func archivePathBaseName(p string) string {
 	return clean[idx+1:]
 }
 
-func (a *app) archiveSingleFile(ctx context.Context, tw *tar.Writer, userID int64, projectID, projectPath, archivePath string, modTime time.Time) error {
-	if strings.TrimSpace(archivePath) == "" {
-		archivePath = archivePathBaseName(projectPath)
+type archiveSingleFileRequest struct {
+	UserID      int64
+	ProjectID   string
+	ProjectPath string
+	ArchivePath string
+	ModTime     time.Time
+}
+
+func (a *app) archiveSingleFile(ctx context.Context, tw *tar.Writer, req archiveSingleFileRequest) error {
+	if strings.TrimSpace(req.ArchivePath) == "" {
+		req.ArchivePath = archivePathBaseName(req.ProjectPath)
 	}
-	if strings.TrimSpace(archivePath) == "" {
+	if strings.TrimSpace(req.ArchivePath) == "" {
 		return fmt.Errorf("invalid archive path")
 	}
-	rc, err := a.projectsService.ReadFile(ctx, userID, projectID, projectPath)
+	rc, err := a.projectsService.ReadFile(ctx, req.UserID, req.ProjectID, req.ProjectPath)
 	if err != nil {
-		return fmt.Errorf("read file %s: %w", projectPath, err)
+		return fmt.Errorf("read file %s: %w", req.ProjectPath, err)
 	}
 	defer rc.Close()
 	content, err := io.ReadAll(rc)
 	if err != nil {
-		return fmt.Errorf("read file content %s: %w", projectPath, err)
+		return fmt.Errorf("read file content %s: %w", req.ProjectPath, err)
 	}
-	if modTime.IsZero() {
-		modTime = time.Now().UTC()
+	if req.ModTime.IsZero() {
+		req.ModTime = time.Now().UTC()
 	}
 	hdr := &tar.Header{
-		Name:    archivePath,
+		Name:    req.ArchivePath,
 		Mode:    0644,
 		Size:    int64(len(content)),
-		ModTime: modTime,
+		ModTime: req.ModTime,
 	}
 	if err := tw.WriteHeader(hdr); err != nil {
-		return fmt.Errorf("write file header %s: %w", archivePath, err)
+		return fmt.Errorf("write file header %s: %w", req.ArchivePath, err)
 	}
 	if _, err := tw.Write(content); err != nil {
-		return fmt.Errorf("write file content %s: %w", archivePath, err)
+		return fmt.Errorf("write file content %s: %w", req.ArchivePath, err)
 	}
 	return nil
 }
@@ -436,26 +482,58 @@ func (a *app) streamProjectArchive(w http.ResponseWriter, r *http.Request, userI
 		sourcePath = "."
 	}
 
-	// Get project info for default filename
-	projects, err := a.projectsService.ListProjects(ctx, userID)
+	target, err := a.resolveArchiveTarget(ctx, userID, projectID, sourcePath)
 	if err != nil {
-		log.Error().Err(err).Str("project", projectID).Msg("archive_list_projects")
+		if errors.Is(err, persist.ErrNotFound) {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		log.Error().Err(err).Str("project", projectID).Msg("archive_resolve_target")
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	projectName := projectID
+
+	safeName := sanitizeArchiveFilename(target.Name)
+	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.tar.gz"`, safeName))
+
+	gzw := gzip.NewWriter(w)
+	defer gzw.Close()
+
+	tw := tar.NewWriter(gzw)
+	defer tw.Close()
+
+	if err := a.writeProjectArchive(ctx, tw, userID, projectID, target); err != nil {
+		log.Error().
+			Err(err).
+			Str("project", projectID).
+			Str("path", sourcePath).
+			Msg("archive_project")
+		return
+	}
+}
+
+type archiveTarget struct {
+	Mode       string
+	Name       string
+	SourcePath string
+}
+
+func (a *app) resolveArchiveTarget(ctx context.Context, userID int64, projectID, sourcePath string) (archiveTarget, error) {
+	projects, err := a.projectsService.ListProjects(ctx, userID)
+	if err != nil {
+		return archiveTarget{}, err
+	}
+	target := archiveTarget{Mode: "project", Name: projectID, SourcePath: sourcePath}
 	for _, p := range projects {
 		if p.ID == projectID {
-			projectName = p.Name
+			target.Name = p.Name
 			break
 		}
 	}
-
-	archiveMode := "project" // project | dir | file
-	archiveName := projectName
 	if sourcePath != "." {
 		if _, listErr := a.projectsService.ListTree(ctx, userID, projectID, sourcePath); listErr == nil {
-			archiveMode = "dir"
+			target.Mode = "dir"
 		} else {
 			rc, readErr := a.projectsService.ReadFile(ctx, userID, projectID, sourcePath)
 			if readErr != nil {
@@ -464,36 +542,24 @@ func (a *app) streamProjectArchive(w http.ResponseWriter, r *http.Request, userI
 					Str("project", projectID).
 					Str("path", sourcePath).
 					Msg("archive_path_not_found")
-				http.Error(w, "not found", http.StatusNotFound)
-				return
+				return archiveTarget{}, persist.ErrNotFound
 			}
 			_ = rc.Close()
-			archiveMode = "file"
+			target.Mode = "file"
 		}
 		if base := archivePathBaseName(sourcePath); base != "" {
-			archiveName = base
+			target.Name = base
 		}
 	}
+	return target, nil
+}
 
-	// Set headers for download
-	safeName := sanitizeArchiveFilename(archiveName)
-	w.Header().Set("Content-Type", "application/gzip")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.tar.gz"`, safeName))
-
-	// Create gzip writer wrapping response
-	gzw := gzip.NewWriter(w)
-	defer gzw.Close()
-
-	// Create tar writer
-	tw := tar.NewWriter(gzw)
-	defer tw.Close()
-
-	var archiveErr error
-	switch archiveMode {
+func (a *app) writeProjectArchive(ctx context.Context, tw *tar.Writer, userID int64, projectID string, target archiveTarget) error {
+	switch target.Mode {
 	case "project":
-		archiveErr = a.archiveDir(ctx, tw, userID, projectID, ".", "")
+		return a.archiveDir(ctx, tw, userID, projectID, ".", "")
 	case "dir":
-		rootName := archivePathBaseName(sourcePath)
+		rootName := archivePathBaseName(target.SourcePath)
 		if rootName == "" {
 			rootName = "folder"
 		}
@@ -503,22 +569,19 @@ func (a *app) streamProjectArchive(w http.ResponseWriter, r *http.Request, userI
 			Typeflag: tar.TypeDir,
 			ModTime:  time.Now().UTC(),
 		}); err != nil {
-			archiveErr = fmt.Errorf("write dir header %s: %w", rootName, err)
-		} else {
-			archiveErr = a.archiveDir(ctx, tw, userID, projectID, sourcePath, rootName)
+			return fmt.Errorf("write dir header %s: %w", rootName, err)
 		}
+		return a.archiveDir(ctx, tw, userID, projectID, target.SourcePath, rootName)
 	case "file":
-		archiveErr = a.archiveSingleFile(ctx, tw, userID, projectID, sourcePath, archivePathBaseName(sourcePath), time.Now().UTC())
+		return a.archiveSingleFile(ctx, tw, archiveSingleFileRequest{
+			UserID:      userID,
+			ProjectID:   projectID,
+			ProjectPath: target.SourcePath,
+			ArchivePath: archivePathBaseName(target.SourcePath),
+			ModTime:     time.Now().UTC(),
+		})
 	}
-	if archiveErr != nil {
-		log.Error().
-			Err(archiveErr).
-			Str("project", projectID).
-			Str("path", sourcePath).
-			Msg("archive_project")
-		// Can't send error at this point since we've started writing
-		return
-	}
+	return fmt.Errorf("unsupported archive mode %q", target.Mode)
 }
 
 // archiveDir recursively adds all files and directories to the tar archive.
@@ -529,7 +592,6 @@ func (a *app) archiveDir(ctx context.Context, tw *tar.Writer, userID int64, proj
 	}
 
 	for _, entry := range entries {
-		// Build the path within the archive
 		entryArchivePath := entry.Name
 		if archivePath != "" {
 			entryArchivePath = archivePath + "/" + entry.Name
@@ -546,7 +608,6 @@ func (a *app) archiveDir(ctx context.Context, tw *tar.Writer, userID int64, proj
 			if err := tw.WriteHeader(hdr); err != nil {
 				return fmt.Errorf("write dir header %s: %w", entryArchivePath, err)
 			}
-			// Recurse into subdirectory
 			if err := a.archiveDir(ctx, tw, userID, projectID, entry.Path, entryArchivePath); err != nil {
 				return err
 			}
@@ -576,7 +637,6 @@ func (a *app) archiveDir(ctx context.Context, tw *tar.Writer, userID int64, proj
 			if err := tw.WriteHeader(hdr); err != nil {
 				return fmt.Errorf("write file header %s: %w", entryArchivePath, err)
 			}
-			// Write file content
 			if _, err := tw.Write(content); err != nil {
 				return fmt.Errorf("write file content %s: %w", entryArchivePath, err)
 			}

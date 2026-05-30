@@ -72,40 +72,16 @@ func (c *Client) Compact(ctx context.Context, msgs []llm.Message, model string, 
 func buildCompactionInputWithLimit(msgs []llm.Message, previous *llm.CompactionItem, toolOutputMaxChars int) ([]any, string) {
 	items := make([]any, 0, len(msgs)+1)
 	if previous != nil && strings.TrimSpace(previous.EncryptedContent) != "" {
-		payload := map[string]any{
-			"type":              "compaction",
-			"encrypted_content": previous.EncryptedContent,
-		}
-		if strings.TrimSpace(previous.ID) != "" {
-			payload["id"] = previous.ID
-		}
-		items = append(items, payload)
+		items = append(items, previousCompactionPayload(previous))
 	}
 
-	toolCallIDs := make(map[string]struct{}, 8)
-	toolOutputIDs := make(map[string]struct{}, 8)
-	for _, m := range msgs {
-		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
-			for _, tc := range m.ToolCalls {
-				callID := strings.TrimSpace(tc.ID)
-				if callID == "" {
-					continue
-				}
-				toolCallIDs[callID] = struct{}{}
-			}
-			continue
-		}
-		if m.Role == "tool" {
-			toolID := strings.TrimSpace(m.ToolID)
-			if toolID == "" {
-				continue
-			}
-			toolOutputIDs[toolID] = struct{}{}
-		}
-	}
-
+	toolCallIDs, toolOutputIDs := compactionToolIDs(msgs)
 	var sys []string
-	assistantIndex := 0
+	state := compactionInputState{
+		items:         items,
+		toolCallIDs:   toolCallIDs,
+		toolOutputIDs: toolOutputIDs,
+	}
 	for _, m := range msgs {
 		switch m.Role {
 		case "system":
@@ -113,51 +89,111 @@ func buildCompactionInputWithLimit(msgs []llm.Message, previous *llm.CompactionI
 				sys = append(sys, m.Content)
 			}
 		case "user":
-			content := strings.TrimSpace(m.Content)
-			if content == "" {
-				content = " "
-			}
-			part := rs.ResponseInputContentParamOfInputText(content)
-			items = append(items, rs.ResponseInputItemUnionParam{OfInputMessage: &rs.ResponseInputItemMessageParam{
-				Content: rs.ResponseInputMessageContentListParam{part},
-				Role:    "user",
-			}})
+			state.appendUserMessage(m)
 		case "assistant":
-			// If the assistant provided tool calls, include those so tool outputs can reference them.
-			if len(m.ToolCalls) > 0 {
-				for _, tc := range m.ToolCalls {
-					callID := strings.TrimSpace(tc.ID)
-					if callID == "" {
-						continue
-					}
-					if _, ok := toolOutputIDs[callID]; !ok {
-						continue
-					}
-					args := string(tc.Args)
-					items = append(items, rs.ResponseInputItemParamOfFunctionCall(args, callID, tc.Name))
-				}
-			}
-			// Also emit text content if present
-			content := strings.TrimSpace(m.Content)
-			if content != "" {
-				msgID := fmt.Sprintf("msg_%d", assistantIndex+1)
-				assistantIndex++
-				text := rs.ResponseOutputTextParam{Text: content, Annotations: []rs.ResponseOutputTextAnnotationUnionParam{}}
-				contentParts := []rs.ResponseOutputMessageContentUnionParam{{OfOutputText: &text}}
-				items = append(items, rs.ResponseInputItemParamOfOutputMessage(contentParts, msgID, rs.ResponseOutputMessageStatusCompleted))
-			}
+			state.appendAssistantMessage(m)
 		case "tool":
-			out := boundedResponsesToolOutputWithLimit(m.Content, toolOutputMaxChars)
-			toolID := strings.TrimSpace(m.ToolID)
-			if toolID == "" {
-				continue
-			}
-			if _, ok := toolCallIDs[toolID]; !ok {
-				continue
-			}
-			items = append(items, rs.ResponseInputItemParamOfFunctionCallOutput(toolID, out))
+			state.appendToolMessage(m, toolOutputMaxChars)
 		}
 	}
 
-	return items, strings.Join(sys, "\n\n")
+	return state.items, strings.Join(sys, "\n\n")
+}
+
+type compactionInputState struct {
+	items          []any
+	toolCallIDs    map[string]struct{}
+	toolOutputIDs  map[string]struct{}
+	assistantIndex int
+}
+
+func previousCompactionPayload(previous *llm.CompactionItem) map[string]any {
+	payload := map[string]any{
+		"type":              "compaction",
+		"encrypted_content": previous.EncryptedContent,
+	}
+	if strings.TrimSpace(previous.ID) != "" {
+		payload["id"] = previous.ID
+	}
+	return payload
+}
+
+func compactionToolIDs(msgs []llm.Message) (map[string]struct{}, map[string]struct{}) {
+	toolCallIDs := make(map[string]struct{}, 8)
+	toolOutputIDs := make(map[string]struct{}, 8)
+	for _, m := range msgs {
+		switch {
+		case m.Role == "assistant" && len(m.ToolCalls) > 0:
+			addCompactionToolCallIDs(toolCallIDs, m)
+		case m.Role == "tool":
+			addCompactionToolOutputID(toolOutputIDs, m)
+		}
+	}
+	return toolCallIDs, toolOutputIDs
+}
+
+func addCompactionToolCallIDs(ids map[string]struct{}, msg llm.Message) {
+	for _, tc := range msg.ToolCalls {
+		callID := strings.TrimSpace(tc.ID)
+		if callID != "" {
+			ids[callID] = struct{}{}
+		}
+	}
+}
+
+func addCompactionToolOutputID(ids map[string]struct{}, msg llm.Message) {
+	toolID := strings.TrimSpace(msg.ToolID)
+	if toolID != "" {
+		ids[toolID] = struct{}{}
+	}
+}
+
+func (s *compactionInputState) appendUserMessage(msg llm.Message) {
+	content := strings.TrimSpace(msg.Content)
+	if content == "" {
+		content = " "
+	}
+	part := rs.ResponseInputContentParamOfInputText(content)
+	s.items = append(s.items, rs.ResponseInputItemUnionParam{OfInputMessage: &rs.ResponseInputItemMessageParam{
+		Content: rs.ResponseInputMessageContentListParam{part},
+		Role:    "user",
+	}})
+}
+
+func (s *compactionInputState) appendAssistantMessage(msg llm.Message) {
+	s.appendAssistantToolCalls(msg)
+	content := strings.TrimSpace(msg.Content)
+	if content == "" {
+		return
+	}
+	s.assistantIndex++
+	msgID := fmt.Sprintf("msg_%d", s.assistantIndex)
+	text := rs.ResponseOutputTextParam{Text: content, Annotations: []rs.ResponseOutputTextAnnotationUnionParam{}}
+	contentParts := []rs.ResponseOutputMessageContentUnionParam{{OfOutputText: &text}}
+	s.items = append(s.items, rs.ResponseInputItemParamOfOutputMessage(contentParts, msgID, rs.ResponseOutputMessageStatusCompleted))
+}
+
+func (s *compactionInputState) appendAssistantToolCalls(msg llm.Message) {
+	for _, tc := range msg.ToolCalls {
+		callID := strings.TrimSpace(tc.ID)
+		if callID == "" {
+			continue
+		}
+		if _, ok := s.toolOutputIDs[callID]; !ok {
+			continue
+		}
+		s.items = append(s.items, rs.ResponseInputItemParamOfFunctionCall(string(tc.Args), callID, tc.Name))
+	}
+}
+
+func (s *compactionInputState) appendToolMessage(msg llm.Message, toolOutputMaxChars int) {
+	toolID := strings.TrimSpace(msg.ToolID)
+	if toolID == "" {
+		return
+	}
+	if _, ok := s.toolCallIDs[toolID]; !ok {
+		return
+	}
+	out := boundedResponsesToolOutputWithLimit(msg.Content, toolOutputMaxChars)
+	s.items = append(s.items, rs.ResponseInputItemParamOfFunctionCallOutput(toolID, out))
 }

@@ -20,7 +20,7 @@ func TestUpsertDocAndChunksGraph_HasChunkNeighbors(t *testing.T) {
 	pre := PreprocessedDoc{Text: "hello world", Language: "english", Hash: "h"}
 	chunks := []ChunkRecord{{Index: 0, Text: "c0"}, {Index: 1, Text: "c1"}, {Index: 2, Text: "c2"}}
 
-	ids, err := UpsertDocAndChunksGraph(ctx, g, in.ID, pre, in, chunks, 1)
+	ids, err := UpsertDocAndChunksGraph(ctx, g, ChunkIndexRequest{DocID: in.ID, Lang: pre.Language, Chunks: chunks, Input: in, Version: 1}, pre)
 	if err != nil {
 		t.Fatalf("graph upsert failed: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestUpsertDocAndChunksGraph_HasChunkNeighbors(t *testing.T) {
 	}
 
 	// Idempotency: re-run and ensure neighbor count does not increase (memory graph overwrites edges by key)
-	_, err = UpsertDocAndChunksGraph(ctx, g, in.ID, pre, in, chunks, 1)
+	_, err = UpsertDocAndChunksGraph(ctx, g, ChunkIndexRequest{DocID: in.ID, Lang: pre.Language, Chunks: chunks, Input: in, Version: 1}, pre)
 	if err != nil {
 		t.Fatalf("second upsert failed: %v", err)
 	}

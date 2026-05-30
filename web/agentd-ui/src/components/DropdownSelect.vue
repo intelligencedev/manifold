@@ -84,14 +84,15 @@ const baseClasses = computed(() =>
     "min-w-0",
     "truncate",
     "border",
-    "border-white/12",
-    "bg-surface/70",
+    "border-[rgb(var(--line-strong))]",
+    "bg-surface",
     "text-foreground",
-    "font-semibold",
+    "font-sans",
+    "font-medium",
     "transition-colors",
     "focus:outline-none",
-    "focus:ring-2",
-    "focus:ring-ring/60",
+    "focus:border-accent",
+    "focus:shadow-[0_0_0_3px_rgb(var(--accent-dim))]",
   ].join(" "),
 );
 
@@ -99,15 +100,15 @@ const baseClasses = computed(() =>
 const sizeClasses = computed(() => {
   switch (props.size) {
     case "xs":
-      return "pl-2 pr-10 py-1 text-xs rounded-4";
+      return "pl-2 pr-10 py-1 text-xs rounded-md";
     case "sm":
-      return "pl-2 pr-10 py-1 text-xs rounded-4";
+      return "pl-2 pr-10 py-1 text-xs rounded-md";
     case "md":
-      return "pl-3 pr-10 py-2 text-sm rounded-4";
+      return "pl-3 pr-10 py-2 text-sm rounded-md";
     case "lg":
-      return "pl-4 pr-10 py-3 text-base rounded-4";
+      return "pl-4 pr-10 py-3 text-base rounded-md";
     default:
-      return "pl-3 pr-10 py-2 text-sm rounded-4";
+      return "pl-3 pr-10 py-2 text-sm rounded-md";
   }
 });
 
@@ -117,7 +118,7 @@ const stateClasses = computed(() => {
   if (props.disabled) {
     classes.push("opacity-60", "cursor-not-allowed", "bg-surface-muted/30");
   } else {
-    classes.push("cursor-pointer", "hover:bg-surface");
+    classes.push("cursor-pointer", "hover:bg-surface-muted");
   }
   return classes.join(" ");
 });

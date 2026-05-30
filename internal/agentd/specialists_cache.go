@@ -26,7 +26,13 @@ func (a *app) specialistsRegistryForUser(ctx context.Context, userID int64) (*sp
 	if sp, ok, _ := a.specStore.GetByName(ctx, userID, specialists.OrchestratorName); ok {
 		base, _ = specialists.ApplyLLMClientOverride(base, sp)
 	}
-	reg := specialists.NewRegistryFromStore(base, nil, list, nil, a.httpClient, a.baseToolRegistry, a.cfg.Workdir)
+	reg := specialists.NewRegistryFromStore(specialists.StoreRegistryRequest{
+		Base:       base,
+		List:       list,
+		HTTPClient: a.httpClient,
+		Tools:      a.baseToolRegistry,
+		Workdir:    a.cfg.Workdir,
+	})
 	reg.SetToolDiscovery(a.toolIndex, a.cfg.AutoDiscover, a.cfg.MaxDiscoveredTools)
 
 	a.specRegMu.Lock()
@@ -41,7 +47,13 @@ func (a *app) specialistsRegistryForUser(ctx context.Context, userID int64) (*sp
 func (a *app) invalidateSpecialistsCache(ctx context.Context, userID int64) {
 	if userID == systemUserID {
 		if list, err := a.specStore.List(ctx, systemUserID); err == nil {
-			specialists.ReplaceFromStore(a.specRegistry, a.cfg.LLMClient, a.cfg.Specialists, list, nil, a.httpClient, a.baseToolRegistry)
+			specialists.ReplaceFromStore(a.specRegistry, specialists.StoreRegistryRequest{
+				Base:       a.cfg.LLMClient,
+				Defaults:   a.cfg.Specialists,
+				List:       list,
+				HTTPClient: a.httpClient,
+				Tools:      a.baseToolRegistry,
+			})
 			a.specRegistry.SetToolDiscovery(a.toolIndex, a.cfg.AutoDiscover, a.cfg.MaxDiscoveredTools)
 			a.specRegMu.Lock()
 			if a.userSpecRegs == nil {

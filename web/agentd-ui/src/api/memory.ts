@@ -45,14 +45,32 @@ export interface ScoredEvolvingMemoryEntry {
   score: number;
 }
 
+export interface EvolvingMemorySearchDiagnostics {
+  enableRAG: boolean;
+  mode: string;
+  vectorCandidates: number;
+  keywordCandidates: number;
+  usedServerVector: boolean;
+  usedKeywordStore: boolean;
+  embeddingInstructionUsed?: boolean;
+  embeddingInstructionApplied?: boolean;
+  embeddingInstructionUseCase?: string;
+  embeddingInstructionFormat?: string;
+  embeddingInstructionMode?: string;
+  embeddingInstructionSource?: string;
+  embeddingError?: string;
+}
+
 export interface EvolvingMemoryDebug {
   enabled: boolean;
+  enableRAG?: boolean;
   totalEntries: number;
   topK: number;
   maxSize: number;
   windowSize: number;
   recentWindow: EvolvingMemoryEntry[];
   lastQuery?: string;
+  search?: EvolvingMemorySearchDiagnostics;
   retrieved?: ScoredEvolvingMemoryEntry[];
 }
 

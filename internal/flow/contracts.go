@@ -14,12 +14,12 @@ type ListWorkflowsResponse struct {
 
 type GetWorkflowResponse struct {
 	Workflow Workflow       `json:"workflow"`
-	Canvas   WorkflowCanvas `json:"canvas,omitempty"`
+	Canvas   WorkflowCanvas `json:"canvas"`
 }
 
 type PutWorkflowRequest struct {
 	Workflow Workflow       `json:"workflow"`
-	Canvas   WorkflowCanvas `json:"canvas,omitempty"`
+	Canvas   WorkflowCanvas `json:"canvas"`
 }
 
 type ValidateRequest struct {

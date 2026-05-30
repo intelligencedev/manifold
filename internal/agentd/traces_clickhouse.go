@@ -303,18 +303,29 @@ func (c *clickhouseRunMetrics) RecentRuns(ctx context.Context, window time.Durat
 	if c == nil || c.traces == nil {
 		return nil, nil
 	}
+	window, limit = normalizeRecentRunsArgs(window, limit)
+	execCtx, cancel := context.WithTimeout(ctx, c.traces.timeout)
+	defer cancel()
+	rows, err := c.traces.conn.Query(execCtx, recentRunsQuery(c.traces.table), time.Now().Add(-window), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanRecentRuns(rows, limit)
+}
+
+func normalizeRecentRunsArgs(window time.Duration, limit int) (time.Duration, int) {
 	if limit <= 0 {
 		limit = 50
 	}
 	if window <= 0 {
 		window = 24 * time.Hour
 	}
+	return window, limit
+}
 
-	start := time.Now().Add(-window)
-
-	// Derive "runs" from LLM spans.
-	// We use llm.prompt_preview only when payload logging is enabled (see llm.LogRedactedPrompt).
-	query := fmt.Sprintf(`
+func recentRunsQuery(table string) string {
+	return fmt.Sprintf(`
 SELECT
   TraceId,
   SpanName,
@@ -332,84 +343,99 @@ WHERE Timestamp >= ?
   AND (SpanAttributes['llm.model'] != '' OR SpanName LIKE '%%Chat%%')
 ORDER BY Timestamp DESC
 LIMIT ?
-`, c.traces.table)
+`, table)
+}
 
-	execCtx, cancel := context.WithTimeout(ctx, c.traces.timeout)
-	defer cancel()
-	rows, err := c.traces.conn.Query(execCtx, query, start, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
+type recentRunRow struct {
+	traceID    string
+	spanName   string
+	promptPrev string
+	model      string
+	statusCode string
+	durationNS int64
+	startTS    time.Time
+	promptStr  string
+	compStr    string
+	totalStr   string
+}
 
+func scanRecentRuns(rows interface {
+	Next() bool
+	Scan(dest ...any) error
+	Err() error
+}, limit int) ([]AgentRun, error) {
 	out := make([]AgentRun, 0, limit)
 	for rows.Next() {
-		var (
-			traceID     string
-			spanName    string
-			promptPrev  string
-			model       string
-			statusCode  string
-			durationNS  int64
-			startTS     time.Time
-			promptStr   string
-			compStr     string
-			totalStr    string
-			statusLabel string
-		)
-		if err := rows.Scan(
-			&traceID,
-			&spanName,
-			&promptPrev,
-			&model,
-			&statusCode,
-			&durationNS,
-			&startTS,
-			&promptStr,
-			&compStr,
-			&totalStr,
-		); err != nil {
+		row, err := scanRecentRunRow(rows)
+		if err != nil {
 			return nil, err
 		}
-		statusLabel = "completed"
-		if strings.Contains(strings.ToUpper(statusCode), "ERROR") {
-			statusLabel = "failed"
-		}
-		promptTokens := parseInt64Loose(promptStr)
-		completionTokens := parseInt64Loose(compStr)
-		totalTokens := parseInt64Loose(totalStr)
-		if totalTokens == 0 {
-			totalTokens = promptTokens + completionTokens
-		}
-
-		createdAt := startTS
-		if durationNS > 0 {
-			createdAt = startTS.Add(time.Duration(durationNS))
-		}
-
-		prompt := strings.TrimSpace(promptPrev)
-		if prompt == "" {
-			prompt = strings.TrimSpace(spanName)
-		}
-		if prompt == "" {
-			prompt = strings.TrimSpace(model)
-		}
-		if prompt == "" {
-			prompt = "LLM run"
-		}
-
-		out = append(out, AgentRun{
-			ID:        strings.TrimSpace(traceID),
-			Prompt:    prompt,
-			CreatedAt: createdAt.UTC().Format(time.RFC3339),
-			Status:    statusLabel,
-			Tokens:    int(totalTokens),
-		})
+		out = append(out, agentRunFromClickHouseRow(row))
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	return out, nil
+}
+
+func scanRecentRunRow(rows interface{ Scan(dest ...any) error }) (recentRunRow, error) {
+	var row recentRunRow
+	err := rows.Scan(
+		&row.traceID,
+		&row.spanName,
+		&row.promptPrev,
+		&row.model,
+		&row.statusCode,
+		&row.durationNS,
+		&row.startTS,
+		&row.promptStr,
+		&row.compStr,
+		&row.totalStr,
+	)
+	return row, err
+}
+
+func agentRunFromClickHouseRow(row recentRunRow) AgentRun {
+	return AgentRun{
+		ID:        strings.TrimSpace(row.traceID),
+		Prompt:    recentRunPrompt(row),
+		CreatedAt: recentRunCreatedAt(row).UTC().Format(time.RFC3339),
+		Status:    recentRunStatus(row.statusCode),
+		Tokens:    int(recentRunTokens(row)),
+	}
+}
+
+func recentRunStatus(statusCode string) string {
+	if strings.Contains(strings.ToUpper(statusCode), "ERROR") {
+		return "failed"
+	}
+	return "completed"
+}
+
+func recentRunTokens(row recentRunRow) int64 {
+	promptTokens := parseInt64Loose(row.promptStr)
+	completionTokens := parseInt64Loose(row.compStr)
+	totalTokens := parseInt64Loose(row.totalStr)
+	if totalTokens == 0 {
+		return promptTokens + completionTokens
+	}
+	return totalTokens
+}
+
+func recentRunCreatedAt(row recentRunRow) time.Time {
+	if row.durationNS > 0 {
+		return row.startTS.Add(time.Duration(row.durationNS))
+	}
+	return row.startTS
+}
+
+func recentRunPrompt(row recentRunRow) string {
+	for _, candidate := range []string{row.promptPrev, row.spanName, row.model} {
+		if prompt := strings.TrimSpace(candidate); prompt != "" {
+			return prompt
+		}
+	}
+	return "LLM run"
 }
 
 func parseInt64Loose(raw string) int64 {

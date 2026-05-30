@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"strings"
 
@@ -104,9 +105,7 @@ func extractJSONObject(raw string) string {
 
 func remapVerdict(parsed rawVerdict, swap bool) (string, map[string]float64) {
 	scores := make(map[string]float64, len(parsed.Scores))
-	for dimension, score := range parsed.Scores {
-		scores[dimension] = score
-	}
+	maps.Copy(scores, parsed.Scores)
 	if !swap {
 		for dimension, score := range scores {
 			scores[dimension] = -score

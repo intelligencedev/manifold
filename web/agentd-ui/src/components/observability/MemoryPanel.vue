@@ -1,6 +1,6 @@
 <template>
   <section
-    class="flex h-full flex-col gap-4 overflow-hidden rounded-2xl border border-border/70 bg-surface p-6 shadow-lg"
+    class="flex h-full flex-col gap-4 overflow-hidden rounded-lg border border-border/70 bg-surface p-6"
   >
     <header class="flex flex-wrap items-center justify-between gap-3 shrink-0">
       <div>
@@ -20,7 +20,7 @@
           v-model="evolvingQuery"
           type="search"
           placeholder="Search evolving memory…"
-          class="ap-input min-w-0 rounded border border-border bg-surface px-2 py-1 text-xs text-foreground"
+          class="halo-surface min-w-0 rounded border border-border bg-surface px-2 py-1 text-xs text-foreground"
           @keyup.enter.prevent="refreshEvolving"
         />
       </div>
@@ -30,7 +30,7 @@
       <!-- Chat Summary - full width, shrink-0 to maintain size -->
       <div class="flex shrink-0 flex-col gap-2">
         <h3
-          class="text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+          class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
         >
           Chat summary
         </h3>
@@ -101,7 +101,7 @@
       <!-- Evolving Memory - full width, flex-1 to expand and fill remaining space -->
       <div class="flex min-h-0 flex-1 flex-col gap-2">
         <h3
-          class="shrink-0 text-xs font-semibold uppercase tracking-wide text-subtle-foreground"
+          class="shrink-0 font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
         >
           Evolving memory
         </h3>

@@ -1,6 +1,7 @@
 package transit
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -95,6 +96,10 @@ type SearchCandidate struct {
 	Snippet string
 }
 
+type MagmaSink interface {
+	IngestTransitRecord(ctx context.Context, record Record) (string, error)
+}
+
 func ValidateKey(key string) error {
 	key = strings.TrimSpace(key)
 	if key == "" {
@@ -113,6 +118,46 @@ func ValidateKey(key string) error {
 		return fmt.Errorf("keyName contains unsupported characters")
 	}
 	return nil
+}
+
+// NormalizeKeyName converts a model- or user-supplied key into Transit key syntax.
+func NormalizeKeyName(key string) string {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return ""
+	}
+	var b strings.Builder
+	lastReplacement := false
+	for _, r := range key {
+		if isKeyRune(r) {
+			b.WriteRune(r)
+			lastReplacement = false
+			continue
+		}
+		if !lastReplacement {
+			b.WriteByte('-')
+			lastReplacement = true
+		}
+	}
+	normalized := b.String()
+	for strings.Contains(normalized, "//") {
+		normalized = strings.ReplaceAll(normalized, "//", "/")
+	}
+	for strings.Contains(normalized, "..") {
+		normalized = strings.ReplaceAll(normalized, "..", ".")
+	}
+	normalized = strings.Trim(normalized, "/")
+	if normalized == "" {
+		return "-"
+	}
+	return normalized
+}
+
+func isKeyRune(r rune) bool {
+	return r >= 'A' && r <= 'Z' ||
+		r >= 'a' && r <= 'z' ||
+		r >= '0' && r <= '9' ||
+		r == '_' || r == '.' || r == '/' || r == '@' || r == '-'
 }
 
 func NormalizeEmbedSource(src string) string {

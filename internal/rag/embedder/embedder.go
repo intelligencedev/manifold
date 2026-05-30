@@ -67,10 +67,7 @@ func (c *clientEmbedder) EmbedBatch(ctx context.Context, texts []string) ([][]fl
 	// Otherwise, batch the requests with rate limiting
 	var allEmbeddings [][]float32
 	for i := 0; i < len(texts); i += c.batchSize {
-		end := i + c.batchSize
-		if end > len(texts) {
-			end = len(texts)
-		}
+		end := min(i+c.batchSize, len(texts))
 		batch := texts[i:end]
 		embeddings, err := c.rateLimitedCall(ctx, batch)
 		if err != nil {
@@ -160,7 +157,7 @@ func add(seed uint64, gram []byte, v []float32) {
 	h := fnv.New64a()
 	if seed != 0 {
 		var tmp [8]byte
-		for i := 0; i < 8; i++ {
+		for i := range 8 {
 			tmp[i] = byte(seed >> (8 * i))
 		}
 		_, _ = h.Write(tmp[:])

@@ -22,6 +22,7 @@ type Response struct {
 	Cost         float64
 	Raw          map[string]any
 	ProviderName string
+	Model        string
 }
 
 // Provider abstracts prompt execution against an LLM.

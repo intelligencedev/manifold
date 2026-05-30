@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"maps"
 	"math"
 	"regexp"
 	"strings"
@@ -25,15 +26,29 @@ type EmbedFunc func(ctx context.Context, texts []string) ([][]float32, error)
 
 // DistillationInput contains the minimum envelope for candidate belief extraction.
 type DistillationInput struct {
-	Episode Episode        `json:"episode"`
-	Lesson  string         `json:"lesson,omitempty"`
-	Summary string         `json:"summary,omitempty"`
-	Signals map[string]any `json:"signals,omitempty"`
+	Episode        Episode        `json:"episode"`
+	UserRequest    string         `json:"userRequest,omitempty"`
+	FinalAnswer    string         `json:"finalAnswer,omitempty"`
+	Lesson         string         `json:"lesson,omitempty"`
+	Summary        string         `json:"summary,omitempty"`
+	ToolSummary    string         `json:"toolSummary,omitempty"`
+	ReasoningTrace []string       `json:"reasoningTrace,omitempty"`
+	Signals        map[string]any `json:"signals,omitempty"`
 }
 
 // Distiller extracts candidate beliefs from episodes and evidence.
 type Distiller interface {
 	Distill(ctx context.Context, input DistillationInput) ([]Candidate, error)
+}
+
+type DistillationResult struct {
+	Candidates []Candidate
+	Audit      []CandidateRecord
+	RawPayload string
+}
+
+type AuditDistiller interface {
+	DistillWithAudit(ctx context.Context, input DistillationInput) (DistillationResult, error)
 }
 
 // NoopDistiller is used while belief distillation is disabled or unconfigured.
@@ -67,6 +82,10 @@ func (d SimpleDistiller) Distill(ctx context.Context, input DistillationInput) (
 	candidate := Candidate{
 		Statement:     statement,
 		StatementHash: StatementHash(statement),
+		Kind:          BeliefKindFact,
+		Enforcement:   EnforcementNone,
+		SourceQuality: confidence,
+		ReviewState:   ReviewStateAutoActive,
 		Confidence:    confidence,
 		Polarity:      polarity,
 		EvidenceNote:  evidenceNote(episode),
@@ -109,7 +128,7 @@ func firstMeaningfulSentence(text string) string {
 	if text == "" {
 		return ""
 	}
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		line = strings.TrimSpace(strings.TrimLeft(line, "-*•0123456789. )\t"))
 		if len([]rune(line)) < 24 {
 			continue
@@ -188,6 +207,10 @@ func ApplyCandidates(ctx context.Context, store Store, episode Episode, candidat
 	return applied, nil
 }
 
+func ApplyCandidate(ctx context.Context, store Store, episode Episode, candidate Candidate) (Belief, error) {
+	return applyCandidate(ctx, store, episode, candidate)
+}
+
 func applyCandidate(ctx context.Context, store Store, episode Episode, candidate Candidate) (Belief, error) {
 	candidate.Statement = NormalizeStatement(candidate.Statement)
 	if candidate.Statement == "" || strings.TrimSpace(episode.ScopeID) == "" {
@@ -197,7 +220,11 @@ func applyCandidate(ctx context.Context, store Store, episode Episode, candidate
 		candidate.StatementHash = StatementHash(candidate.Statement)
 	}
 	candidate.Polarity = normalizeCandidatePolarity(candidate.Polarity)
+	candidate.Kind = NormalizeBeliefKind(candidate.Kind)
+	candidate.Enforcement = NormalizeEnforcement(candidate.Enforcement)
+	candidate.ReviewState = NormalizeReviewState(candidate.ReviewState)
 	candidate.Confidence = clampConfidence(candidate.Confidence)
+	candidate.SourceQuality = clampConfidence(candidate.SourceQuality)
 
 	existing, ok, err := findExistingBelief(ctx, store, episode, candidate)
 	if err != nil {
@@ -253,6 +280,10 @@ func mergeCandidateBelief(existing Belief, ok bool, episode Episode, candidate C
 			ScopeID:       episode.ScopeID,
 			Statement:     candidate.Statement,
 			StatementHash: candidate.StatementHash,
+			Kind:          candidate.Kind,
+			Enforcement:   candidate.Enforcement,
+			SourceQuality: candidate.SourceQuality,
+			ReviewState:   candidate.ReviewState,
 			Status:        BeliefStatusActive,
 			Metadata:      map[string]any{},
 		}
@@ -261,6 +292,12 @@ func mergeCandidateBelief(existing Belief, ok bool, episode Episode, candidate C
 	item.ScopeID = episode.ScopeID
 	item.Statement = candidate.Statement
 	item.StatementHash = candidate.StatementHash
+	if !(ok && candidate.Kind == BeliefKindFact && item.Kind != "") {
+		item.Kind = candidate.Kind
+	}
+	item.Enforcement = strongestEnforcement(item.Enforcement, candidate.Enforcement)
+	item.SourceQuality = math.Max(item.SourceQuality, candidate.SourceQuality)
+	item.ReviewState = candidate.ReviewState
 	item.Embedding = append([]float32(nil), candidate.Embedding...)
 	item.Status = BeliefStatusActive
 	item.LastObserved = &now
@@ -273,6 +310,21 @@ func mergeCandidateBelief(existing Belief, ok bool, episode Episode, candidate C
 	item.EvidenceFor++
 	item.Confidence = increaseConfidence(item.Confidence, candidate.Confidence, ok)
 	return item
+}
+
+func strongestEnforcement(current, candidate EnforcementMode) EnforcementMode {
+	rank := map[EnforcementMode]int{
+		EnforcementNone:           0,
+		EnforcementPrompt:         1,
+		EnforcementSoftPolicy:     2,
+		EnforcementHardConstraint: 3,
+	}
+	current = NormalizeEnforcement(current)
+	candidate = NormalizeEnforcement(candidate)
+	if rank[candidate] > rank[current] {
+		return candidate
+	}
+	return current
 }
 
 func increaseConfidence(current, evidence float64, hasExisting bool) float64 {
@@ -315,9 +367,7 @@ func mergeCandidateMetadata(existing, candidate map[string]any) map[string]any {
 	if out == nil {
 		out = map[string]any{}
 	}
-	for key, value := range candidate {
-		out[key] = value
-	}
+	maps.Copy(out, candidate)
 	return out
 }
 
@@ -326,8 +376,6 @@ func cloneCandidateMetadata(in map[string]any) map[string]any {
 		return nil
 	}
 	out := make(map[string]any, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
+	maps.Copy(out, in)
 	return out
 }

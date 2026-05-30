@@ -24,7 +24,7 @@
   "paths": {
     "/agent/run": {
       "post": {
-        "operationId": "post_agent_run",
+        "operationId": "post_agent__run",
         "parameters": [
           {
             "description": "Force a specific specialist.",
@@ -51,15 +51,6 @@
             "required": false,
             "schema": {
               "type": "string"
-            }
-          },
-          {
-            "description": "Route request through WARPP workflow execution.",
-            "in": "query",
-            "name": "warpp",
-            "required": false,
-            "schema": {
-              "type": "boolean"
             }
           }
         ],
@@ -148,7 +139,7 @@
     },
     "/agent/vision": {
       "post": {
-        "operationId": "post_agent_vision",
+        "operationId": "post_agent__vision",
         "requestBody": {
           "content": {
             "multipart/form-data": {
@@ -307,7 +298,7 @@
     },
     "/api/chat/sessions": {
       "get": {
-        "operationId": "get_api_chat_sessions",
+        "operationId": "get_api__chat__sessions",
         "responses": {
           "200": {
             "content": {
@@ -376,7 +367,7 @@
         ]
       },
       "post": {
-        "operationId": "post_api_chat_sessions",
+        "operationId": "post_api__chat__sessions",
         "requestBody": {
           "content": {
             "application/json": {
@@ -457,7 +448,7 @@
     },
     "/api/chat/sessions/{session_id}": {
       "delete": {
-        "operationId": "delete_api_chat_sessions_session_id",
+        "operationId": "delete_api__chat__sessions__session_id",
         "parameters": [
           {
             "description": "Chat session identifier.",
@@ -530,7 +521,7 @@
         ]
       },
       "get": {
-        "operationId": "get_api_chat_sessions_session_id",
+        "operationId": "get_api__chat__sessions__session_id",
         "parameters": [
           {
             "description": "Chat session identifier.",
@@ -610,7 +601,7 @@
         ]
       },
       "patch": {
-        "operationId": "patch_api_chat_sessions_session_id",
+        "operationId": "patch_api__chat__sessions__session_id",
         "parameters": [
           {
             "description": "Chat session identifier.",
@@ -702,7 +693,7 @@
     },
     "/api/chat/sessions/{session_id}/messages": {
       "delete": {
-        "operationId": "delete_api_chat_sessions_session_id_messages",
+        "operationId": "delete_api__chat__sessions__session_id__messages",
         "parameters": [
           {
             "description": "Chat session identifier.",
@@ -793,7 +784,7 @@
         ]
       },
       "get": {
-        "operationId": "get_api_chat_sessions_session_id_messages",
+        "operationId": "get_api__chat__sessions__session_id__messages",
         "parameters": [
           {
             "description": "Chat session identifier.",
@@ -884,7 +875,7 @@
     },
     "/api/chat/sessions/{session_id}/messages/{message_id}": {
       "delete": {
-        "operationId": "delete_api_chat_sessions_session_id_messages_message_id",
+        "operationId": "delete_api__chat__sessions__session_id__messages__message_id",
         "parameters": [
           {
             "description": "Chat session identifier.",
@@ -968,7 +959,7 @@
     },
     "/api/chat/sessions/{session_id}/title": {
       "post": {
-        "operationId": "post_api_chat_sessions_session_id_title",
+        "operationId": "post_api__chat__sessions__session_id__title",
         "parameters": [
           {
             "description": "Chat session identifier.",
@@ -1060,7 +1051,7 @@
     },
     "/api/config/agentd": {
       "get": {
-        "operationId": "get_api_config_agentd",
+        "operationId": "get_api__config__agentd",
         "responses": {
           "200": {
             "content": {
@@ -1129,7 +1120,7 @@
         ]
       },
       "patch": {
-        "operationId": "patch_api_config_agentd",
+        "operationId": "patch_api__config__agentd",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1208,7 +1199,7 @@
         ]
       },
       "post": {
-        "operationId": "post_api_config_agentd",
+        "operationId": "post_api__config__agentd",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1287,7 +1278,7 @@
         ]
       },
       "put": {
-        "operationId": "put_api_config_agentd",
+        "operationId": "put_api__config__agentd",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1366,9 +1357,241 @@
         ]
       }
     },
+    "/api/constitution/versions": {
+      "get": {
+        "operationId": "get_api__constitution__versions",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericObject"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "List constitution versions",
+        "tags": [
+          "Constitution"
+        ]
+      },
+      "post": {
+        "operationId": "post_api__constitution__versions",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericObject"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericObject"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Create constitution version",
+        "tags": [
+          "Constitution"
+        ]
+      }
+    },
+    "/api/constitution/versions/{id}/activate": {
+      "post": {
+        "operationId": "post_api__constitution__versions__id__activate",
+        "parameters": [
+          {
+            "description": "Resource identifier.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericObject"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Activate constitution version",
+        "tags": [
+          "Constitution"
+        ]
+      }
+    },
     "/api/debug/memory": {
       "get": {
-        "operationId": "get_api_debug_memory",
+        "operationId": "get_api__debug__memory",
         "responses": {
           "200": {
             "content": {
@@ -1439,7 +1662,7 @@
     },
     "/api/debug/memory/entries": {
       "get": {
-        "operationId": "get_api_debug_memory_entries",
+        "operationId": "get_api__debug__memory__entries",
         "parameters": [
           {
             "description": "Session ID to inspect.",
@@ -1530,7 +1753,7 @@
     },
     "/api/debug/memory/evolving": {
       "get": {
-        "operationId": "get_api_debug_memory_evolving",
+        "operationId": "get_api__debug__memory__evolving",
         "responses": {
           "200": {
             "content": {
@@ -1599,9 +1822,109 @@
         ]
       }
     },
+    "/api/debug/memory/explain": {
+      "get": {
+        "operationId": "get_api__debug__memory__explain",
+        "parameters": [
+          {
+            "description": "Memory search query to explain.",
+            "in": "query",
+            "name": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Session ID to inspect.",
+            "in": "query",
+            "name": "session",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "User ID when auth is disabled.",
+            "in": "query",
+            "name": "user",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericObject"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Explain evolving memory search scoring (API alias)",
+        "tags": [
+          "Debug"
+        ]
+      }
+    },
     "/api/debug/memory/plan": {
       "get": {
-        "operationId": "get_api_debug_memory_plan",
+        "operationId": "get_api__debug__memory__plan",
         "parameters": [
           {
             "description": "Session ID to inspect.",
@@ -1683,7 +2006,7 @@
     },
     "/api/debug/memory/sessions": {
       "get": {
-        "operationId": "get_api_debug_memory_sessions",
+        "operationId": "get_api__debug__memory__sessions",
         "responses": {
           "200": {
             "content": {
@@ -1754,7 +2077,7 @@
     },
     "/api/debug/memory/sessions/{session_id}": {
       "get": {
-        "operationId": "get_api_debug_memory_sessions_session_id",
+        "operationId": "get_api__debug__memory__sessions__session_id",
         "parameters": [
           {
             "description": "Chat session identifier.",
@@ -1837,7 +2160,7 @@
     "/api/docs": {
       "get": {
         "description": "Alias of /api-docs.",
-        "operationId": "get_api_docs",
+        "operationId": "get_api__docs",
         "responses": {
           "200": {
             "content": {
@@ -1906,9 +2229,156 @@
         ]
       }
     },
+    "/api/fleet/events": {
+      "get": {
+        "operationId": "get_api__fleet__events",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericObject"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "JSON response by default; SSE when Accept: text/event-stream."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Subscribe to fleet events",
+        "tags": [
+          "Fleet"
+        ]
+      }
+    },
+    "/api/fleet/state": {
+      "get": {
+        "operationId": "get_api__fleet__state",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericObject"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Get current fleet snapshot",
+        "tags": [
+          "Fleet"
+        ]
+      }
+    },
     "/api/flows/v2/run": {
       "post": {
-        "operationId": "post_api_flows_v2_run",
+        "operationId": "post_api__flows__v2__run",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1989,7 +2459,7 @@
     },
     "/api/flows/v2/runs/{run_id}/events": {
       "get": {
-        "operationId": "get_api_flows_v2_runs_run_id_events",
+        "operationId": "get_api__flows__v2__runs__run_id__events",
         "parameters": [
           {
             "description": "Run identifier.",
@@ -2076,7 +2546,7 @@
     },
     "/api/flows/v2/tools": {
       "get": {
-        "operationId": "get_api_flows_v2_tools",
+        "operationId": "get_api__flows__v2__tools",
         "responses": {
           "200": {
             "content": {
@@ -2147,7 +2617,7 @@
     },
     "/api/flows/v2/validate": {
       "post": {
-        "operationId": "post_api_flows_v2_validate",
+        "operationId": "post_api__flows__v2__validate",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2228,7 +2698,7 @@
     },
     "/api/flows/v2/workflows": {
       "get": {
-        "operationId": "get_api_flows_v2_workflows",
+        "operationId": "get_api__flows__v2__workflows",
         "responses": {
           "200": {
             "content": {
@@ -2299,7 +2769,7 @@
     },
     "/api/flows/v2/workflows/{workflow_id}": {
       "delete": {
-        "operationId": "delete_api_flows_v2_workflows_workflow_id",
+        "operationId": "delete_api__flows__v2__workflows__workflow_id",
         "parameters": [
           {
             "description": "Flow workflow identifier.",
@@ -2372,7 +2842,7 @@
         ]
       },
       "get": {
-        "operationId": "get_api_flows_v2_workflows_workflow_id",
+        "operationId": "get_api__flows__v2__workflows__workflow_id",
         "parameters": [
           {
             "description": "Flow workflow identifier.",
@@ -2452,7 +2922,7 @@
         ]
       },
       "put": {
-        "operationId": "put_api_flows_v2_workflows_workflow_id",
+        "operationId": "put_api__flows__v2__workflows__workflow_id",
         "parameters": [
           {
             "description": "Flow workflow identifier.",
@@ -2544,7 +3014,7 @@
     },
     "/api/mcp/oauth/callback": {
       "get": {
-        "operationId": "get_api_mcp_oauth_callback",
+        "operationId": "get_api__mcp__oauth__callback",
         "responses": {
           "200": {
             "content": {
@@ -2615,7 +3085,7 @@
     },
     "/api/mcp/oauth/start": {
       "post": {
-        "operationId": "post_api_mcp_oauth_start",
+        "operationId": "post_api__mcp__oauth__start",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2696,7 +3166,7 @@
     },
     "/api/mcp/servers": {
       "get": {
-        "operationId": "get_api_mcp_servers",
+        "operationId": "get_api__mcp__servers",
         "responses": {
           "200": {
             "content": {
@@ -2765,7 +3235,7 @@
         ]
       },
       "post": {
-        "operationId": "post_api_mcp_servers",
+        "operationId": "post_api__mcp__servers",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2846,7 +3316,7 @@
     },
     "/api/mcp/servers/{name}": {
       "delete": {
-        "operationId": "delete_api_mcp_servers_name",
+        "operationId": "delete_api__mcp__servers__name",
         "parameters": [
           {
             "description": "Resource name.",
@@ -2919,7 +3389,7 @@
         ]
       },
       "put": {
-        "operationId": "put_api_mcp_servers_name",
+        "operationId": "put_api__mcp__servers__name",
         "parameters": [
           {
             "description": "Resource name.",
@@ -3011,7 +3481,7 @@
     },
     "/api/me": {
       "get": {
-        "operationId": "get_api_me",
+        "operationId": "get_api__me",
         "responses": {
           "200": {
             "content": {
@@ -3082,7 +3552,7 @@
     },
     "/api/me/preferences": {
       "get": {
-        "operationId": "get_api_me_preferences",
+        "operationId": "get_api__me__preferences",
         "responses": {
           "200": {
             "content": {
@@ -3151,7 +3621,7 @@
         ]
       },
       "put": {
-        "operationId": "put_api_me_preferences",
+        "operationId": "put_api__me__preferences",
         "requestBody": {
           "content": {
             "application/json": {
@@ -3232,7 +3702,7 @@
     },
     "/api/me/preferences/project": {
       "post": {
-        "operationId": "post_api_me_preferences_project",
+        "operationId": "post_api__me__preferences__project",
         "requestBody": {
           "content": {
             "application/json": {
@@ -3313,7 +3783,7 @@
     },
     "/api/metrics/logs": {
       "get": {
-        "operationId": "get_api_metrics_logs",
+        "operationId": "get_api__metrics__logs",
         "parameters": [
           {
             "description": "Lookback duration.",
@@ -3411,9 +3881,100 @@
         ]
       }
     },
+    "/api/metrics/memory": {
+      "get": {
+        "operationId": "get_api__metrics__memory",
+        "parameters": [
+          {
+            "description": "Lookback duration (e.g. 1h, 24h, 7d).",
+            "in": "query",
+            "name": "window",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Lookback window in seconds.",
+            "in": "query",
+            "name": "windowSeconds",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericObject"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Evolving memory metrics",
+        "tags": [
+          "Metrics"
+        ]
+      }
+    },
     "/api/metrics/tokens": {
       "get": {
-        "operationId": "get_api_metrics_tokens",
+        "operationId": "get_api__metrics__tokens",
         "parameters": [
           {
             "description": "Lookback duration (e.g. 1h, 24h, 7d).",
@@ -3504,7 +4065,7 @@
     },
     "/api/metrics/traces": {
       "get": {
-        "operationId": "get_api_metrics_traces",
+        "operationId": "get_api__metrics__traces",
         "parameters": [
           {
             "description": "Lookback duration.",
@@ -3605,7 +4166,7 @@
     "/api/openapi.json": {
       "get": {
         "description": "Alias of /openapi.json.",
-        "operationId": "get_api_openapi_json",
+        "operationId": "get_api__openapi_json",
         "responses": {
           "200": {
             "content": {
@@ -3676,7 +4237,7 @@
     },
     "/api/projects": {
       "get": {
-        "operationId": "get_api_projects",
+        "operationId": "get_api__projects",
         "responses": {
           "200": {
             "content": {
@@ -3745,7 +4306,7 @@
         ]
       },
       "post": {
-        "operationId": "post_api_projects",
+        "operationId": "post_api__projects",
         "requestBody": {
           "content": {
             "application/json": {
@@ -3826,7 +4387,7 @@
     },
     "/api/projects/{project_id}": {
       "delete": {
-        "operationId": "delete_api_projects_project_id",
+        "operationId": "delete_api__projects__project_id",
         "parameters": [
           {
             "description": "Project identifier.",
@@ -3899,7 +4460,7 @@
         ]
       },
       "get": {
-        "operationId": "get_api_projects_project_id",
+        "operationId": "get_api__projects__project_id",
         "parameters": [
           {
             "description": "Project identifier.",
@@ -3981,13 +4542,22 @@
     },
     "/api/projects/{project_id}/archive": {
       "get": {
-        "operationId": "get_api_projects_project_id_archive",
+        "operationId": "get_api__projects__project_id__archive",
         "parameters": [
           {
             "description": "Project identifier.",
             "in": "path",
             "name": "project_id",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional project subpath (directory or file) to archive.",
+            "in": "query",
+            "name": "path",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -4064,7 +4634,7 @@
     },
     "/api/projects/{project_id}/dirs": {
       "post": {
-        "operationId": "post_api_projects_project_id_dirs",
+        "operationId": "post_api__projects__project_id__dirs",
         "parameters": [
           {
             "description": "Project identifier.",
@@ -4148,7 +4718,7 @@
     },
     "/api/projects/{project_id}/files": {
       "delete": {
-        "operationId": "delete_api_projects_project_id_files",
+        "operationId": "delete_api__projects__project_id__files",
         "parameters": [
           {
             "description": "Project identifier.",
@@ -4230,7 +4800,7 @@
         ]
       },
       "get": {
-        "operationId": "get_api_projects_project_id_files",
+        "operationId": "get_api__projects__project_id__files",
         "parameters": [
           {
             "description": "Project identifier.",
@@ -4320,7 +4890,7 @@
         ]
       },
       "post": {
-        "operationId": "post_api_projects_project_id_files",
+        "operationId": "post_api__projects__project_id__files",
         "parameters": [
           {
             "description": "Project identifier.",
@@ -4431,7 +5001,7 @@
     },
     "/api/projects/{project_id}/move": {
       "post": {
-        "operationId": "post_api_projects_project_id_move",
+        "operationId": "post_api__projects__project_id__move",
         "parameters": [
           {
             "description": "Project identifier.",
@@ -4516,7 +5086,7 @@
     },
     "/api/projects/{project_id}/tree": {
       "get": {
-        "operationId": "get_api_projects_project_id_tree",
+        "operationId": "get_api__projects__project_id__tree",
         "parameters": [
           {
             "description": "Project identifier.",
@@ -4607,7 +5177,7 @@
     },
     "/api/prompt": {
       "post": {
-        "operationId": "post_api_prompt",
+        "operationId": "post_api__prompt",
         "requestBody": {
           "content": {
             "application/json": {
@@ -4693,7 +5263,7 @@
     },
     "/api/runs": {
       "get": {
-        "operationId": "get_api_runs",
+        "operationId": "get_api__runs",
         "responses": {
           "200": {
             "content": {
@@ -4762,9 +5332,91 @@
         ]
       }
     },
+    "/api/runs/{run_id}/timeline": {
+      "get": {
+        "operationId": "get_api__runs__run_id__timeline",
+        "parameters": [
+          {
+            "description": "Run identifier.",
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericObject"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Replayable timeline for a run",
+        "tags": [
+          "Metrics"
+        ]
+      }
+    },
     "/api/specialists": {
       "get": {
-        "operationId": "get_api_specialists",
+        "operationId": "get_api__specialists",
         "responses": {
           "200": {
             "content": {
@@ -4833,7 +5485,7 @@
         ]
       },
       "post": {
-        "operationId": "post_api_specialists",
+        "operationId": "post_api__specialists",
         "requestBody": {
           "content": {
             "application/json": {
@@ -4914,7 +5566,7 @@
     },
     "/api/specialists/defaults": {
       "get": {
-        "operationId": "get_api_specialists_defaults",
+        "operationId": "get_api__specialists__defaults",
         "responses": {
           "200": {
             "content": {
@@ -4985,7 +5637,7 @@
     },
     "/api/specialists/{name}": {
       "delete": {
-        "operationId": "delete_api_specialists_name",
+        "operationId": "delete_api__specialists__name",
         "parameters": [
           {
             "description": "Resource name.",
@@ -5058,7 +5710,7 @@
         ]
       },
       "get": {
-        "operationId": "get_api_specialists_name",
+        "operationId": "get_api__specialists__name",
         "parameters": [
           {
             "description": "Resource name.",
@@ -5138,7 +5790,7 @@
         ]
       },
       "put": {
-        "operationId": "put_api_specialists_name",
+        "operationId": "put_api__specialists__name",
         "parameters": [
           {
             "description": "Resource name.",
@@ -5230,7 +5882,7 @@
     },
     "/api/status": {
       "get": {
-        "operationId": "get_api_status",
+        "operationId": "get_api__status",
         "responses": {
           "200": {
             "content": {
@@ -5301,7 +5953,7 @@
     },
     "/api/teams": {
       "get": {
-        "operationId": "get_api_teams",
+        "operationId": "get_api__teams",
         "responses": {
           "200": {
             "content": {
@@ -5370,7 +6022,7 @@
         ]
       },
       "post": {
-        "operationId": "post_api_teams",
+        "operationId": "post_api__teams",
         "requestBody": {
           "content": {
             "application/json": {
@@ -5451,7 +6103,7 @@
     },
     "/api/teams/{name}": {
       "delete": {
-        "operationId": "delete_api_teams_name",
+        "operationId": "delete_api__teams__name",
         "parameters": [
           {
             "description": "Resource name.",
@@ -5524,7 +6176,7 @@
         ]
       },
       "get": {
-        "operationId": "get_api_teams_name",
+        "operationId": "get_api__teams__name",
         "parameters": [
           {
             "description": "Resource name.",
@@ -5604,7 +6256,7 @@
         ]
       },
       "put": {
-        "operationId": "put_api_teams_name",
+        "operationId": "put_api__teams__name",
         "parameters": [
           {
             "description": "Resource name.",
@@ -5696,7 +6348,7 @@
     },
     "/api/teams/{name}/members/{specialist}": {
       "delete": {
-        "operationId": "delete_api_teams_name_members_specialist",
+        "operationId": "delete_api__teams__name__members__specialist",
         "parameters": [
           {
             "description": "Resource name.",
@@ -5778,7 +6430,7 @@
         ]
       },
       "put": {
-        "operationId": "put_api_teams_name_members_specialist",
+        "operationId": "put_api__teams__name__members__specialist",
         "parameters": [
           {
             "description": "Resource name.",
@@ -5860,9 +6512,264 @@
         ]
       }
     },
+    "/api/trust/budgets": {
+      "get": {
+        "operationId": "get_api__trust__budgets",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericObject"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "List trust budgets",
+        "tags": [
+          "Trust"
+        ]
+      }
+    },
+    "/api/trust/budgets/{name}/refill": {
+      "post": {
+        "operationId": "post_api__trust__budgets__name__refill",
+        "parameters": [
+          {
+            "description": "Resource name.",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericObject"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericObject"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Refill trust budget",
+        "tags": [
+          "Trust"
+        ]
+      }
+    },
+    "/api/trust/budgets/{name}/spend": {
+      "post": {
+        "operationId": "post_api__trust__budgets__name__spend",
+        "parameters": [
+          {
+            "description": "Resource name.",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenericObject"
+              }
+            }
+          },
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericObject"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Spend trust budget",
+        "tags": [
+          "Trust"
+        ]
+      }
+    },
     "/api/users": {
       "get": {
-        "operationId": "get_api_users",
+        "operationId": "get_api__users",
         "responses": {
           "200": {
             "content": {
@@ -5931,7 +6838,7 @@
         ]
       },
       "post": {
-        "operationId": "post_api_users",
+        "operationId": "post_api__users",
         "requestBody": {
           "content": {
             "application/json": {
@@ -6012,7 +6919,7 @@
     },
     "/api/users/{id}": {
       "delete": {
-        "operationId": "delete_api_users_id",
+        "operationId": "delete_api__users__id",
         "parameters": [
           {
             "description": "Resource identifier.",
@@ -6085,7 +6992,7 @@
         ]
       },
       "get": {
-        "operationId": "get_api_users_id",
+        "operationId": "get_api__users__id",
         "parameters": [
           {
             "description": "Resource identifier.",
@@ -6165,7 +7072,7 @@
         ]
       },
       "put": {
-        "operationId": "put_api_users_id",
+        "operationId": "put_api__users__id",
         "parameters": [
           {
             "description": "Resource identifier.",
@@ -6257,7 +7164,7 @@
     },
     "/api/v1/playground/datasets": {
       "get": {
-        "operationId": "get_api_v1_playground_datasets",
+        "operationId": "get_api__v1__playground__datasets",
         "responses": {
           "200": {
             "content": {
@@ -6326,7 +7233,7 @@
         ]
       },
       "post": {
-        "operationId": "post_api_v1_playground_datasets",
+        "operationId": "post_api__v1__playground__datasets",
         "requestBody": {
           "content": {
             "application/json": {
@@ -6407,7 +7314,7 @@
     },
     "/api/v1/playground/datasets/{datasetID}": {
       "delete": {
-        "operationId": "delete_api_v1_playground_datasets_datasetid",
+        "operationId": "delete_api__v1__playground__datasets__datasetid",
         "parameters": [
           {
             "description": "Dataset identifier.",
@@ -6480,7 +7387,7 @@
         ]
       },
       "get": {
-        "operationId": "get_api_v1_playground_datasets_datasetid",
+        "operationId": "get_api__v1__playground__datasets__datasetid",
         "parameters": [
           {
             "description": "Dataset identifier.",
@@ -6560,7 +7467,7 @@
         ]
       },
       "put": {
-        "operationId": "put_api_v1_playground_datasets_datasetid",
+        "operationId": "put_api__v1__playground__datasets__datasetid",
         "parameters": [
           {
             "description": "Dataset identifier.",
@@ -6652,7 +7559,7 @@
     },
     "/api/v1/playground/experiments": {
       "get": {
-        "operationId": "get_api_v1_playground_experiments",
+        "operationId": "get_api__v1__playground__experiments",
         "responses": {
           "200": {
             "content": {
@@ -6721,7 +7628,7 @@
         ]
       },
       "post": {
-        "operationId": "post_api_v1_playground_experiments",
+        "operationId": "post_api__v1__playground__experiments",
         "requestBody": {
           "content": {
             "application/json": {
@@ -6802,7 +7709,7 @@
     },
     "/api/v1/playground/experiments/{experimentID}": {
       "delete": {
-        "operationId": "delete_api_v1_playground_experiments_experimentid",
+        "operationId": "delete_api__v1__playground__experiments__experimentid",
         "parameters": [
           {
             "description": "Experiment identifier.",
@@ -6875,7 +7782,7 @@
         ]
       },
       "get": {
-        "operationId": "get_api_v1_playground_experiments_experimentid",
+        "operationId": "get_api__v1__playground__experiments__experimentid",
         "parameters": [
           {
             "description": "Experiment identifier.",
@@ -6957,7 +7864,7 @@
     },
     "/api/v1/playground/experiments/{experimentID}/runs": {
       "get": {
-        "operationId": "get_api_v1_playground_experiments_experimentid_runs",
+        "operationId": "get_api__v1__playground__experiments__experimentid__runs",
         "parameters": [
           {
             "description": "Experiment identifier.",
@@ -7037,7 +7944,7 @@
         ]
       },
       "post": {
-        "operationId": "post_api_v1_playground_experiments_experimentid_runs",
+        "operationId": "post_api__v1__playground__experiments__experimentid__runs",
         "parameters": [
           {
             "description": "Experiment identifier.",
@@ -7119,7 +8026,7 @@
     },
     "/api/v1/playground/prompts": {
       "get": {
-        "operationId": "get_api_v1_playground_prompts",
+        "operationId": "get_api__v1__playground__prompts",
         "parameters": [
           {
             "description": "Prompt search query.",
@@ -7226,7 +8133,7 @@
         ]
       },
       "post": {
-        "operationId": "post_api_v1_playground_prompts",
+        "operationId": "post_api__v1__playground__prompts",
         "requestBody": {
           "content": {
             "application/json": {
@@ -7307,7 +8214,7 @@
     },
     "/api/v1/playground/prompts/{promptID}": {
       "delete": {
-        "operationId": "delete_api_v1_playground_prompts_promptid",
+        "operationId": "delete_api__v1__playground__prompts__promptid",
         "parameters": [
           {
             "description": "Prompt identifier.",
@@ -7380,7 +8287,7 @@
         ]
       },
       "get": {
-        "operationId": "get_api_v1_playground_prompts_promptid",
+        "operationId": "get_api__v1__playground__prompts__promptid",
         "parameters": [
           {
             "description": "Prompt identifier.",
@@ -7462,7 +8369,7 @@
     },
     "/api/v1/playground/prompts/{promptID}/versions": {
       "get": {
-        "operationId": "get_api_v1_playground_prompts_promptid_versions",
+        "operationId": "get_api__v1__playground__prompts__promptid__versions",
         "parameters": [
           {
             "description": "Prompt identifier.",
@@ -7542,7 +8449,7 @@
         ]
       },
       "post": {
-        "operationId": "post_api_v1_playground_prompts_promptid_versions",
+        "operationId": "post_api__v1__playground__prompts__promptid__versions",
         "parameters": [
           {
             "description": "Prompt identifier.",
@@ -7634,7 +8541,7 @@
     },
     "/api/v1/playground/runs/{runID}/results": {
       "get": {
-        "operationId": "get_api_v1_playground_runs_runid_results",
+        "operationId": "get_api__v1__playground__runs__runid__results",
         "parameters": [
           {
             "description": "Path parameter.",
@@ -7714,477 +8621,9 @@
         ]
       }
     },
-    "/api/warpp/run": {
-      "post": {
-        "operationId": "post_api_warpp_run",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/GenericObject"
-              }
-            }
-          },
-          "required": false
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericObject"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Bad Request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          }
-        },
-        "summary": "Execute WARPP workflow",
-        "tags": [
-          "WARPP"
-        ]
-      }
-    },
-    "/api/warpp/tools": {
-      "get": {
-        "operationId": "get_api_warpp_tools",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericObject"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Bad Request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          }
-        },
-        "summary": "List tool schemas",
-        "tags": [
-          "WARPP"
-        ]
-      }
-    },
-    "/api/warpp/workflows": {
-      "get": {
-        "operationId": "get_api_warpp_workflows",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericObject"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Bad Request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          }
-        },
-        "summary": "List WARPP workflows",
-        "tags": [
-          "WARPP"
-        ]
-      }
-    },
-    "/api/warpp/workflows/{intent}": {
-      "delete": {
-        "operationId": "delete_api_warpp_workflows_intent",
-        "parameters": [
-          {
-            "description": "Workflow intent name.",
-            "in": "path",
-            "name": "intent",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "No Content"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Bad Request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          }
-        },
-        "summary": "Delete WARPP workflow",
-        "tags": [
-          "WARPP"
-        ]
-      },
-      "get": {
-        "operationId": "get_api_warpp_workflows_intent",
-        "parameters": [
-          {
-            "description": "Workflow intent name.",
-            "in": "path",
-            "name": "intent",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericObject"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Bad Request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          }
-        },
-        "summary": "Get WARPP workflow",
-        "tags": [
-          "WARPP"
-        ]
-      },
-      "put": {
-        "operationId": "put_api_warpp_workflows_intent",
-        "parameters": [
-          {
-            "description": "Workflow intent name.",
-            "in": "path",
-            "name": "intent",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/GenericObject"
-              }
-            }
-          },
-          "required": false
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GenericObject"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Bad Request"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Not Found"
-          },
-          "500": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            },
-            "description": "Internal Server Error"
-          }
-        },
-        "summary": "Create/update WARPP workflow",
-        "tags": [
-          "WARPP"
-        ]
-      }
-    },
     "/audio/{filename}": {
       "get": {
-        "operationId": "get_audio_filename",
+        "operationId": "get_audio__filename",
         "parameters": [
           {
             "description": "Relative media filename.",
@@ -8268,7 +8707,7 @@
     "/auth/callback": {
       "get": {
         "description": "OIDC/OAuth2 callback endpoint.",
-        "operationId": "get_auth_callback",
+        "operationId": "get_auth__callback",
         "responses": {
           "302": {
             "description": "Found"
@@ -8333,7 +8772,7 @@
     "/auth/login": {
       "get": {
         "description": "Initiates OIDC/OAuth2 login when auth is configured.",
-        "operationId": "get_auth_login",
+        "operationId": "get_auth__login",
         "responses": {
           "302": {
             "description": "Found"
@@ -8398,7 +8837,7 @@
     "/auth/logout": {
       "get": {
         "description": "Ends local session and may redirect to upstream IdP logout.",
-        "operationId": "get_auth_logout",
+        "operationId": "get_auth__logout",
         "responses": {
           "302": {
             "description": "Found"
@@ -8462,7 +8901,7 @@
     },
     "/debug/memory": {
       "get": {
-        "operationId": "get_debug_memory",
+        "operationId": "get_debug__memory",
         "responses": {
           "200": {
             "content": {
@@ -8533,7 +8972,7 @@
     },
     "/debug/memory/entries": {
       "get": {
-        "operationId": "get_debug_memory_entries",
+        "operationId": "get_debug__memory__entries",
         "parameters": [
           {
             "description": "Session ID to inspect.",
@@ -8624,7 +9063,7 @@
     },
     "/debug/memory/evolving": {
       "get": {
-        "operationId": "get_debug_memory_evolving",
+        "operationId": "get_debug__memory__evolving",
         "responses": {
           "200": {
             "content": {
@@ -8693,9 +9132,109 @@
         ]
       }
     },
+    "/debug/memory/explain": {
+      "get": {
+        "operationId": "get_debug__memory__explain",
+        "parameters": [
+          {
+            "description": "Memory search query to explain.",
+            "in": "query",
+            "name": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Session ID to inspect.",
+            "in": "query",
+            "name": "session",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "User ID when auth is disabled.",
+            "in": "query",
+            "name": "user",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenericObject"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Explain evolving memory search scoring",
+        "tags": [
+          "Debug"
+        ]
+      }
+    },
     "/debug/memory/plan": {
       "get": {
-        "operationId": "get_debug_memory_plan",
+        "operationId": "get_debug__memory__plan",
         "parameters": [
           {
             "description": "Session ID to inspect.",
@@ -8777,7 +9316,7 @@
     },
     "/debug/memory/sessions": {
       "get": {
-        "operationId": "get_debug_memory_sessions",
+        "operationId": "get_debug__memory__sessions",
         "responses": {
           "200": {
             "content": {
@@ -8848,7 +9387,7 @@
     },
     "/debug/memory/sessions/{session_id}": {
       "get": {
-        "operationId": "get_debug_memory_sessions_session_id",
+        "operationId": "get_debug__memory__sessions__session_id",
         "parameters": [
           {
             "description": "Chat session identifier.",
@@ -9230,7 +9769,7 @@
   "servers": [
     {
       "description": "Primary Manifold API server",
-      "url": "http://localhost:32180"
+      "url": "http:/localhost:32180"
     }
   ],
   "tags": [
@@ -9273,10 +9812,6 @@
     {
       "description": "Model Context Protocol server management APIs.",
       "name": "MCP"
-    },
-    {
-      "description": "Workflow (WARPP) APIs.",
-      "name": "WARPP"
     },
     {
       "description": "Flow v2 APIs.",

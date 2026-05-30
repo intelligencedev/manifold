@@ -20,7 +20,7 @@ When ReMem is enabled, a short memory-preparation loop runs before the main agen
 - ExpRAG: embedding-based experience retrieval.
 - Hybrid retrieval: pgvector nearest-neighbor search plus PostgreSQL full-text keyword search when the Postgres store is available.
 - Ranking: dense similarity blended with recency decay, structured feedback quality, access-count boost, and MMR diversification.
-- Memory types: `factual`, `procedural`, and `episodic`.
+- Memory types: `factual`, `procedural`, and `episodic`; procedural detection considers the task, output, summary, and strategy card.
 - Strategy cards: compact reusable strategies generated for non-trivial ReMem traces.
 - Scope promotion: successful procedural memories can be promoted from `session` scope to `user` scope after repeated retrieval.
 - Smart pruning: duplicate merge and relevance-based pruning, while protecting frequently reused successful memories.
@@ -91,11 +91,20 @@ embedding:
   apiKey: "${EMBED_API_KEY}"
   apiHeader: Authorization
   headers: {}
+  instructions:
+    mode: auto
+    format: qwen
+    defaultQuery: ""
+    ragQuery: ""
+    evolvingMemoryQuery: ""
+    transitQuery: ""
   path: /v1/embeddings
   timeoutSeconds: 30
 ```
 
 The Postgres memory store creates an `embedding_vec vector(N)` column when `databases.vector.dimensions` is set. Keep that dimension aligned with the configured embedding model.
+
+For instruction-aware embedding models such as Qwen3 Embedding, `embedding.instructions.mode: auto` applies an English query-side instruction to evolving-memory search queries when the configured model name looks like Qwen3. Stored memory embeddings remain based on the raw retrieval text recipe, so enabling query instructions does not require a vector backfill.
 
 ### Postgres Persistence
 
@@ -137,6 +146,7 @@ Relevant migration files:
 | `topK` | `4` | Number of memories injected for a task after ranking and MMR diversification. |
 | `windowSize` | `20` | Size of the ExpRecent sliding window used for recent experience context. |
 | `enableRAG` | `false` unless configured | Enables embedding-based retrieval. Requires a working embedding service. |
+| `embedding.instructions.evolvingMemoryQuery` | built-in when Qwen auto-match applies | Optional query-side embedding instruction for evolving-memory retrieval. |
 | `reMemEnabled` | `false` | Enables the ReMem memory-preparation loop before the main agent run. |
 | `maxInnerSteps` | `5` | Maximum ReMem THINK/REFINE iterations before forcing ACT. `3` is a good operational default. |
 | `enableSmartPrune` | `false` | Enables duplicate merging and relevance-based pruning. |
@@ -150,13 +160,17 @@ Internally, retrieval also uses ranking weights and an MMR lambda. These are cur
 
 ## Retrieval and Ranking
 
-When `enableRAG` is enabled, the engine embeds the current task and searches memory.
+When `enableRAG` is disabled, the engine does not call the embedding service for evolving memory. It still stores text memories and can inject the ExpRecent sliding window, but semantic/vector retrieval is skipped.
+
+When `enableRAG` is enabled, the engine embeds the current task and searches memory. Query-side embedding instructions are applied according to `embedding.instructions`; new memories are still embedded from retrieval-oriented text that combines the task, outcome, distilled summary, strategy card, and result text so the reusable lesson can be found even when the future request is phrased differently.
 
 With Postgres persistence, search uses:
 
 - pgvector cosine search against `embedding_vec`
-- full-text keyword search over `input`, `summary`, and `strategy_card`
+- full-text keyword search over `input`, `output`, `feedback`, `summary`, and `strategy_card`
 - reciprocal-rank fusion when both search modes return candidates
+
+If query embedding fails but keyword candidates are available, search falls back to keyword results. If write-time embedding fails, the text memory is still stored with embedding diagnostics in metadata and can be found by keyword search or included through ExpRecent.
 
 Candidates are then rescored using:
 
@@ -167,6 +181,8 @@ Candidates are then rescored using:
 - MMR diversification to avoid returning several near-identical memories
 
 Search updates access counters asynchronously. Repeated successful procedural memories can move from `session` scope to `user` scope so they are available across that user's future sessions.
+
+Existing rows can be backfilled with the current retrieval-text recipe through `EvolvingMemory.RebuildEmbeddings`.
 
 ## Memory Entry Shape
 
@@ -241,6 +257,8 @@ The debug handler is available at both `/debug/memory` and `/api/debug/memory`.
 | `GET /api/debug/memory/plan` | Shows the derived chat memory budget plan. |
 | `GET /api/debug/memory/evolving?session_id=...&query=...` | Shows evolving-memory state, recent window, and optional retrieved memories. |
 | `GET /api/debug/memory/explain?session_id=...&query=...` | Shows ranking components for retrieved memories. |
+
+The evolving debug response includes `enableRAG` plus search diagnostics such as retrieval mode (`vector`, `keyword`, `hybrid`, `recent`, or `disabled`), candidate counts, server-side vector usage, keyword-store usage, and embedding errors.
 
 When auth is enabled, these endpoints require the current authenticated user and use that user's memory namespace.
 

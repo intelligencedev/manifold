@@ -39,16 +39,13 @@ func (e *Engine) enforceContextBudget(ctx context.Context, msgs []llm.Message) [
 		reserve = ctxSize / 2
 	}
 
-	// Per-message rune cap derived from the configured summary chunk size.
-	// Falls back to a generous default so well-behaved messages are not
-	// touched.
 	perMsgRunes := budget.DefaultPerMsgRunes
 	if e.SummaryMaxSummaryChunkTokens > 0 {
 		perMsgRunes = e.SummaryMaxSummaryChunkTokens * 4
 	}
 
 	before := budget.EstimateTokens(msgs)
-	out := budget.Fit(msgs, ctxSize, reserve, perMsgRunes)
+	out := budget.FitWithProtectedPrefix(msgs, cacheBoundaryPrefixEnd(msgs), ctxSize, reserve, perMsgRunes)
 	after := budget.EstimateTokens(out)
 
 	if after < before {

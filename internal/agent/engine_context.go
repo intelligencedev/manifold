@@ -12,7 +12,12 @@ import (
 	"time"
 )
 
+const maxEvolvingMemoryContextChars = 12000
+
 func (e *Engine) augmentWithMemory(ctx context.Context, userInput string, msgs []llm.Message) []llm.Message {
+	if e == nil || e.DisableEvolvingMemory || e.EvolvingMemory == nil {
+		return msgs
+	}
 	log := observability.LoggerWithTrace(ctx)
 
 	log.Info().Str("user_input", userInput).Msg("evolving_memory_augment_triggered")
@@ -37,15 +42,15 @@ func (e *Engine) augmentWithMemory(ctx context.Context, userInput string, msgs [
 	if e.EvolvingMemory != nil {
 		log.Debug().Msg("evolving_memory_search_starting")
 		var (
-			retrieved     []*memory.MemoryEntry
+			retrieved     []memory.ScoredMemoryEntry
 			recentContext string
+			diagnostics   memory.SearchDiagnostics
 			wg            sync.WaitGroup
 		)
 
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			res, err := e.EvolvingMemory.Search(ctx, userInput)
+		wg.Go(func() {
+			res, diag, err := e.EvolvingMemory.SearchWithDiagnostics(ctx, userInput)
+			diagnostics = diag
 			if err != nil {
 				log.Error().Err(err).Str("query", userInput).Msg("evolving_memory_search_failed")
 				return
@@ -56,7 +61,7 @@ func (e *Engine) augmentWithMemory(ctx context.Context, userInput string, msgs [
 				return
 			}
 			log.Debug().Str("query", userInput).Msg("evolving_memory_search_no_results")
-		}()
+		})
 
 		log.Debug().Msg("evolving_memory_exprecent_starting")
 		recentContext = e.EvolvingMemory.BuildExpRecentContext()
@@ -68,10 +73,11 @@ func (e *Engine) augmentWithMemory(ctx context.Context, userInput string, msgs [
 
 		wg.Wait()
 		if len(retrieved) > 0 {
-			memoryContext = e.EvolvingMemory.Synthesize(ctx, userInput, retrieved)
-			log.Info().Int("retrieved", len(retrieved)).Int("context_len", len(memoryContext)).Msg("evolving_memory_exprag_synthesized")
+			memoryContext = e.EvolvingMemory.SynthesizeScored(ctx, userInput, retrieved)
+			log.Info().Int("retrieved", len(retrieved)).Int("context_len", len(memoryContext)).Str("mode", diagnostics.Mode).Msg("evolving_memory_exprag_synthesized")
 		} else if recentContext != "" {
 			memoryContext = recentContext
+			diagnostics.Mode = "recent"
 		}
 	}
 
@@ -80,16 +86,24 @@ func (e *Engine) augmentWithMemory(ctx context.Context, userInput string, msgs [
 		return msgs
 	}
 
-	log.Info().Int("context_len", len(memoryContext)).Int("orig_msgs", len(msgs)).Msg("evolving_memory_prepending_to_user")
+	log.Info().Int("context_len", len(memoryContext)).Int("orig_msgs", len(msgs)).Msg("evolving_memory_adding_runtime_context")
 
-	msgs = PrependToCurrentUserMessage(msgs, "## Relevant Context from Past Interactions\n\n"+memoryContext)
+	memoryContext = capEvolvingMemoryContext(memoryContext)
+	msgs = AddRuntimeContextToCurrentUserMessage(msgs, "## Relevant Context from Past Interactions\n\n"+memoryContext)
 
 	log.Info().Int("msgs_count", len(msgs)).Msg("evolving_memory_augmentation_complete")
 	return msgs
 }
 
+func capEvolvingMemoryContext(memoryContext string) string {
+	if len(memoryContext) <= maxEvolvingMemoryContextChars {
+		return memoryContext
+	}
+	return memoryContext[:maxEvolvingMemoryContextChars] + "\n\n[Additional memory context omitted due to prompt budget.]\n"
+}
+
 func (e *Engine) augmentWithBeliefMemory(ctx context.Context, userInput string, msgs []llm.Message) []llm.Message {
-	if e == nil || e.BeliefRetriever == nil {
+	if e == nil || e.DisableBeliefMemory || e.BeliefRetriever == nil {
 		return msgs
 	}
 	objectiveID := strings.TrimSpace(e.ObjectiveID)
@@ -99,14 +113,16 @@ func (e *Engine) augmentWithBeliefMemory(ctx context.Context, userInput string, 
 	log := observability.LoggerWithTrace(ctx)
 	startedAt := time.Now()
 	results, err := e.BeliefRetriever.Retrieve(ctx, belief.RetrievalRequest{
-		TenantID:    e.UserID,
-		UserID:      e.UserID,
-		ProjectID:   e.ProjectID,
-		ObjectiveID: objectiveID,
-		SessionID:   e.SessionID,
-		Role:        e.AgentRole,
-		Query:       userInput,
-		Limit:       e.BeliefMaxBeliefsPerPrompt,
+		TenantID:              e.UserID,
+		UserID:                e.UserID,
+		ProjectID:             e.ProjectID,
+		ObjectiveID:           objectiveID,
+		SessionID:             e.SessionID,
+		Role:                  e.AgentRole,
+		Query:                 userInput,
+		Limit:                 e.BeliefMaxBeliefsPerPrompt,
+		MinConfidence:         e.BeliefRetrievalMinConfidence,
+		IncludeContradictions: e.BeliefIncludeContradictions,
 	})
 	latency := time.Since(startedAt)
 	if err != nil {
@@ -129,8 +145,8 @@ func (e *Engine) augmentWithBeliefMemory(ctx context.Context, userInput string, 
 		Int("selected_rag", ragSelected).
 		Int("overflow", len(contextBlock.Overflow)).
 		Int("tokens", contextBlock.TokenEstimate).
-		Msg("belief_memory_prepending_to_user")
-	return PrependToCurrentUserMessage(msgs, contextBlock.Text)
+		Msg("belief_memory_adding_runtime_context")
+	return AddRuntimeContextToCurrentUserMessage(msgs, contextBlock.Text)
 }
 
 func countBySource(results []belief.SearchResult) (beliefCount, ragCount int) {
@@ -150,7 +166,7 @@ func countBySource(results []belief.SearchResult) (beliefCount, ragCount int) {
 }
 
 func (e *Engine) augmentWithPolicyContext(ctx context.Context, _ string, msgs []llm.Message) []llm.Message {
-	if e == nil || e.PolicyEnforcer == nil {
+	if e == nil || e.DisableBeliefMemory || e.PolicyEnforcer == nil {
 		return msgs
 	}
 	provider, ok := e.PolicyEnforcer.(policy.ContextProvider)
@@ -172,8 +188,8 @@ func (e *Engine) augmentWithPolicyContext(ctx context.Context, _ string, msgs []
 	if strings.TrimSpace(section) == "" {
 		return msgs
 	}
-	observability.LoggerWithTrace(ctx).Info().Int("policy_context_items", len(records)).Msg("policy_prompt_context_prepended_to_user")
-	return PrependToCurrentUserMessage(msgs, section)
+	observability.LoggerWithTrace(ctx).Info().Int("policy_context_items", len(records)).Msg("policy_prompt_context_added_runtime_context")
+	return AddRuntimeContextToCurrentUserMessage(msgs, section)
 }
 
 // runWithReMem executes the Think-Act-Refine pre-processing, then continues with the main agent loop.

@@ -52,7 +52,7 @@ mcp:
 
 - If you use Docker-based stdio servers, make sure the `manifold` container can reach the Docker socket. The included compose file already mounts `/var/run/docker.sock` into the `manifold` service.
 - Path-dependent MCP servers rely on the active project workspace path under `WORKDIR`.
-- Skills follow the same project boundary: agents only load skills from `.skills/` inside the active project root.
+- Project skills load from `skills/` inside the active project root. Universal read-only skills load from `$HOME/.manifold/skills` and `$HOME/.agents/skills` through dedicated skill tools, without widening normal file tool access.
 - If auth is disabled, MCP servers are typically shared across the process.
 - If auth is enabled and `pathDependent: true` is set, Manifold can instantiate per-user servers tied to the active project.
 

@@ -74,7 +74,6 @@ func clipOverlapTail(chunk string, want int, unit Unit, tok Tokenizer) string {
 	if want >= n {
 		return chunk
 	}
-	// get byte index where last want runes start
 	// compute forward to reduce complexity
 	var idxs []int
 	idxs = make([]int, 0, n+1)
@@ -225,10 +224,7 @@ func (s *rollingSentenceSplitter) Split(text string) []string {
 	}
 	var out []string
 	for i := 0; i < len(ss); i += step {
-		j := i + n
-		if j > len(ss) {
-			j = len(ss)
-		}
+		j := min(i+n, len(ss))
 		if i >= j {
 			break
 		}

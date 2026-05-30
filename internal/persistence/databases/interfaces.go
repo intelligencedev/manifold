@@ -6,6 +6,7 @@ import (
 
 	"manifold/internal/agent/belief"
 	"manifold/internal/agent/memory"
+	"manifold/internal/durable"
 	"manifold/internal/persistence"
 	"manifold/internal/transit"
 )
@@ -68,6 +69,7 @@ type Manager struct {
 	EvolvingMemory     memory.EvolvingMemoryStore
 	Playground         *PlaygroundStore
 	FlowV2             persistence.FlowV2WorkflowStore
+	Durable            durable.Store
 	MCP                persistence.MCPStore
 	Projects           persistence.ProjectsStore
 	UserPreferences    persistence.UserPreferencesStore
@@ -86,7 +88,9 @@ func (m Manager) Close() {
 	closeIfPossible(m.SpecialistActivity)
 	closeIfPossible(m.EvolvingMemory)
 	closeIfPossible(m.Playground)
+	closeIfPossible(m.FlowV2)
 	closeIfPossible(m.MCP)
+	closeIfPossible(m.Durable)
 	closeIfPossible(m.Projects)
 	closeIfPossible(m.UserPreferences)
 	closeIfPossible(m.Pulse)

@@ -21,66 +21,75 @@ func (e *Engine) maybeSummarize(ctx context.Context, msgs []llm.Message) []llm.M
 		return msgs
 	}
 
-	// Determine context window size
-	ctxSize := e.ContextWindowTokens
-	if ctxSize <= 0 {
-		if sz, _ := llm.ContextSize(e.model()); sz > 0 {
-			ctxSize = sz
+	cfg := e.summaryBudget()
+	inputTokens := e.countMessagesTokens(ctx, msgs)
+	if inputTokens <= cfg.tokenBudget {
+		return msgs
+	}
+	logSummarizationTriggered(ctx, msgs, inputTokens, cfg)
+
+	start := cacheBoundaryPrefixEnd(msgs)
+	prefix := make([]llm.Message, start)
+	copy(prefix, msgs[:start])
+	recent := e.recentSummaryTail(ctx, msgs, start, cfg)
+	cutIndex := e.summaryCutIndex(msgs, start, recent)
+	recent = msgs[cutIndex:]
+	toSummarize := msgs[start:cutIndex]
+	if len(toSummarize) == 0 {
+		return msgs
+	}
+	e.emitSummaryTriggered(inputTokens, cfg.tokenBudget, len(msgs), len(toSummarize))
+	return e.buildSummarizedMessages(ctx, prefix, toSummarize, recent, len(recent))
+}
+
+type summaryBudget struct {
+	contextSize   int
+	reserveBuffer int
+	tokenBudget   int
+	minTail       int
+}
+
+func (e *Engine) summaryBudget() summaryBudget {
+	contextSize := e.ContextWindowTokens
+	if contextSize <= 0 {
+		if size, _ := llm.ContextSize(e.model()); size > 0 {
+			contextSize = size
 		}
 	}
-	if ctxSize <= 0 {
-		ctxSize = 128_000 // Conservative default for modern models
+	if contextSize <= 0 {
+		contextSize = 128_000
 	}
-
-	// Reserve buffer for output tokens (including reasoning tokens for reasoning models)
-	// OpenAI recommends ~25,000 when experimenting with reasoning models
 	reserveBuffer := e.SummaryReserveBufferTokens
 	if reserveBuffer <= 0 {
 		reserveBuffer = 25_000
 	}
-
 	minTail := e.SummaryMinKeepLastMessages
 	if minTail <= 0 {
 		minTail = 4
 	}
-
-	// Calculate available budget for input
-	tokenBudget := ctxSize - reserveBuffer
+	tokenBudget := contextSize - reserveBuffer
 	if tokenBudget <= 0 {
-		tokenBudget = ctxSize / 2 // Fallback if reserve is too large
+		tokenBudget = contextSize / 2
 	}
+	return summaryBudget{contextSize: contextSize, reserveBuffer: reserveBuffer, tokenBudget: tokenBudget, minTail: minTail}
+}
 
-	// Count actual input tokens
-	inputTokens := e.countMessagesTokens(ctx, msgs)
-	if inputTokens <= tokenBudget {
-		// No summarization needed; fits within budget
-		return msgs
-	}
-
-	log := observability.LoggerWithTrace(ctx)
-	log.Info().
+func logSummarizationTriggered(ctx context.Context, msgs []llm.Message, inputTokens int, cfg summaryBudget) {
+	observability.LoggerWithTrace(ctx).Info().
 		Int("messages", len(msgs)).
 		Int("input_tokens", inputTokens).
-		Int("token_budget", tokenBudget).
-		Int("context_window", ctxSize).
-		Int("reserve_buffer", reserveBuffer).
+		Int("token_budget", cfg.tokenBudget).
+		Int("context_window", cfg.contextSize).
+		Int("reserve_buffer", cfg.reserveBuffer).
 		Msg("summarization_triggered")
+}
 
-	// Preserve leading system message if present
-	start := 0
-	var sysMsg *llm.Message
-	if msgs[0].Role == "system" {
-		sysMsg = &msgs[0]
-		start = 1
-	}
-
-	// Work backwards from the end, keeping as many recent messages as will fit
-	// in roughly half the budget (leaving room for system prompt, tools, and summary)
+func (e *Engine) recentSummaryTail(ctx context.Context, msgs []llm.Message, start int, cfg summaryBudget) []llm.Message {
 	recent := make([]llm.Message, 0, len(msgs))
-	remaining := tokenBudget / 2
+	remaining := cfg.tokenBudget / 2
 	for i := len(msgs) - 1; i >= start; i-- {
 		msgTokens := e.countTokens(ctx, msgs[i].Content)
-		if len(recent) >= minTail && remaining-msgTokens <= 0 {
+		if len(recent) >= cfg.minTail && remaining-msgTokens <= 0 {
 			break
 		}
 		recent = append(recent, msgs[i])
@@ -89,35 +98,26 @@ func (e *Engine) maybeSummarize(ctx context.Context, msgs []llm.Message) []llm.M
 			break
 		}
 	}
+	reverseMessages(recent)
+	return recent
+}
 
-	// Restore chronological order (we appended in reverse)
-	for i, j := 0, len(recent)-1; i < j; i, j = i+1, j-1 {
-		recent[i], recent[j] = recent[j], recent[i]
+func reverseMessages(msgs []llm.Message) {
+	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
+		msgs[i], msgs[j] = msgs[j], msgs[i]
 	}
+}
 
-	// Everything between start and the beginning of recent becomes summary input
-	cutIndex := len(msgs) - len(recent)
-	if cutIndex < start {
-		cutIndex = start
-	}
+func (e *Engine) summaryCutIndex(msgs []llm.Message, start int, recent []llm.Message) int {
+	cutIndex := max(len(msgs)-len(recent), start)
 	cutIndex = e.adjustCutIndexForToolDeps(msgs, start, cutIndex)
-	cutIndex = e.adjustCutIndexForLatestUser(msgs, start, cutIndex)
-	if cutIndex < start {
-		cutIndex = start
-	}
-	// If we adjusted the cut index, expand the recent tail to keep message order.
-	recent = msgs[cutIndex:]
-	toSummarize := msgs[start:cutIndex]
-	if len(toSummarize) == 0 {
-		return msgs
-	}
+	return max(e.adjustCutIndexForLatestUser(msgs, start, cutIndex), start)
+}
 
-	// Notify callback that summarization is occurring
+func (e *Engine) emitSummaryTriggered(inputTokens, tokenBudget, messageCount, summarizeCount int) {
 	if e.OnSummaryTriggered != nil {
-		e.OnSummaryTriggered(inputTokens, tokenBudget, len(msgs), len(toSummarize))
+		e.OnSummaryTriggered(inputTokens, tokenBudget, messageCount, summarizeCount)
 	}
-
-	return e.buildSummarizedMessages(ctx, sysMsg, toSummarize, recent, len(recent))
 }
 
 // adjustCutIndexForToolDeps ensures that if the kept "recent" tail includes any
@@ -195,10 +195,10 @@ func (e *Engine) adjustCutIndexForLatestUser(msgs []llm.Message, start, cutIndex
 }
 
 // buildSummarizedMessages constructs a summary prompt, calls the LLM, and
-// returns the new message list (system + [summary] + recent).
+// returns the new message list (static prefix + [summary] + recent).
 func (e *Engine) buildSummarizedMessages(
 	ctx context.Context,
-	sysMsg *llm.Message,
+	prefix []llm.Message,
 	toSummarize []llm.Message,
 	recent []llm.Message,
 	keep int,
@@ -234,16 +234,18 @@ func (e *Engine) buildSummarizedMessages(
 	sumMsg, err := e.LLM.Chat(ctx, summReq, nil, e.model())
 	if err != nil {
 		observability.LoggerWithTrace(ctx).Error().Err(err).Msg("summary_failed")
-		return append([]llm.Message{}, append(toSummarize, recent...)...)
+		newMsgs := make([]llm.Message, 0, len(prefix)+len(toSummarize)+len(recent))
+		newMsgs = append(newMsgs, prefix...)
+		newMsgs = append(newMsgs, toSummarize...)
+		newMsgs = append(newMsgs, recent...)
+		return newMsgs
 	}
 
 	summaryContent := "[SUMMARY] " + strings.TrimSpace(sumMsg.Content)
 	summary := llm.Message{Role: "assistant", Content: summaryContent}
 
-	newMsgs := make([]llm.Message, 0, 1+keep+2)
-	if sysMsg != nil {
-		newMsgs = append(newMsgs, *sysMsg)
-	}
+	newMsgs := make([]llm.Message, 0, len(prefix)+keep+2)
+	newMsgs = append(newMsgs, prefix...)
 	newMsgs = append(newMsgs, summary)
 	newMsgs = append(newMsgs, recent...)
 
@@ -254,4 +256,4 @@ func (e *Engine) buildSummarizedMessages(
 	return newMsgs
 }
 
-// augmentWithMemory appends evolving memory context to the system prompt (ExpRAG or ExpRecent).
+// augmentWithMemory appends evolving memory context to the current request (ExpRAG or ExpRecent).

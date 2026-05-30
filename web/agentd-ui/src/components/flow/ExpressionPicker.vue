@@ -3,7 +3,7 @@
     <div
       v-if="open"
       ref="pickerEl"
-      class="expression-picker fixed z-[9999] w-72 max-h-72 overflow-y-auto rounded-lg border border-border/70 bg-surface shadow-xl text-[11px]"
+      class="expression-picker fixed z-[9999] w-72 max-h-72 overflow-y-auto rounded-lg border border-border/70 bg-surface text-[11px]"
       :style="floatingStyle"
       @mousedown.stop
       @pointerdown.stop

@@ -3,6 +3,7 @@ package belief
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -34,6 +35,17 @@ type PromotionPolicy struct {
 	ScopeWideningDecay   float64
 	StaleAfter           time.Duration
 	StaleConfidenceDecay float64
+}
+
+type EnforcementPolicy struct {
+	AutoEnable                   bool
+	SoftPolicyThreshold          float64
+	HardConstraintThreshold      float64
+	HardConstraintMinEvidenceFor int
+}
+
+type PolicySink interface {
+	UpsertPolicyForBelief(ctx context.Context, item Belief, promotion Promotion) error
 }
 
 type PromotionRequest struct {
@@ -318,8 +330,6 @@ func graphBeliefProps(item Belief) map[string]any {
 
 func cloneMap(in map[string]any) map[string]any {
 	out := make(map[string]any, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
+	maps.Copy(out, in)
 	return out
 }

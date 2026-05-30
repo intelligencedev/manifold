@@ -10,7 +10,8 @@
           <h1 class="text-xl font-semibold">{{ experiment.name }}</h1>
           <p class="text-sm text-subtle-foreground">
             Dataset: {{ experiment.datasetId }} · Variants:
-            {{ experiment.variants.length }}
+            {{ experiment.variants.length }} · Runner:
+            {{ runnerLabel(experiment.execution) }}
           </p>
         </div>
         <RouterLink
@@ -65,7 +66,7 @@
                 isRunStarting
                   ? "Starting run"
                   : hasActiveRun
-                    ? "Queue another run"
+                    ? "Queue run"
                     : "Start run"
               }}
             </AppButton>
@@ -77,6 +78,7 @@
                   <th class="text-left py-2">Variant</th>
                   <th class="text-left py-2">Prompt Version</th>
                   <th class="text-left py-2">Model</th>
+                  <th class="text-left py-2">Runner</th>
                 </tr>
               </thead>
               <tbody>
@@ -87,7 +89,8 @@
                 >
                   <td class="py-2 font-medium">{{ variant.id }}</td>
                   <td class="py-2">{{ variant.promptVersionId }}</td>
-                  <td class="py-2">{{ variant.model }}</td>
+                  <td class="py-2">{{ variant.model || "—" }}</td>
+                  <td class="py-2">{{ runnerLabel(experiment.execution) }}</td>
                 </tr>
               </tbody>
             </table>
@@ -108,6 +111,7 @@
                 <tr>
                   <th class="text-left py-2">Run</th>
                   <th class="text-left py-2">Status</th>
+                  <th class="text-left py-2">Runner</th>
                   <th class="text-left py-2">Started</th>
                   <th class="text-left py-2">Completed</th>
                 </tr>
@@ -125,12 +129,13 @@
                 >
                   <td class="py-2 font-medium">{{ run.id }}</td>
                   <td class="py-2 capitalize">{{ run.status }}</td>
+                  <td class="py-2">{{ runnerLabel(run.execution) }}</td>
                   <td class="py-2">{{ formatDate(run.startedAt) }}</td>
                   <td class="py-2">{{ formatDate(run.endedAt) }}</td>
                 </tr>
                 <tr v-if="loadingRuns">
                   <td
-                    colspan="4"
+                    colspan="5"
                     class="py-3 text-center text-subtle-foreground"
                   >
                     Loading runs…
@@ -138,7 +143,7 @@
                 </tr>
                 <tr v-else-if="runs.length === 0">
                   <td
-                    colspan="4"
+                    colspan="5"
                     class="py-3 text-center text-subtle-foreground"
                   >
                     No runs yet.
@@ -161,6 +166,22 @@
               </p>
             </div>
             <div class="flex items-center gap-2">
+              <DropdownSelect
+                v-model="exportFormat"
+                aria-label="Export format"
+                size="sm"
+                :options="[
+                  { id: 'json', label: 'JSON', value: 'json' },
+                  { id: 'csv', label: 'CSV', value: 'csv' },
+                ]"
+              />
+              <AppButton
+                @click="exportSelectedRunResults"
+                size="sm"
+                :disabled="runResults.length === 0"
+              >
+                Export
+              </AppButton>
               <AppButton
                 @click="refreshSelectedRunResults"
                 :loading="loadingSelectedRunResults"
@@ -170,6 +191,9 @@
               </AppButton>
             </div>
           </header>
+          <p v-if="exportError" class="text-sm text-danger-foreground">
+            {{ exportError }}
+          </p>
 
           <div class="grid grid-cols-2 gap-3 text-sm">
             <div>
@@ -232,7 +256,7 @@
               <article
                 v-for="result in runResults"
                 :key="result.id"
-                class="rounded-xl border border-border/60 bg-muted/20 p-4 space-y-3"
+                class="rounded-md border border-border/60 bg-muted/20 p-4 space-y-3"
               >
                 <header
                   class="flex flex-wrap items-center justify-between gap-2 text-sm"
@@ -245,6 +269,7 @@
                     <span>Tokens: {{ result.tokens ?? "—" }}</span>
                     <span>Latency: {{ formatLatency(result.latency) }}</span>
                     <span>Provider: {{ result.providerName ?? "—" }}</span>
+                    <span>Runner: {{ runnerLabel(result.execution) }}</span>
                   </div>
                 </header>
                 <div class="grid grid-cols-2 gap-3">
@@ -369,7 +394,7 @@
         @click="closeExpandedText"
       ></div>
       <div
-        class="relative z-10 w-[min(95vw,1100px)] max-w-5xl h-[min(90vh,900px)] max-h-[90vh] rounded-2xl border border-border/70 bg-surface shadow-xl p-4 flex flex-col gap-3"
+        class="relative z-10 w-[min(95vw,1100px)] max-w-5xl h-[min(90vh,900px)] max-h-[90vh] rounded-lg border border-border/70 bg-surface p-4 flex flex-col gap-3"
         role="dialog"
         aria-modal="true"
       >
@@ -391,8 +416,20 @@
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import { onMounted, onBeforeUnmount, ref, watch, computed } from "vue";
 import { usePlaygroundStore } from "@/stores/playground";
-import type { ExperimentSpec, Run, RunResult } from "@/api/playground";
+import type {
+  ExecutionConfig,
+  ExperimentSpec,
+  Run,
+  RunResult,
+} from "@/api/playground";
 import AppButton from "@/components/ui/AppButton.vue";
+import DropdownSelect from "@/components/DropdownSelect.vue";
+import {
+  buildRunExportReport,
+  runExportFilename,
+  serializeRunExportReport,
+  type RunExportFormat,
+} from "@/lib/playgroundRunExport";
 
 const route = useRoute();
 const router = useRouter();
@@ -402,6 +439,8 @@ const experiment = ref<ExperimentSpec | null>(null);
 const runs = ref(store.runsByExperiment[experimentId.value] ?? []);
 const loadingRuns = ref(false);
 const selectedRunId = ref<string | null>(null);
+const exportFormat = ref<RunExportFormat>("json");
+const exportError = ref("");
 
 const selectedRun = computed<Run | null>(() => {
   if (!selectedRunId.value) return null;
@@ -538,6 +577,41 @@ async function refreshSelectedRunResults() {
   }
 }
 
+function exportSelectedRunResults() {
+  exportError.value = "";
+  if (!selectedRun.value) {
+    return;
+  }
+  if (runResults.value.length === 0) {
+    exportError.value = "No run results are available to export.";
+    return;
+  }
+  const report = buildRunExportReport(
+    experiment.value,
+    selectedRun.value,
+    runResults.value,
+  );
+  const content = serializeRunExportReport(report, exportFormat.value);
+  const mime = exportFormat.value === "json" ? "application/json" : "text/csv";
+  downloadTextFile(
+    content,
+    runExportFilename(experiment.value, selectedRun.value, exportFormat.value),
+    mime,
+  );
+}
+
+function downloadTextFile(content: string, filename: string, mime: string) {
+  const blob = new Blob([content], { type: `${mime};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
 function formatLatency(latency?: number) {
   if (!latency || Number.isNaN(latency)) {
     return "—";
@@ -557,6 +631,11 @@ function asPrettyJSON(value: unknown) {
   } catch (err) {
     return String(value);
   }
+}
+
+function runnerLabel(execution?: ExecutionConfig) {
+  const name = execution?.specialistName?.trim();
+  return name ? `Specialist: ${name}` : "Direct LLM";
 }
 
 watch(runs, ensureRunSelection, { immediate: true });

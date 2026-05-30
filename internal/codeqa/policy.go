@@ -40,83 +40,47 @@ func Decide(in DecisionInput) Aggregate {
 		if in.Mode == ModeOptimize {
 			action = ActionRevertCandidate
 		}
-		return Aggregate{
-			QualityDelta: qualityDelta,
-			Confidence:   confidence,
-			HardFailures: hardFailures,
-			Action:       action,
-			Rationale:    "deterministic gates failed",
-		}
+		return decisionAggregate(qualityDelta, confidence, action, "deterministic gates failed", hardFailures)
 	}
 
 	if in.Bundle.Truncated {
-		return Aggregate{
-			QualityDelta: qualityDelta,
-			Confidence:   confidence,
-			Action:       ActionHumanReview,
-			Rationale:    "diff bundle was truncated",
-		}
+		return decisionAggregate(qualityDelta, confidence, ActionHumanReview, "diff bundle was truncated", nil)
 	}
 
 	if highRisk {
-		return Aggregate{
-			QualityDelta: qualityDelta,
-			Confidence:   confidence,
-			Action:       ActionHumanReview,
-			Rationale:    "high-risk paths require human review",
-		}
+		return decisionAggregate(qualityDelta, confidence, ActionHumanReview, "high-risk paths require human review", nil)
 	}
 
 	if len(in.Judges) == 0 {
-		return Aggregate{
-			QualityDelta: qualityDelta,
-			Confidence:   confidence,
-			Action:       ActionHumanReview,
-			Rationale:    "missing judge evidence",
-		}
+		return decisionAggregate(qualityDelta, confidence, ActionHumanReview, "missing judge evidence", nil)
 	}
 
 	if confidence < in.MinConfidence {
-		return Aggregate{
-			QualityDelta: qualityDelta,
-			Confidence:   confidence,
-			Action:       ActionHumanReview,
-			Rationale:    "judge confidence below policy threshold",
-		}
+		return decisionAggregate(qualityDelta, confidence, ActionHumanReview, "judge confidence below policy threshold", nil)
 	}
 
 	if disagreement > 0.40 {
-		return Aggregate{
-			QualityDelta: qualityDelta,
-			Confidence:   confidence,
-			Action:       ActionHumanReview,
-			Rationale:    "judge disagreement exceeded policy threshold",
-		}
+		return decisionAggregate(qualityDelta, confidence, ActionHumanReview, "judge disagreement exceeded policy threshold", nil)
 	}
 
 	if len(blocking) > 0 {
-		return Aggregate{
-			QualityDelta: qualityDelta,
-			Confidence:   confidence,
-			Action:       ActionHumanReview,
-			Rationale:    "judge reported blocking concerns",
-		}
+		return decisionAggregate(qualityDelta, confidence, ActionHumanReview, "judge reported blocking concerns", nil)
 	}
 
 	if qualityDelta >= in.AcceptThreshold {
-		return Aggregate{
-			QualityDelta: qualityDelta,
-			Confidence:   confidence,
-			Action:       ActionAccept,
-			Rationale:    fmt.Sprintf("quality delta %.2f met acceptance threshold", qualityDelta),
-		}
+		return decisionAggregate(qualityDelta, confidence, ActionAccept, fmt.Sprintf("quality delta %.2f met acceptance threshold", qualityDelta), nil)
 	}
 
+	return decisionAggregate(qualityDelta, confidence, ActionReject, "quality delta did not meet acceptance threshold", nil)
+}
+
+func decisionAggregate(qualityDelta, confidence float64, action RecommendedAction, rationale string, hardFailures []string) Aggregate {
 	return Aggregate{
 		QualityDelta: qualityDelta,
 		Confidence:   confidence,
-		Action:       ActionReject,
-		Rationale:    "quality delta did not meet acceptance threshold",
+		HardFailures: hardFailures,
+		Action:       action,
+		Rationale:    rationale,
 	}
 }
 

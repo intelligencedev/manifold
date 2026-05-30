@@ -12,7 +12,7 @@ func (s *PlaygroundStore) DeletePrompt(ctx context.Context, id string) error {
 	batch.Queue(`DELETE FROM playground_prompt_versions WHERE prompt_id=$1 AND user_id=$2`, id, uid)
 	batch.Queue(`DELETE FROM playground_prompts WHERE id=$1 AND user_id=$2`, id, uid)
 	br := s.pool.SendBatch(ctx, batch)
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		if _, err := br.Exec(); err != nil {
 			_ = br.Close()
 			return err
@@ -32,7 +32,6 @@ func (s *PlaygroundStore) DeleteDataset(ctx context.Context, id string) error {
 			_ = tx.Rollback(ctx)
 		}
 	}()
-	// delete rows for all snapshots of this dataset
 	uid := userIDFromContext(ctx)
 	if _, err = tx.Exec(ctx, `DELETE FROM playground_rows WHERE dataset_id=$1 AND user_id=$2`, id, uid); err != nil {
 		return err
@@ -74,7 +73,6 @@ func (s *PlaygroundStore) DeleteExperiment(ctx context.Context, id string) error
 		runIDs = append(runIDs, rid)
 	}
 	rows.Close()
-	// delete results for runs
 	for _, rid := range runIDs {
 		if _, err = tx.Exec(ctx, `DELETE FROM playground_run_results WHERE run_id=$1 AND user_id=$2`, rid, uid); err != nil {
 			return err

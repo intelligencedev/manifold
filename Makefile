@@ -17,9 +17,10 @@ DIST := dist
 # Platforms to build for in cross (Option A: single job builds all platforms)
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 
-GOLANGCI_LINT_VERSION := v1.59.0
+GOLANGCI_LINT_VERSION := v2.12.2
+FORGE_BUILD_TAGS ?= forge
 
-.PHONY: all help fmt fmt-check imports-check vet lint test ci build cross checksums tools clean build-tui frontend openapi
+.PHONY: all help fmt fmt-check imports-check vet lint test test-forge-harness modernize modernize-diff ci build cross checksums tools clean build-tui frontend openapi
 .PHONY: sonar sonar-up sonar-down sonar-scan
 
 all: build
@@ -33,14 +34,17 @@ help:
 	@echo "  make vet                # run go vet"
 	@echo "  make lint               # run golangci-lint"
 	@echo "  make test               # run tests with -race and generate coverage.out"
+	@echo "  make test-forge-harness # run deterministic Forge harness scenario tests"
+	@echo "  make modernize-diff     # preview Go modernizer changes"
+	@echo "  make modernize          # apply Go modernizer changes"
 	@echo "  make sonar-up            # start local SonarQube (http://localhost:19000)"
 	@echo "  make sonar-scan          # run SonarScanner against local SonarQube"
 	@echo "  make sonar               # alias for sonar-scan"
 	@echo "  make sonar-down          # stop local SonarQube stack"
 	@echo "  make build              # build host platform binaries into $(DIST)/"
 	@echo "  make build-agentd       # build only the agentd binary"
-	@echo "  make build-manifold     # build agentd + embedded frontend"
-	@echo "  make build-manifold-beta # build agentd + embedded frontend with beta UI links"
+	@echo "  make build-manifold     # build Forge architecture agentd + embedded frontend"
+	@echo "  make build-manifold-beta # build Forge agentd + embedded frontend with beta UI links"
 	@echo "  make build-agent        # build only the agent binary"
 	@echo "  make frontend           # install frontend deps, then build Vue.js assets"
 	@echo "  make openapi            # generate docs/openapi/openapi.json"
@@ -57,7 +61,7 @@ tools:
 	@echo "Installing goimports"
 	GOFLAGS= go install golang.org/x/tools/cmd/goimports@latest
 	@echo "Installing golangci-lint $(GOLANGCI_LINT_VERSION)"
-	GOFLAGS= go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	GOFLAGS= go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 	@echo "Done"
 
 fmt:
@@ -83,6 +87,16 @@ lint:
 test:
 	@echo "Running tests with race detector and coverage"
 	go test -race -coverprofile=coverage.out ./...
+
+test-forge-harness:
+	@echo "Running deterministic Forge harness scenario tests"
+	go test ./internal/agent -run TestForgeHarnessScenarios
+
+modernize-diff:
+	go fix -diff ./...
+
+modernize:
+	go fix ./...
 
 # Local SonarQube helpers (token created & revoked per scan)
 SONAR_COMPOSE_FILE := develop/sonarqube/docker-compose.yml
@@ -153,7 +167,6 @@ build: clean | $(DIST)
 	done
 	@echo "Host build complete"
 
-
 # Cross compile all platforms and package them into $(DIST)/
 # Option A: single job builds all platforms (do not run cross in parallel across jobs)
 cross: clean | $(DIST)
@@ -223,13 +236,12 @@ FEATURE_GATE ?= stable
 
 .PHONY: build-manifold build-manifold-beta
 build-manifold: frontend | $(DIST)
-	@echo "Building agentd with embedded frontend into $(DIST)/"
-	go build -o $(DIST)/agentd ./cmd/agentd
-	@echo "agentd with frontend build complete"
+	@echo "Building Forge architecture agentd with embedded frontend and tags '$(FORGE_BUILD_TAGS)' -> $(DIST)/agentd"
+	go build -tags "$(FORGE_BUILD_TAGS)" -o $(DIST)/agentd ./cmd/agentd
+	@echo "Forge architecture agentd with frontend build complete"
 
 build-manifold-beta: FEATURE_GATE := beta
 build-manifold-beta: build-manifold
-
 
 # Build web UI server
 build-webui:

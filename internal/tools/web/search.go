@@ -64,7 +64,6 @@ func newTokenBucket(capacity int, refillRate time.Duration) *tokenBucket {
 }
 
 // takeToken attempts to take a token from the bucket
-// Returns true if successful, false if rate limited
 func (tb *tokenBucket) takeToken() bool {
 	tb.mu.Lock()
 	defer tb.mu.Unlock()
@@ -216,10 +215,7 @@ func (t *tool) searchWithRetry(ctx context.Context, query string, max int, categ
 		lastErr = err
 
 		// Calculate exponential backoff with jitter
-		delay := cfg.BaseDelay * (1 << attempt)
-		if delay > cfg.MaxDelay {
-			delay = cfg.MaxDelay
-		}
+		delay := min(cfg.BaseDelay*(1<<attempt), cfg.MaxDelay)
 		jitter := time.Duration(float64(delay) * cfg.JitterPercent * (0.5 + randFloat64()))
 		delay += jitter
 
@@ -347,7 +343,6 @@ func (t *tool) searchSearXNGHTML(ctx context.Context, query string, max int, cat
 		}
 		seen[urlStr] = struct{}{}
 
-		// Extract a simple title from the URL for now
 		title := urlStr
 		if u, err := url.Parse(urlStr); err == nil && u.Host != "" {
 			title = u.Host + u.Path
@@ -384,12 +379,4 @@ func extractURLsFromHTML(doc *html.Node) ([]string, error) {
 	}
 	f(doc)
 	return urls, nil
-}
-
-// helper min for ints
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

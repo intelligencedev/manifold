@@ -23,6 +23,9 @@ type Task struct {
 	Row            dataset.Row
 	PromptTemplate string
 	Variables      map[string]registry.VariableSchema
+	ProjectID      string
+	OwnerID        int64
+	Execution      *experiment.ExecutionConfig
 }
 
 // Result contains the output from executing a task.
@@ -39,6 +42,7 @@ type Result struct {
 	Tokens          int
 	Latency         time.Duration
 	ProviderName    string
+	Execution       *experiment.ExecutionConfig
 	Artifacts       map[string]string
 	Expected        any
 	Scores          map[string]float64
@@ -49,15 +53,45 @@ type Executor interface {
 	ExecuteTask(ctx context.Context, task Task) (Result, error)
 }
 
+// TaskRunner executes an already-rendered task prompt.
+type TaskRunner interface {
+	RunTask(ctx context.Context, task Task, renderedPrompt string) (provider.Response, error)
+}
+
+// ProviderRunner executes tasks against a playground provider.
+type ProviderRunner struct {
+	provider provider.Provider
+}
+
+// NewProviderRunner adapts a provider into a task runner.
+func NewProviderRunner(provider provider.Provider) *ProviderRunner {
+	return &ProviderRunner{provider: provider}
+}
+
+// RunTask invokes the provider with the rendered prompt.
+func (r *ProviderRunner) RunTask(ctx context.Context, task Task, renderedPrompt string) (provider.Response, error) {
+	return r.provider.Complete(ctx, provider.Request{
+		Model:  task.Variant.Model,
+		Prompt: renderedPrompt,
+		Inputs: task.Row.Inputs,
+		Params: task.Variant.Params,
+	})
+}
+
 // Worker executes prompt rendering against a provider.
 type Worker struct {
-	provider  provider.Provider
+	runner    TaskRunner
 	artifacts artifacts.Store
 }
 
 // NewWorker constructs a worker.
 func NewWorker(provider provider.Provider, artifacts artifacts.Store) *Worker {
-	return &Worker{provider: provider, artifacts: artifacts}
+	return NewWorkerWithRunner(NewProviderRunner(provider), artifacts)
+}
+
+// NewWorkerWithRunner constructs a worker with a custom task runner.
+func NewWorkerWithRunner(runner TaskRunner, artifacts artifacts.Store) *Worker {
+	return &Worker{runner: runner, artifacts: artifacts}
 }
 
 // ExecuteTask renders the prompt, invokes the provider, and persists artifacts.
@@ -67,12 +101,7 @@ func (w *Worker) ExecuteTask(ctx context.Context, task Task) (Result, error) {
 		return Result{}, fmt.Errorf("render template: %w", err)
 	}
 
-	resp, err := w.provider.Complete(ctx, provider.Request{
-		Model:  task.Variant.Model,
-		Prompt: rendered,
-		Inputs: task.Row.Inputs,
-		Params: task.Variant.Params,
-	})
+	resp, err := w.runner.RunTask(ctx, task, rendered)
 	if err != nil {
 		return Result{}, fmt.Errorf("provider execute: %w", err)
 	}
@@ -90,6 +119,11 @@ func (w *Worker) ExecuteTask(ctx context.Context, task Task) (Result, error) {
 		}
 	}
 
+	model := resp.Model
+	if model == "" {
+		model = task.Variant.Model
+	}
+
 	return Result{
 		ID:              uuid.NewString(),
 		RunID:           task.RunID,
@@ -97,12 +131,13 @@ func (w *Worker) ExecuteTask(ctx context.Context, task Task) (Result, error) {
 		RowID:           task.Row.ID,
 		VariantID:       task.Variant.ID,
 		PromptVersionID: task.Variant.PromptVersionID,
-		Model:           task.Variant.Model,
+		Model:           model,
 		RenderedPrompt:  rendered,
 		Output:          resp.Output,
 		Tokens:          resp.Tokens,
 		Latency:         resp.Latency,
 		ProviderName:    resp.ProviderName,
+		Execution:       experiment.CloneExecution(task.Execution),
 		Artifacts:       ares,
 		Expected:        task.Row.Expected,
 	}, nil
@@ -137,6 +172,9 @@ func TasksFromShard(runID string, spec experiment.ExperimentSpec, shard experime
 				Row:            row,
 				PromptTemplate: variant.PromptTemplate,
 				Variables:      variant.Variables,
+				ProjectID:      spec.ProjectID,
+				OwnerID:        spec.OwnerID,
+				Execution:      experiment.CloneExecution(spec.Execution),
 			})
 		}
 	}

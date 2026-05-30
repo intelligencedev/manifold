@@ -10,10 +10,18 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-func (a *app) attachSessionEvolvingMemory(eng *agent.Engine, userID int64, sessionID string) *memory.EvolvingMemory {
+func (a *app) attachSessionEvolvingMemory(eng *agent.Engine, userID int64, sessionID string, enabled ...bool) *memory.EvolvingMemory {
 	if eng == nil {
 		return nil
 	}
+	if len(enabled) > 0 && !enabled[0] {
+		eng.EvolvingMemory = nil
+		eng.ReMemEnabled = false
+		eng.ReMemController = nil
+		eng.DisableEvolvingMemory = true
+		return nil
+	}
+	eng.DisableEvolvingMemory = false
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		sessionID = "default"

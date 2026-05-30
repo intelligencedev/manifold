@@ -39,18 +39,17 @@ func (a *app) initAuth(ctx context.Context) error {
 		if strings.TrimSpace(a.cfg.Auth.ClientID) == "" || strings.TrimSpace(a.cfg.Auth.ClientSecret) == "" {
 			return fmt.Errorf("auth.provider=oidc requires clientID and clientSecret")
 		}
-		oidcAuth, err := auth.NewOIDC(
-			ctx,
-			a.cfg.Auth.IssuerURL,
-			a.cfg.Auth.ClientID,
-			a.cfg.Auth.ClientSecret,
-			a.cfg.Auth.RedirectURL,
-			a.authStore,
-			a.cfg.Auth.CookieName,
-			a.cfg.Auth.AllowedDomains,
-			a.cfg.Auth.StateTTLSeconds,
-			a.cfg.Auth.CookieSecure,
-		)
+		oidcAuth, err := auth.NewOIDC(ctx, auth.OIDCOptions{
+			IssuerURL:        a.cfg.Auth.IssuerURL,
+			ClientID:         a.cfg.Auth.ClientID,
+			ClientSecret:     a.cfg.Auth.ClientSecret,
+			RedirectURL:      a.cfg.Auth.RedirectURL,
+			Store:            a.authStore,
+			CookieName:       a.cfg.Auth.CookieName,
+			AllowedDomains:   a.cfg.Auth.AllowedDomains,
+			StateTTLSeconds:  a.cfg.Auth.StateTTLSeconds,
+			TempCookieSecure: a.cfg.Auth.CookieSecure,
+		})
 		if err != nil {
 			return fmt.Errorf("oidc init failed: %w", err)
 		}

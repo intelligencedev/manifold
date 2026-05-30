@@ -1,10 +1,13 @@
 package memory
 
 import (
+	"maps"
 	"regexp"
 	"strings"
 	"unicode/utf8"
 )
+
+const memoryEmbeddingTextBasis = "input_summary_strategy_outcome"
 
 func partitionRetrievedByOutcome(retrieved []*MemoryEntry) ([]*MemoryEntry, []*MemoryEntry) {
 	successes := make([]*MemoryEntry, 0, len(retrieved))
@@ -67,6 +70,27 @@ func redactPII(s string) string {
 	}
 	return out
 }
+
+func retrievalTextForMemory(input, output, feedback, summary, strategyCard string) string {
+	parts := make([]string, 0, 5)
+	if strings.TrimSpace(input) != "" {
+		parts = append(parts, "Task: "+truncate(input, 800))
+	}
+	if strings.TrimSpace(feedback) != "" {
+		parts = append(parts, "Outcome: "+truncate(feedback, 120))
+	}
+	if strings.TrimSpace(summary) != "" {
+		parts = append(parts, "Reusable lesson: "+truncate(summary, 1200))
+	}
+	if strings.TrimSpace(strategyCard) != "" {
+		parts = append(parts, "Strategy: "+truncate(strategyCard, 1200))
+	}
+	if strings.TrimSpace(output) != "" {
+		parts = append(parts, "Result: "+truncate(output, 800))
+	}
+	return strings.Join(parts, "\n")
+}
+
 func mergeSummaryText(parts []string) string {
 	if len(parts) == 0 {
 		return ""
@@ -112,10 +136,8 @@ func cloneEntry(entry *MemoryEntry) *MemoryEntry {
 		copyEntry.Embedding = append([]float32(nil), entry.Embedding...)
 	}
 	if entry.Metadata != nil {
-		copyEntry.Metadata = make(map[string]interface{}, len(entry.Metadata))
-		for key, value := range entry.Metadata {
-			copyEntry.Metadata[key] = value
-		}
+		copyEntry.Metadata = make(map[string]any, len(entry.Metadata))
+		maps.Copy(copyEntry.Metadata, entry.Metadata)
 	}
 	if entry.StructuredFeedback != nil {
 		feedbackCopy := *entry.StructuredFeedback

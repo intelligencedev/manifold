@@ -51,6 +51,8 @@ Stored fields include:
 
 `keyName` must be hierarchical and stable. Allowed characters are letters, numbers, `_`, `.`, `/`, `@`, and `-`. Keys cannot contain `..` or start/end with `/`.
 
+Transit normalizes incoming key names before validation, so tool calls that use human-readable names such as `Project Demo: Brief` are stored as valid keys such as `Project-Demo-Brief`. Agents should still prefer explicit hierarchical keys like `project/demo/brief` because normalization is a compatibility fallback, not a naming strategy.
+
 ## Configuration
 
 Enable Transit in `config.yaml`:
@@ -94,6 +96,8 @@ TRANSIT_ENABLE_VECTOR_SEARCH=true
 Persistence uses the shared `databases.defaultDSN` setting. If no Postgres DSN is configured, Transit falls back to an in-memory store.
 
 Search uses the configured search backend. Vector search uses the configured vector backend plus the existing embedding service.
+
+When `embedding.instructions.mode` is `auto` or `enabled`, Transit applies the configured query-side embedding instruction to vector search queries. Stored Transit values or descriptions remain embedded as raw record text, so changing query instructions does not require re-indexing existing Transit records.
 
 Transit registration is gated at startup. The Transit tools are only registered when:
 

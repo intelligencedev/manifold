@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -305,9 +306,7 @@ func TestMCPOAuthOverlappingStartsDoNotOverwriteState(t *testing.T) {
 	secondRec, _ := startFlow()
 
 	jar := cookiesByName(firstRec)
-	for name, cookie := range cookiesByName(secondRec) {
-		jar[name] = cookie
-	}
+	maps.Copy(jar, cookiesByName(secondRec))
 
 	callbackURL := "http://localhost/api/mcp/oauth/callback?state=" + url.QueryEscape(firstState) + "&code=authcode123"
 	callbackReq := httptest.NewRequest(http.MethodGet, callbackURL, nil)

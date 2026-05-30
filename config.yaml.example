@@ -20,6 +20,24 @@ agentRunTimeoutSeconds: 0
 streamRunTimeoutSeconds: 0
 workflowTimeoutSeconds: 0
 
+# Optional Forge-style guarded agent loop. Disabled by default so Manifold uses
+# the current legacy loop unless this is explicitly enabled.
+harness:
+  enabled: false
+  # legacy | guarded_chat | workflow
+  mode: guarded_chat
+  rescueEnabled: true
+  maxRetriesPerStep: 3
+  maxToolErrors: 2
+  terminalTools:
+    - agent_response
+  requiredSteps: []
+  toolPrerequisites: {}
+  compact:
+    enabled: true
+    keepRecentSteps: 4
+    phaseThresholds: [0.60, 0.75, 0.90]
+
 # Logging.
 logPath: manifold.log
 logLevel: info
@@ -34,7 +52,13 @@ autoDiscover: false
 # Caps how many non-bootstrap tools a single run may add when autoDiscover is on.
 maxDiscoveredTools: 12
 allowTools:
+  - request_info
   - run_cli
+  - terminal_start
+  - terminal_read
+  - terminal_write
+  - terminal_stop
+  - terminal_list
   - apply_patch
   - llm_transform
   - describe_image
@@ -44,6 +68,10 @@ allowTools:
 
 exec:
   maxCommandSeconds: 1200
+  maxTerminalSessions: 8
+  maxTerminalRuntimeSeconds: 1200
+  terminalIdleTTLSeconds: 1800
+  terminalOutputBufferBytes: 262144
   blockBinaries:
     - rm
     - sudo
@@ -247,7 +275,33 @@ embedding:
   apiKey: "${EMBED_API_KEY}"
   apiHeader: Authorization
   headers: {}
+  instructions:
+    # auto applies built-in query instructions when the model looks like Qwen3
+    # Embedding; enabled applies them for any model; disabled leaves queries raw.
+    mode: auto # auto | enabled | disabled
+    format: qwen
+    # Leave blank to use the built-in per-surface defaults.
+    defaultQuery: ""
+    ragQuery: ""
+    evolvingMemoryQuery: ""
+    transitQuery: ""
   path: /v1/embeddings
+  timeoutSeconds: 30
+
+# Optional RAG reranking service. When disabled, retrieval returns fused
+# documents without calling a reranker, even if a request asks for reranking.
+reranking:
+  enabled: false
+  baseURL: http://localhost:8203
+  model: qwen3-reranker-0.6b
+  # Optional query-side instruction formatted as:
+  # Instruct: {instruction}
+  # Query: {query}
+  instruction: "Classify whether the document matches the query topic"
+  apiKey: "${LLAMA_API_KEY}"
+  apiHeader: Authorization
+  headers: {}
+  path: /v1/rerank
   timeoutSeconds: 30
 
 # Optional defaults for the describe_image tool. Leave blank to use the
@@ -295,13 +349,41 @@ transit:
   maxBatchSize: 100
   enableVectorSearch: true
 
-# Shared belief memory foundations. Phase 0 keeps all runtime behavior disabled
-# while the store, schema, and interfaces are available for incremental rollout.
+# Shared belief memory. Beliefs are scoped, evidence-backed project truths with
+# candidate audit, retrieval, promotion, and optional Transit policy compilation.
+# The example keeps the master switch off; flip enabled to true to activate it.
 beliefMemory:
   enabled: false
-  enableDistillation: false
-  enableRetrieval: false
-  enableConstraintEnforcement: false
+  enableDistillation: true
+  enableRetrieval: true
+  enableConstraintEnforcement: true
+  llmClient:
+    provider: openai
+    openai:
+      api: responses
+      apiKey: ${OPENAI_API_KEY}
+      baseURL: https://api.openai.com/v1
+      model: gpt-5.4-mini
+  distillation:
+    mode: llm # simple | llm
+    maxCandidatesPerEpisode: 5
+    minCandidateConfidence: 0.55
+    autoApplyMinConfidence: 0.65
+  retrieval:
+    minConfidence: 0.35
+    maxTokensPerPrompt: 700
+    includeContradictions: true
+  lifecycle:
+    minEvidenceForPromotion: 2
+    maxEvidenceAgainstPromotion: 0
+    staleAfterDays: 30
+    staleConfidenceDecay: 0.90
+    allowOrgPromotion: false
+  enforcement:
+    autoEnable: true
+    softPolicyThreshold: 0.85
+    hardConstraintThreshold: 0.95
+    hardConstraintMinEvidenceFor: 3
   maxBeliefsPerPrompt: 5
   maxEvidencePerBelief: 3
   defaultConfidence: 0.5

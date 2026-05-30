@@ -21,20 +21,39 @@ func currentAgentdSettings(cfg *config.Config) agentdSettings {
 		SummaryPlainTextContextWindowTokens: cfg.Summary.PlainTextContextWindowTokens,
 		SummaryReserveBufferTokens:          cfg.SummaryReserveBufferTokens,
 
-		EmbedBaseURL:    cfg.Embedding.BaseURL,
-		EmbedModel:      cfg.Embedding.Model,
-		EmbedAPIKey:     cfg.Embedding.APIKey,
-		EmbedAPIHeader:  cfg.Embedding.APIHeader,
-		EmbedAPIHeaders: cfg.Embedding.Headers,
-		EmbedPath:       cfg.Embedding.Path,
+		EmbedBaseURL:                        cfg.Embedding.BaseURL,
+		EmbedModel:                          cfg.Embedding.Model,
+		EmbedAPIKey:                         cfg.Embedding.APIKey,
+		EmbedAPIHeader:                      cfg.Embedding.APIHeader,
+		EmbedAPIHeaders:                     cfg.Embedding.Headers,
+		EmbedPath:                           cfg.Embedding.Path,
+		EmbedInstructionMode:                cfg.Embedding.Instructions.Mode,
+		EmbedInstructionFormat:              cfg.Embedding.Instructions.Format,
+		EmbedDefaultQueryInstruction:        cfg.Embedding.Instructions.DefaultQuery,
+		EmbedRAGQueryInstruction:            cfg.Embedding.Instructions.RAGQuery,
+		EmbedEvolvingMemoryQueryInstruction: cfg.Embedding.Instructions.EvolvingMemoryQuery,
+		EmbedTransitQueryInstruction:        cfg.Embedding.Instructions.TransitQuery,
+
+		RerankEnabled:     cfg.Reranking.Enabled,
+		RerankBaseURL:     cfg.Reranking.BaseURL,
+		RerankModel:       cfg.Reranking.Model,
+		RerankInstruction: cfg.Reranking.Instruction,
+		RerankAPIKey:      cfg.Reranking.APIKey,
+		RerankAPIHeader:   cfg.Reranking.APIHeader,
+		RerankAPIHeaders:  cfg.Reranking.Headers,
+		RerankPath:        cfg.Reranking.Path,
 
 		AgentRunTimeoutSeconds:  cfg.AgentRunTimeoutSeconds,
 		StreamRunTimeoutSeconds: cfg.StreamRunTimeoutSeconds,
 		WorkflowTimeoutSeconds:  cfg.WorkflowTimeoutSeconds,
 
-		BlockBinaries:       strings.Join(cfg.Exec.BlockBinaries, ","),
-		MaxCommandSeconds:   cfg.Exec.MaxCommandSeconds,
-		OutputTruncateBytes: cfg.OutputTruncateByte,
+		BlockBinaries:             strings.Join(cfg.Exec.BlockBinaries, ","),
+		MaxCommandSeconds:         cfg.Exec.MaxCommandSeconds,
+		OutputTruncateBytes:       cfg.OutputTruncateByte,
+		MaxTerminalSessions:       cfg.Exec.MaxTerminalSessions,
+		MaxTerminalRuntimeSeconds: cfg.Exec.MaxTerminalRuntimeSeconds,
+		TerminalIdleTTLSeconds:    cfg.Exec.TerminalIdleTTLSeconds,
+		TerminalOutputBufferBytes: cfg.Exec.TerminalOutputBufferBytes,
 
 		OTELServiceName: cfg.Obs.ServiceName,
 		ServiceVersion:  cfg.Obs.ServiceVersion,
@@ -83,6 +102,22 @@ func normalizeAgentdSettings(settings agentdSettings) agentdSettings {
 	}
 
 	settings.BlockBinaries = strings.TrimSpace(settings.BlockBinaries)
+	if strings.TrimSpace(settings.EmbedInstructionMode) == "" {
+		settings.EmbedInstructionMode = "auto"
+	} else {
+		settings.EmbedInstructionMode = strings.ToLower(strings.TrimSpace(settings.EmbedInstructionMode))
+	}
+	if strings.TrimSpace(settings.EmbedInstructionFormat) == "" {
+		settings.EmbedInstructionFormat = "qwen"
+	} else {
+		settings.EmbedInstructionFormat = strings.ToLower(strings.TrimSpace(settings.EmbedInstructionFormat))
+	}
+	if strings.TrimSpace(settings.RerankAPIHeader) == "" {
+		settings.RerankAPIHeader = "Authorization"
+	}
+	if strings.TrimSpace(settings.RerankPath) == "" {
+		settings.RerankPath = "/v1/rerank"
+	}
 
 	return settings
 }
@@ -101,7 +136,28 @@ func applySummaryModel(cfg *config.Config, model string) {
 
 func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	settings = normalizeAgentdSettings(settings)
+	if err := validateEmbeddingInstructionSettings(settings); err != nil {
+		return err
+	}
+	if settings.RerankEnabled && strings.TrimSpace(settings.RerankBaseURL) == "" {
+		return fmt.Errorf("rerankBaseUrl is required when rerankEnabled is true")
+	}
 
+	applySummarySettings(cfg, settings)
+	applyEmbeddingSettings(cfg, settings)
+	applyRerankSettings(cfg, settings)
+	applyTimeoutSettings(cfg, settings)
+	if err := applyExecSettings(cfg, settings); err != nil {
+		return err
+	}
+	applyObservabilitySettings(cfg, settings)
+	applyLogSettings(cfg, settings)
+	applyWebSettings(cfg, settings)
+	applyDatabaseSettings(cfg, settings)
+	return nil
+}
+
+func applySummarySettings(cfg *config.Config, settings agentdSettings) {
 	if settings.SummaryProvider != "" {
 		cfg.Summary.LLMClient.Provider = settings.SummaryProvider
 	}
@@ -125,7 +181,9 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 		cfg.SummaryReserveBufferTokens = settings.SummaryReserveBufferTokens
 		cfg.Summary.ReserveBufferTokens = settings.SummaryReserveBufferTokens
 	}
+}
 
+func applyEmbeddingSettings(cfg *config.Config, settings agentdSettings) {
 	if settings.EmbedBaseURL != "" {
 		cfg.Embedding.BaseURL = settings.EmbedBaseURL
 	}
@@ -144,7 +202,42 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	if settings.EmbedPath != "" {
 		cfg.Embedding.Path = settings.EmbedPath
 	}
+	if settings.EmbedInstructionMode != "" {
+		cfg.Embedding.Instructions.Mode = settings.EmbedInstructionMode
+	}
+	if settings.EmbedInstructionFormat != "" {
+		cfg.Embedding.Instructions.Format = settings.EmbedInstructionFormat
+	}
+	cfg.Embedding.Instructions.DefaultQuery = settings.EmbedDefaultQueryInstruction
+	cfg.Embedding.Instructions.RAGQuery = settings.EmbedRAGQueryInstruction
+	cfg.Embedding.Instructions.EvolvingMemoryQuery = settings.EmbedEvolvingMemoryQueryInstruction
+	cfg.Embedding.Instructions.TransitQuery = settings.EmbedTransitQueryInstruction
+}
 
+func applyRerankSettings(cfg *config.Config, settings agentdSettings) {
+	cfg.Reranking.Enabled = settings.RerankEnabled
+	if settings.RerankBaseURL != "" {
+		cfg.Reranking.BaseURL = settings.RerankBaseURL
+	}
+	if settings.RerankModel != "" {
+		cfg.Reranking.Model = settings.RerankModel
+	}
+	cfg.Reranking.Instruction = settings.RerankInstruction
+	if settings.RerankAPIKey != "" {
+		cfg.Reranking.APIKey = settings.RerankAPIKey
+	}
+	if settings.RerankAPIHeader != "" {
+		cfg.Reranking.APIHeader = settings.RerankAPIHeader
+	}
+	if settings.RerankAPIHeaders != nil {
+		cfg.Reranking.Headers = settings.RerankAPIHeaders
+	}
+	if settings.RerankPath != "" {
+		cfg.Reranking.Path = settings.RerankPath
+	}
+}
+
+func applyTimeoutSettings(cfg *config.Config, settings agentdSettings) {
 	if settings.AgentRunTimeoutSeconds != 0 {
 		cfg.AgentRunTimeoutSeconds = settings.AgentRunTimeoutSeconds
 	}
@@ -154,7 +247,9 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	if settings.WorkflowTimeoutSeconds != 0 {
 		cfg.WorkflowTimeoutSeconds = settings.WorkflowTimeoutSeconds
 	}
+}
 
+func applyExecSettings(cfg *config.Config, settings agentdSettings) error {
 	if settings.BlockBinaries != "" {
 		binaries, err := parseBlockBinaries(settings.BlockBinaries)
 		if err != nil {
@@ -168,7 +263,22 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	if settings.OutputTruncateBytes != 0 {
 		cfg.OutputTruncateByte = settings.OutputTruncateBytes
 	}
+	if settings.MaxTerminalSessions != 0 {
+		cfg.Exec.MaxTerminalSessions = settings.MaxTerminalSessions
+	}
+	if settings.MaxTerminalRuntimeSeconds != 0 {
+		cfg.Exec.MaxTerminalRuntimeSeconds = settings.MaxTerminalRuntimeSeconds
+	}
+	if settings.TerminalIdleTTLSeconds != 0 {
+		cfg.Exec.TerminalIdleTTLSeconds = settings.TerminalIdleTTLSeconds
+	}
+	if settings.TerminalOutputBufferBytes != 0 {
+		cfg.Exec.TerminalOutputBufferBytes = settings.TerminalOutputBufferBytes
+	}
+	return nil
+}
 
+func applyObservabilitySettings(cfg *config.Config, settings agentdSettings) {
 	if settings.OTELServiceName != "" {
 		cfg.Obs.ServiceName = settings.OTELServiceName
 	}
@@ -181,7 +291,9 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	if settings.OTLPEndpoint != "" {
 		cfg.Obs.OTLP = settings.OTLPEndpoint
 	}
+}
 
+func applyLogSettings(cfg *config.Config, settings agentdSettings) {
 	if settings.LogPath != "" {
 		cfg.LogPath = settings.LogPath
 	}
@@ -190,11 +302,15 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	}
 	cfg.LogPayloads = settings.LogPayloads
 	cfg.LogRawPrompts = settings.LogRawPrompts
+}
 
+func applyWebSettings(cfg *config.Config, settings agentdSettings) {
 	if settings.WebSearXNGURL != "" {
 		cfg.Web.SearXNGURL = settings.WebSearXNGURL
 	}
+}
 
+func applyDatabaseSettings(cfg *config.Config, settings agentdSettings) {
 	if settings.PostgresDSN != "" {
 		cfg.Databases.DefaultDSN = settings.PostgresDSN
 	}
@@ -228,7 +344,19 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	if settings.GraphDSN != "" {
 		cfg.Databases.Graph.DSN = settings.GraphDSN
 	}
+}
 
+func validateEmbeddingInstructionSettings(settings agentdSettings) error {
+	switch strings.ToLower(strings.TrimSpace(settings.EmbedInstructionMode)) {
+	case "auto", "enabled", "disabled":
+	default:
+		return fmt.Errorf("embedInstructionMode must be one of auto, enabled, or disabled (got %q)", settings.EmbedInstructionMode)
+	}
+	switch strings.ToLower(strings.TrimSpace(settings.EmbedInstructionFormat)) {
+	case "qwen":
+	default:
+		return fmt.Errorf("embedInstructionFormat must be qwen (got %q)", settings.EmbedInstructionFormat)
+	}
 	return nil
 }
 
@@ -253,6 +381,18 @@ func persistToConfigYAML(settings agentdSettings) error {
 func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	settings = normalizeAgentdSettings(settings)
 
+	applySummarySettingsYAML(root, settings)
+	applyEmbeddingSettingsYAML(root, settings)
+	applyRerankSettingsYAML(root, settings)
+	applyTimeoutSettingsYAML(root, settings)
+	applyExecSettingsYAML(root, settings)
+	applyObservabilitySettingsYAML(root, settings)
+	applyLogSettingsYAML(root, settings)
+	applyWebSettingsYAML(root, settings)
+	applyDatabaseSettingsYAML(root, settings)
+}
+
+func applySummarySettingsYAML(root map[string]any, settings agentdSettings) {
 	setNestedMapValue(root, []string{"summaryEnabled"}, settings.SummaryEnabled)
 	setNestedMapValue(root, []string{"summary", "enabled"}, settings.SummaryEnabled)
 	if settings.SummaryPlainTextContextWindowTokens != 0 {
@@ -275,7 +415,9 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	if summaryURL != "" {
 		setNestedMapValue(root, []string{"summary", "llm_client", "openai", "baseURL"}, summaryURL)
 	}
+}
 
+func applyEmbeddingSettingsYAML(root map[string]any, settings agentdSettings) {
 	if settings.EmbedBaseURL != "" {
 		setNestedMapValue(root, []string{"embedding", "baseURL"}, settings.EmbedBaseURL)
 	}
@@ -294,7 +436,42 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	if len(settings.EmbedAPIHeaders) > 0 {
 		setNestedMapValue(root, []string{"embedding", "headers"}, settings.EmbedAPIHeaders)
 	}
+	if settings.EmbedInstructionMode != "" {
+		setNestedMapValue(root, []string{"embedding", "instructions", "mode"}, settings.EmbedInstructionMode)
+	}
+	if settings.EmbedInstructionFormat != "" {
+		setNestedMapValue(root, []string{"embedding", "instructions", "format"}, settings.EmbedInstructionFormat)
+	}
+	setNestedMapValue(root, []string{"embedding", "instructions", "defaultQuery"}, settings.EmbedDefaultQueryInstruction)
+	setNestedMapValue(root, []string{"embedding", "instructions", "ragQuery"}, settings.EmbedRAGQueryInstruction)
+	setNestedMapValue(root, []string{"embedding", "instructions", "evolvingMemoryQuery"}, settings.EmbedEvolvingMemoryQueryInstruction)
+	setNestedMapValue(root, []string{"embedding", "instructions", "transitQuery"}, settings.EmbedTransitQueryInstruction)
+}
 
+func applyRerankSettingsYAML(root map[string]any, settings agentdSettings) {
+	setNestedMapValue(root, []string{"reranking", "enabled"}, settings.RerankEnabled)
+	if settings.RerankBaseURL != "" {
+		setNestedMapValue(root, []string{"reranking", "baseURL"}, settings.RerankBaseURL)
+	}
+	if settings.RerankModel != "" {
+		setNestedMapValue(root, []string{"reranking", "model"}, settings.RerankModel)
+	}
+	setNestedMapValue(root, []string{"reranking", "instruction"}, settings.RerankInstruction)
+	if settings.RerankAPIKey != "" {
+		setNestedMapValue(root, []string{"reranking", "apiKey"}, settings.RerankAPIKey)
+	}
+	if settings.RerankAPIHeader != "" {
+		setNestedMapValue(root, []string{"reranking", "apiHeader"}, settings.RerankAPIHeader)
+	}
+	if settings.RerankPath != "" {
+		setNestedMapValue(root, []string{"reranking", "path"}, settings.RerankPath)
+	}
+	if len(settings.RerankAPIHeaders) > 0 {
+		setNestedMapValue(root, []string{"reranking", "headers"}, settings.RerankAPIHeaders)
+	}
+}
+
+func applyTimeoutSettingsYAML(root map[string]any, settings agentdSettings) {
 	if settings.AgentRunTimeoutSeconds != 0 {
 		setNestedMapValue(root, []string{"agentRunTimeoutSeconds"}, settings.AgentRunTimeoutSeconds)
 	}
@@ -304,7 +481,9 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	if settings.WorkflowTimeoutSeconds != 0 {
 		setNestedMapValue(root, []string{"workflowTimeoutSeconds"}, settings.WorkflowTimeoutSeconds)
 	}
+}
 
+func applyExecSettingsYAML(root map[string]any, settings agentdSettings) {
 	if settings.BlockBinaries != "" {
 		parts, err := parseBlockBinaries(settings.BlockBinaries)
 		if err == nil {
@@ -317,7 +496,21 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	if settings.OutputTruncateBytes != 0 {
 		setNestedMapValue(root, []string{"outputTruncateBytes"}, settings.OutputTruncateBytes)
 	}
+	if settings.MaxTerminalSessions != 0 {
+		setNestedMapValue(root, []string{"exec", "maxTerminalSessions"}, settings.MaxTerminalSessions)
+	}
+	if settings.MaxTerminalRuntimeSeconds != 0 {
+		setNestedMapValue(root, []string{"exec", "maxTerminalRuntimeSeconds"}, settings.MaxTerminalRuntimeSeconds)
+	}
+	if settings.TerminalIdleTTLSeconds != 0 {
+		setNestedMapValue(root, []string{"exec", "terminalIdleTTLSeconds"}, settings.TerminalIdleTTLSeconds)
+	}
+	if settings.TerminalOutputBufferBytes != 0 {
+		setNestedMapValue(root, []string{"exec", "terminalOutputBufferBytes"}, settings.TerminalOutputBufferBytes)
+	}
+}
 
+func applyObservabilitySettingsYAML(root map[string]any, settings agentdSettings) {
 	if settings.OTELServiceName != "" {
 		setNestedMapValue(root, []string{"obs", "serviceName"}, settings.OTELServiceName)
 	}
@@ -330,7 +523,9 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	if settings.OTLPEndpoint != "" {
 		setNestedMapValue(root, []string{"obs", "otlp"}, settings.OTLPEndpoint)
 	}
+}
 
+func applyLogSettingsYAML(root map[string]any, settings agentdSettings) {
 	setNestedMapValue(root, []string{"logPayloads"}, settings.LogPayloads)
 	setNestedMapValue(root, []string{"logRawPrompts"}, settings.LogRawPrompts)
 	if settings.LogPath != "" {
@@ -339,11 +534,15 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	if settings.LogLevel != "" {
 		setNestedMapValue(root, []string{"logLevel"}, settings.LogLevel)
 	}
+}
 
+func applyWebSettingsYAML(root map[string]any, settings agentdSettings) {
 	if settings.WebSearXNGURL != "" {
 		setNestedMapValue(root, []string{"web", "searXNGURL"}, settings.WebSearXNGURL)
 	}
+}
 
+func applyDatabaseSettingsYAML(root map[string]any, settings agentdSettings) {
 	if settings.PostgresDSN != "" {
 		setNestedMapValue(root, []string{"databases", "defaultDSN"}, settings.PostgresDSN)
 	}

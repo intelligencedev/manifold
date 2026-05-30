@@ -379,6 +379,73 @@ func TestToolResponseIsForwarded(t *testing.T) {
 	// instability.
 }
 
+func TestRejectedToolCallRetryShapeIsForwarded(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"role":"model","parts":[{"text":"ok"}]}}]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := New(config.GoogleConfig{APIKey: "k", Model: "m", BaseURL: srv.URL}, srv.Client())
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	_, err = client.Chat(context.Background(), []llm.Message{
+		{Role: "user", Content: "go"},
+		{Role: "assistant", ToolCalls: []llm.ToolCall{{Name: "agent_response", ID: "call_terminal", Args: json.RawMessage(`{"text":"too soon"}`)}}},
+		{Role: "tool", ToolID: "call_terminal", Content: "Tool call rejected by harness before execution: complete required steps first."},
+		{Role: "user", Content: "The terminal tool cannot be called yet. Complete the required step first."},
+	}, []llm.ToolSchema{{Name: "agent_response", Parameters: map[string]any{"type": "object"}}}, "")
+	if err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+
+	contents, ok := body["contents"].([]any)
+	if !ok || len(contents) != 4 {
+		t.Fatalf("expected 4 contents, got %#v", body["contents"])
+	}
+	assistant, ok := contents[1].(map[string]any)
+	if !ok || assistant["role"] != "model" {
+		t.Fatalf("expected model tool call content, got %#v", contents[1])
+	}
+	assistantParts, ok := assistant["parts"].([]any)
+	if !ok || len(assistantParts) != 1 {
+		t.Fatalf("expected assistant parts, got %#v", assistant["parts"])
+	}
+	functionCall, ok := assistantParts[0].(map[string]any)["functionCall"].(map[string]any)
+	if !ok || functionCall["id"] != "call_terminal" || functionCall["name"] != "agent_response" {
+		t.Fatalf("expected functionCall call_terminal, got %#v", assistantParts[0])
+	}
+	toolMsg, ok := contents[2].(map[string]any)
+	if !ok || toolMsg["role"] != "user" {
+		t.Fatalf("expected user functionResponse content, got %#v", contents[2])
+	}
+	toolParts, ok := toolMsg["parts"].([]any)
+	if !ok || len(toolParts) != 1 {
+		t.Fatalf("expected functionResponse parts, got %#v", toolMsg["parts"])
+	}
+	functionResponse, ok := toolParts[0].(map[string]any)["functionResponse"].(map[string]any)
+	if !ok || functionResponse["id"] != "call_terminal" || functionResponse["name"] != "agent_response" {
+		t.Fatalf("expected matching functionResponse, got %#v", toolParts[0])
+	}
+	nudgeMsg, ok := contents[3].(map[string]any)
+	if !ok || nudgeMsg["role"] != "user" {
+		t.Fatalf("expected user nudge content, got %#v", contents[3])
+	}
+	nudgeParts, ok := nudgeMsg["parts"].([]any)
+	if !ok || len(nudgeParts) != 1 {
+		t.Fatalf("expected nudge parts, got %#v", nudgeMsg["parts"])
+	}
+	nudgeText, ok := nudgeParts[0].(map[string]any)["text"].(string)
+	if !ok || !strings.Contains(nudgeText, "cannot be called yet") {
+		t.Fatalf("expected retry nudge text, got %#v", nudgeParts[0])
+	}
+}
+
 func TestStreamEmitsToolCalls(t *testing.T) {
 	// ChatStream now uses streaming even when tools are provided.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

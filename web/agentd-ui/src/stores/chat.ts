@@ -437,11 +437,11 @@ export const useChatStore = defineStore("chat", () => {
     const evolvingMemoryEnabled =
       typeof rawEvolvingMemoryEnabled === "boolean"
         ? rawEvolvingMemoryEnabled
-        : true;
+        : false;
     const beliefMemoryEnabled =
       typeof rawBeliefMemoryEnabled === "boolean"
         ? rawBeliefMemoryEnabled
-        : true;
+        : false;
     return {
       ...meta,
       messageCount,
@@ -647,15 +647,15 @@ export const useChatStore = defineStore("chat", () => {
     const nextEvolving =
       typeof settings.evolvingMemoryEnabled === "boolean"
         ? settings.evolvingMemoryEnabled
-        : (existing?.evolvingMemoryEnabled ?? true);
+        : (existing?.evolvingMemoryEnabled ?? false);
     const nextBelief =
       typeof settings.beliefMemoryEnabled === "boolean"
         ? settings.beliefMemoryEnabled
-        : (existing?.beliefMemoryEnabled ?? true);
+        : (existing?.beliefMemoryEnabled ?? false);
     if (
       existing &&
-      (existing.evolvingMemoryEnabled ?? true) === nextEvolving &&
-      (existing.beliefMemoryEnabled ?? true) === nextBelief
+      (existing.evolvingMemoryEnabled ?? false) === nextEvolving &&
+      (existing.beliefMemoryEnabled ?? false) === nextBelief
     ) {
       return existing;
     }

@@ -96,8 +96,9 @@ func (a *app) runsHandler() http.HandlerFunc {
 func (a *app) chatSessionsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var (
-			userID  *int64
-			isAdmin bool
+			userID      *int64
+			currentUser *auth.User
+			isAdmin     bool
 		)
 		if a.cfg.Auth.Enabled {
 			u, ok := auth.CurrentUser(r.Context())
@@ -106,6 +107,7 @@ func (a *app) chatSessionsHandler() http.HandlerFunc {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
+			currentUser = u
 			id, admin, err := resolveChatAccess(r.Context(), a.authStore, u)
 			if err != nil {
 				log.Error().Err(err).Msg("resolve_chat_access")
@@ -150,6 +152,12 @@ func (a *app) chatSessionsHandler() http.HandlerFunc {
 					return
 				}
 				log.Error().Err(err).Msg("create_chat_session")
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			sess, err = a.ensureTemporaryChatProject(r, userID, chatRequestOwner(currentUser, userID), sess)
+			if err != nil {
+				log.Error().Err(err).Str("session", sess.ID).Msg("ensure_temporary_chat_project")
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
 			}

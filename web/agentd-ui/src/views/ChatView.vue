@@ -1594,7 +1594,7 @@ const projectOptions = computed<DropdownOption[]>(() => {
   ) {
     projectEntries.unshift({
       id: lockedProjectID,
-      label: `${lockedProjectID} (missing)`,
+      label: "Temporary project",
       value: lockedProjectID,
       disabled: true,
     });
@@ -1793,11 +1793,8 @@ watch([selectedTeam, selectedSpecialist, selectedTeamMembers], () => {
     selectedSpecialist.value = "orchestrator";
   }
 });
-const projectSelected = computed(() => {
-  const projectID = selectedProjectId.value;
-  return Boolean(projectID && projects.value.some((p) => p.id === projectID));
-});
-const requiresProjectSelection = computed(() => !projectSelected.value);
+const projectSelected = computed(() => Boolean(activeSessionId.value));
+const requiresProjectSelection = computed(() => false);
 
 function httpStatus(error: unknown): number | null {
   if (axios.isAxiosError(error)) {
@@ -1921,10 +1918,10 @@ const activeMemorySettingsSaving = computed(() => {
   return Boolean(sessionId && memorySettingsSavingBySession.value[sessionId]);
 });
 const evolvingMemoryEnabled = computed(
-  () => activeSession.value?.evolvingMemoryEnabled ?? true,
+  () => activeSession.value?.evolvingMemoryEnabled ?? false,
 );
 const beliefMemoryEnabled = computed(
-  () => activeSession.value?.beliefMemoryEnabled ?? true,
+  () => activeSession.value?.beliefMemoryEnabled ?? false,
 );
 const hasPendingInputRequest = computed(() =>
   activeMessages.value.some((message) =>
@@ -2931,11 +2928,6 @@ function selectSession(sessionId: string) {
 async function createSession(name = "New Chat") {
   try {
     await chat.createSession(name);
-    const session = chat.activeSession;
-    if (session) {
-      renamingSessionId.value = session.id;
-      renamingName.value = session.name;
-    }
     autoScrollEnabled.value = true;
     nextTick(() => scrollMessagesToBottom({ force: true, behavior: "auto" }));
   } catch (error) {

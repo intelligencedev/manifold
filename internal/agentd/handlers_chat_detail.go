@@ -12,6 +12,7 @@ import (
 
 	"manifold/internal/auth"
 	persist "manifold/internal/persistence"
+	"manifold/internal/projects"
 	"manifold/internal/workspaces"
 )
 
@@ -371,14 +372,54 @@ func (a *app) handleChatSession(
 	case http.MethodPatch:
 		a.patchChatSession(w, r, currentUser, userID, sessionID)
 	case http.MethodDelete:
+		sess, err := a.chatStore.GetSession(r.Context(), userID, sessionID)
+		if err != nil {
+			writeChatDetailStoreError(w, r, err, sessionID, "get_chat_session")
+			return
+		}
+		deleteProject, err := a.shouldDeleteTemporaryChatProject(r.Context(), chatRequestOwner(currentUser, userID), sess)
+		if err != nil {
+			log.Error().Err(err).Str("session", sessionID).Str("project_id", sess.ProjectID).Msg("check_temporary_chat_project")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
 		if err := a.chatStore.DeleteSession(r.Context(), userID, sessionID); err != nil {
 			writeChatDetailStoreError(w, r, err, sessionID, "delete_chat_session")
+			return
+		}
+		if deleteProject {
+			err = a.projectsService.DeleteProject(r.Context(), chatRequestOwner(currentUser, userID), strings.TrimSpace(sess.ProjectID))
+		}
+		if err != nil {
+			log.Error().Err(err).Str("session", sessionID).Str("project_id", sess.ProjectID).Msg("delete_temporary_chat_project")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (a *app) shouldDeleteTemporaryChatProject(ctx context.Context, owner int64, sess persist.ChatSession) (bool, error) {
+	projectID := strings.TrimSpace(sess.ProjectID)
+	if projectID == "" || a.projectsService == nil {
+		return false, nil
+	}
+	return a.isTemporaryProject(ctx, owner, projectID)
+}
+
+func (a *app) isTemporaryProject(ctx context.Context, owner int64, projectID string) (bool, error) {
+	temporaryProjects, err := a.projectsService.ListProjectsByKindWithUsage(ctx, owner, projects.ProjectKindTemporary, false)
+	if err != nil {
+		return false, err
+	}
+	for _, project := range temporaryProjects {
+		if project.ID == projectID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 type patchChatSessionRequest struct {

@@ -37,8 +37,8 @@ func newChatSession(id string, userID *int64, name string, kind string, now time
 		UserID:                copyUserID(userID),
 		CreatedAt:             now,
 		UpdatedAt:             now,
-		EvolvingMemoryEnabled: true,
-		BeliefMemoryEnabled:   true,
+		EvolvingMemoryEnabled: false,
+		BeliefMemoryEnabled:   false,
 	}
 }
 

@@ -54,7 +54,7 @@ func (s *promptHandlerChatStore) EnsureSessionKind(_ context.Context, userID *in
 	if strings.TrimSpace(kind) == "" {
 		kind = persistence.ChatSessionKindChat
 	}
-	sess := persistence.ChatSession{ID: id, Name: name, Kind: kind, UserID: userID, CreatedAt: time.Now(), UpdatedAt: time.Now(), EvolvingMemoryEnabled: true, BeliefMemoryEnabled: true}
+	sess := persistence.ChatSession{ID: id, Name: name, Kind: kind, UserID: userID, CreatedAt: time.Now(), UpdatedAt: time.Now(), EvolvingMemoryEnabled: false, BeliefMemoryEnabled: false}
 	s.sessions[id] = sess
 	s.messages[id] = nil
 	return sess, nil

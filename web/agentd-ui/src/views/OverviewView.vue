@@ -1,12 +1,12 @@
 <template>
-  <section class="flex min-h-full flex-col gap-5">
+  <section class="flex min-h-full flex-col gap-4">
     <header class="flex items-start justify-between gap-4">
       <div>
         <h2 class="font-display text-2xl leading-tight text-foreground">
           Situation Room
         </h2>
         <p class="mt-1 text-sm text-muted-foreground">
-          Live agents, today's throughput, and recent work.
+          Agents, throughput, recent work, and queue operations.
         </p>
       </div>
       <div class="flex items-center gap-2">
@@ -24,76 +24,37 @@
         <MSegmented
           v-model="overviewMode"
           :options="[
-            { value: 'live', label: 'Live' },
             { value: 'customize', label: 'Customize' },
+            { value: 'queue-ops', label: 'Queue Ops' },
           ]"
         />
       </div>
     </header>
 
-    <template v-if="overviewMode === 'live'">
-      <MReadouts>
-        <MReadout
+    <template v-if="overviewMode === 'customize'">
+      <div
+        class="halo-surface grid min-w-0 grid-cols-4 overflow-hidden px-0 py-2"
+      >
+        <div
           v-for="stat in overviewStats"
           :key="stat.label"
-          :k="stat.label"
-          :v="stat.value"
-          :data="stat.data"
-        />
-      </MReadouts>
-
-      <MSurface
-        title="Throughput"
-        eyebrow="Runs"
-        description="Runs started in rolling hourly buckets."
-      >
-        <div class="h-[220px]">
-          <svg
-            class="h-full w-full overflow-visible"
-            viewBox="0 0 720 180"
-            role="img"
-            aria-label="Run throughput"
+          class="min-w-0 border-l border-[rgb(var(--color-border))] px-4 py-1 first:border-l-0"
+        >
+          <p
+            class="truncate font-mono text-[10px] uppercase tracking-[0.12em] text-faint-foreground"
           >
-            <path
-              :d="sparkAreaPath"
-              fill="rgb(var(--data) / 0.10)"
-              stroke="none"
-            />
-            <path
-              :d="sparkPath"
-              fill="none"
-              stroke="rgb(var(--data))"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-            <g v-for="point in chartPoints" :key="point.label">
-              <circle
-                :cx="point.x"
-                :cy="point.y"
-                r="3"
-                fill="rgb(var(--data))"
-              />
-              <text
-                :x="point.x"
-                y="176"
-                text-anchor="middle"
-                class="fill-[rgb(var(--color-faint-foreground))] font-mono text-[9px]"
-              >
-                {{ point.label }}
-              </text>
-            </g>
-          </svg>
+            {{ stat.label }}
+          </p>
+          <p
+            :class="[
+              'mt-1 font-display text-2xl font-semibold leading-none tabular-nums',
+              stat.data ? 'text-[rgb(var(--data))]' : 'text-foreground',
+            ]"
+          >
+            {{ stat.value }}
+          </p>
         </div>
-      </MSurface>
-
-      <div class="grid min-h-[320px] grid-cols-2 gap-5">
-        <AgentsPanel :agents="agents" />
-        <RecentRunsPanel :runs="recentRuns" />
       </div>
-    </template>
-
-    <div v-else class="min-h-0 flex-1 pb-6 pt-1">
       <DashboardGrid
         ref="dashboardGridRef"
         :layout="dashboardLayout"
@@ -130,8 +91,63 @@
         <template #item-runs>
           <RecentRunsPanel :runs="recentRuns" />
         </template>
+
+        <template #item-throughput>
+          <section class="flex h-full flex-col p-5 text-foreground">
+            <header class="mb-3">
+              <p
+                class="font-mono text-[11px] uppercase tracking-[0.18em] text-faint-foreground"
+              >
+                Runs
+              </p>
+              <h2 class="font-display text-lg leading-tight text-foreground">
+                Throughput
+              </h2>
+            </header>
+            <div class="min-h-0 flex-1">
+              <svg
+                class="h-full w-full overflow-visible"
+                viewBox="0 0 720 180"
+                role="img"
+                aria-label="Run throughput"
+              >
+                <path
+                  :d="sparkAreaPath"
+                  fill="rgb(var(--data) / 0.10)"
+                  stroke="none"
+                />
+                <path
+                  :d="sparkPath"
+                  fill="none"
+                  stroke="rgb(var(--data))"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+                <g v-for="point in chartPoints" :key="point.label">
+                  <circle
+                    :cx="point.x"
+                    :cy="point.y"
+                    r="3"
+                    fill="rgb(var(--data))"
+                  />
+                  <text
+                    :x="point.x"
+                    y="176"
+                    text-anchor="middle"
+                    class="fill-[rgb(var(--color-faint-foreground))] font-mono text-[9px]"
+                  >
+                    {{ point.label }}
+                  </text>
+                </g>
+              </svg>
+            </div>
+          </section>
+        </template>
       </DashboardGrid>
-    </div>
+    </template>
+
+    <DurableView v-else embedded class="min-h-0 flex-1" />
 
     <LogDetailDrawer
       :open="Boolean(selectedLogId)"
@@ -143,8 +159,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, watch } from "vue";
 import { useQuery } from "@tanstack/vue-query";
+import { useRoute, useRouter } from "vue-router";
 import DashboardGrid, {
   type GridItemConfig,
 } from "@/components/DashboardGrid.vue";
@@ -156,11 +173,9 @@ import LogsPanel from "@/components/observability/LogsPanel.vue";
 import LogDetailDrawer from "@/components/observability/LogDetailDrawer.vue";
 import AgentsPanel from "@/components/overview/AgentsPanel.vue";
 import RecentRunsPanel from "@/components/overview/RecentRunsPanel.vue";
-import MReadout from "@/components/ui/MReadout.vue";
-import MReadouts from "@/components/ui/MReadouts.vue";
 import MSegmented from "@/components/ui/MSegmented.vue";
-import MSurface from "@/components/ui/MSurface.vue";
 import SolarRefreshIcon from "@/components/icons/SolarRefresh.vue";
+import DurableView from "@/views/DurableView.vue";
 import {
   fetchAgentRuns,
   fetchAgentStatus,
@@ -168,10 +183,14 @@ import {
 } from "@/api/client";
 import type { MetricsTimeRangeValue } from "@/composables/observability/useTokenMetrics";
 
+type OverviewMode = "customize" | "queue-ops";
+
+const route = useRoute();
+const router = useRouter();
 const dashboardGridRef = ref<InstanceType<typeof DashboardGrid>>();
 const selectedLogId = ref<string | null>(null);
 const selectedLogWindow = ref<MetricsTimeRangeValue>("1h");
-const overviewMode = ref("live");
+const overviewMode = ref<OverviewMode>(normalizeOverviewMode(route.query.tab));
 
 // Define default dashboard layout
 // 12 columns grid, row height = 80px + 16px margin = 96px per row
@@ -184,12 +203,31 @@ const dashboardLayout = ref<GridItemConfig[]>([
   { i: "traces", x: 0, y: 4, w: 8, h: 5, minW: 4, minH: 4 },
   // Recent Runs - sidebar
   { i: "runs", x: 8, y: 4, w: 4, h: 5, minW: 3, minH: 3 },
+  // Throughput graph
+  { i: "throughput", x: 0, y: 9, w: 12, h: 4, minW: 6, minH: 3 },
   // Evolving memory metrics + inspector
-  { i: "memory-metrics", x: 0, y: 9, w: 5, h: 5, minW: 4, minH: 4 },
-  { i: "memory", x: 5, y: 9, w: 7, h: 5, minW: 4, minH: 4 },
+  { i: "memory-metrics", x: 0, y: 13, w: 5, h: 5, minW: 4, minH: 4 },
+  { i: "memory", x: 5, y: 13, w: 7, h: 5, minW: 4, minH: 4 },
   // Logs - full width
-  { i: "logs", x: 0, y: 14, w: 12, h: 4, minW: 4, minH: 3 },
+  { i: "logs", x: 0, y: 18, w: 12, h: 4, minW: 4, minH: 3 },
 ]);
+
+watch(
+  () => route.query.tab,
+  (tab) => {
+    overviewMode.value = normalizeOverviewMode(tab);
+  },
+);
+
+watch(overviewMode, (mode) => {
+  if (normalizeOverviewMode(route.query.tab) === mode) return;
+  void router.replace({
+    query: {
+      ...route.query,
+      tab: mode === "queue-ops" ? mode : undefined,
+    },
+  });
+});
 
 const { data: agentData } = useQuery({
   queryKey: ["agent-status"],
@@ -348,5 +386,10 @@ function openLogDetail(payload: { id: string; window: MetricsTimeRangeValue }) {
 
 function closeLogDetail() {
   selectedLogId.value = null;
+}
+
+function normalizeOverviewMode(value: unknown): OverviewMode {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return raw === "queue-ops" ? "queue-ops" : "customize";
 }
 </script>

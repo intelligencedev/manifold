@@ -273,6 +273,15 @@ import {
 import AppButton from "@/components/ui/AppButton.vue";
 import Chip from "@/components/ui/Chip.vue";
 
+const props = withDefaults(
+  defineProps<{
+    embedded?: boolean;
+  }>(),
+  {
+    embedded: false,
+  },
+);
+
 const route = useRoute();
 const router = useRouter();
 
@@ -302,6 +311,7 @@ const taskFilters = computed(() => ({
 
 const listingQuery = computed(() => {
   const query: Record<string, string> = {};
+  if (props.embedded) query.tab = "queue-ops";
   if (selectedQueue.value) query.queue = selectedQueue.value;
   if (selectedStatus.value) query.status = selectedStatus.value;
   if (taskNameFilter.value.trim()) query.name = taskNameFilter.value.trim();

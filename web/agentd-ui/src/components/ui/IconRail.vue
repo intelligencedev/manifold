@@ -50,7 +50,6 @@
 import { computed, type Component } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 import ChatButton from "@/components/icons/ChatButton.vue";
-import DurableButton from "@/components/icons/DurableButton.vue";
 import FlowButton from "@/components/icons/FlowButton.vue";
 import OverviewButton from "@/components/icons/OverviewButton.vue";
 import PlaygroundButton from "@/components/icons/PlaygroundButton.vue";
@@ -81,7 +80,6 @@ const navIcons: Record<string, Component> = {
   pulse: PulseButton,
   playground: PlaygroundButton,
   flow: FlowButton,
-  durable: DurableButton,
   settings: SettingsButton,
 };
 

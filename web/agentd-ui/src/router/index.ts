@@ -12,7 +12,7 @@ const router = createRouter({
         label: "Overview",
         glyph: "OV",
         title: "Overview",
-        purpose: "Situation room — live agents, throughput, recent runs",
+        purpose: "Situation room — customizable operations dashboard",
       },
       component: () => import("@/views/OverviewView.vue"),
     },
@@ -89,7 +89,7 @@ const router = createRouter({
       path: "/durable",
       name: "durable",
       meta: {
-        nav: true,
+        nav: false,
         order: 8,
         label: "Durable",
         glyph: "DU",

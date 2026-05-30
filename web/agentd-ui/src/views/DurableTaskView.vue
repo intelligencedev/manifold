@@ -142,6 +142,10 @@ async function refreshAll() {
 }
 
 function goBack() {
+  if (route.query.tab === "queue-ops") {
+    void router.push({ name: "overview", query: route.query });
+    return;
+  }
   void router.push({ name: "durable", query: route.query });
 }
 

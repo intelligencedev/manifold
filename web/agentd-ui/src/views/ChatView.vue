@@ -31,13 +31,19 @@
               <button
                 type="button"
                 class="rounded-4 border px-2 py-1 text-xs font-semibold transition"
-                :class="selectedSessionIds.length > 0
-                  ? 'border-danger/60 bg-danger/10 text-danger hover:bg-danger/20'
-                  : 'border-border/40 text-faint-foreground cursor-not-allowed opacity-50'"
+                :class="
+                  selectedSessionIds.length > 0
+                    ? 'border-danger/60 bg-danger/10 text-danger hover:bg-danger/20'
+                    : 'border-border/40 text-faint-foreground cursor-not-allowed opacity-50'
+                "
                 :disabled="selectedSessionIds.length === 0"
                 @click="openBulkDeleteDialog"
               >
-                Delete{{ selectedSessionIds.length > 0 ? ` (${selectedSessionIds.length})` : '' }}
+                Delete{{
+                  selectedSessionIds.length > 0
+                    ? ` (${selectedSessionIds.length})`
+                    : ""
+                }}
               </button>
               <button
                 type="button"
@@ -79,11 +85,17 @@
                   ? 'border-accent/70 bg-surface-muted/60'
                   : 'hover:border-border hover:bg-surface-muted/40'
             "
-            @click="sessionSelectMode ? toggleSessionSelection(session.id) : selectSession(session.id)"
+            @click="
+              sessionSelectMode
+                ? toggleSessionSelection(session.id)
+                : selectSession(session.id)
+            "
           >
             <div class="flex items-center justify-between gap-2">
               <template v-if="sessionSelectMode">
-                <p class="truncate font-medium text-foreground flex-1">{{ session.name }}</p>
+                <p class="truncate font-medium text-foreground flex-1">
+                  {{ session.name }}
+                </p>
               </template>
               <template v-else-if="renamingSessionId === session.id">
                 <input
@@ -211,11 +223,12 @@
                 </svg>
               </button>
             </span>
-            <div class="flex items-center gap-3" aria-label="Conversation settings">
+            <div
+              class="flex items-center gap-3"
+              aria-label="Conversation settings"
+            >
               <div class="flex items-center gap-1.5">
-                <span
-                  class="text-[11px] font-medium text-subtle-foreground"
-                >
+                <span class="text-[11px] font-medium text-subtle-foreground">
                   Project
                 </span>
                 <DropdownSelect
@@ -228,63 +241,39 @@
                 />
               </div>
               <span class="h-4 w-px bg-border/60" aria-hidden="true"></span>
-              <div
-                class="flex items-center gap-3"
-                aria-label="Memory controls"
-              >
+              <div class="flex items-center gap-3" aria-label="Memory controls">
                 <label
                   class="inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium leading-none text-subtle-foreground"
-                  title="Enable evolving memory and ReMem for this conversation"
+                  title="Enable unified evolving, belief, and MAGMA memory for this conversation"
                 >
                   <input
                     type="checkbox"
                     class="sr-only"
-                    :checked="evolvingMemoryEnabled"
-                    :disabled="!activeSessionId || isStreaming || activeMemorySettingsSaving"
-                    aria-label="Evolving memory"
-                    @change="setSessionMemorySetting('evolving', $event)"
+                    :checked="memoryEnabled"
+                    :disabled="
+                      !activeSessionId ||
+                      isStreaming ||
+                      activeMemorySettingsSaving
+                    "
+                    aria-label="Memory"
+                    @change="setSessionMemorySetting($event)"
                   />
                   <span
                     class="relative h-4 w-7 rounded-full border transition-colors"
                     :class="
-                      evolvingMemoryEnabled
+                      memoryEnabled
                         ? 'border-accent bg-accent'
                         : 'border-border bg-surface'
                     "
                   >
                     <span
                       class="absolute top-0.5 h-2.5 w-2.5 rounded-full bg-background shadow-1 transition-transform"
-                      :class="evolvingMemoryEnabled ? 'translate-x-3.5' : 'translate-x-0.5'"
+                      :class="
+                        memoryEnabled ? 'translate-x-3.5' : 'translate-x-0.5'
+                      "
                     ></span>
                   </span>
                   <span>Memory</span>
-                </label>
-                <label
-                  class="inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium leading-none text-subtle-foreground"
-                  title="Enable belief memory for this conversation"
-                >
-                  <input
-                    type="checkbox"
-                    class="sr-only"
-                    :checked="beliefMemoryEnabled"
-                    :disabled="!activeSessionId || isStreaming || activeMemorySettingsSaving"
-                    aria-label="Belief memory"
-                    @change="setSessionMemorySetting('belief', $event)"
-                  />
-                  <span
-                    class="relative h-4 w-7 rounded-full border transition-colors"
-                    :class="
-                      beliefMemoryEnabled
-                        ? 'border-accent bg-accent'
-                        : 'border-border bg-surface'
-                    "
-                  >
-                    <span
-                      class="absolute top-0.5 h-2.5 w-2.5 rounded-full bg-background shadow-1 transition-transform"
-                      :class="beliefMemoryEnabled ? 'translate-x-3.5' : 'translate-x-0.5'"
-                    ></span>
-                  </span>
-                  <span>Beliefs</span>
                 </label>
               </div>
               <!-- Render mode dropdown retained for future use.
@@ -387,12 +376,22 @@
               >
                 <!-- Parallel specialist activity (sub-agents invoked concurrently) -->
                 <div
-                  v-if="visibleParticipantActivityItemsForMessage(message.id).length > 0"
+                  v-if="
+                    visibleParticipantActivityItemsForMessage(message.id)
+                      .length > 0
+                  "
                   class="parallel-activity-grid"
-                  :class="visibleParticipantActivityItemsForMessage(message.id).length <= 2 ? 'parallel-activity-grid--row' : 'parallel-activity-grid--col'"
+                  :class="
+                    visibleParticipantActivityItemsForMessage(message.id)
+                      .length <= 2
+                      ? 'parallel-activity-grid--row'
+                      : 'parallel-activity-grid--col'
+                  "
                 >
                   <div
-                    v-for="thread in visibleParticipantActivityItemsForMessage(message.id)"
+                    v-for="thread in visibleParticipantActivityItemsForMessage(
+                      message.id,
+                    )"
                     :key="thread.id"
                     class="parallel-activity-card"
                   >
@@ -405,9 +404,15 @@
                       >
                         <span
                           class="direct-activity-pill-dot"
-                          :class="thread.status === 'running' ? 'direct-activity-pill-dot--live' : ''"
+                          :class="
+                            thread.status === 'running'
+                              ? 'direct-activity-pill-dot--live'
+                              : ''
+                          "
                         ></span>
-                        <span class="direct-activity-pill-label">{{ thread.name }}</span>
+                        <span class="direct-activity-pill-label">{{
+                          thread.name
+                        }}</span>
                         <span class="direct-activity-pill-chevron">›</span>
                       </button>
                     </Transition>
@@ -423,50 +428,77 @@
                         class="direct-activity"
                       >
                         <div class="direct-activity-header">
-                          <span class="direct-activity-label">{{ thread.name }}</span>
+                          <span class="direct-activity-label">{{
+                            thread.name
+                          }}</span>
                           <button
                             v-if="thread.status !== 'running'"
                             type="button"
                             class="direct-activity-collapse-btn"
                             @click="collapseActivity(thread.id)"
                             title="Collapse"
-                          >collapse ›</button>
-                          <span v-else class="direct-activity-streaming-dot"></span>
+                          >
+                            collapse ›
+                          </button>
+                          <span
+                            v-else
+                            class="direct-activity-streaming-dot"
+                          ></span>
                         </div>
                         <div
                           class="direct-activity-body"
-                          :ref="(el) => registerThreadBody(el as Element | null, thread.id)"
+                          :ref="
+                            (el) =>
+                              registerThreadBody(
+                                el as Element | null,
+                                thread.id,
+                              )
+                          "
                           @scroll="handleThreadBodyScroll($event, thread.id)"
                         >
-                        <div
-                          v-if="thread.toolEntries.length"
-                          class="direct-activity-row"
-                        >
-                          <span class="direct-activity-label">Tool</span>
-                          <span class="direct-activity-value">
-                            {{ thread.toolEntries[thread.toolEntries.length - 1]?.title || '' }}
-                          </span>
-                        </div>
-                        <div
-                          v-if="thread.thoughtSummaries.length"
-                          class="direct-activity-thought"
-                        >
-                          <span class="direct-activity-label">Thought summary</span>
                           <div
-                            class="chat-markdown direct-activity-summary"
-                            v-html="renderMarkdownOrHtml(thread.thoughtSummaries[thread.thoughtSummaries.length - 1] || '')"
-                          ></div>
-                        </div>
-                        <div
-                          v-if="thread.response && thread.status !== 'running'"
-                          class="direct-activity-thought"
-                        >
-                          <span class="direct-activity-label">Response</span>
+                            v-if="thread.toolEntries.length"
+                            class="direct-activity-row"
+                          >
+                            <span class="direct-activity-label">Tool</span>
+                            <span class="direct-activity-value">
+                              {{
+                                thread.toolEntries[
+                                  thread.toolEntries.length - 1
+                                ]?.title || ""
+                              }}
+                            </span>
+                          </div>
                           <div
-                            class="chat-markdown direct-activity-summary"
-                            v-html="renderMarkdownOrHtml(thread.response)"
-                          ></div>
-                        </div>
+                            v-if="thread.thoughtSummaries.length"
+                            class="direct-activity-thought"
+                          >
+                            <span class="direct-activity-label"
+                              >Thought summary</span
+                            >
+                            <div
+                              class="chat-markdown direct-activity-summary"
+                              v-html="
+                                renderMarkdownOrHtml(
+                                  thread.thoughtSummaries[
+                                    thread.thoughtSummaries.length - 1
+                                  ] || '',
+                                )
+                              "
+                            ></div>
+                          </div>
+                          <div
+                            v-if="
+                              thread.response && thread.status !== 'running'
+                            "
+                            class="direct-activity-thought"
+                          >
+                            <span class="direct-activity-label">Response</span>
+                            <div
+                              class="chat-markdown direct-activity-summary"
+                              v-html="renderMarkdownOrHtml(thread.response)"
+                            ></div>
+                          </div>
                         </div>
                       </div>
                     </Transition>
@@ -479,16 +511,18 @@
                 >
                   <!-- Collapsed pill: click to expand -->
                   <Transition name="activity-pill">
-                  <button
-                    v-if="isActivityCollapsed(message.id)"
-                    type="button"
-                    class="direct-activity-pill"
-                    @click="expandActivity(message.id)"
-                  >
-                    <span class="direct-activity-pill-dot"></span>
-                    <span class="direct-activity-pill-label">{{ agentNameFor(message) }} activity</span>
-                    <span class="direct-activity-pill-chevron">›</span>
-                  </button>
+                    <button
+                      v-if="isActivityCollapsed(message.id)"
+                      type="button"
+                      class="direct-activity-pill"
+                      @click="expandActivity(message.id)"
+                    >
+                      <span class="direct-activity-pill-dot"></span>
+                      <span class="direct-activity-pill-label"
+                        >{{ agentNameFor(message) }} activity</span
+                      >
+                      <span class="direct-activity-pill-chevron">›</span>
+                    </button>
                   </Transition>
 
                   <!-- Expanded panel (drawer animation) -->
@@ -499,44 +533,57 @@
                     @before-leave="drawerBeforeLeave"
                     @leave="drawerLeave"
                   >
-                  <div
-                    v-if="!isActivityCollapsed(message.id)"
-                    class="direct-activity"
-                  >
-                    <!-- Header row: name + collapse button -->
-                    <div class="direct-activity-header">
-                      <span class="direct-activity-label">{{ agentNameFor(message) }} activity</span>
-                      <button
-                        v-if="!message.streaming"
-                        type="button"
-                        class="direct-activity-collapse-btn"
-                        @click="collapseActivity(message.id)"
-                        title="Collapse"
-                      >collapse ›</button>
-                      <span v-else class="direct-activity-streaming-dot"></span>
-                    </div>
-                    <div class="direct-activity-body">
                     <div
-                      v-if="message.activityToolTitle"
-                      class="direct-activity-row"
+                      v-if="!isActivityCollapsed(message.id)"
+                      class="direct-activity"
                     >
-                      <span class="direct-activity-label">Tool</span>
-                      <span class="direct-activity-value">
-                        {{ message.activityToolTitle }}
-                      </span>
+                      <!-- Header row: name + collapse button -->
+                      <div class="direct-activity-header">
+                        <span class="direct-activity-label"
+                          >{{ agentNameFor(message) }} activity</span
+                        >
+                        <button
+                          v-if="!message.streaming"
+                          type="button"
+                          class="direct-activity-collapse-btn"
+                          @click="collapseActivity(message.id)"
+                          title="Collapse"
+                        >
+                          collapse ›
+                        </button>
+                        <span
+                          v-else
+                          class="direct-activity-streaming-dot"
+                        ></span>
+                      </div>
+                      <div class="direct-activity-body">
+                        <div
+                          v-if="message.activityToolTitle"
+                          class="direct-activity-row"
+                        >
+                          <span class="direct-activity-label">Tool</span>
+                          <span class="direct-activity-value">
+                            {{ message.activityToolTitle }}
+                          </span>
+                        </div>
+                        <div
+                          v-if="shouldShowDirectThought(message)"
+                          class="direct-activity-thought"
+                        >
+                          <span class="direct-activity-label"
+                            >Thought summary</span
+                          >
+                          <div
+                            class="chat-markdown direct-activity-summary"
+                            v-html="
+                              renderMarkdownOrHtml(
+                                message.activityThoughtSummary || '',
+                              )
+                            "
+                          ></div>
+                        </div>
+                      </div>
                     </div>
-                    <div
-                      v-if="shouldShowDirectThought(message)"
-                      class="direct-activity-thought"
-                    >
-                      <span class="direct-activity-label">Thought summary</span>
-                      <div
-                        class="chat-markdown direct-activity-summary"
-                        v-html="renderMarkdownOrHtml(message.activityThoughtSummary || '')"
-                      ></div>
-                    </div>
-                    </div>
-                  </div>
                   </Transition>
                 </div>
                 <p v-if="message.title" class="font-semibold text-foreground">
@@ -575,7 +622,10 @@
                     </p>
 
                     <div
-                      v-if="request.choices.length && isInputRequestRespondable(request)"
+                      v-if="
+                        request.choices.length &&
+                        isInputRequestRespondable(request)
+                      "
                       class="input-request-choices"
                     >
                       <label
@@ -586,9 +636,21 @@
                         <input
                           :type="request.multiple ? 'checkbox' : 'radio'"
                           :name="inputRequestFieldName(message, request)"
-                          :checked="inputRequestChoiceSelected(message, request, choice.id)"
+                          :checked="
+                            inputRequestChoiceSelected(
+                              message,
+                              request,
+                              choice.id,
+                            )
+                          "
                           :disabled="isInputRequestSubmitting(message, request)"
-                          @change="toggleInputRequestChoice(message, request, choice.id)"
+                          @change="
+                            toggleInputRequestChoice(
+                              message,
+                              request,
+                              choice.id,
+                            )
+                          "
                         />
                         <span class="min-w-0">
                           <span class="input-request-choice-label">
@@ -605,8 +667,13 @@
                     </div>
 
                     <textarea
-                      v-if="request.allowFreeText && isInputRequestRespondable(request)"
-                      v-model="inputRequestDrafts[inputRequestKey(message, request)]"
+                      v-if="
+                        request.allowFreeText &&
+                        isInputRequestRespondable(request)
+                      "
+                      v-model="
+                        inputRequestDrafts[inputRequestKey(message, request)]
+                      "
                       class="input-request-textarea"
                       rows="3"
                       placeholder="Type your response..."
@@ -614,10 +681,16 @@
                     ></textarea>
 
                     <p
-                      v-if="inputRequestLocalError(message, request) || request.error"
+                      v-if="
+                        inputRequestLocalError(message, request) ||
+                        request.error
+                      "
                       class="input-request-error"
                     >
-                      {{ inputRequestLocalError(message, request) || request.error }}
+                      {{
+                        inputRequestLocalError(message, request) ||
+                        request.error
+                      }}
                     </p>
 
                     <div
@@ -789,9 +862,7 @@
               Select a project to run the agent. If you don't see any projects,
               contact an administrator.
             </p>
-            <div
-              class="halo-surface chat-prompt-input relative p-3"
-            >
+            <div class="halo-surface chat-prompt-input relative p-3">
               <div
                 v-if="mentionMenuOpen"
                 class="absolute bottom-full left-3 mb-2 w-72 overflow-hidden rounded-4 border border-border bg-surface ring-1 ring-border/50 z-20"
@@ -824,9 +895,7 @@
                 </div>
               </div>
 
-              <div
-                class="flex items-center gap-3"
-              >
+              <div class="flex items-center gap-3">
                 <textarea
                   ref="composer"
                   v-model="draft"
@@ -836,8 +905,8 @@
                     hasPendingInputRequest
                       ? 'Answer the request above to continue.'
                       : projectSelected
-                      ? 'Message the agent...'
-                      : 'Select a project to enable the chat.'
+                        ? 'Message the agent...'
+                        : 'Select a project to enable the chat.'
                   "
                   :disabled="!projectSelected || hasPendingInputRequest"
                   @keydown="handleComposerKeydown"
@@ -870,7 +939,11 @@
                         ? 'opacity-50 cursor-not-allowed text-foreground/40'
                         : 'text-foreground/80 hover:text-accent'
                     "
-                    @click="projectSelected && !hasPendingInputRequest ? fileInput?.click() : undefined"
+                    @click="
+                      projectSelected && !hasPendingInputRequest
+                        ? fileInput?.click()
+                        : undefined
+                    "
                   >
                     <SolarPaperclip2Bold class="h-5 w-5" />
                   </button>
@@ -890,7 +963,12 @@
                         ? 'opacity-50 cursor-not-allowed'
                         : '',
                     ]"
-                    :disabled="isStreaming || !canUseMic || !projectSelected || hasPendingInputRequest"
+                    :disabled="
+                      isStreaming ||
+                      !canUseMic ||
+                      !projectSelected ||
+                      hasPendingInputRequest
+                    "
                     :title="
                       isRecording ? 'Stop recording' : 'Record voice prompt'
                     "
@@ -914,7 +992,9 @@
                         ? 'opacity-50 cursor-not-allowed'
                         : '',
                     ]"
-                    :disabled="isStreaming || !projectSelected || hasPendingInputRequest"
+                    :disabled="
+                      isStreaming || !projectSelected || hasPendingInputRequest
+                    "
                     title="Generate image response"
                     aria-label="Generate image response"
                     @click="imagePrompt = !imagePrompt"
@@ -932,21 +1012,27 @@
                         : 'bg-accent text-accent-foreground hover:bg-accent/90',
                     ]"
                     :title="
-                      isStreaming && !hasPendingInputRequest && (draft.trim() || pendingAttachments.length)
+                      isStreaming &&
+                      !hasPendingInputRequest &&
+                      (draft.trim() || pendingAttachments.length)
                         ? 'Send message'
                         : isStreaming
                           ? 'Stop generating'
                           : 'Send message'
                     "
                     :aria-label="
-                      isStreaming && !hasPendingInputRequest && (draft.trim() || pendingAttachments.length)
+                      isStreaming &&
+                      !hasPendingInputRequest &&
+                      (draft.trim() || pendingAttachments.length)
                         ? 'Send message'
                         : isStreaming
                           ? 'Stop generating'
                           : 'Send message'
                     "
                     @click="
-                      isStreaming && !hasPendingInputRequest && (draft.trim() || pendingAttachments.length)
+                      isStreaming &&
+                      !hasPendingInputRequest &&
+                      (draft.trim() || pendingAttachments.length)
                         ? sendCurrentPrompt()
                         : isStreaming
                           ? stopStreaming()
@@ -1104,18 +1190,33 @@
         @click.self="closeBulkDeleteDialog"
         @keydown.esc.prevent="closeBulkDeleteDialog"
       >
-        <div class="w-full max-w-md rounded-5 bg-surface p-5 ring-1 ring-border/60">
-          <h2 id="bulk-delete-title" class="text-base font-semibold text-danger">
-            Delete {{ selectedSessionIds.length }} Conversation{{ selectedSessionIds.length === 1 ? '' : 's' }}
+        <div
+          class="w-full max-w-md rounded-5 bg-surface p-5 ring-1 ring-border/60"
+        >
+          <h2
+            id="bulk-delete-title"
+            class="text-base font-semibold text-danger"
+          >
+            Delete {{ selectedSessionIds.length }} Conversation{{
+              selectedSessionIds.length === 1 ? "" : "s"
+            }}
           </h2>
           <p class="mt-2 text-sm text-subtle-foreground">
             This permanently removes the selected
-            {{ selectedSessionIds.length === 1 ? 'conversation' : `${selectedSessionIds.length} conversations` }}
+            {{
+              selectedSessionIds.length === 1
+                ? "conversation"
+                : `${selectedSessionIds.length} conversations`
+            }}
             and all messages in them.
           </p>
           <form class="mt-4 space-y-3" @submit.prevent="confirmBulkDelete">
-            <p class="text-xs text-faint-foreground">This action cannot be undone.</p>
-            <p v-if="bulkDeleteError" class="text-xs text-danger">{{ bulkDeleteError }}</p>
+            <p class="text-xs text-faint-foreground">
+              This action cannot be undone.
+            </p>
+            <p v-if="bulkDeleteError" class="text-xs text-danger">
+              {{ bulkDeleteError }}
+            </p>
             <div class="flex items-center justify-end gap-2">
               <button
                 type="button"
@@ -1130,7 +1231,11 @@
                 class="h-9 rounded-full border border-danger/60 bg-danger/10 px-3 text-sm font-semibold text-danger transition hover:bg-danger/20 disabled:cursor-not-allowed disabled:opacity-60"
                 :disabled="bulkDeletePending"
               >
-                {{ bulkDeletePending ? 'Deleting...' : `Delete ${selectedSessionIds.length === 1 ? 'Conversation' : 'Conversations'}` }}
+                {{
+                  bulkDeletePending
+                    ? "Deleting..."
+                    : `Delete ${selectedSessionIds.length === 1 ? "Conversation" : "Conversations"}`
+                }}
               </button>
             </div>
           </form>
@@ -1175,31 +1280,33 @@
                     :key="participant.name"
                     class="participant-list-item"
                   >
-                      <button
-                        type="button"
-                        class="participant-row"
-                        :class="participantRowClasses(participant.name)"
-                        :aria-label="`Open activity for ${participant.name}`"
-                        @click="openParticipantActivity(participant.name)"
-                      >
-                        <span
-                          class="participant-dot"
-                          :class="participantDotClasses(participant.name)"
-                        ></span>
-                        <span class="participant-body">
-                          <span class="participant-name">{{ participant.name }}</span>
-                          <span class="participant-model">
-                            {{
-                              participant.model
-                                ? `${participant.model}`
-                                : "Model pending"
-                            }}
-                          </span>
+                    <button
+                      type="button"
+                      class="participant-row"
+                      :class="participantRowClasses(participant.name)"
+                      :aria-label="`Open activity for ${participant.name}`"
+                      @click="openParticipantActivity(participant.name)"
+                    >
+                      <span
+                        class="participant-dot"
+                        :class="participantDotClasses(participant.name)"
+                      ></span>
+                      <span class="participant-body">
+                        <span class="participant-name">{{
+                          participant.name
+                        }}</span>
+                        <span class="participant-model">
+                          {{
+                            participant.model
+                              ? `${participant.model}`
+                              : "Model pending"
+                          }}
                         </span>
-                        <span class="participant-status">
-                          {{ participantStatusLabel(participant.name) }}
-                        </span>
-                      </button>
+                      </span>
+                      <span class="participant-status">
+                        {{ participantStatusLabel(participant.name) }}
+                      </span>
+                    </button>
                   </li>
                 </ul>
               </div>
@@ -1248,9 +1355,7 @@
             class="activity-detail-section"
           >
             <div v-if="item.toolEntries.length">
-              <h3 class="activity-detail-section-title">
-                Tool activity
-              </h3>
+              <h3 class="activity-detail-section-title">Tool activity</h3>
               <ul class="activity-tool-list">
                 <li
                   v-for="entry in item.toolEntries"
@@ -1268,9 +1373,7 @@
               v-if="item.thoughtSummaries.length"
               class="activity-detail-subsection"
             >
-              <h3 class="activity-detail-section-title">
-                Thought summaries
-              </h3>
+              <h3 class="activity-detail-section-title">Thought summaries</h3>
               <ul class="activity-thought-list text-foreground">
                 <li
                   v-for="(summary, idx) in item.thoughtSummaries"
@@ -1285,33 +1388,28 @@
               </ul>
             </div>
 
-            <div
-              v-if="item.response"
-              class="activity-detail-subsection"
-            >
-              <h3 class="activity-detail-section-title">
-                Response stream
-              </h3>
+            <div v-if="item.response" class="activity-detail-subsection">
+              <h3 class="activity-detail-section-title">Response stream</h3>
               <div
                 class="chat-markdown activity-response"
                 v-html="renderMarkdownOrHtml(item.response)"
               ></div>
             </div>
 
-            <div
-              v-if="item.error"
-              class="activity-detail-subsection"
-            >
-              <h3 class="activity-detail-section-title">
-                Error
-              </h3>
+            <div v-if="item.error" class="activity-detail-subsection">
+              <h3 class="activity-detail-section-title">Error</h3>
               <p class="activity-error-text">
                 {{ item.error }}
               </p>
             </div>
 
             <div
-              v-if="!item.toolEntries.length && !item.thoughtSummaries.length && !item.response && !item.error"
+              v-if="
+                !item.toolEntries.length &&
+                !item.thoughtSummaries.length &&
+                !item.response &&
+                !item.error
+              "
               class="activity-detail-empty"
             >
               No activity details yet.
@@ -1439,7 +1537,10 @@ function projectIdForSession(sessionId: string) {
   ).trim();
 }
 
-function setSelectedProjectOverride(sessionId: string, projectId: string | null) {
+function setSelectedProjectOverride(
+  sessionId: string,
+  projectId: string | null,
+) {
   const next = { ...selectedProjectBySession.value };
   if (projectId === null) delete next[sessionId];
   else next[sessionId] = projectId;
@@ -1917,11 +2018,13 @@ const activeMemorySettingsSaving = computed(() => {
   const sessionId = activeSessionId.value;
   return Boolean(sessionId && memorySettingsSavingBySession.value[sessionId]);
 });
-const evolvingMemoryEnabled = computed(
-  () => activeSession.value?.evolvingMemoryEnabled ?? false,
-);
-const beliefMemoryEnabled = computed(
-  () => activeSession.value?.beliefMemoryEnabled ?? false,
+const memoryEnabled = computed(
+  () =>
+    activeSession.value?.memoryEnabled ??
+    Boolean(
+      activeSession.value?.evolvingMemoryEnabled &&
+      activeSession.value?.beliefMemoryEnabled,
+    ),
 );
 const hasPendingInputRequest = computed(() =>
   activeMessages.value.some((message) =>
@@ -2110,7 +2213,8 @@ function activityDescriptionForThread(thread: AgentThread) {
   if (latestEntry?.type === "tool") {
     return latestEntry.title ? `Tool: ${latestEntry.title}` : "Using a tool";
   }
-  const latestThought = thread.thoughtSummaries[thread.thoughtSummaries.length - 1];
+  const latestThought =
+    thread.thoughtSummaries[thread.thoughtSummaries.length - 1];
   if (latestThought) return snippet(latestThought, 96);
   if (thread.content) return snippet(thread.content, 96);
   if (thread.prompt) return snippet(thread.prompt, 96);
@@ -2157,7 +2261,8 @@ function orchestratorActivityItem(): SpecialistActivityItem {
       : assistant?.content
         ? "done"
         : "idle";
-  const latestThought = activeThoughtSummaries.value[activeThoughtSummaries.value.length - 1];
+  const latestThought =
+    activeThoughtSummaries.value[activeThoughtSummaries.value.length - 1];
   return {
     id: "orchestrator",
     name: agentName || "orchestrator",
@@ -2178,7 +2283,9 @@ function orchestratorActivityItem(): SpecialistActivityItem {
     error: assistant?.error || "",
     startedAt: assistant?.createdAt || new Date().toISOString(),
     finishedAt: status === "done" ? assistant?.createdAt : undefined,
-    updatedAt: assistant ? safeTimestampMs(assistant.createdAt) || Date.now() : Date.now(),
+    updatedAt: assistant
+      ? safeTimestampMs(assistant.createdAt) || Date.now()
+      : Date.now(),
     depth: 0,
     isOrchestrator: true,
   };
@@ -2229,7 +2336,8 @@ const runActivityCounts = computed(() => {
 
 const runActivityState = computed<ActivityStatus>(() => {
   if (runActivityCounts.value.error > 0) return "error";
-  if (runActivityCounts.value.running > 0 || isStreaming.value) return "running";
+  if (runActivityCounts.value.running > 0 || isStreaming.value)
+    return "running";
   if (runActivityCounts.value.done > 0) return "done";
   return "idle";
 });
@@ -2244,15 +2352,19 @@ const runActivityTitle = computed(() => {
   if (runActivityCounts.value.running > 0) {
     return `${runActivityCounts.value.running} specialist${runActivityCounts.value.running === 1 ? "" : "s"} working`;
   }
-  if (runActivityCounts.value.error > 0) return "Specialist work needs attention";
+  if (runActivityCounts.value.error > 0)
+    return "Specialist work needs attention";
   return `${count} specialist${count === 1 ? "" : "s"} complete`;
 });
 
 const runActivityDetail = computed(() => {
   const parts = [];
-  if (runActivityCounts.value.done) parts.push(`${runActivityCounts.value.done} complete`);
-  if (runActivityCounts.value.running) parts.push(`${runActivityCounts.value.running} running`);
-  if (runActivityCounts.value.error) parts.push(`${runActivityCounts.value.error} error`);
+  if (runActivityCounts.value.done)
+    parts.push(`${runActivityCounts.value.done} complete`);
+  if (runActivityCounts.value.running)
+    parts.push(`${runActivityCounts.value.running} running`);
+  if (runActivityCounts.value.error)
+    parts.push(`${runActivityCounts.value.error} error`);
   return parts.length ? parts.join(" / ") : "Synthesizing output";
 });
 
@@ -2277,7 +2389,9 @@ const runActivityPillClasses = computed(() => ({
 const selectedActivityItem = computed(() => {
   const selected = selectedActivityId.value;
   return (
-    visibleParticipantActivityItems.value.find((item) => item.id === selected) ||
+    visibleParticipantActivityItems.value.find(
+      (item) => item.id === selected,
+    ) ||
     visibleParticipantActivityItems.value[0] ||
     null
   );
@@ -2302,7 +2416,10 @@ function inputRequestKey(message: ChatMessage, request: ChatInputRequest) {
   return `${message.id}:${request.id}`;
 }
 
-function inputRequestFieldName(message: ChatMessage, request: ChatInputRequest) {
+function inputRequestFieldName(
+  message: ChatMessage,
+  request: ChatInputRequest,
+) {
   return `input-request-${inputRequestKey(message, request)}`;
 }
 
@@ -2378,7 +2495,9 @@ function isInputRequestSubmitting(
   message: ChatMessage,
   request: ChatInputRequest,
 ) {
-  return Boolean(inputRequestSubmitting.value[inputRequestKey(message, request)]);
+  return Boolean(
+    inputRequestSubmitting.value[inputRequestKey(message, request)],
+  );
 }
 
 function inputRequestLocalError(
@@ -2403,7 +2522,9 @@ function canSubmitInputRequest(
 
 function inputRequestAnswerSummary(request: ChatInputRequest) {
   const labels = (request.choiceIds || [])
-    .map((id) => request.choices.find((choice) => choice.id === id)?.label || id)
+    .map(
+      (id) => request.choices.find((choice) => choice.id === id)?.label || id,
+    )
     .filter(Boolean);
   const parts = [...labels];
   if (request.answer) parts.push(request.answer);
@@ -2471,33 +2592,33 @@ function expandActivity(id: string) {
 // Drawer JS transition hooks
 function drawerBeforeEnter(el: Element) {
   const e = el as HTMLElement;
-  e.style.height = '0';
-  e.style.overflow = 'hidden';
+  e.style.height = "0";
+  e.style.overflow = "hidden";
 }
 function drawerEnter(el: Element, done: () => void) {
   const e = el as HTMLElement;
   const h = e.scrollHeight;
-  e.style.transition = 'height 0.28s cubic-bezier(0.4, 0, 0.2, 1)';
-  e.style.height = h + 'px';
-  e.addEventListener('transitionend', done, { once: true });
+  e.style.transition = "height 0.28s cubic-bezier(0.4, 0, 0.2, 1)";
+  e.style.height = h + "px";
+  e.addEventListener("transitionend", done, { once: true });
 }
 function drawerAfterEnter(el: Element) {
   const e = el as HTMLElement;
-  e.style.height = 'auto';
-  e.style.overflow = '';
-  e.style.transition = '';
+  e.style.height = "auto";
+  e.style.overflow = "";
+  e.style.transition = "";
 }
 function drawerBeforeLeave(el: Element) {
   const e = el as HTMLElement;
-  e.style.height = e.scrollHeight + 'px';
-  e.style.overflow = 'hidden';
+  e.style.height = e.scrollHeight + "px";
+  e.style.overflow = "hidden";
 }
 function drawerLeave(el: Element, done: () => void) {
   const e = el as HTMLElement;
   requestAnimationFrame(() => {
-    e.style.transition = 'height 0.22s cubic-bezier(0.4, 0, 0.2, 1)';
-    e.style.height = '0';
-    e.addEventListener('transitionend', done, { once: true });
+    e.style.transition = "height 0.22s cubic-bezier(0.4, 0, 0.2, 1)";
+    e.style.height = "0";
+    e.addEventListener("transitionend", done, { once: true });
   });
 }
 
@@ -2523,9 +2644,11 @@ watch(
 
 // Auto-scroll parallel activity card bodies on content changes
 watch(
-  () => visibleParticipantActivityItems.value.map(
-    (i) => `${i.id}:${i.description}:${i.thoughtSummaries.length}:${i.response.length}`,
-  ),
+  () =>
+    visibleParticipantActivityItems.value.map(
+      (i) =>
+        `${i.id}:${i.description}:${i.thoughtSummaries.length}:${i.response.length}`,
+    ),
   () => {
     for (const item of visibleParticipantActivityItems.value) {
       if (threadBodyEls.has(item.id)) {
@@ -2533,7 +2656,7 @@ watch(
       }
     }
   },
-  { flush: 'post' },
+  { flush: "post" },
 );
 
 // Auto-collapse parallel activity cards only after all running threads finish
@@ -2608,7 +2731,8 @@ function activityStatusClasses(item: SpecialistActivityItem) {
 
 function activityMonitorRowClasses(item: SpecialistActivityItem) {
   return {
-    "activity-monitor-row--selected": selectedActivityItem.value?.id === item.id,
+    "activity-monitor-row--selected":
+      selectedActivityItem.value?.id === item.id,
     "activity-monitor-row--running": item.status === "running",
     "activity-monitor-row--error": item.status === "error",
   };
@@ -2682,7 +2806,9 @@ function participantIsActive(name: string) {
       streamingMsg.agent ||
       selectedSpecialist.value ||
       "orchestrator"
-    ).trim().toLowerCase();
+    )
+      .trim()
+      .toLowerCase();
 
     // During streaming, only the agent whose name matches is live.
     // Never mark orchestrator live just because runActivityCounts > 0 here —
@@ -2705,14 +2831,14 @@ function participantStatusLabel(name: string) {
   if (active) return "Live";
   if (key === "orchestrator") {
     const label = runActivityStateLabel.value;
-    return (label && label.toLowerCase() !== "completed") ? label : "Idle";
+    return label && label.toLowerCase() !== "completed" ? label : "Idle";
   }
   const item = visibleParticipantActivityItems.value.find(
     (activity) => activity.name.toLowerCase() === key,
   );
   if (!item) return "Idle";
   const lbl = item.statusLabel;
-  return (lbl && lbl.toLowerCase() !== "completed") ? lbl : "Idle";
+  return lbl && lbl.toLowerCase() !== "completed" ? lbl : "Idle";
 }
 
 function participantRowClasses(name: string) {
@@ -2821,8 +2947,7 @@ watch(
 );
 
 watch(
-  () =>
-    visibleParticipantActivityItems.value.map((item) => item.id).join(":"),
+  () => visibleParticipantActivityItems.value.map((item) => item.id).join(":"),
   () => {
     if (
       selectedActivityId.value &&
@@ -2832,7 +2957,8 @@ watch(
     ) {
       return;
     }
-    selectedActivityId.value = visibleParticipantActivityItems.value[0]?.id || null;
+    selectedActivityId.value =
+      visibleParticipantActivityItems.value[0]?.id || null;
   },
   { immediate: true },
 );
@@ -3129,10 +3255,7 @@ function cancelRename() {
   renamingName.value = "";
 }
 
-async function setSessionMemorySetting(
-  target: "evolving" | "belief",
-  event: Event,
-) {
+async function setSessionMemorySetting(event: Event) {
   const sessionId = activeSessionId.value;
   const checked = Boolean((event.target as HTMLInputElement | null)?.checked);
   if (!sessionId || isStreaming.value) return;
@@ -3142,8 +3265,7 @@ async function setSessionMemorySetting(
   };
   try {
     await chat.updateSessionMemorySettings(sessionId, {
-      evolvingMemoryEnabled: target === "evolving" ? checked : undefined,
-      beliefMemoryEnabled: target === "belief" ? checked : undefined,
+      memoryEnabled: checked,
     });
   } catch (error) {
     console.warn("Failed to persist chat memory settings:", error);
@@ -3214,8 +3336,7 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
         routingSpecialist,
         teamName,
         projectId: projectId || undefined,
-        evolvingMemoryEnabled: evolvingMemoryEnabled.value,
-        beliefMemoryEnabled: beliefMemoryEnabled.value,
+        memoryEnabled: memoryEnabled.value,
         image: imagePrompt.value,
         imageSize: "1K",
         agentName,
@@ -3258,8 +3379,7 @@ async function regenerateAssistant(message: ChatMessage) {
     routingSpecialist,
     teamName,
     projectId,
-    evolvingMemoryEnabled: evolvingMemoryEnabled.value,
-    beliefMemoryEnabled: beliefMemoryEnabled.value,
+    memoryEnabled: memoryEnabled.value,
     agentName,
     agentModel,
     messageId: message.id,
@@ -3544,7 +3664,11 @@ function scrollMessagesToBottom(options: ScrollToBottomOptions = {}) {
 
 function scrollActivityPaneToBottom(options: ScrollToBottomOptions = {}) {
   nextTick(() => {
-    scrollPaneToBottom(participantActivityPane.value, activityAutoScrollEnabled, options);
+    scrollPaneToBottom(
+      participantActivityPane.value,
+      activityAutoScrollEnabled,
+      options,
+    );
   });
 }
 
@@ -3552,19 +3676,26 @@ function registerThreadBody(el: Element | null, threadId: string) {
   if (el instanceof HTMLElement) {
     if (threadBodyEls.get(threadId) === el) return;
     threadBodyEls.set(threadId, el);
-    if (!threadScrollEnabled.has(threadId)) threadScrollEnabled.set(threadId, true);
-    if (!threadScrollLastTop.has(threadId)) threadScrollLastTop.set(threadId, 0);
+    if (!threadScrollEnabled.has(threadId))
+      threadScrollEnabled.set(threadId, true);
+    if (!threadScrollLastTop.has(threadId))
+      threadScrollLastTop.set(threadId, 0);
   } else {
     threadBodyEls.delete(threadId);
   }
 }
 
-function scrollThreadBodyToBottom(threadId: string, options: ScrollToBottomOptions = {}) {
+function scrollThreadBodyToBottom(
+  threadId: string,
+  options: ScrollToBottomOptions = {},
+) {
   nextTick(() => {
     const el = threadBodyEls.get(threadId);
     if (!el) return;
     const enabledRef = {
-      get value() { return threadScrollEnabled.get(threadId) ?? true; },
+      get value() {
+        return threadScrollEnabled.get(threadId) ?? true;
+      },
       set value(v: boolean) {
         threadScrollEnabled.set(threadId, v);
       },
@@ -3575,13 +3706,17 @@ function scrollThreadBodyToBottom(threadId: string, options: ScrollToBottomOptio
 
 function handleThreadBodyScroll(event: Event, threadId: string) {
   const enabledRef = {
-    get value() { return threadScrollEnabled.get(threadId) ?? true; },
+    get value() {
+      return threadScrollEnabled.get(threadId) ?? true;
+    },
     set value(v: boolean) {
       threadScrollEnabled.set(threadId, v);
     },
   };
   const lastTopRef = {
-    get value() { return threadScrollLastTop.get(threadId) ?? 0; },
+    get value() {
+      return threadScrollLastTop.get(threadId) ?? 0;
+    },
     set value(v: number) {
       threadScrollLastTop.set(threadId, v);
     },
@@ -3906,7 +4041,9 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   font-weight: 600;
   color: rgb(var(--color-subtle-foreground));
   cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
 }
 .direct-activity-pill:hover {
   border-color: rgb(var(--color-accent) / 0.5);
@@ -3984,8 +4121,13 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 }
 
 @keyframes activityPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
 }
 
 .direct-activity-row {

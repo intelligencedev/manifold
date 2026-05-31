@@ -1,9 +1,13 @@
 package config
 
-import "strings"
+import (
+	"reflect"
+	"strings"
+)
 
 func applyDefaults(cfg *Config) {
 	applyLLMDefaults(cfg)
+	applyUnifiedMemoryAliases(cfg)
 	applyObservabilityDefaults(cfg)
 	applyRuntimeDefaults(cfg)
 	applyCodeQADefaults(cfg)
@@ -13,6 +17,73 @@ func applyDefaults(cfg *Config) {
 	applyEmbeddingAndRerankingDefaults(cfg)
 	applyMCPAndDatabaseDefaults(cfg)
 	applyAuthAndTransitDefaults(cfg)
+	syncUnifiedMemoryConfig(cfg)
+}
+
+func applyUnifiedMemoryAliases(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+	applyUnifiedMemoryRetrievalDefaults(cfg)
+	if !cfg.MemoryConfigured {
+		return
+	}
+	if !reflect.ValueOf(cfg.Memory.Evolving).IsZero() {
+		cfg.EvolvingMemory = cfg.Memory.Evolving
+	}
+	if !reflect.ValueOf(cfg.Memory.Belief).IsZero() {
+		cfg.BeliefMemory = cfg.Memory.Belief
+	}
+	if !reflect.ValueOf(cfg.Memory.Magma).IsZero() {
+		cfg.Magma = cfg.Memory.Magma
+	}
+	if hasConfigLLMClientOverride(cfg.Memory.LLMClients.Evolving) {
+		cfg.EvolvingMemory.LLMClient = cfg.Memory.LLMClients.Evolving
+	}
+	if hasConfigLLMClientOverride(cfg.Memory.LLMClients.BeliefDistillation) {
+		cfg.BeliefMemory.LLMClient = cfg.Memory.LLMClients.BeliefDistillation
+	}
+	if hasConfigLLMClientOverride(cfg.Memory.LLMClients.MagmaConsolidation) {
+		cfg.Magma.Consolidation.LLMClient = cfg.Memory.LLMClients.MagmaConsolidation
+	}
+	cfg.EvolvingMemory.Enabled = cfg.Memory.Enabled
+	cfg.BeliefMemory.Enabled = cfg.Memory.Enabled
+	cfg.Magma.Enabled = cfg.Memory.Enabled
+}
+
+func syncUnifiedMemoryConfig(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+	applyUnifiedMemoryRetrievalDefaults(cfg)
+	if cfg.MemoryConfigured {
+		cfg.EvolvingMemory.Enabled = cfg.Memory.Enabled
+		cfg.BeliefMemory.Enabled = cfg.Memory.Enabled
+		cfg.Magma.Enabled = cfg.Memory.Enabled
+	} else {
+		cfg.Memory.Enabled = cfg.EvolvingMemory.Enabled && cfg.BeliefMemory.Enabled && cfg.Magma.Enabled
+	}
+	cfg.Memory.Evolving = cfg.EvolvingMemory
+	cfg.Memory.Belief = cfg.BeliefMemory
+	cfg.Memory.Magma = cfg.Magma
+	cfg.Memory.LLMClients.Evolving = cfg.EvolvingMemory.LLMClient
+	cfg.Memory.LLMClients.BeliefDistillation = cfg.BeliefMemory.LLMClient
+	if hasConfigLLMClientOverride(cfg.Memory.LLMClients.MagmaConsolidation) {
+		cfg.Magma.Consolidation.LLMClient = cfg.Memory.LLMClients.MagmaConsolidation
+	} else if hasConfigLLMClientOverride(cfg.Magma.Consolidation.LLMClient) {
+		cfg.Memory.LLMClients.MagmaConsolidation = cfg.Magma.Consolidation.LLMClient
+	}
+	cfg.Memory.Magma.Consolidation.LLMClient = cfg.Magma.Consolidation.LLMClient
+}
+
+func applyUnifiedMemoryRetrievalDefaults(cfg *Config) {
+	if cfg.Memory.Retrieval.MaxTokensPerPrompt <= 0 {
+		cfg.Memory.Retrieval.MaxTokensPerPrompt = 2200
+	}
+	if cfg.Memory.Retrieval.TimeoutMs <= 0 {
+		cfg.Memory.Retrieval.TimeoutMs = 700
+	}
+	cfg.Memory.Retrieval.IncludeRecent = true
 }
 
 func applyLLMDefaults(cfg *Config) {

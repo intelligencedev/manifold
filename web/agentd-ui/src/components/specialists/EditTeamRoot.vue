@@ -191,22 +191,27 @@
             </label>
             <div
               v-if="orchestratorDraft.enableTools"
-              class="flex flex-col gap-1"
+              class="flex items-center justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2"
             >
-              <label
-                for="team-orch-auto-discover"
-                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >Auto-discovery</label
-              >
-              <select
+              <span class="text-sm text-foreground">Auto-discovery</span>
+              <input
                 id="team-orch-auto-discover"
-                v-model="orchestratorDraft.autoDiscoverMode"
-                class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
-              >
-                <option value="inherit">Inherit global setting</option>
-                <option value="enabled">Enabled for this orchestrator</option>
-                <option value="disabled">Disabled for this orchestrator</option>
-              </select>
+                v-model="orchestratorDraft.autoDiscover"
+                type="checkbox"
+                class="h-4 w-4"
+              />
+            </div>
+            <div
+              v-if="orchestratorDraft.enableTools"
+              class="flex items-center justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2"
+            >
+              <span class="text-sm text-foreground">Request info</span>
+              <input
+                id="team-orch-request-info"
+                v-model="orchestratorDraft.requestInfoEnabled"
+                type="checkbox"
+                class="h-4 w-4"
+              />
             </div>
             <div class="flex flex-col gap-1">
               <label
@@ -430,7 +435,8 @@ const orchestratorDraft = reactive({
   baseURL: "",
   apiKey: "",
   enableTools: false,
-  autoDiscoverMode: "inherit" as "inherit" | "enabled" | "disabled",
+  autoDiscover: false,
+  requestInfoEnabled: true,
   allowToolsText: "",
   system: "",
   summaryContextWindowTokens: null as number | null,
@@ -477,12 +483,6 @@ function normalizeAllowTools(value: string): string[] {
     .filter((v) => v);
 }
 
-function normalizeAutoDiscover(
-  value: boolean | null | undefined,
-): boolean | null {
-  return typeof value === "boolean" ? value : null;
-}
-
 function parseJsonSafe<T>(json: string, fallback: T): T {
   try {
     return JSON.parse(json) || fallback;
@@ -516,14 +516,9 @@ const isDirty = computed(() => {
   if ((orchestratorDraft.baseURL || "") !== (orch.baseURL || "")) return true;
   if ((orchestratorDraft.apiKey || "") !== (orch.apiKey || "")) return true;
   if (orchestratorDraft.enableTools !== !!orch.enableTools) return true;
-  if (
-    normalizeAutoDiscover(orch.autoDiscover) !==
-    (orchestratorDraft.autoDiscoverMode === "enabled"
-      ? true
-      : orchestratorDraft.autoDiscoverMode === "disabled"
-        ? false
-        : null)
-  )
+  if (orchestratorDraft.autoDiscover !== (orch.autoDiscover === true))
+    return true;
+  if (orchestratorDraft.requestInfoEnabled !== (orch.requestInfoEnabled !== false))
     return true;
   if ((orchestratorDraft.system || "") !== (orch.system || "")) return true;
   if (
@@ -565,12 +560,8 @@ function initFromInitial(team: SpecialistTeam) {
   orchestratorDraft.baseURL = orch.baseURL || "";
   orchestratorDraft.apiKey = orch.apiKey || "";
   orchestratorDraft.enableTools = !!orch.enableTools;
-  orchestratorDraft.autoDiscoverMode =
-    normalizeAutoDiscover(orch.autoDiscover) === true
-      ? "enabled"
-      : normalizeAutoDiscover(orch.autoDiscover) === false
-        ? "disabled"
-        : "inherit";
+  orchestratorDraft.autoDiscover = orch.autoDiscover === true;
+  orchestratorDraft.requestInfoEnabled = orch.requestInfoEnabled !== false;
   orchestratorDraft.allowToolsText = (orch.allowTools || []).join(", ");
   orchestratorDraft.system = orch.system || "";
   orchestratorDraft.summaryContextWindowTokens =
@@ -619,12 +610,8 @@ function buildPayload(): SpecialistTeam {
     baseURL: orchestratorDraft.baseURL || "",
     apiKey: orchestratorDraft.apiKey || "",
     enableTools: orchestratorDraft.enableTools,
-    autoDiscover:
-      orchestratorDraft.autoDiscoverMode === "enabled"
-        ? true
-        : orchestratorDraft.autoDiscoverMode === "disabled"
-          ? false
-          : null,
+    requestInfoEnabled: orchestratorDraft.requestInfoEnabled,
+    autoDiscover: orchestratorDraft.autoDiscover,
     paused: false,
     allowTools: normalizeAllowTools(orchestratorDraft.allowToolsText),
     system: orchestratorDraft.system || "",

@@ -316,6 +316,27 @@ func (s *Service) Event(ctx context.Context, id string) (EventNode, bool) {
 	return s.store.GetEvent(ctx, id)
 }
 
+func (s *Service) Events(ctx context.Context) ([]EventNode, error) {
+	if s == nil || s.store == nil {
+		return nil, nil
+	}
+	return s.store.ListEvents(ctx)
+}
+
+func (s *Service) Edges(ctx context.Context) ([]Edge, error) {
+	if s == nil || s.store == nil {
+		return nil, nil
+	}
+	return s.store.ListEdges(ctx)
+}
+
+func (s *Service) MaintenanceEnabled() bool {
+	if s == nil || s.store == nil {
+		return false
+	}
+	return s.store.MaintenanceEnabled()
+}
+
 func (s *Service) embed(ctx context.Context, text string) ([]float32, error) {
 	if s.emb == nil {
 		return nil, nil

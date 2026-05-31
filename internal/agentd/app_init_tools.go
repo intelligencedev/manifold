@@ -24,7 +24,6 @@ import (
 	codeqatool "manifold/internal/tools/codeqa"
 	"manifold/internal/tools/filetool"
 	"manifold/internal/tools/imagetool"
-	inputrequesttool "manifold/internal/tools/inputrequest"
 	"manifold/internal/tools/llmparallel"
 	matrixroomtool "manifold/internal/tools/matrixroom"
 	"manifold/internal/tools/multitool"
@@ -65,7 +64,7 @@ func initAppTooling(ctx context.Context, cfg *config.Config, httpClient *http.Cl
 		exec:             exec,
 		terminalManager:  terminalManager,
 	})
-	ragOpts, err := buildRAGOptions(ctx, cfg, llm)
+	ragOpts, err := buildRAGOptions(ctx, cfg, httpClient, llm)
 	if err != nil {
 		return appTooling{}, err
 	}
@@ -137,7 +136,6 @@ func registerBaseTools(opts baseToolOptions) {
 	opts.toolRegistry.Register(textsplitter.New())
 	opts.toolRegistry.Register(utility.NewTextboxTool())
 	opts.toolRegistry.Register(utility.NewAgentResponseTool())
-	opts.toolRegistry.Register(inputrequesttool.New())
 	opts.toolRegistry.Register(matrixroomtool.New())
 	opts.toolRegistry.Register(pulsetool.New(opts.mgr.Pulse))
 	opts.toolRegistry.Register(llmparallel.New(opts.httpClient, opts.cfg.OpenAI.BaseURL, opts.cfg.OpenAI.Model, opts.cfg.OpenAI.APIKey))
@@ -145,16 +143,31 @@ func registerBaseTools(opts baseToolOptions) {
 	opts.toolRegistry.Register(tts.New(*opts.cfg, opts.httpClient))
 }
 
-func buildRAGOptions(ctx context.Context, cfg *config.Config, llm llmpkg.Provider) ([]ragservice.Option, error) {
+func buildRAGOptions(ctx context.Context, cfg *config.Config, httpClient *http.Client, llm llmpkg.Provider) ([]ragservice.Option, error) {
 	emb := embedder.NewClient(cfg.Embedding, cfg.Databases.Vector.Dimensions)
 	if err := emb.Ping(ctx); err != nil {
 		return nil, fmt.Errorf("embedding service reachability check failed: %w", err)
 	}
+	magmaCfg := cfg.Magma
+	magmaLLM := llm
+	if cfg.Magma.Enabled {
+		provider, model, providerName, err := resolveMagmaMemoryLLM(cfg, llm, httpClient)
+		if err != nil {
+			return nil, fmt.Errorf("build magma memory llm provider: %w", err)
+		}
+		if provider != nil {
+			magmaLLM = provider
+		}
+		if model != "" {
+			magmaCfg.Consolidation.Model = model
+		}
+		log.Info().Bool("enabled", true).Str("provider", providerName).Str("model", model).Msg("magma_memory_llm_initialized")
+	}
 	ragOpts := []ragservice.Option{
 		ragservice.WithEmbedder(emb),
 		ragservice.WithEmbeddingConfig(cfg.Embedding),
-		ragservice.WithMagmaConfig(cfg.Magma),
-		ragservice.WithMagmaLLM(llm),
+		ragservice.WithMagmaConfig(magmaCfg),
+		ragservice.WithMagmaLLM(magmaLLM),
 	}
 	if cfg.Reranking.Enabled {
 		rr := ragreranker.NewClient(cfg.Reranking)

@@ -22,7 +22,6 @@ import (
 	"manifold/internal/testhelpers"
 	"manifold/internal/tools"
 	tooldiscovery "manifold/internal/tools/discovery"
-	inputrequesttool "manifold/internal/tools/inputrequest"
 	"manifold/internal/workspaces"
 )
 
@@ -98,21 +97,26 @@ func TestChatToolRegistryExposesInputRequestWhenAllowListIsNarrow(t *testing.T) 
 	t.Parallel()
 
 	base := tools.NewRegistry()
-	base.Register(inputrequesttool.New())
 	app := &app{
 		cfg:              &config.Config{EnableTools: true},
 		baseToolRegistry: base,
 	}
 
-	reg := app.chatToolRegistry(true, []string{"run_cli"}, nil)
+	reg := app.chatToolRegistry(true, []string{"run_cli"}, nil, nil)
 	names := tools.SchemaNames(reg)
 	if !containsString(names, "request_info") {
 		t.Fatalf("expected request_info to be exposed, got %v", names)
 	}
 
-	disabled := app.chatToolRegistry(false, []string{"request_info"}, nil)
+	disabled := app.chatToolRegistry(false, []string{"request_info"}, nil, nil)
 	if containsString(tools.SchemaNames(disabled), "request_info") {
 		t.Fatal("did not expect request_info when tools are disabled")
+	}
+
+	requestInfoOff := false
+	withoutRequestInfo := app.chatToolRegistry(true, []string{"run_cli"}, nil, &requestInfoOff)
+	if containsString(tools.SchemaNames(withoutRequestInfo), "request_info") {
+		t.Fatal("did not expect request_info when requestInfoEnabled is false")
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	"manifold/internal/config"
 	llmproviders "manifold/internal/llm/providers"
 	persist "manifold/internal/persistence"
 	"manifold/internal/specialists"
@@ -217,10 +218,11 @@ func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.
 		Model:                      baseModel,
 		SummaryContextWindowTokens: 0,
 		EnableTools:                a.cfg.EnableTools,
+		RequestInfoEnabled:         boolPtr(config.RequestInfoEnabled(a.cfg.RequestInfoEnabled)),
 		AutoDiscover:               boolPtr(a.cfg.AutoDiscover),
 		Paused:                     false,
 		AllowTools:                 a.cfg.ToolAllowList,
-		System:                     a.cfg.SystemPrompt,
+		System:                     a.orchestratorSystemPrompt(),
 		ExtraHeaders:               baseHeaders,
 		ExtraParams:                baseParams,
 	}
@@ -246,6 +248,9 @@ func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.
 			out.SummaryContextWindowTokens = sp.SummaryContextWindowTokens
 		}
 		out.EnableTools = sp.EnableTools
+		if sp.RequestInfoEnabled != nil {
+			out.RequestInfoEnabled = boolPtr(*sp.RequestInfoEnabled)
+		}
 		if sp.AutoDiscover != nil {
 			out.AutoDiscover = boolPtr(*sp.AutoDiscover)
 		}
@@ -402,10 +407,11 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 		Name:                       specialists.OrchestratorName,
 		Description:                sp.Description,
 		EnableTools:                a.cfg.EnableTools,
+		RequestInfoEnabled:         boolPtr(config.RequestInfoEnabled(a.cfg.RequestInfoEnabled)),
 		AutoDiscover:               boolPtr(a.cfg.AutoDiscover),
 		Paused:                     false,
 		AllowTools:                 append([]string(nil), a.cfg.ToolAllowList...),
-		System:                     a.cfg.SystemPrompt,
+		System:                     a.orchestratorSystemPrompt(),
 		Provider:                   provider,
 		ExtraParams:                sp.ExtraParams,
 		SummaryContextWindowTokens: sp.SummaryContextWindowTokens,
@@ -435,6 +441,7 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 	if list, err := a.specStore.List(ctx, systemUserID); err == nil {
 		a.specRegistry.ReplaceFromConfigs(a.cfg.LLMClient, specialists.ConfigsFromStore(list), a.httpClient, a.baseToolRegistry)
 		a.specRegistry.SetPromptOverrides(promptInstructionOverrides(a.cfg))
+		a.specRegistry.SetRequestInfoEnabled(config.RequestInfoEnabled(a.cfg.RequestInfoEnabled))
 		a.specRegistry.SetToolDiscovery(a.toolIndex, a.cfg.AutoDiscover, a.cfg.MaxDiscoveredTools)
 	}
 	a.refreshEngineSystemPrompt()
@@ -467,7 +474,8 @@ func (a *app) orchestratorModel(provider string, override string) string {
 func (a *app) refreshOrchestratorToolRegistry() {
 	if a.cfg.AutoDiscover && a.cfg.EnableTools && a.toolIndex != nil {
 		a.toolRegistry = tooldiscovery.NewDiscoverableRegistry(a.baseToolRegistry, a.toolIndex, a.cfg.ToolAllowList, a.cfg.MaxDiscoveredTools)
-		return
+	} else {
+		a.toolRegistry = tools.ApplyTopLevelPolicy(a.baseToolRegistry, a.cfg.EnableTools, a.cfg.ToolAllowList)
 	}
-	a.toolRegistry = tools.ApplyTopLevelPolicy(a.baseToolRegistry, a.cfg.EnableTools, a.cfg.ToolAllowList)
+	a.toolRegistry = withChatInputRequestTool(a.toolRegistry, a.cfg.EnableTools && config.RequestInfoEnabled(a.cfg.RequestInfoEnabled))
 }

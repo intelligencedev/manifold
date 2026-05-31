@@ -419,6 +419,7 @@ export const useChatStore = defineStore("chat", () => {
     type ChatSessionMetaWire = ChatSessionMeta & {
       message_count?: unknown;
       project_id?: unknown;
+      memory_enabled?: unknown;
       evolving_memory_enabled?: unknown;
       belief_memory_enabled?: unknown;
     };
@@ -434,20 +435,23 @@ export const useChatStore = defineStore("chat", () => {
       wire.evolvingMemoryEnabled ?? wire.evolving_memory_enabled;
     const rawBeliefMemoryEnabled =
       wire.beliefMemoryEnabled ?? wire.belief_memory_enabled;
-    const evolvingMemoryEnabled =
-      typeof rawEvolvingMemoryEnabled === "boolean"
-        ? rawEvolvingMemoryEnabled
-        : false;
-    const beliefMemoryEnabled =
+    const rawMemoryEnabled = wire.memoryEnabled ?? wire.memory_enabled;
+    const legacyMemoryEnabled =
+      typeof rawEvolvingMemoryEnabled === "boolean" &&
       typeof rawBeliefMemoryEnabled === "boolean"
-        ? rawBeliefMemoryEnabled
+        ? rawEvolvingMemoryEnabled && rawBeliefMemoryEnabled
         : false;
+    const memoryEnabled =
+      typeof rawMemoryEnabled === "boolean"
+        ? rawMemoryEnabled
+        : legacyMemoryEnabled;
     return {
       ...meta,
       messageCount,
       projectId,
-      evolvingMemoryEnabled,
-      beliefMemoryEnabled,
+      memoryEnabled,
+      evolvingMemoryEnabled: memoryEnabled,
+      beliefMemoryEnabled: memoryEnabled,
     };
   }
 
@@ -639,29 +643,29 @@ export const useChatStore = defineStore("chat", () => {
   async function updateSessionMemorySettings(
     sessionId: string,
     settings: {
+      memoryEnabled?: boolean;
       evolvingMemoryEnabled?: boolean;
       beliefMemoryEnabled?: boolean;
     },
   ) {
     const existing = sessions.value.find((s) => s.id === sessionId);
-    const nextEvolving =
-      typeof settings.evolvingMemoryEnabled === "boolean"
-        ? settings.evolvingMemoryEnabled
-        : (existing?.evolvingMemoryEnabled ?? false);
-    const nextBelief =
-      typeof settings.beliefMemoryEnabled === "boolean"
-        ? settings.beliefMemoryEnabled
-        : (existing?.beliefMemoryEnabled ?? false);
-    if (
-      existing &&
-      (existing.evolvingMemoryEnabled ?? false) === nextEvolving &&
-      (existing.beliefMemoryEnabled ?? false) === nextBelief
-    ) {
+    const nextMemory =
+      typeof settings.memoryEnabled === "boolean"
+        ? settings.memoryEnabled
+        : typeof settings.evolvingMemoryEnabled === "boolean" ||
+            typeof settings.beliefMemoryEnabled === "boolean"
+          ? (settings.evolvingMemoryEnabled ??
+              existing?.evolvingMemoryEnabled ??
+              false) &&
+            (settings.beliefMemoryEnabled ??
+              existing?.beliefMemoryEnabled ??
+              false)
+          : (existing?.memoryEnabled ?? false);
+    if (existing && (existing.memoryEnabled ?? false) === nextMemory) {
       return existing;
     }
     const updated = await apiUpdateChatSessionMemorySettings(sessionId, {
-      evolvingMemoryEnabled: nextEvolving,
-      beliefMemoryEnabled: nextBelief,
+      memoryEnabled: nextMemory,
     });
     sessionsError.value = null;
     const normalized = normalizeSessionMeta(updated);
@@ -681,6 +685,7 @@ export const useChatStore = defineStore("chat", () => {
       projectId?: string;
       image?: boolean;
       imageSize?: string;
+      memoryEnabled?: boolean;
       evolvingMemoryEnabled?: boolean;
       beliefMemoryEnabled?: boolean;
       agentName?: string;
@@ -785,6 +790,7 @@ export const useChatStore = defineStore("chat", () => {
           specialist: options.specialist,
           teamName: options.teamName,
           projectId: options.projectId,
+          memoryEnabled: options.memoryEnabled,
           evolvingMemoryEnabled: options.evolvingMemoryEnabled,
           beliefMemoryEnabled: options.beliefMemoryEnabled,
         });
@@ -799,6 +805,7 @@ export const useChatStore = defineStore("chat", () => {
           specialist: options.specialist,
           teamName: options.teamName,
           projectId: options.projectId,
+          memoryEnabled: options.memoryEnabled,
           evolvingMemoryEnabled: options.evolvingMemoryEnabled,
           beliefMemoryEnabled: options.beliefMemoryEnabled,
           image: options.image,
@@ -1537,6 +1544,7 @@ export const useChatStore = defineStore("chat", () => {
       routingSpecialist?: string;
       teamName?: string;
       projectId?: string;
+      memoryEnabled?: boolean;
       evolvingMemoryEnabled?: boolean;
       beliefMemoryEnabled?: boolean;
       agentName?: string;
@@ -1568,6 +1576,7 @@ export const useChatStore = defineStore("chat", () => {
       routingSpecialist: options.routingSpecialist,
       teamName: options.teamName,
       projectId: options.projectId,
+      memoryEnabled: options.memoryEnabled,
       evolvingMemoryEnabled: options.evolvingMemoryEnabled,
       beliefMemoryEnabled: options.beliefMemoryEnabled,
       agentName: options.agentName,

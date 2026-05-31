@@ -4,7 +4,7 @@ This tutorial walks through the full workflow for the Manifold playground: creat
 
 > **Prerequisites**
 >
-> - `agentd` is running with database access (set `databases.defaultDSN` in `config.yaml` or env).
+> - Manifold is running with database access (set `databases.defaultDSN` in `config.yaml` or env).
 > - The web UI is accessible at `http://localhost:32180`.
 > - Administration access to the UI (if authentication is enabled).
 
@@ -140,7 +140,7 @@ curl -X POST http://localhost:32180/api/v1/playground/experiments/<experiment-id
 
 - **Prompt version creation fails**: ensure the Variables JSON is valid and references all `{{ }}` placeholders.
 - **Dataset upload error**: verify pasted rows are valid JSON, or upload a valid `.json`, `.jsonl`, or `.csv` file. CSV files need a header row, and non-reserved columns are treated as prompt inputs.
-- **Experiment run stuck**: check `agentd` logs for provider errors; the mock adapter is deterministic and returns instantly.
+- **Experiment run stuck**: check Manifold logs for provider errors; the mock adapter is deterministic and returns instantly.
 - **Artifacts missing**: make sure the `manifold` process can write to the configured playground artifact directory.
 
 The playground is designed to be iterative—create new prompt versions, rerun experiments, and compare outputs quickly. As evaluator support expands, this flow will automatically surface additional quality metrics in the same UI.

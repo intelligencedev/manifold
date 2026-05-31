@@ -59,6 +59,7 @@ export interface Specialist {
   model: string;
   summaryContextWindowTokens?: number;
   enableTools: boolean;
+  requestInfoEnabled?: boolean | null;
   imageGeneration?: boolean;
   autoDiscover?: boolean | null;
   paused: boolean;
@@ -237,6 +238,7 @@ export interface AgentdSettings {
   summaryEnabled: boolean;
   summaryPlainTextContextWindowTokens: number;
   summaryReserveBufferTokens: number;
+  requestInfoEnabled: boolean;
 
   promptBaseSystem: string;
   promptMemoryInstructions: string;

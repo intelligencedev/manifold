@@ -56,6 +56,15 @@ const skillDiscoveryInstructions = `
 - Load references, scripts, or assets only when the selected skill requires them for the current task.
 [/skill_discovery]`
 
+const requestInfoInstructions = `
+[request_info]
+- You have a request_info tool for asking the user for missing information.
+- Use request_info only when the missing information materially affects correctness, safety, or the ability to proceed.
+- Ask the minimum number of focused questions needed.
+- Do not use request_info when a reasonable low-risk assumption lets you continue.
+- After the user responds, continue the task without re-asking the same question.
+[/request_info]`
+
 const defaultBaseSystemPrompt = `
 Rules:
 - Answer directly when no tool or file inspection is needed.
@@ -280,6 +289,13 @@ func EnsureSkillDiscoveryInstructions(systemPrompt string, overrides ...Instruct
 		return systemPrompt
 	}
 	return combinePromptSections(systemPrompt, instructionBlock(firstOverride(overrides).SkillDiscoveryInstructions, skillDiscoveryInstructions))
+}
+
+func EnsureRequestInfoInstructions(systemPrompt string) string {
+	if strings.Contains(systemPrompt, strings.TrimSpace(requestInfoInstructions)) {
+		return systemPrompt
+	}
+	return combinePromptSections(systemPrompt, requestInfoInstructions)
 }
 
 // DefaultSystemPrompt describes the run_cli tool clearly so the model will use it.

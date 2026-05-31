@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"manifold/internal/agent/belief"
+	"manifold/internal/agent/memory/belief"
 	"manifold/internal/auth"
 	"manifold/internal/config"
 	"manifold/internal/persistence/databases"

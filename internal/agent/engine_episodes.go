@@ -2,8 +2,8 @@ package agent
 
 import (
 	"context"
-	"manifold/internal/agent/belief"
 	"manifold/internal/agent/memory"
+	"manifold/internal/agent/memory/belief"
 	"manifold/internal/observability"
 	"strings"
 	"time"
@@ -19,6 +19,45 @@ type runEpisodeRecord struct {
 	runErr          error
 	evolvingEntryID string
 	reasoningTrace  []string
+}
+
+func (e *Engine) recordMemoryEpisode(ctx context.Context, record runEpisodeRecord) string {
+	if e == nil {
+		return ""
+	}
+	if e.Memory != nil && !e.DisableMemory {
+		runtime := e.Memory.Clone()
+		e.Memory = runtime
+		runtime.RecordEvolving = func(ctx context.Context, episode memory.EpisodeRecord) (string, error) {
+			return e.storeExperience(ctx, episode.UserInput, episode.Final, episode.RunErr, episode.ReasoningTrace), nil
+		}
+		runtime.RecordBeliefs = func(ctx context.Context, episode memory.EpisodeRecord, evolvingEntryID string) error {
+			e.recordRunEpisode(ctx, runEpisodeRecord{
+				startedAt:       episode.StartedAt,
+				userInput:       episode.UserInput,
+				final:           episode.Final,
+				runErr:          episode.RunErr,
+				evolvingEntryID: evolvingEntryID,
+				reasoningTrace:  episode.ReasoningTrace,
+			})
+			return nil
+		}
+		entryID, err := runtime.RecordEpisode(ctx, memory.EpisodeRecord{
+			StartedAt:      record.startedAt,
+			UserInput:      record.userInput,
+			Final:          record.final,
+			RunErr:         record.runErr,
+			ReasoningTrace: append([]string(nil), record.reasoningTrace...),
+		})
+		if err != nil {
+			observability.LoggerWithTrace(ctx).Warn().Err(err).Msg("unified_memory_record_episode_failed")
+		}
+		return entryID
+	}
+	entryID := e.storeExperience(ctx, record.userInput, record.final, record.runErr, record.reasoningTrace)
+	record.evolvingEntryID = entryID
+	e.recordRunEpisode(ctx, record)
+	return entryID
 }
 
 func (e *Engine) recordRunEpisode(ctx context.Context, record runEpisodeRecord) {

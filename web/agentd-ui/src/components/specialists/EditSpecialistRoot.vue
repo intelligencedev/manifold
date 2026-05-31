@@ -1,10 +1,8 @@
 <template>
   <div class="flex h-full min-h-0 flex-col overflow-hidden">
-    <!-- Sticky header: title + subtitle + close + tabs -->
-    <div
-      class="sticky top-0 z-10 border-b border-border/50 bg-surface "
-    >
-      <div class="flex items-start justify-between gap-3 px-4 pb-3 pt-4">
+    <!-- Sticky header: title, tabs, and actions -->
+    <div class="sticky top-0 z-10 border-b border-border/50 bg-surface">
+      <div class="mx-auto w-full max-w-5xl px-4 pb-2 pt-4">
         <div class="min-w-0">
           <h2 class="text-base font-semibold text-foreground">
             {{ headerTitle }}
@@ -16,437 +14,478 @@
             {{ headerSubtitle }}
           </p>
         </div>
-        <div class="flex items-center gap-2">
-          <span
-            v-if="isDirty"
-            class="rounded-full border border-border/60 bg-surface-muted/30 px-2 py-1 text-xs font-semibold text-subtle-foreground"
-            >Unsaved</span
-          >
-          <button
-            type="button"
-            class="rounded border border-border/60 bg-surface-muted px-3 py-1 text-xs font-semibold text-subtle-foreground hover:border-border"
-            @click="onCancel"
-          >
-            Close
-          </button>
-        </div>
       </div>
 
       <div
-        role="tablist"
-        aria-label="Edit Specialist"
-        class="flex flex-wrap gap-2 px-4 pb-3"
+        class="mx-auto flex w-full max-w-5xl flex-col gap-3 px-4 pb-3 sm:flex-row sm:items-center sm:justify-between"
       >
-        <button
-          v-for="t in tabs"
-          :key="t.id"
-          role="tab"
-          :id="`tab-${t.id}`"
-          :aria-controls="`panel-${t.id}`"
-          :aria-selected="activeTab === t.id ? 'true' : 'false'"
-          :tabindex="activeTab === t.id ? 0 : -1"
-          type="button"
-          class="rounded-full border px-3 py-1.5 text-xs font-semibold transition"
-          :class="
-            activeTab === t.id
-              ? 'border-border/80 bg-surface-muted/60 text-foreground'
-              : 'border-border/50 text-subtle-foreground hover:border-border'
-          "
-          @click="activeTab = t.id"
-          @keydown="onTabKeydown($event, t.id)"
+        <div
+          role="tablist"
+          aria-label="Edit Specialist"
+          class="flex min-w-0 flex-wrap gap-2"
         >
-          <span>{{ t.label }}</span>
-          <span
-            v-if="tabHasErrors(t.id)"
-            class="ml-2 inline-flex h-1.5 w-1.5 rounded-full bg-danger"
-          ></span>
-        </button>
+          <button
+            v-for="t in tabs"
+            :key="t.id"
+            role="tab"
+            :id="`tab-${t.id}`"
+            :aria-controls="`panel-${t.id}`"
+            :aria-selected="activeTab === t.id ? 'true' : 'false'"
+            :tabindex="activeTab === t.id ? 0 : -1"
+            type="button"
+            class="rounded-full border px-3 py-1.5 text-xs font-semibold transition"
+            :class="
+              activeTab === t.id
+                ? 'border-border/80 bg-surface-muted/60 text-foreground'
+                : 'border-border/50 text-subtle-foreground hover:border-border'
+            "
+            @click="activeTab = t.id"
+            @keydown="onTabKeydown($event, t.id)"
+          >
+            <span>{{ t.label }}</span>
+            <span
+              v-if="tabHasErrors(t.id)"
+              class="ml-2 inline-flex h-1.5 w-1.5 rounded-full bg-danger"
+            ></span>
+          </button>
+        </div>
+
+        <div
+          class="flex min-w-0 items-center justify-between gap-3 sm:justify-end"
+        >
+          <div class="min-w-0">
+            <span
+              :key="saveStatusKey"
+              class="inline-flex max-w-full items-center gap-2 truncate rounded-full border px-2.5 py-1 text-xs transition"
+              :class="saveStatusClass"
+            >
+              <span
+                class="h-1.5 w-1.5 shrink-0 rounded-full"
+                :class="saveStatusDotClass"
+              ></span>
+              <span class="truncate">{{ saveStatusLabel }}</span>
+            </span>
+          </div>
+          <div class="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              class="rounded-md border border-border/60 px-3 py-1.5 text-sm text-subtle-foreground hover:border-border"
+              @click="onCancel"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="rounded-md border border-border/60 bg-surface-muted px-3 py-1.5 text-sm font-semibold text-foreground hover:border-border disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="saving"
+              @click="onSave"
+            >
+              {{ saving ? "Saving..." : "Save" }}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 
     <!-- Scrollable body (single scroll region) -->
     <div
-      class="flex flex-1 min-h-0 flex-col overflow-auto px-4 pb-6 pt-4 scrollbar-inset"
+      class="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-4 pb-6 pt-4 scrollbar-inset"
     >
-      <div
-        v-if="actionError"
-        class="mb-4 rounded-lg border border-danger/60 bg-danger/10 p-3 text-danger-foreground text-sm"
-      >
-        {{ actionError }}
-      </div>
-      <div
-        v-if="successMsg"
-        class="mb-4 rounded-lg border border-border/60 bg-surface-muted/30 p-3 text-sm text-foreground"
-      >
-        {{ successMsg }}
-      </div>
-
-      <!-- BASICS -->
-      <div
-        v-show="activeTab === 'basics'"
-        role="tabpanel"
-        :id="'panel-basics'"
-        :aria-labelledby="'tab-basics'"
-        tabindex="0"
-        class="flex flex-col gap-4"
-      >
+      <div class="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col">
         <div
-          v-if="submitAttempted && errorsByTab.basics.length"
-          class="rounded-lg border border-danger/60 bg-danger/10 p-3 text-sm text-danger-foreground"
+          v-if="actionError"
+          class="mb-4 rounded-lg border border-danger/60 bg-danger/10 p-3 text-sm text-danger-foreground"
         >
-          <p class="font-semibold">Fix the following to continue:</p>
-          <ul class="mt-2 list-disc pl-5">
-            <li v-for="e in errorsByTab.basics" :key="e">{{ e }}</li>
-          </ul>
+          {{ actionError }}
+        </div>
+        <div
+          v-if="successMsg"
+          class="mb-4 rounded-lg border border-border/60 bg-surface-muted/30 p-3 text-sm text-foreground"
+        >
+          {{ successMsg }}
         </div>
 
-        <FormSection
-          title="Identity"
-          helper="Give the specialist a stable name and a short description."
+        <!-- BASICS -->
+        <div
+          v-show="activeTab === 'basics'"
+          role="tabpanel"
+          :id="'panel-basics'"
+          :aria-labelledby="'tab-basics'"
+          tabindex="0"
+          class="flex flex-col gap-4"
         >
-          <div class="flex flex-col gap-3">
-            <div class="flex flex-col gap-1">
-              <label
-                for="sp-name"
-                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >Name</label
-              >
-              <input
-                id="sp-name"
-                v-model.trim="draft.name"
-                class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
-                :disabled="lockName"
-                @blur="touch('name')"
-              />
-              <p
-                v-if="fieldError('name')"
-                class="text-xs text-danger-foreground"
-              >
-                {{ fieldError("name") }}
-              </p>
-            </div>
-
-            <div class="flex flex-col gap-1">
-              <label
-                for="sp-description"
-                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >Description</label
-              >
-              <textarea
-                id="sp-description"
-                v-model="draft.description"
-                rows="4"
-                class="w-full resize-y overflow-auto rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
-                @blur="touch('description')"
-              ></textarea>
-            </div>
+          <div
+            v-if="submitAttempted && errorsByTab.basics.length"
+            class="rounded-lg border border-danger/60 bg-danger/10 p-3 text-sm text-danger-foreground"
+          >
+            <p class="font-semibold">Fix the following to continue:</p>
+            <ul class="mt-2 list-disc pl-5">
+              <li v-for="e in errorsByTab.basics" :key="e">{{ e }}</li>
+            </ul>
           </div>
-        </FormSection>
 
-        <FormSection
-          title="Status"
-          helper="Paused specialists are not available for use and do not consume orchestration context."
-        >
-          <div class="flex flex-col gap-3">
-            <label
-              class="inline-flex items-center justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2"
+          <section
+            class="rounded-[14px] border border-border/60 bg-surface p-6"
+          >
+            <PanelGroup
+              title="Identity"
+              helper="Give the specialist a stable name and a short description."
             >
-              <span class="text-sm text-foreground">Enabled</span>
-              <input
-                id="sp-enabled"
-                type="checkbox"
-                class="h-4 w-4"
-                :checked="!draft.paused"
-                @change="
-                  draft.paused = !($event.target as HTMLInputElement).checked
-                "
-              />
-            </label>
-            <label
-              class="inline-flex items-center justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2"
-            >
-              <span class="text-sm text-foreground">Paused</span>
-              <input
-                id="sp-paused"
-                v-model="draft.paused"
-                type="checkbox"
-                class="h-4 w-4"
-              />
-            </label>
-          </div>
-        </FormSection>
+              <div class="flex flex-col gap-3">
+                <div class="flex flex-col gap-1">
+                  <label
+                    for="sp-name"
+                    class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                    >Name</label
+                  >
+                  <input
+                    id="sp-name"
+                    v-model.trim="draft.name"
+                    class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
+                    :disabled="lockName"
+                    @blur="touch('name')"
+                  />
+                  <p
+                    v-if="fieldError('name')"
+                    class="text-xs text-danger-foreground"
+                  >
+                    {{ fieldError("name") }}
+                  </p>
+                </div>
 
-        <FormSection
-          title="Teams"
-          helper="Assign this specialist to one or more teams. Specialists can belong to multiple teams."
-        >
-          <div class="flex flex-col gap-3">
-            <input
-              v-model="teamSearch"
-              type="text"
-              placeholder="Search teams"
-              class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm text-foreground"
-            />
-            <div class="rounded-lg border border-border/60 bg-surface">
-              <div
-                v-if="!availableTeams.length"
-                class="px-3 py-3 text-sm text-subtle-foreground"
-              >
-                No teams created yet.
+                <div class="flex flex-col gap-1">
+                  <label
+                    for="sp-description"
+                    class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                    >Description</label
+                  >
+                  <textarea
+                    id="sp-description"
+                    v-model="draft.description"
+                    rows="3"
+                    class="w-full resize-y overflow-auto rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
+                    @blur="touch('description')"
+                  ></textarea>
+                </div>
               </div>
-              <div
-                v-else-if="!filteredTeamOptions.length"
-                class="px-3 py-3 text-sm text-subtle-foreground"
-              >
-                No teams match your search.
-              </div>
+            </PanelGroup>
+
+            <PanelGroup
+              title="Status"
+              helper="Paused specialists are not available for use."
+            >
               <label
-                v-for="t in filteredTeamOptions"
-                :key="t"
-                class="flex cursor-pointer items-start gap-3 border-t border-border/40 px-3 py-2 transition-colors first:border-t-0 hover:bg-surface-muted/40"
+                for="sp-enabled"
+                class="flex items-center justify-between gap-4 rounded border border-border/60 bg-surface-muted/20 px-3 py-3"
               >
+                <span class="min-w-0">
+                  <span class="block text-sm font-medium text-foreground">
+                    Enabled
+                  </span>
+                  <span class="block text-xs text-subtle-foreground">
+                    Specialist can be selected and used in chats or workflows.
+                  </span>
+                </span>
                 <input
-                  class="mt-1 h-4 w-4 shrink-0"
+                  id="sp-enabled"
                   type="checkbox"
-                  :checked="selectedTeamsSet.has(t)"
+                  role="switch"
+                  class="peer sr-only"
+                  :aria-checked="!draft.paused"
+                  :checked="!draft.paused"
                   @change="
-                    setTeamSelected(
-                      t,
-                      ($event.target as HTMLInputElement).checked,
-                    )
+                    draft.paused = !($event.target as HTMLInputElement).checked
                   "
                 />
-                <div class="min-w-0">
-                  <p class="text-sm font-medium text-foreground">{{ t }}</p>
+                <span
+                  aria-hidden="true"
+                  class="relative h-6 w-11 shrink-0 rounded-full border border-border/70 bg-surface-muted transition-colors after:absolute after:left-0.5 after:top-1/2 after:h-5 after:w-5 after:-translate-y-1/2 after:rounded-full after:bg-foreground after:transition-transform peer-checked:border-accent peer-checked:bg-accent peer-checked:after:translate-x-5 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-ring"
+                ></span>
+              </label>
+            </PanelGroup>
+
+            <PanelGroup
+              title="Runtime"
+              helper="Select a provider and model. Optionally override the default endpoint."
+            >
+              <div class="flex flex-col gap-3">
+                <div class="grid gap-3 sm:grid-cols-2">
+                  <div class="flex flex-col gap-1">
+                    <label
+                      for="sp-provider"
+                      class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                      >Provider</label
+                    >
+                    <DropdownSelect
+                      id="sp-provider"
+                      v-model="draft.provider"
+                      :options="providerDropdownOptions"
+                      class="w-full text-sm"
+                      @update:modelValue="onProviderChange"
+                    />
+                    <p
+                      v-if="fieldError('provider')"
+                      class="text-xs text-danger-foreground"
+                    >
+                      {{ fieldError("provider") }}
+                    </p>
+                  </div>
+                  <div class="flex flex-col gap-1">
+                    <label
+                      for="sp-model"
+                      class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                      >Model</label
+                    >
+                    <input
+                      id="sp-model"
+                      v-model.trim="draft.model"
+                      class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
+                      @blur="touch('model')"
+                    />
+                    <p
+                      v-if="fieldError('model')"
+                      class="text-xs text-danger-foreground"
+                    >
+                      {{ fieldError("model") }}
+                    </p>
+                  </div>
                 </div>
-              </label>
-            </div>
-          </div>
-        </FormSection>
 
-        <FormSection
-          title="Runtime"
-          helper="Select a provider and model. Optionally override the default endpoint."
-        >
-          <div class="flex flex-col gap-3">
-            <div class="grid gap-3 md:grid-cols-2">
-              <div class="flex flex-col gap-1">
+                <div
+                  class="flex items-center justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2"
+                >
+                  <div class="min-w-0">
+                    <p class="text-sm font-medium text-foreground">API key</p>
+                    <p class="text-xs text-subtle-foreground">
+                      {{ credentialStatus }}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    class="shrink-0 rounded border border-border/60 bg-surface px-3 py-1 text-xs font-semibold text-subtle-foreground hover:border-border"
+                    @click="openCredentialModal"
+                  >
+                    Update credential...
+                  </button>
+                </div>
+
+                <div
+                  class="rounded border border-border/60 bg-surface-muted/20 p-3"
+                >
+                  <label
+                    class="inline-flex items-center gap-2 text-sm text-foreground"
+                  >
+                    <input
+                      v-model="draft.useDefaultEndpoint"
+                      type="checkbox"
+                      class="h-4 w-4"
+                    />
+                    <span>Use default endpoint (recommended)</span>
+                  </label>
+                  <p class="mt-1 text-xs text-subtle-foreground">
+                    Stores only overrides when you provide a custom endpoint.
+                  </p>
+
+                  <div
+                    v-if="!draft.useDefaultEndpoint"
+                    class="mt-3 flex flex-col gap-1"
+                  >
+                    <label
+                      for="sp-baseurl"
+                      class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                      >Custom endpoint</label
+                    >
+                    <input
+                      id="sp-baseurl"
+                      v-model.trim="draft.customBaseURL"
+                      class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
+                      placeholder="https://…"
+                      @blur="touch('baseURL')"
+                    />
+                    <p
+                      v-if="fieldError('baseURL')"
+                      class="text-xs text-danger-foreground"
+                    >
+                      {{ fieldError("baseURL") }}
+                    </p>
+                  </div>
+                  <div v-else class="mt-3 text-xs text-subtle-foreground">
+                    Default:
+                    <span class="font-mono">{{ defaultBaseURL || "—" }}</span>
+                  </div>
+                </div>
+
                 <label
-                  for="sp-provider"
-                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                  >Provider</label
+                  class="flex items-start justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2"
                 >
-                <DropdownSelect
-                  id="sp-provider"
-                  v-model="draft.provider"
-                  :options="providerDropdownOptions"
-                  class="w-full text-sm"
-                  @update:modelValue="onProviderChange"
-                />
-                <p
-                  v-if="fieldError('provider')"
-                  class="text-xs text-danger-foreground"
-                >
-                  {{ fieldError("provider") }}
-                </p>
+                  <span class="min-w-0">
+                    <span class="block text-sm font-medium text-foreground">
+                      Image generation
+                    </span>
+                    <span class="block text-xs text-subtle-foreground">
+                      Use the image generation endpoint for every request.
+                    </span>
+                  </span>
+                  <input
+                    v-model="draft.imageGeneration"
+                    type="checkbox"
+                    class="mt-1 h-4 w-4 shrink-0"
+                  />
+                </label>
               </div>
-              <div class="flex flex-col gap-1">
-                <label
-                  for="sp-model"
-                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                  >Model</label
-                >
-                <input
-                  id="sp-model"
-                  v-model.trim="draft.model"
-                  class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
-                  @blur="touch('model')"
-                />
-                <p
-                  v-if="fieldError('model')"
-                  class="text-xs text-danger-foreground"
-                >
-                  {{ fieldError("model") }}
-                </p>
-              </div>
-            </div>
+            </PanelGroup>
 
-            <div
-              class="rounded border border-border/60 bg-surface-muted/20 p-3"
+            <PanelGroup
+              title="Teams"
+              helper="Assign this specialist to one or more teams."
             >
-              <label
-                class="inline-flex items-center gap-2 text-sm text-foreground"
-              >
+              <div class="flex flex-col gap-3">
                 <input
-                  v-model="draft.useDefaultEndpoint"
-                  type="checkbox"
-                  class="h-4 w-4"
+                  v-model="teamSearch"
+                  type="text"
+                  placeholder="Search teams"
+                  class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm text-foreground"
                 />
-                <span>Use default endpoint (recommended)</span>
-              </label>
-              <p class="mt-1 text-xs text-subtle-foreground">
-                Stores only overrides when you provide a custom endpoint.
-              </p>
-
-              <div
-                v-if="!draft.useDefaultEndpoint"
-                class="mt-3 flex flex-col gap-1"
-              >
-                <label
-                  for="sp-baseurl"
-                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                  >Custom endpoint</label
+                <div
+                  class="max-h-48 overflow-auto rounded-lg border border-border/60 bg-surface"
                 >
-                <input
-                  id="sp-baseurl"
-                  v-model.trim="draft.customBaseURL"
-                  class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
-                  placeholder="https://…"
-                  @blur="touch('baseURL')"
-                />
-                <p
-                  v-if="fieldError('baseURL')"
-                  class="text-xs text-danger-foreground"
-                >
-                  {{ fieldError("baseURL") }}
-                </p>
+                  <div
+                    v-if="!availableTeams.length"
+                    class="px-3 py-3 text-sm text-subtle-foreground"
+                  >
+                    No teams created yet.
+                  </div>
+                  <div
+                    v-else-if="!filteredTeamOptions.length"
+                    class="px-3 py-3 text-sm text-subtle-foreground"
+                  >
+                    No teams match your search.
+                  </div>
+                  <label
+                    v-for="t in filteredTeamOptions"
+                    :key="t"
+                    class="flex cursor-pointer items-start gap-3 border-t border-border/40 px-3 py-2 transition-colors first:border-t-0 hover:bg-surface-muted/40"
+                  >
+                    <input
+                      class="mt-1 h-4 w-4 shrink-0"
+                      type="checkbox"
+                      :checked="selectedTeamsSet.has(t)"
+                      @change="
+                        setTeamSelected(
+                          t,
+                          ($event.target as HTMLInputElement).checked,
+                        )
+                      "
+                    />
+                    <div class="min-w-0">
+                      <p
+                        class="break-words text-sm font-medium text-foreground"
+                      >
+                        {{ t }}
+                      </p>
+                    </div>
+                  </label>
+                </div>
               </div>
-              <div v-else class="mt-3 text-xs text-subtle-foreground">
-                Default:
-                <span class="font-mono">{{ defaultBaseURL || "—" }}</span>
-              </div>
-            </div>
-
-            <label
-              class="flex items-start justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2"
-            >
-              <span class="min-w-0">
-                <span class="block text-sm font-medium text-foreground">
-                  Image generation
-                </span>
-                <span class="block text-xs text-subtle-foreground">
-                  Use the image generation endpoint for every request.
-                </span>
-              </span>
-              <input
-                v-model="draft.imageGeneration"
-                type="checkbox"
-                class="mt-1 h-4 w-4 shrink-0"
-              />
-            </label>
-          </div>
-        </FormSection>
-
-        <FormSection
-          title="Credentials"
-          helper="Secrets are never re-displayed after save."
-        >
-          <div class="flex flex-col gap-3">
-            <div
-              class="flex items-center justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2"
-            >
-              <div>
-                <p class="text-sm font-medium text-foreground">API key</p>
-                <p class="text-xs text-subtle-foreground">
-                  {{ credentialStatus }}
-                </p>
-              </div>
-              <button
-                type="button"
-                class="rounded border border-border/60 bg-surface px-3 py-1 text-xs font-semibold text-subtle-foreground hover:border-border"
-                @click="openCredentialModal"
-              >
-                Update credential…
-              </button>
-            </div>
-          </div>
-        </FormSection>
-      </div>
-
-      <!-- PROMPT -->
-      <div
-        v-show="activeTab === 'prompt'"
-        role="tabpanel"
-        :id="'panel-prompt'"
-        :aria-labelledby="'tab-prompt'"
-        tabindex="0"
-        class="flex min-h-0 flex-1 flex-col gap-4"
-      >
-        <div
-          v-if="submitAttempted && errorsByTab.prompt.length"
-          class="rounded-lg border border-danger/60 bg-danger/10 p-3 text-sm text-danger-foreground"
-        >
-          <p class="font-semibold">Fix the following to continue:</p>
-          <ul class="mt-2 list-disc pl-5">
-            <li v-for="e in errorsByTab.prompt" :key="e">{{ e }}</li>
-          </ul>
+            </PanelGroup>
+          </section>
         </div>
 
-        <FormSection
-          title="Prompt"
-          helper="Edit the system prompt. Optionally apply a saved template/version."
-          class="flex min-h-0 flex-1 flex-col"
+        <!-- PROMPT -->
+        <div
+          v-show="activeTab === 'prompt'"
+          role="tabpanel"
+          :id="'panel-prompt'"
+          :aria-labelledby="'tab-prompt'"
+          tabindex="0"
+          class="flex min-h-0 flex-1 flex-col gap-4"
         >
-          <div class="flex min-h-0 flex-1 flex-col gap-3">
-            <div class="grid gap-3 md:grid-cols-2">
-              <div class="flex flex-col gap-1">
-                <label
-                  for="prompt-select"
-                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                  >Template</label
-                >
-                <DropdownSelect
-                  id="prompt-select"
-                  v-model="promptApply.promptId"
-                  :options="promptDropdownOptions"
-                  class="w-full text-sm"
-                  @update:modelValue="onSelectPrompt"
-                />
-              </div>
-              <div class="flex flex-col gap-1">
-                <label
-                  for="prompt-version-select"
-                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                  >Version</label
-                >
-                <DropdownSelect
-                  id="prompt-version-select"
-                  v-model="promptApply.versionId"
-                  :options="versionDropdownOptions"
-                  class="w-full text-sm"
-                  :disabled="!promptApply.promptId || versionsLoading"
-                />
-              </div>
-            </div>
+          <div
+            v-if="submitAttempted && errorsByTab.prompt.length"
+            class="rounded-lg border border-danger/60 bg-danger/10 p-3 text-sm text-danger-foreground"
+          >
+            <p class="font-semibold">Fix the following to continue:</p>
+            <ul class="mt-2 list-disc pl-5">
+              <li v-for="e in errorsByTab.prompt" :key="e">{{ e }}</li>
+            </ul>
+          </div>
 
-            <div class="flex items-center justify-between gap-2">
-              <p
-                v-if="applyVersionError"
-                class="text-xs text-danger-foreground"
-              >
-                {{ applyVersionError }}
-              </p>
-              <div class="flex items-center gap-2">
-                <button
-                  type="button"
-                  class="rounded border border-border/60 bg-surface-muted px-3 py-1 text-xs font-semibold text-subtle-foreground hover:border-border disabled:cursor-not-allowed disabled:opacity-50"
-                  :disabled="!promptApply.versionId"
-                  @click="applySelectedVersion"
-                >
-                  Apply
-                </button>
-              </div>
-            </div>
+          <section
+            class="flex min-h-0 flex-1 flex-col rounded-[14px] border border-border/60 bg-surface p-6"
+          >
+            <PanelGroup
+              title="Template"
+              helper="Optionally apply a saved prompt template and version."
+            >
+              <div class="flex flex-col gap-3">
+                <div class="grid gap-3 sm:grid-cols-2">
+                  <div class="flex flex-col gap-1">
+                    <label
+                      for="prompt-select"
+                      class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                      >Template</label
+                    >
+                    <DropdownSelect
+                      id="prompt-select"
+                      v-model="promptApply.promptId"
+                      :options="promptDropdownOptions"
+                      class="w-full text-sm"
+                      @update:modelValue="onSelectPrompt"
+                    />
+                  </div>
+                  <div class="flex flex-col gap-1">
+                    <label
+                      for="prompt-version-select"
+                      class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                      >Version</label
+                    >
+                    <DropdownSelect
+                      id="prompt-version-select"
+                      v-model="promptApply.versionId"
+                      :options="versionDropdownOptions"
+                      class="w-full text-sm"
+                      :disabled="!promptApply.promptId || versionsLoading"
+                      @update:modelValue="onSelectVersion"
+                    />
+                  </div>
+                </div>
 
-            <div class="flex min-h-0 flex-1 flex-col">
-              <label
-                for="sp-system"
-                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >System prompt</label
-              >
-              <div class="mt-2 flex min-h-0 flex-1 flex-col">
+                <div class="flex items-center justify-between gap-2">
+                  <p
+                    v-if="applyVersionError"
+                    class="text-xs text-danger-foreground"
+                  >
+                    {{ applyVersionError }}
+                  </p>
+                  <div class="flex items-center gap-2">
+                    <button
+                      type="button"
+                      class="rounded border border-border/60 bg-surface-muted px-3 py-1 text-xs font-semibold text-subtle-foreground hover:border-border disabled:cursor-not-allowed disabled:opacity-50"
+                      :disabled="!promptApply.versionId || saving"
+                      @click="applySelectedVersion"
+                    >
+                      {{ saving ? "Saving..." : "Apply" }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </PanelGroup>
+
+            <div
+              class="flex min-h-0 flex-1 flex-col border-t border-border/50 pb-0 pt-5"
+            >
+              <div class="flex flex-wrap items-baseline justify-between gap-2">
+                <h3 class="text-sm font-semibold text-foreground">
+                  System prompt
+                </h3>
+                <span class="text-xs text-subtle-foreground">
+                  Used as the system instruction for this specialist.
+                </span>
+              </div>
+              <label for="sp-system" class="sr-only">System prompt</label>
+              <div class="mt-3 flex min-h-0 flex-1 flex-col">
                 <CodeEditor
-                  class="flex-1"
+                  class="min-h-0 flex-1"
                   id="sp-system"
                   v-model="draft.system"
                   :showToolbar="true"
@@ -467,599 +506,602 @@
                 {{ fieldError("system") }}
               </p>
             </div>
-          </div>
-        </FormSection>
-      </div>
-
-      <!-- TOOLS -->
-      <div
-        v-show="activeTab === 'tools'"
-        role="tabpanel"
-        :id="'panel-tools'"
-        :aria-labelledby="'tab-tools'"
-        tabindex="0"
-        class="flex flex-col gap-4"
-      >
-        <div
-          v-if="submitAttempted && errorsByTab.tools.length"
-          class="rounded-lg border border-danger/60 bg-danger/10 p-3 text-sm text-danger-foreground"
-        >
-          <p class="font-semibold">Fix the following to continue:</p>
-          <ul class="mt-2 list-disc pl-5">
-            <li v-for="e in errorsByTab.tools" :key="e">{{ e }}</li>
-          </ul>
+          </section>
         </div>
 
-        <FormSection
-          title="Tool access policy"
-          helper="Choose whether this specialist may call tools."
+        <!-- TOOLS -->
+        <div
+          v-show="activeTab === 'tools'"
+          role="tabpanel"
+          :id="'panel-tools'"
+          :aria-labelledby="'tab-tools'"
+          tabindex="0"
+          class="flex min-w-0 max-w-full flex-col gap-4 overflow-x-hidden"
         >
-          <div class="grid grid-cols-3 gap-2">
-            <label
-              class="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 transition-colors"
-              :class="
-                draft.toolPolicy === 'none'
-                  ? 'border-border/80 bg-surface-muted/60'
-                  : 'border-border/50 hover:border-border'
-              "
-            >
-              <input
-                class="mt-1 h-4 w-4 shrink-0"
-                type="radio"
-                name="tools-policy"
-                value="none"
-                v-model="draft.toolPolicy"
-              />
-              <div>
-                <p class="font-medium text-foreground">No tools</p>
-                <p class="text-xs text-subtle-foreground">
-                  Specialist will never call tools.
-                </p>
-              </div>
-            </label>
-
-            <label
-              class="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 transition-colors"
-              :class="
-                draft.toolPolicy === 'any'
-                  ? 'border-border/80 bg-surface-muted/60'
-                  : 'border-border/50 hover:border-border'
-              "
-            >
-              <input
-                class="mt-1 h-4 w-4 shrink-0"
-                type="radio"
-                name="tools-policy"
-                value="any"
-                v-model="draft.toolPolicy"
-              />
-              <div>
-                <p class="font-medium text-foreground">Allow any tool</p>
-                <p class="text-xs text-subtle-foreground">
-                  Every available tool can be invoked.
-                </p>
-              </div>
-            </label>
-
-            <label
-              class="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 transition-colors"
-              :class="
-                draft.toolPolicy === 'allow-list'
-                  ? 'border-border/80 bg-surface-muted/60'
-                  : 'border-border/50 hover:border-border'
-              "
-            >
-              <input
-                class="mt-1 h-4 w-4 shrink-0"
-                type="radio"
-                name="tools-policy"
-                value="allow-list"
-                v-model="draft.toolPolicy"
-              />
-              <div>
-                <p class="font-medium text-foreground">Allow list</p>
-                <p class="text-xs text-subtle-foreground">
-                  Only selected tools will be enabled.
-                </p>
-              </div>
-            </label>
+          <div
+            v-if="submitAttempted && errorsByTab.tools.length"
+            class="rounded-lg border border-danger/60 bg-danger/10 p-3 text-sm text-danger-foreground"
+          >
+            <p class="font-semibold">Fix the following to continue:</p>
+            <ul class="mt-2 list-disc pl-5">
+              <li v-for="e in errorsByTab.tools" :key="e">{{ e }}</li>
+            </ul>
           </div>
-        </FormSection>
 
-        <FormSection
-          v-if="draft.toolPolicy !== 'none'"
-          title="Auto-discovery"
-          helper="Inherit uses the global runtime setting. Enabled lets this specialist expand beyond the bootstrap allow list with tool_search."
-        >
-          <div class="flex flex-col gap-1">
-            <label
-              for="sp-auto-discover"
-              class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-              >Auto-discovery mode</label
+          <section
+            class="min-w-0 max-w-full rounded-[14px] border border-border/60 bg-surface p-6"
+          >
+            <PanelGroup
+              title="Tool access policy"
+              helper="Choose whether this specialist may call tools."
             >
-            <select
-              id="sp-auto-discover"
-              v-model="draft.autoDiscoverMode"
-              class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm text-foreground"
-            >
-              <option value="inherit">Inherit global setting</option>
-              <option value="enabled">Enabled for this specialist</option>
-              <option value="disabled">Disabled for this specialist</option>
-            </select>
-          </div>
-        </FormSection>
-
-        <FormSection
-          v-if="draft.toolPolicy === 'allow-list'"
-          title="Allowed tools"
-          helper="Search and select which tools this specialist may invoke."
-        >
-          <div class="flex flex-col gap-3">
-            <div class="flex items-center justify-between gap-3">
-              <p class="text-sm text-muted-foreground">
-                Selected:
-                <span class="font-semibold text-foreground">{{
-                  allowTools.length
-                }}</span>
-              </p>
-            </div>
-
-            <div>
-              <label
-                for="sp-tools-search"
-                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >Search tools</label
-              >
-              <input
-                id="sp-tools-search"
-                v-model="toolsSearch"
-                type="text"
-                placeholder="Type to filter by name or description"
-                class="mt-1 w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm text-foreground"
-              />
-            </div>
-
-            <p v-if="toolsLoading" class="text-xs text-subtle-foreground">
-              Loading tools…
-            </p>
-            <p v-else-if="toolsError" class="text-xs text-danger-foreground">
-              {{ toolsError }}
-            </p>
-
-            <div v-else class="rounded-lg border border-border/60 bg-surface">
-              <div
-                v-if="!filteredTools.length"
-                class="px-3 py-3 text-sm text-subtle-foreground"
-              >
-                No tools match your search.
-              </div>
-              <label
-                v-for="t in filteredTools"
-                :key="t.name"
-                class="flex cursor-pointer items-start gap-3 border-t border-border/40 px-3 py-2 transition-colors first:border-t-0 hover:bg-surface-muted/40"
-              >
-                <input
-                  class="mt-1 h-4 w-4 shrink-0"
-                  type="checkbox"
-                  :checked="allowToolsSet.has(t.name)"
-                  @change="
-                    setToolAllowed(
-                      t.name,
-                      ($event.target as HTMLInputElement).checked,
-                    )
+              <div class="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3">
+                <label
+                  class="min-w-0 flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 transition-colors"
+                  :class="
+                    draft.toolPolicy === 'none'
+                      ? 'border-border/80 bg-surface-muted/60'
+                      : 'border-border/50 hover:border-border'
                   "
-                />
-                <div class="min-w-0">
-                  <p class="text-sm font-medium text-foreground">
-                    {{ t.name }}
-                  </p>
-                  <p
-                    v-if="t.description"
-                    class="mt-0.5 text-xs text-subtle-foreground"
-                  >
-                    {{ t.description }}
-                  </p>
-                </div>
-              </label>
-            </div>
-          </div>
-        </FormSection>
-
-        <FormSection
-          title="Forge harness"
-          helper="Override the top-level guarded loop settings for this specialist."
-        >
-          <div class="flex flex-col gap-4">
-            <label
-              class="flex items-start justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2"
-            >
-              <span class="min-w-0">
-                <span class="block text-sm font-medium text-foreground">
-                  Per-specialist override
-                </span>
-                <span class="block text-xs text-subtle-foreground">
-                  Leave off to inherit the global harness configuration.
-                </span>
-              </span>
-              <input
-                id="sp-harness-override"
-                v-model="draft.harnessOverride"
-                type="checkbox"
-                class="mt-1 h-4 w-4 shrink-0"
-              />
-            </label>
-
-            <div
-              v-if="!draft.harnessOverride"
-              class="rounded border border-border/60 bg-surface-muted/20 px-3 py-2 text-sm text-subtle-foreground"
-            >
-              This specialist currently inherits the global harness setting.
-            </div>
-
-            <div v-else class="flex flex-col gap-4">
-              <label
-                class="flex items-start justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2"
-              >
-                <span class="min-w-0">
-                  <span class="block text-sm font-medium text-foreground">
-                    Harness enabled
-                  </span>
-                  <span class="block text-xs text-subtle-foreground">
-                    Turn off here to force legacy behavior for this specialist.
-                  </span>
-                </span>
-                <input
-                  id="sp-harness-enabled"
-                  v-model="draft.harnessEnabled"
-                  type="checkbox"
-                  class="mt-1 h-4 w-4 shrink-0"
-                />
-              </label>
-
-              <div class="grid gap-3 md:grid-cols-3">
-                <div class="flex flex-col gap-1">
-                  <label
-                    for="sp-harness-mode"
-                    class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                    >Mode</label
-                  >
-                  <DropdownSelect
-                    id="sp-harness-mode"
-                    v-model="draft.harnessMode"
-                    :options="harnessModeOptions"
-                    class="w-full text-sm"
-                    @update:modelValue="touch('harnessMode')"
-                  />
-                  <p
-                    v-if="fieldError('harnessMode')"
-                    class="text-xs text-danger-foreground"
-                  >
-                    {{ fieldError("harnessMode") }}
-                  </p>
-                </div>
-
-                <div class="flex flex-col gap-1">
-                  <label
-                    for="sp-harness-max-retries"
-                    class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                    >Validation retries</label
-                  >
+                >
                   <input
-                    id="sp-harness-max-retries"
-                    v-model="draft.harnessMaxRetriesPerStep"
-                    type="number"
-                    min="1"
-                    step="1"
-                    class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
-                    @blur="touch('harnessMaxRetriesPerStep')"
+                    class="mt-1 h-4 w-4 shrink-0"
+                    type="radio"
+                    name="tools-policy"
+                    value="none"
+                    v-model="draft.toolPolicy"
                   />
-                  <p
-                    v-if="fieldError('harnessMaxRetriesPerStep')"
-                    class="text-xs text-danger-foreground"
-                  >
-                    {{ fieldError("harnessMaxRetriesPerStep") }}
-                  </p>
-                </div>
-
-                <div class="flex flex-col gap-1">
-                  <label
-                    for="sp-harness-max-tool-errors"
-                    class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                    >Tool error limit</label
-                  >
-                  <input
-                    id="sp-harness-max-tool-errors"
-                    v-model="draft.harnessMaxToolErrors"
-                    type="number"
-                    min="1"
-                    step="1"
-                    class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
-                    @blur="touch('harnessMaxToolErrors')"
-                  />
-                  <p
-                    v-if="fieldError('harnessMaxToolErrors')"
-                    class="text-xs text-danger-foreground"
-                  >
-                    {{ fieldError("harnessMaxToolErrors") }}
-                  </p>
-                </div>
-              </div>
-
-              <label
-                class="flex items-start justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2"
-              >
-                <span class="min-w-0">
-                  <span class="block text-sm font-medium text-foreground">
-                    Rescue embedded tool calls
-                  </span>
-                  <span class="block text-xs text-subtle-foreground">
-                    Recover when a model writes tool JSON in plain text.
-                  </span>
-                </span>
-                <input
-                  v-model="draft.harnessRescueEnabled"
-                  type="checkbox"
-                  class="mt-1 h-4 w-4 shrink-0"
-                />
-              </label>
-
-              <div class="grid gap-3 md:grid-cols-2">
-                <div class="flex flex-col gap-1">
-                  <label
-                    for="sp-harness-terminal-tools"
-                    class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                    >Terminal tools</label
-                  >
-                  <textarea
-                    id="sp-harness-terminal-tools"
-                    v-model="draft.harnessTerminalTools"
-                    rows="3"
-                    class="w-full resize-y rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
-                    placeholder="agent_response"
-                    @blur="touch('harnessTerminalTools')"
-                  ></textarea>
-                  <p class="text-xs text-subtle-foreground">
-                    One per line or comma-separated.
-                  </p>
-                  <p
-                    v-if="fieldError('harnessTerminalTools')"
-                    class="text-xs text-danger-foreground"
-                  >
-                    {{ fieldError("harnessTerminalTools") }}
-                  </p>
-                </div>
-
-                <div class="flex flex-col gap-1">
-                  <label
-                    for="sp-harness-required-steps"
-                    class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                    >Required steps</label
-                  >
-                  <textarea
-                    id="sp-harness-required-steps"
-                    v-model="draft.harnessRequiredSteps"
-                    rows="3"
-                    class="w-full resize-y rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
-                    placeholder="search"
-                    @blur="touch('harnessRequiredSteps')"
-                  ></textarea>
-                  <p class="text-xs text-subtle-foreground">
-                    Workflow mode requires these tools before terminal tools.
-                  </p>
-                </div>
-              </div>
-
-              <div
-                class="rounded border border-border/60 bg-surface-muted/20 p-3"
-              >
-                <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0">
-                    <p class="text-sm font-medium text-foreground">
-                      Tool prerequisites
-                    </p>
-                    <p class="text-xs text-subtle-foreground">
-                      Require prior successful tool calls before selected tools.
+                    <p class="font-medium text-foreground">No tools</p>
+                    <p class="break-words text-xs text-subtle-foreground">
+                      Specialist will never call tools.
                     </p>
                   </div>
-                  <button
-                    id="sp-harness-prerequisites"
-                    type="button"
-                    class="shrink-0 rounded border border-border/60 bg-surface px-3 py-1 text-xs font-semibold text-subtle-foreground hover:border-border"
-                    @click="openJsonModal('harnessPrerequisites')"
-                  >
-                    Edit JSON…
-                  </button>
-                </div>
-                <pre
-                  class="mt-3 max-h-40 overflow-auto rounded border border-border/50 bg-surface px-3 py-2 text-xs text-subtle-foreground"
-                  >{{ harnessPrerequisitesPreview }}</pre
-                >
-                <p
-                  v-if="fieldError('harnessPrerequisites')"
-                  class="mt-2 text-xs text-danger-foreground"
-                >
-                  {{ fieldError("harnessPrerequisites") }}
-                </p>
-              </div>
+                </label>
 
-              <div
-                class="flex flex-col gap-3 rounded border border-border/60 bg-surface-muted/20 p-3"
-              >
-                <label class="inline-flex items-center justify-between gap-3">
+                <label
+                  class="min-w-0 flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 transition-colors"
+                  :class="
+                    draft.toolPolicy === 'any'
+                      ? 'border-border/80 bg-surface-muted/60'
+                      : 'border-border/50 hover:border-border'
+                  "
+                >
+                  <input
+                    class="mt-1 h-4 w-4 shrink-0"
+                    type="radio"
+                    name="tools-policy"
+                    value="any"
+                    v-model="draft.toolPolicy"
+                  />
+                  <div class="min-w-0">
+                    <p class="font-medium text-foreground">Allow any tool</p>
+                    <p class="break-words text-xs text-subtle-foreground">
+                      Every available tool can be invoked.
+                    </p>
+                  </div>
+                </label>
+
+                <label
+                  class="min-w-0 flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-3 transition-colors"
+                  :class="
+                    draft.toolPolicy === 'allow-list'
+                      ? 'border-border/80 bg-surface-muted/60'
+                      : 'border-border/50 hover:border-border'
+                  "
+                >
+                  <input
+                    class="mt-1 h-4 w-4 shrink-0"
+                    type="radio"
+                    name="tools-policy"
+                    value="allow-list"
+                    v-model="draft.toolPolicy"
+                  />
+                  <div class="min-w-0">
+                    <p class="font-medium text-foreground">Allow list</p>
+                    <p class="break-words text-xs text-subtle-foreground">
+                      Only selected tools will be enabled.
+                    </p>
+                  </div>
+                </label>
+              </div>
+            </PanelGroup>
+
+            <PanelGroup
+              v-if="draft.toolPolicy !== 'none'"
+              title="Behavior"
+              helper="Control how this specialist discovers tools and interacts with users."
+            >
+              <div class="flex flex-col gap-3">
+                <label
+                  class="flex items-center justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2"
+                >
                   <span class="min-w-0">
                     <span class="block text-sm font-medium text-foreground">
-                      Harness compaction
+                      Auto-discovery
                     </span>
                     <span class="block text-xs text-subtle-foreground">
-                      Compact long in-run tool histories inside the harness.
+                      Expose tool_search for missing capabilities.
                     </span>
                   </span>
                   <input
-                    v-model="draft.harnessCompactEnabled"
+                    id="sp-auto-discover"
+                    v-model="draft.autoDiscover"
                     type="checkbox"
-                    class="h-4 w-4 shrink-0"
+                    class="peer sr-only"
                   />
+                  <span
+                    aria-hidden="true"
+                    class="relative h-6 w-11 shrink-0 rounded-full border border-border/70 bg-surface-muted transition-colors after:absolute after:left-0.5 after:top-1/2 after:h-5 after:w-5 after:-translate-y-1/2 after:rounded-full after:bg-foreground after:transition-transform peer-checked:border-accent peer-checked:bg-accent peer-checked:after:translate-x-5"
+                  ></span>
+                </label>
+
+                <label
+                  class="flex items-center justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2"
+                >
+                  <span class="min-w-0">
+                    <span class="block text-sm font-medium text-foreground">
+                      Request info
+                    </span>
+                    <span class="block text-xs text-subtle-foreground">
+                      Disable for workflow agents that should not wait on users.
+                    </span>
+                  </span>
+                  <input
+                    id="sp-request-info"
+                    v-model="draft.requestInfoEnabled"
+                    type="checkbox"
+                    class="peer sr-only"
+                  />
+                  <span
+                    aria-hidden="true"
+                    class="relative h-6 w-11 shrink-0 rounded-full border border-border/70 bg-surface-muted transition-colors after:absolute after:left-0.5 after:top-1/2 after:h-5 after:w-5 after:-translate-y-1/2 after:rounded-full after:bg-foreground after:transition-transform peer-checked:border-accent peer-checked:bg-accent peer-checked:after:translate-x-5"
+                  ></span>
+                </label>
+              </div>
+            </PanelGroup>
+
+            <PanelGroup
+              v-if="draft.toolPolicy === 'allow-list'"
+              title="Allowed tools"
+              helper="Search and select which tools this specialist may invoke."
+            >
+              <div class="flex min-w-0 flex-col gap-3">
+                <div class="flex min-w-0 items-center justify-between gap-3">
+                  <p class="text-sm text-muted-foreground">
+                    Selected:
+                    <span class="font-semibold text-foreground">{{
+                      allowTools.length
+                    }}</span>
+                  </p>
+                </div>
+
+                <div>
+                  <label
+                    for="sp-tools-search"
+                    class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                    >Search tools</label
+                  >
+                  <input
+                    id="sp-tools-search"
+                    v-model="toolsSearch"
+                    type="text"
+                    placeholder="Type to filter by name or description"
+                    class="mt-1 w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm text-foreground"
+                  />
+                </div>
+
+                <p v-if="toolsLoading" class="text-xs text-subtle-foreground">
+                  Loading tools…
+                </p>
+                <p
+                  v-else-if="toolsError"
+                  class="text-xs text-danger-foreground"
+                >
+                  {{ toolsError }}
+                </p>
+
+                <div
+                  v-else
+                  class="min-w-0 max-w-full overflow-hidden rounded-lg border border-border/60 bg-surface"
+                >
+                  <div
+                    v-if="!filteredTools.length"
+                    class="px-3 py-3 text-sm text-subtle-foreground"
+                  >
+                    No tools match your search.
+                  </div>
+                  <label
+                    v-for="t in filteredTools"
+                    :key="t.name"
+                    class="flex min-w-0 cursor-pointer items-start gap-3 border-t border-border/40 px-3 py-2 transition-colors first:border-t-0 hover:bg-surface-muted/40"
+                  >
+                    <input
+                      class="mt-1 h-4 w-4 shrink-0"
+                      type="checkbox"
+                      :checked="allowToolsSet.has(t.name)"
+                      @change="
+                        setToolAllowed(
+                          t.name,
+                          ($event.target as HTMLInputElement).checked,
+                        )
+                      "
+                    />
+                    <div class="min-w-0 flex-1">
+                      <p class="break-all text-sm font-medium text-foreground">
+                        {{ t.name }}
+                      </p>
+                      <p
+                        v-if="t.description"
+                        class="mt-0.5 break-words text-xs text-subtle-foreground"
+                      >
+                        {{ t.description }}
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+            </PanelGroup>
+          </section>
+        </div>
+
+        <!-- ADVANCED -->
+        <div
+          v-show="activeTab === 'advanced'"
+          role="tabpanel"
+          :id="'panel-advanced'"
+          :aria-labelledby="'tab-advanced'"
+          tabindex="0"
+          class="flex flex-col gap-4"
+        >
+          <div
+            v-if="submitAttempted && errorsByTab.advanced.length"
+            class="rounded-lg border border-danger/60 bg-danger/10 p-3 text-sm text-danger-foreground"
+          >
+            <p class="font-semibold">Fix the following to continue:</p>
+            <ul class="mt-2 list-disc pl-5">
+              <li v-for="e in errorsByTab.advanced" :key="e">{{ e }}</li>
+            </ul>
+          </div>
+
+          <section
+            class="rounded-[14px] border border-border/60 bg-surface p-6"
+          >
+            <PanelGroup
+              title="Summarization"
+              helper="Override the summary context window for this specialist. Leave blank to use the global summaryContextWindowTokens fallback."
+            >
+              <div class="flex flex-col gap-1">
+                <label
+                  for="sp-summary-context"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >Summary context window (tokens)</label
+                >
+                <input
+                  id="sp-summary-context"
+                  v-model="draft.summaryContextWindowTokens"
+                  type="number"
+                  min="1"
+                  step="1"
+                  class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
+                  placeholder="Use global default"
+                  @blur="touch('summaryContextWindowTokens')"
+                />
+                <p
+                  v-if="fieldError('summaryContextWindowTokens')"
+                  class="text-xs text-danger-foreground"
+                >
+                  {{ fieldError("summaryContextWindowTokens") }}
+                </p>
+              </div>
+            </PanelGroup>
+
+            <PanelGroup
+              title="Extra headers"
+              helper="Sent with requests made by this specialist."
+            >
+              <KeyValueTableEditor
+                v-model="extraHeadersRows"
+                helper="Keys must be unique. Values are strings."
+                @editJson="openJsonModal('headers')"
+                @blur="touch('extraHeaders')"
+              />
+            </PanelGroup>
+
+            <PanelGroup
+              title="Extra params"
+              helper="Additional provider parameters."
+            >
+              <KeyValueTableEditor
+                v-model="extraParamsRows"
+                helper='Values are strings by default. JSON values (for example {"type":"adaptive"}, true, 0.2) are preserved as typed values.'
+                @editJson="openJsonModal('params')"
+                @blur="touch('extraParams')"
+              />
+            </PanelGroup>
+
+            <PanelGroup
+              title="Forge harness"
+              helper="Use guarded loop behavior for this specialist."
+            >
+              <div class="flex flex-col gap-4">
+                <label
+                  class="flex items-center justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2"
+                >
+                  <span class="min-w-0">
+                    <span class="block text-sm font-medium text-foreground">
+                      Harness
+                    </span>
+                    <span class="block text-xs text-subtle-foreground">
+                      Toggle guarded loop behavior for this specialist.
+                    </span>
+                  </span>
+                  <input
+                    id="sp-harness-enabled"
+                    v-model="draft.harnessEnabled"
+                    type="checkbox"
+                    class="peer sr-only"
+                  />
+                  <span
+                    aria-hidden="true"
+                    class="relative h-6 w-11 shrink-0 rounded-full border border-border/70 bg-surface-muted transition-colors after:absolute after:left-0.5 after:top-1/2 after:h-5 after:w-5 after:-translate-y-1/2 after:rounded-full after:bg-foreground after:transition-transform peer-checked:border-accent peer-checked:bg-accent peer-checked:after:translate-x-5"
+                  ></span>
                 </label>
 
                 <div
-                  v-if="draft.harnessCompactEnabled"
-                  class="grid gap-3 md:grid-cols-2"
+                  v-if="draft.harnessEnabled"
+                  class="grid gap-3 md:grid-cols-3"
                 >
                   <div class="flex flex-col gap-1">
                     <label
-                      for="sp-harness-compact-keep"
+                      for="sp-harness-mode"
                       class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                      >Keep recent steps</label
+                      >Mode</label
+                    >
+                    <DropdownSelect
+                      id="sp-harness-mode"
+                      v-model="draft.harnessMode"
+                      :options="harnessModeOptions"
+                      class="w-full text-sm"
+                      @update:modelValue="touch('harnessMode')"
+                    />
+                    <p
+                      v-if="fieldError('harnessMode')"
+                      class="text-xs text-danger-foreground"
+                    >
+                      {{ fieldError("harnessMode") }}
+                    </p>
+                  </div>
+
+                  <div class="flex flex-col gap-1">
+                    <label
+                      for="sp-harness-max-retries"
+                      class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                      >Validation retries</label
                     >
                     <input
-                      id="sp-harness-compact-keep"
-                      v-model="draft.harnessCompactKeepRecentSteps"
+                      id="sp-harness-max-retries"
+                      v-model="draft.harnessMaxRetriesPerStep"
                       type="number"
                       min="1"
                       step="1"
                       class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
-                      @blur="touch('harnessCompactKeepRecentSteps')"
+                      @blur="touch('harnessMaxRetriesPerStep')"
                     />
                     <p
-                      v-if="fieldError('harnessCompactKeepRecentSteps')"
+                      v-if="fieldError('harnessMaxRetriesPerStep')"
                       class="text-xs text-danger-foreground"
                     >
-                      {{ fieldError("harnessCompactKeepRecentSteps") }}
+                      {{ fieldError("harnessMaxRetriesPerStep") }}
                     </p>
                   </div>
 
                   <div class="flex flex-col gap-1">
                     <label
-                      for="sp-harness-phase-thresholds"
+                      for="sp-harness-max-tool-errors"
                       class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                      >Phase thresholds</label
+                      >Tool error limit</label
                     >
                     <input
-                      id="sp-harness-phase-thresholds"
-                      v-model="draft.harnessCompactPhaseThresholds"
-                      type="text"
+                      id="sp-harness-max-tool-errors"
+                      v-model="draft.harnessMaxToolErrors"
+                      type="number"
+                      min="1"
+                      step="1"
                       class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
-                      placeholder="0.60, 0.75, 0.90"
-                      @blur="touch('harnessCompactPhaseThresholds')"
+                      @blur="touch('harnessMaxToolErrors')"
                     />
                     <p
-                      v-if="fieldError('harnessCompactPhaseThresholds')"
+                      v-if="fieldError('harnessMaxToolErrors')"
                       class="text-xs text-danger-foreground"
                     >
-                      {{ fieldError("harnessCompactPhaseThresholds") }}
+                      {{ fieldError("harnessMaxToolErrors") }}
                     </p>
                   </div>
                 </div>
+
+                <label
+                  v-if="draft.harnessEnabled"
+                  class="flex items-start justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2"
+                >
+                  <span class="min-w-0">
+                    <span class="block text-sm font-medium text-foreground">
+                      Rescue embedded tool calls
+                    </span>
+                    <span class="block text-xs text-subtle-foreground">
+                      Recover when a model writes tool JSON in plain text.
+                    </span>
+                  </span>
+                  <input
+                    v-model="draft.harnessRescueEnabled"
+                    type="checkbox"
+                    class="mt-1 h-4 w-4 shrink-0"
+                  />
+                </label>
+
+                <div
+                  v-if="draft.harnessEnabled"
+                  class="grid gap-3 md:grid-cols-2"
+                >
+                  <div class="flex flex-col gap-1">
+                    <label
+                      for="sp-harness-terminal-tools"
+                      class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                      >Terminal tools</label
+                    >
+                    <textarea
+                      id="sp-harness-terminal-tools"
+                      v-model="draft.harnessTerminalTools"
+                      rows="3"
+                      class="w-full resize-y rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
+                      placeholder="agent_response"
+                      @blur="touch('harnessTerminalTools')"
+                    ></textarea>
+                    <p class="text-xs text-subtle-foreground">
+                      One per line or comma-separated.
+                    </p>
+                    <p
+                      v-if="fieldError('harnessTerminalTools')"
+                      class="text-xs text-danger-foreground"
+                    >
+                      {{ fieldError("harnessTerminalTools") }}
+                    </p>
+                  </div>
+
+                  <div class="flex flex-col gap-1">
+                    <label
+                      for="sp-harness-required-steps"
+                      class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                      >Required steps</label
+                    >
+                    <textarea
+                      id="sp-harness-required-steps"
+                      v-model="draft.harnessRequiredSteps"
+                      rows="3"
+                      class="w-full resize-y rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
+                      placeholder="search"
+                      @blur="touch('harnessRequiredSteps')"
+                    ></textarea>
+                    <p class="text-xs text-subtle-foreground">
+                      Workflow mode requires these tools before terminal tools.
+                    </p>
+                  </div>
+                </div>
+
+                <div
+                  v-if="draft.harnessEnabled"
+                  class="rounded border border-border/60 bg-surface-muted/20 p-3"
+                >
+                  <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                      <p class="text-sm font-medium text-foreground">
+                        Tool prerequisites
+                      </p>
+                      <p class="text-xs text-subtle-foreground">
+                        Require prior successful tool calls before selected
+                        tools.
+                      </p>
+                    </div>
+                    <button
+                      id="sp-harness-prerequisites"
+                      type="button"
+                      class="shrink-0 rounded border border-border/60 bg-surface px-3 py-1 text-xs font-semibold text-subtle-foreground hover:border-border"
+                      @click="openJsonModal('harnessPrerequisites')"
+                    >
+                      Edit JSON…
+                    </button>
+                  </div>
+                  <pre
+                    class="mt-3 max-h-40 overflow-auto rounded border border-border/50 bg-surface px-3 py-2 text-xs text-subtle-foreground"
+                    >{{ harnessPrerequisitesPreview }}</pre
+                  >
+                  <p
+                    v-if="fieldError('harnessPrerequisites')"
+                    class="mt-2 text-xs text-danger-foreground"
+                  >
+                    {{ fieldError("harnessPrerequisites") }}
+                  </p>
+                </div>
+
+                <div
+                  v-if="draft.harnessEnabled"
+                  class="flex flex-col gap-3 rounded border border-border/60 bg-surface-muted/20 p-3"
+                >
+                  <label class="inline-flex items-center justify-between gap-3">
+                    <span class="min-w-0">
+                      <span class="block text-sm font-medium text-foreground">
+                        Harness compaction
+                      </span>
+                      <span class="block text-xs text-subtle-foreground">
+                        Compact long in-run tool histories inside the harness.
+                      </span>
+                    </span>
+                    <input
+                      v-model="draft.harnessCompactEnabled"
+                      type="checkbox"
+                      class="h-4 w-4 shrink-0"
+                    />
+                  </label>
+
+                  <div
+                    v-if="draft.harnessCompactEnabled"
+                    class="grid gap-3 md:grid-cols-2"
+                  >
+                    <div class="flex flex-col gap-1">
+                      <label
+                        for="sp-harness-compact-keep"
+                        class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                        >Keep recent steps</label
+                      >
+                      <input
+                        id="sp-harness-compact-keep"
+                        v-model="draft.harnessCompactKeepRecentSteps"
+                        type="number"
+                        min="1"
+                        step="1"
+                        class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
+                        @blur="touch('harnessCompactKeepRecentSteps')"
+                      />
+                      <p
+                        v-if="fieldError('harnessCompactKeepRecentSteps')"
+                        class="text-xs text-danger-foreground"
+                      >
+                        {{ fieldError("harnessCompactKeepRecentSteps") }}
+                      </p>
+                    </div>
+
+                    <div class="flex flex-col gap-1">
+                      <label
+                        for="sp-harness-phase-thresholds"
+                        class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                        >Phase thresholds</label
+                      >
+                      <input
+                        id="sp-harness-phase-thresholds"
+                        v-model="draft.harnessCompactPhaseThresholds"
+                        type="text"
+                        class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
+                        placeholder="0.60, 0.75, 0.90"
+                        @blur="touch('harnessCompactPhaseThresholds')"
+                      />
+                      <p
+                        v-if="fieldError('harnessCompactPhaseThresholds')"
+                        class="text-xs text-danger-foreground"
+                      >
+                        {{ fieldError("harnessCompactPhaseThresholds") }}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div
+                  v-if="!draft.harnessEnabled"
+                  class="rounded border border-border/60 bg-surface-muted/20 px-3 py-2 text-sm text-subtle-foreground"
+                >
+                  This specialist will use the legacy agent loop.
+                </div>
               </div>
-            </div>
-          </div>
-        </FormSection>
-      </div>
-
-      <!-- ADVANCED -->
-      <div
-        v-show="activeTab === 'advanced'"
-        role="tabpanel"
-        :id="'panel-advanced'"
-        :aria-labelledby="'tab-advanced'"
-        tabindex="0"
-        class="flex flex-col gap-4"
-      >
-        <div
-          v-if="submitAttempted && errorsByTab.advanced.length"
-          class="rounded-lg border border-danger/60 bg-danger/10 p-3 text-sm text-danger-foreground"
-        >
-          <p class="font-semibold">Fix the following to continue:</p>
-          <ul class="mt-2 list-disc pl-5">
-            <li v-for="e in errorsByTab.advanced" :key="e">{{ e }}</li>
-          </ul>
-        </div>
-
-        <FormSection
-          title="Summarization"
-          helper="Override the summary context window for this specialist. Leave blank to use the global summaryContextWindowTokens fallback."
-        >
-          <div class="flex flex-col gap-1">
-            <label
-              for="sp-summary-context"
-              class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-              >Summary context window (tokens)</label
-            >
-            <input
-              id="sp-summary-context"
-              v-model="draft.summaryContextWindowTokens"
-              type="number"
-              min="1"
-              step="1"
-              class="w-full rounded border border-border/60 bg-surface-muted/40 px-3 py-2 text-sm"
-              placeholder="Use global default"
-              @blur="touch('summaryContextWindowTokens')"
-            />
-            <p
-              v-if="fieldError('summaryContextWindowTokens')"
-              class="text-xs text-danger-foreground"
-            >
-              {{ fieldError("summaryContextWindowTokens") }}
-            </p>
-          </div>
-        </FormSection>
-
-        <CollapsiblePanel
-          v-model="headersOpen"
-          title="Extra headers"
-          helper="Sent with requests made by this specialist."
-        >
-          <KeyValueTableEditor
-            v-model="extraHeadersRows"
-            helper="Keys must be unique. Values are strings."
-            @editJson="openJsonModal('headers')"
-            @blur="touch('extraHeaders')"
-          />
-        </CollapsiblePanel>
-
-        <CollapsiblePanel
-          v-model="paramsOpen"
-          title="Extra params"
-          helper="Additional provider parameters."
-        >
-          <KeyValueTableEditor
-            v-model="extraParamsRows"
-            helper='Values are strings by default. JSON values (for example {"type":"adaptive"}, true, 0.2) are preserved as typed values.'
-            @editJson="openJsonModal('params')"
-            @blur="touch('extraParams')"
-          />
-        </CollapsiblePanel>
-      </div>
-    </div>
-
-    <!-- Sticky footer -->
-    <div
-      class="sticky bottom-0 z-10 border-t border-border/50 bg-surface "
-    >
-      <div class="flex items-center justify-between gap-3 px-4 py-3">
-        <div class="text-xs text-subtle-foreground">
-          <span v-if="saving">Saving…</span>
-          <span v-else-if="actionError">Save failed.</span>
-          <span v-else-if="successMsg">{{ successMsg }}</span>
-          <span v-else-if="isDirty">Changes not saved.</span>
-          <span v-else>Up to date.</span>
-        </div>
-        <div class="flex items-center gap-2">
-          <button
-            type="button"
-            class="rounded-md border border-border/60 px-3 py-1.5 text-sm"
-            @click="onCancel"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            class="rounded-md border border-border/60 bg-surface-muted px-3 py-1.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-            :disabled="saving"
-            @click="onSave"
-          >
-            {{ saving ? "Saving…" : "Save" }}
-          </button>
+            </PanelGroup>
+          </section>
         </div>
       </div>
     </div>
@@ -1071,7 +1113,7 @@
       @keydown="onCredentialKeydown"
     >
       <div
-        class="absolute inset-0 bg-surface "
+        class="absolute inset-0 bg-surface"
         @click="closeCredentialModal(false)"
       ></div>
       <div
@@ -1154,8 +1196,7 @@
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { useQueryClient } from "@tanstack/vue-query";
 import DropdownSelect from "@/components/DropdownSelect.vue";
-import FormSection from "@/components/specialists/edit/FormSection.vue";
-import CollapsiblePanel from "@/components/specialists/edit/CollapsiblePanel.vue";
+import PanelGroup from "@/components/specialists/edit/PanelGroup.vue";
 import CodeEditor from "@/components/specialists/edit/CodeEditor.vue";
 import KeyValueTableEditor, {
   type KeyValueRow,
@@ -1179,7 +1220,6 @@ import type { FlowEditorTool } from "@/types/flowEditor";
 
 type TabId = "basics" | "prompt" | "tools" | "advanced";
 type ToolPolicy = "none" | "any" | "allow-list";
-type AutoDiscoverMode = "inherit" | "enabled" | "disabled";
 type HarnessMode = "legacy" | "guarded_chat" | "workflow";
 type JsonTarget = "headers" | "params" | "harnessPrerequisites";
 
@@ -1216,6 +1256,8 @@ const saving = ref(false);
 
 const actionError = ref<string | null>(null);
 const successMsg = ref<string | null>(null);
+const saveStatusKey = ref(0);
+const preserveNextInitialFeedback = ref(false);
 
 const draft = reactive({
   name: "",
@@ -1229,8 +1271,8 @@ const draft = reactive({
   customBaseURL: "",
   system: "",
   toolPolicy: "none" as ToolPolicy,
-  autoDiscoverMode: "inherit" as AutoDiscoverMode,
-  harnessOverride: false,
+  autoDiscover: false,
+  requestInfoEnabled: true,
   harnessEnabled: true,
   harnessMode: "guarded_chat" as HarnessMode,
   harnessRescueEnabled: true,
@@ -1253,8 +1295,6 @@ const extraParamsRows = ref<KeyValueRow[]>([]);
 const extraHeadersObj = ref<Record<string, string>>({});
 const extraParamsObj = ref<Record<string, any>>({});
 
-const headersOpen = ref(false);
-const paramsOpen = ref(false);
 const promptHelpOpen = ref(false);
 const tools = ref<FlowEditorTool[]>([]);
 const toolsLoading = ref(false);
@@ -1284,6 +1324,8 @@ const promptApply = ref<{ promptId: string; versionId: string }>({
   promptId: "",
   versionId: "",
 });
+
+const promptSelectionStoragePrefix = "manifold.specialists.promptSelection";
 
 const providerDropdownOptions = computed(() =>
   props.providerOptions.map((opt) => ({ id: opt, label: opt, value: opt })),
@@ -1347,6 +1389,38 @@ const credentialStatus = computed(() => {
   return "Not configured";
 });
 
+const saveStatusLabel = computed(() => {
+  if (saving.value) return "Saving...";
+  if (actionError.value) return "Save failed.";
+  if (successMsg.value) return successMsg.value;
+  if (isDirty.value) return "Changes not saved.";
+  return "Up to date.";
+});
+
+const saveStatusClass = computed(() => {
+  if (saving.value) {
+    return "border-accent/50 bg-accent/10 text-accent animate-pulse";
+  }
+  if (actionError.value) {
+    return "border-danger/50 bg-danger/10 text-danger";
+  }
+  if (successMsg.value) {
+    return "border-success/50 bg-success/10 text-success";
+  }
+  if (isDirty.value) {
+    return "border-warning/50 bg-warning/10 text-warning";
+  }
+  return "border-border/60 bg-surface-muted/30 text-subtle-foreground";
+});
+
+const saveStatusDotClass = computed(() => {
+  if (saving.value) return "bg-accent";
+  if (actionError.value) return "bg-danger";
+  if (successMsg.value) return "bg-success";
+  if (isDirty.value) return "bg-warning";
+  return "bg-subtle-foreground";
+});
+
 function touch(field: string) {
   touched.value.add(field);
 }
@@ -1400,7 +1474,7 @@ const fieldErrors = computed<Record<string, string>>(() => {
     }
   }
 
-  if (draft.harnessOverride) {
+  if (draft.harnessEnabled) {
     if (!isHarnessMode(draft.harnessMode)) {
       errs.harnessMode =
         "Harness mode must be legacy, guarded chat, or workflow.";
@@ -1459,7 +1533,7 @@ const errorsByTab = computed(() => {
 
   if (fieldErrors.value.system) prompt.push(fieldErrors.value.system);
 
-  const toolErrorFields = [
+  const harnessErrorFields = [
     "harnessMode",
     "harnessMaxRetriesPerStep",
     "harnessMaxToolErrors",
@@ -1468,9 +1542,9 @@ const errorsByTab = computed(() => {
     "harnessCompactKeepRecentSteps",
     "harnessCompactPhaseThresholds",
   ];
-  for (const field of toolErrorFields) {
+  for (const field of harnessErrorFields) {
     const err = fieldErrors.value[field];
-    if (err) toolsTab.push(err);
+    if (err) advanced.push(err);
   }
 
   if (fieldErrors.value.extraHeaders)
@@ -1714,8 +1788,9 @@ function normalizeComparable(sp: Specialist): SpecialistComparable {
     model: (sp.model || "").trim(),
     summaryContextWindowTokens: sp.summaryContextWindowTokens || 0,
     enableTools: !!sp.enableTools,
+    requestInfoEnabled: sp.requestInfoEnabled !== false,
     imageGeneration: !!sp.imageGeneration,
-    autoDiscover: typeof sp.autoDiscover === "boolean" ? sp.autoDiscover : null,
+    autoDiscover: sp.autoDiscover === true,
     paused: !!sp.paused,
     allowTools,
     system: sp.system || "",
@@ -1736,8 +1811,9 @@ function normalizePayload(sp: Specialist): Specialist {
     model: (sp.model || "").trim(),
     summaryContextWindowTokens: sp.summaryContextWindowTokens || 0,
     enableTools: !!sp.enableTools,
+    requestInfoEnabled: sp.requestInfoEnabled !== false,
     imageGeneration: !!sp.imageGeneration,
-    autoDiscover: typeof sp.autoDiscover === "boolean" ? sp.autoDiscover : null,
+    autoDiscover: sp.autoDiscover === true,
     paused: !!sp.paused,
     apiKey: sp.apiKey || undefined,
     allowTools: Array.isArray(sp.allowTools) ? sp.allowTools : [],
@@ -1810,9 +1886,7 @@ function objectToRows(obj: Record<string, any>): KeyValueRow[] {
   }));
 }
 
-function buildHarnessFromDraft(): SpecialistHarness | null {
-  if (!draft.harnessOverride) return null;
-
+function harnessFromDraft(): SpecialistHarness {
   return {
     enabled: !!draft.harnessEnabled,
     mode: isHarnessMode(draft.harnessMode) ? draft.harnessMode : "guarded_chat",
@@ -1836,6 +1910,21 @@ function buildHarnessFromDraft(): SpecialistHarness | null {
   };
 }
 
+function harnessMatches(a: SpecialistHarness, b: SpecialistHarness): boolean {
+  return (
+    JSON.stringify(normalizeHarness(a)) === JSON.stringify(normalizeHarness(b))
+  );
+}
+
+function buildHarnessFromDraft(): SpecialistHarness | null {
+  const harness = harnessFromDraft();
+  const existing = normalizeHarness(baseline.value?.harness);
+  if (!existing && harnessMatches(harness, defaultHarnessConfig())) {
+    return null;
+  }
+  return harness;
+}
+
 function buildPayloadFromDraft(): Specialist {
   const defaults = providerDefaultsForSelected.value;
   const baseURL = draft.useDefaultEndpoint
@@ -1845,12 +1934,6 @@ function buildPayloadFromDraft(): Specialist {
   const toolPolicy = draft.toolPolicy;
   const enableTools = toolPolicy !== "none";
   const allow = toolPolicy === "allow-list" ? allowTools.value : [];
-  const autoDiscover =
-    draft.autoDiscoverMode === "enabled"
-      ? true
-      : draft.autoDiscoverMode === "disabled"
-        ? false
-        : null;
 
   const payload: Specialist = {
     // Preserve the existing id (if any) so updates use PUT instead of POST.
@@ -1862,8 +1945,9 @@ function buildPayloadFromDraft(): Specialist {
     baseURL: (baseURL || "").trim(),
     summaryContextWindowTokens: 0,
     enableTools,
+    requestInfoEnabled: !!draft.requestInfoEnabled,
     imageGeneration: !!draft.imageGeneration,
-    autoDiscover,
+    autoDiscover: !!draft.autoDiscover,
     paused: !!draft.paused,
     allowTools: allow,
     system: draft.system,
@@ -1895,35 +1979,35 @@ function focusFirstInvalid() {
     { field: "provider", tab: "basics", el: "sp-provider" },
     { field: "model", tab: "basics", el: "sp-model" },
     { field: "baseURL", tab: "basics", el: "sp-baseurl" },
-    { field: "harnessMode", tab: "tools", el: "sp-harness-mode" },
+    { field: "harnessMode", tab: "advanced", el: "sp-harness-mode" },
     {
       field: "harnessMaxRetriesPerStep",
-      tab: "tools",
+      tab: "advanced",
       el: "sp-harness-max-retries",
     },
     {
       field: "harnessMaxToolErrors",
-      tab: "tools",
+      tab: "advanced",
       el: "sp-harness-max-tool-errors",
     },
     {
       field: "harnessTerminalTools",
-      tab: "tools",
+      tab: "advanced",
       el: "sp-harness-terminal-tools",
     },
     {
       field: "harnessPrerequisites",
-      tab: "tools",
+      tab: "advanced",
       el: "sp-harness-prerequisites",
     },
     {
       field: "harnessCompactKeepRecentSteps",
-      tab: "tools",
+      tab: "advanced",
       el: "sp-harness-compact-keep",
     },
     {
       field: "harnessCompactPhaseThresholds",
-      tab: "tools",
+      tab: "advanced",
       el: "sp-harness-phase-thresholds",
     },
   ];
@@ -1940,10 +2024,15 @@ function focusFirstInvalid() {
   }
 }
 
-async function onSave() {
+function bumpSaveStatus() {
+  saveStatusKey.value += 1;
+}
+
+async function saveSpecialist(successMessage = "Saved."): Promise<boolean> {
   submitAttempted.value = true;
   actionError.value = null;
   successMsg.value = null;
+  bumpSaveStatus();
 
   // Keep objects in sync with table editors.
   extraHeadersObj.value = rowsToHeaders(extraHeadersRows.value);
@@ -1951,7 +2040,7 @@ async function onSave() {
 
   if (!isValid.value) {
     focusFirstInvalid();
-    return;
+    return false;
   }
 
   try {
@@ -1961,18 +2050,27 @@ async function onSave() {
     // Re-initialize both baseline and draft from the saved data to ensure sync.
     // This also resets error/dirty tracking; set the success message after.
     initFromInitial(saved);
-    successMsg.value = "Saved.";
+    successMsg.value = successMessage;
+    bumpSaveStatus();
 
     await qc.invalidateQueries({ queryKey: ["specialists"] });
     await qc.invalidateQueries({ queryKey: ["agent-status"] });
 
+    preserveNextInitialFeedback.value = true;
     emit("saved", saved);
+    return true;
   } catch (e: any) {
     const msg = e?.response?.data || e?.message || "Failed to save specialist.";
     actionError.value = String(msg);
+    bumpSaveStatus();
+    return false;
   } finally {
     saving.value = false;
   }
+}
+
+async function onSave() {
+  await saveSpecialist();
 }
 
 function onCancel() {
@@ -2015,21 +2113,99 @@ async function ensurePromptsLoaded() {
   }
 }
 
-async function onSelectPrompt() {
-  promptApply.value.versionId = "";
-  availableVersions.value = [];
-  applyVersionError.value = null;
-  if (!promptApply.value.promptId) return;
+function promptSelectionStorageKey(): string {
+  const specialistName =
+    baseline.value?.name || draft.name || props.initial?.name || "new";
+  return `${promptSelectionStoragePrefix}:${specialistName}`;
+}
+
+function persistPromptSelection() {
+  if (typeof window === "undefined") return;
   try {
-    versionsLoading.value = true;
-    availableVersions.value = await listPromptVersions(
-      promptApply.value.promptId,
+    window.localStorage.setItem(
+      promptSelectionStorageKey(),
+      JSON.stringify({
+        promptId: promptApply.value.promptId,
+        versionId: promptApply.value.versionId,
+      }),
     );
+  } catch {
+    // Non-critical UI preference.
+  }
+}
+
+function readPromptSelection(): { promptId: string; versionId: string } | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(promptSelectionStorageKey());
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      promptId?: unknown;
+      versionId?: unknown;
+    };
+    return {
+      promptId: typeof parsed.promptId === "string" ? parsed.promptId : "",
+      versionId: typeof parsed.versionId === "string" ? parsed.versionId : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function loadPromptVersions(promptId: string) {
+  availableVersions.value = [];
+  if (!promptId) return;
+  versionsLoading.value = true;
+  availableVersions.value = await listPromptVersions(promptId);
+}
+
+async function restorePromptSelection() {
+  const selection = readPromptSelection();
+  if (!selection?.promptId) return;
+  if (
+    availablePrompts.value.length &&
+    !availablePrompts.value.some((p) => p.id === selection.promptId)
+  ) {
+    return;
+  }
+
+  promptApply.value.promptId = selection.promptId;
+  promptApply.value.versionId = "";
+  applyVersionError.value = null;
+
+  try {
+    await loadPromptVersions(selection.promptId);
+    if (
+      selection.versionId &&
+      availableVersions.value.some((v) => v.id === selection.versionId)
+    ) {
+      promptApply.value.versionId = selection.versionId;
+    }
   } catch (err: any) {
     applyVersionError.value = err?.message || "Failed to load versions.";
   } finally {
     versionsLoading.value = false;
   }
+}
+
+async function onSelectPrompt() {
+  promptApply.value.versionId = "";
+  availableVersions.value = [];
+  applyVersionError.value = null;
+  persistPromptSelection();
+  if (!promptApply.value.promptId) return;
+  try {
+    await loadPromptVersions(promptApply.value.promptId);
+  } catch (err: any) {
+    applyVersionError.value = err?.message || "Failed to load versions.";
+  } finally {
+    versionsLoading.value = false;
+  }
+}
+
+function onSelectVersion() {
+  applyVersionError.value = null;
+  persistPromptSelection();
 }
 
 const promptDropdownOptions = computed(() => [
@@ -2067,7 +2243,7 @@ function formatDate(value?: string) {
   }
 }
 
-function applySelectedVersion() {
+async function applySelectedVersion() {
   applyVersionError.value = null;
   const vid = promptApply.value.versionId;
   if (!vid) return;
@@ -2086,9 +2262,13 @@ function applySelectedVersion() {
 
   draft.system = v.template || "";
   touch("system");
+  persistPromptSelection();
   if (!draft.system.trim()) {
     applyVersionError.value = "Selected prompt version has an empty template.";
+    return;
   }
+  const saved = await saveSpecialist("Saved prompt template.");
+  if (saved) persistPromptSelection();
 }
 
 async function loadTools() {
@@ -2260,7 +2440,6 @@ function initHarnessDraft(harness: SpecialistHarness | null | undefined) {
   const normalized = normalizeHarness(harness);
   const cfg = normalized || defaultHarnessConfig();
 
-  draft.harnessOverride = !!normalized;
   draft.harnessEnabled = !!cfg.enabled;
   draft.harnessMode = isHarnessMode(cfg.mode) ? cfg.mode : "guarded_chat";
   draft.harnessRescueEnabled = !!cfg.rescueEnabled;
@@ -2282,7 +2461,7 @@ function initHarnessDraft(harness: SpecialistHarness | null | undefined) {
   );
 }
 
-function initFromInitial(sp: Specialist) {
+function initFromInitial(sp: Specialist, clearFeedback = true) {
   const normalized = normalizePayload(sp);
   baseline.value = normalizePayload(sp);
   nameLockedAfterSave.value = !!props.lockName;
@@ -2324,12 +2503,8 @@ function initFromInitial(sp: Specialist) {
     allowTools.value = [];
   }
 
-  draft.autoDiscoverMode =
-    normalized.autoDiscover === true
-      ? "enabled"
-      : normalized.autoDiscover === false
-        ? "disabled"
-        : "inherit";
+  draft.autoDiscover = normalized.autoDiscover === true;
+  draft.requestInfoEnabled = normalized.requestInfoEnabled !== false;
 
   selectedTeams.value = Array.isArray(normalized.teams)
     ? [...normalized.teams]
@@ -2347,15 +2522,19 @@ function initFromInitial(sp: Specialist) {
 
   touched.value = new Set();
   submitAttempted.value = false;
-  actionError.value = null;
-  successMsg.value = null;
+  if (clearFeedback) {
+    actionError.value = null;
+    successMsg.value = null;
+  }
 }
 
 watch(
   () => props.initial,
   (sp) => {
     if (!sp) return;
-    initFromInitial({ ...sp, apiKey: "" });
+    const clearFeedback = !preserveNextInitialFeedback.value;
+    preserveNextInitialFeedback.value = false;
+    initFromInitial({ ...sp, apiKey: "" }, clearFeedback);
   },
   { immediate: true },
 );
@@ -2399,7 +2578,10 @@ watch(
 );
 
 onMounted(() => {
-  void ensurePromptsLoaded();
+  void (async () => {
+    await ensurePromptsLoaded();
+    await restorePromptSelection();
+  })();
   void loadTools();
 });
 </script>

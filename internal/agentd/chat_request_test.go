@@ -211,4 +211,17 @@ func TestChatRunRequestUnmarshalMemorySettings(t *testing.T) {
 	if req.BeliefMemoryEnabled == nil || !*req.BeliefMemoryEnabled {
 		t.Fatalf("expected belief memory true, got %#v", req.BeliefMemoryEnabled)
 	}
+	settings := chatMemorySettingsFromRunRequest(req)
+	if settings.MemoryEnabled || settings.EvolvingMemoryEnabled || settings.BeliefMemoryEnabled {
+		t.Fatalf("expected legacy mixed memory aliases to resolve off, got %+v", settings)
+	}
+
+	var unified chatRunRequest
+	if err := json.Unmarshal([]byte(`{"prompt":"hello","memory_enabled":true}`), &unified); err != nil {
+		t.Fatalf("unmarshal unified memory setting: %v", err)
+	}
+	settings = chatMemorySettingsFromRunRequest(unified)
+	if !settings.MemoryEnabled || !settings.EvolvingMemoryEnabled || !settings.BeliefMemoryEnabled {
+		t.Fatalf("expected unified memory setting to enable all memory systems, got %+v", settings)
+	}
 }

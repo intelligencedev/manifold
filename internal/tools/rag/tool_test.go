@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"manifold/internal/memory/magma"
+	"manifold/internal/agent/memory/magma"
 	"manifold/internal/persistence/databases"
 )
 

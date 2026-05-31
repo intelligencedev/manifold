@@ -60,6 +60,7 @@ export async function updateChatSessionProject(
 export async function updateChatSessionMemorySettings(
   id: string,
   settings: {
+    memoryEnabled?: boolean;
     evolvingMemoryEnabled?: boolean;
     beliefMemoryEnabled?: boolean;
   },

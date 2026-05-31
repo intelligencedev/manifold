@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"manifold/internal/agent/belief"
+	"manifold/internal/agent/memory/belief"
 )
 
 func (s *pgBeliefStore) RecordCandidate(ctx context.Context, candidate belief.CandidateRecord) (belief.CandidateRecord, error) {

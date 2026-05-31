@@ -2,6 +2,7 @@ package agentd
 
 import (
 	"context"
+	"manifold/internal/config"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/specialists"
 
@@ -30,6 +31,7 @@ func (a *app) initSpecialists(ctx context.Context) error {
 	if list, err := specStore.List(ctx, systemUserID); err == nil {
 		a.specRegistry.ReplaceFromConfigs(a.cfg.LLMClient, specialists.ConfigsFromStore(list), a.httpClient, a.baseToolRegistry)
 		a.specRegistry.SetPromptOverrides(promptInstructionOverrides(a.cfg))
+		a.specRegistry.SetRequestInfoEnabled(config.RequestInfoEnabled(a.cfg.RequestInfoEnabled))
 		a.specRegistry.SetToolDiscovery(a.toolIndex, a.cfg.AutoDiscover, a.cfg.MaxDiscoveredTools)
 	}
 	a.refreshEngineSystemPrompt()
@@ -39,7 +41,6 @@ func (a *app) initSpecialists(ctx context.Context) error {
 			log.Warn().Err(err).Msg("failed to apply orchestrator overlay")
 		}
 	} else {
-		a.cfg.SystemPrompt = specialists.DefaultOrchestratorPrompt
 		a.refreshEngineSystemPrompt()
 	}
 

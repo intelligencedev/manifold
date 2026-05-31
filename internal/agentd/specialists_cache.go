@@ -3,6 +3,7 @@ package agentd
 import (
 	"context"
 
+	"manifold/internal/config"
 	"manifold/internal/specialists"
 )
 
@@ -34,6 +35,7 @@ func (a *app) specialistsRegistryForUser(ctx context.Context, userID int64) (*sp
 		Workdir:    a.cfg.Workdir,
 	})
 	reg.SetPromptOverrides(promptInstructionOverrides(a.cfg))
+	reg.SetRequestInfoEnabled(config.RequestInfoEnabled(a.cfg.RequestInfoEnabled))
 	reg.SetToolDiscovery(a.toolIndex, a.cfg.AutoDiscover, a.cfg.MaxDiscoveredTools)
 
 	a.specRegMu.Lock()
@@ -56,6 +58,7 @@ func (a *app) invalidateSpecialistsCache(ctx context.Context, userID int64) {
 				Tools:      a.baseToolRegistry,
 			})
 			a.specRegistry.SetPromptOverrides(promptInstructionOverrides(a.cfg))
+			a.specRegistry.SetRequestInfoEnabled(config.RequestInfoEnabled(a.cfg.RequestInfoEnabled))
 			a.specRegistry.SetToolDiscovery(a.toolIndex, a.cfg.AutoDiscover, a.cfg.MaxDiscoveredTools)
 			a.specRegMu.Lock()
 			if a.userSpecRegs == nil {

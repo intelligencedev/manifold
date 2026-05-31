@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"manifold/internal/agent/belief"
+	"manifold/internal/agent/memory/belief"
 	"manifold/internal/auth"
 	"manifold/internal/policy"
 	transitdomain "manifold/internal/transit"

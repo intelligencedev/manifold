@@ -160,6 +160,7 @@ type Specialist struct {
 	// for this specialist. Zero means use the global fallback.
 	SummaryContextWindowTokens int                `json:"summaryContextWindowTokens"`
 	EnableTools                bool               `json:"enableTools"`
+	RequestInfoEnabled         *bool              `json:"requestInfoEnabled,omitempty"`
 	ImageGeneration            bool               `json:"imageGeneration"`
 	AutoDiscover               *bool              `json:"autoDiscover,omitempty"`
 	Paused                     bool               `json:"paused"`
@@ -249,6 +250,7 @@ type ChatSession struct {
 	Summary               string    `json:"summary"`
 	SummarizedCount       int       `json:"summarizedCount"`
 	ProjectID             string    `json:"projectId,omitempty"`
+	MemoryEnabled         bool      `json:"memoryEnabled"`
 	EvolvingMemoryEnabled bool      `json:"evolvingMemoryEnabled"`
 	BeliefMemoryEnabled   bool      `json:"beliefMemoryEnabled"`
 }
@@ -287,7 +289,7 @@ type ChatStore interface {
 	CreateSessionKind(ctx context.Context, userID *int64, name string, kind string) (ChatSession, error)
 	RenameSession(ctx context.Context, userID *int64, id, name string) (ChatSession, error)
 	SetSessionProject(ctx context.Context, userID *int64, id, projectID string) (ChatSession, error)
-	SetSessionMemorySettings(ctx context.Context, userID *int64, id string, evolvingMemoryEnabled bool, beliefMemoryEnabled bool) (ChatSession, error)
+	SetSessionMemorySettings(ctx context.Context, userID *int64, id string, memoryEnabled bool, evolvingMemoryEnabled bool, beliefMemoryEnabled bool) (ChatSession, error)
 	DeleteSession(ctx context.Context, userID *int64, id string) error
 	ListMessages(ctx context.Context, userID *int64, sessionID string, limit int) ([]ChatMessage, error)
 	DeleteMessage(ctx context.Context, userID *int64, sessionID string, messageID string) error

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"manifold/internal/agent/belief"
+	"manifold/internal/agent/memory/belief"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )

@@ -77,6 +77,7 @@ export interface ChatSessionMeta {
   messageCount?: number;
   model?: string;
   projectId?: string;
+  memoryEnabled?: boolean;
   evolvingMemoryEnabled?: boolean;
   beliefMemoryEnabled?: boolean;
 }

@@ -9,6 +9,7 @@ const chatApiMocks = vi.hoisted(() => ({
     async (
       id: string,
       settings: {
+        memoryEnabled?: boolean;
         evolvingMemoryEnabled?: boolean;
         beliefMemoryEnabled?: boolean;
       },
@@ -16,8 +17,9 @@ const chatApiMocks = vi.hoisted(() => ({
       id,
       name: "Session",
       projectId: "proj-1",
-      evolvingMemoryEnabled: settings.evolvingMemoryEnabled ?? true,
-      beliefMemoryEnabled: settings.beliefMemoryEnabled ?? true,
+      memoryEnabled: settings.memoryEnabled ?? true,
+      evolvingMemoryEnabled: settings.memoryEnabled ?? true,
+      beliefMemoryEnabled: settings.memoryEnabled ?? true,
     }),
   ),
 }));
@@ -48,6 +50,7 @@ vi.mock("@/api/chat", () => ({
     id: "session-1",
     name: "Session",
     projectId: "proj-1",
+    memoryEnabled: true,
     evolvingMemoryEnabled: true,
     beliefMemoryEnabled: true,
   }),
@@ -57,15 +60,16 @@ vi.mock("@/api/chat", () => ({
     id,
     name: "Session",
     projectId,
+    memoryEnabled: true,
     evolvingMemoryEnabled: true,
     beliefMemoryEnabled: true,
   }),
-  updateChatSessionMemorySettings:
-    chatApiMocks.updateChatSessionMemorySettings,
+  updateChatSessionMemorySettings: chatApiMocks.updateChatSessionMemorySettings,
   generateChatSessionTitle: async () => ({
     id: "session-1",
     name: "Session",
     projectId: "proj-1",
+    memoryEnabled: true,
     evolvingMemoryEnabled: true,
     beliefMemoryEnabled: true,
   }),
@@ -152,14 +156,12 @@ describe("ChatView", () => {
       expect(projectSelect.value).toBe("proj-1");
     });
 
-    const memoryToggle = (await findByLabelText(
-      "Evolving memory",
-    )) as HTMLInputElement;
+    const memoryToggle = (await findByLabelText("Memory")) as HTMLInputElement;
     await fireEvent.click(memoryToggle);
     await waitFor(() => {
       expect(chatApiMocks.updateChatSessionMemorySettings).toHaveBeenCalledWith(
         "session-1",
-        { evolvingMemoryEnabled: false, beliefMemoryEnabled: true },
+        { memoryEnabled: false },
       );
     });
 
@@ -170,7 +172,6 @@ describe("ChatView", () => {
       expect(chatApiMocks.streamAgentRun).toHaveBeenCalled();
     });
     const args = chatApiMocks.streamAgentRun.mock.calls.at(-1)?.[0];
-    expect(args?.evolvingMemoryEnabled).toBe(false);
-    expect(args?.beliefMemoryEnabled).toBe(true);
+    expect(args?.memoryEnabled).toBe(false);
   });
 });

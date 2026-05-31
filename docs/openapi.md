@@ -3,12 +3,12 @@
 This project now includes:
 
 - A generated OpenAPI spec (`docs/openapi/openapi.json`)
-- A runtime Swagger UI page in `agentd`
+- A runtime Swagger UI page in Manifold
 - A static Swagger UI page (`docs/openapi/index.html`) for publishing
 
 ## Runtime API Docs (Local Testing)
 
-Start `agentd`, then open:
+Start `manifold`, then open:
 
 - `http://localhost:32180/api-docs`
 - `http://localhost:32180/openapi.json`

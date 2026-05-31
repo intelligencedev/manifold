@@ -4,7 +4,7 @@
 
 ## Project Structure & Module Organization
 
-Source lives in `internal/` (e.g., `internal/agent`, `internal/orchestrator`); keep new packages focused on one concern and avoid import cycles. CLI/Server entrypoints sit under `cmd/` with binaries for the agent, HTTP server (`agentd`), and `embedctl` (if present). Docs reside in `docs/`, assets in `assets/`, and deployment scaffolding in `docker/`, `configs/`, and top-level `example.env`. Co-locate tests with their packages and share fakes through `internal/testhelpers`.
+Source lives in `internal/` (e.g., `internal/agent`, `internal/orchestrator`); keep new packages focused on one concern and avoid import cycles. CLI/Server entrypoints sit under `cmd/` with binaries for the agent, HTTP server (`manifold`, implemented in `cmd/agentd`), and `embedctl` (if present). Docs reside in `docs/`, assets in `assets/`, and deployment scaffolding in `docker/`, `configs/`, and top-level `example.env`. Co-locate tests with their packages and share fakes through `internal/testhelpers`.
 
 ### Package Organization
 

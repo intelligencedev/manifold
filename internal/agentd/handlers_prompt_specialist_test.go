@@ -123,13 +123,14 @@ func (s *promptHandlerChatStore) SetSessionProject(_ context.Context, _ *int64, 
 	return sess, nil
 }
 
-func (s *promptHandlerChatStore) SetSessionMemorySettings(_ context.Context, _ *int64, id string, evolvingMemoryEnabled bool, beliefMemoryEnabled bool) (persistence.ChatSession, error) {
+func (s *promptHandlerChatStore) SetSessionMemorySettings(_ context.Context, _ *int64, id string, memoryEnabled bool, evolvingMemoryEnabled bool, beliefMemoryEnabled bool) (persistence.ChatSession, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	sess, ok := s.sessions[id]
 	if !ok {
 		return persistence.ChatSession{}, persistence.ErrNotFound
 	}
+	sess.MemoryEnabled = memoryEnabled
 	sess.EvolvingMemoryEnabled = evolvingMemoryEnabled
 	sess.BeliefMemoryEnabled = beliefMemoryEnabled
 	s.sessions[id] = sess

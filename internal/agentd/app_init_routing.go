@@ -34,6 +34,7 @@ func initAppRouting(ctx context.Context, cfg *config.Config, httpClient *http.Cl
 
 	specReg := specialists.NewRegistryWithWorkdir(cfg.LLMClient, cfg.Specialists, httpClient, tooling.registry, cfg.Workdir)
 	specReg.SetPromptOverrides(promptInstructionOverrides(cfg))
+	specReg.SetRequestInfoEnabled(config.RequestInfoEnabled(cfg.RequestInfoEnabled))
 	registerSpecialistTools(cfg, httpClient, tooling.registry, specReg, wsMgr)
 
 	mcpMgr := registerSharedMCPServers(ctx, cfg, mgr, tooling.baseRegistry)
@@ -162,7 +163,9 @@ func applyToolDiscoveryPolicy(cfg *config.Config, baseToolRegistry tools.Registr
 	} else {
 		toolRegistry = tools.ApplyTopLevelPolicy(baseToolRegistry, cfg.EnableTools, cfg.ToolAllowList)
 	}
+	toolRegistry = withChatInputRequestTool(toolRegistry, cfg.EnableTools && config.RequestInfoEnabled(cfg.RequestInfoEnabled))
 	specReg.SetToolDiscovery(toolIndex, cfg.AutoDiscover, cfg.MaxDiscoveredTools)
+	specReg.SetRequestInfoEnabled(config.RequestInfoEnabled(cfg.RequestInfoEnabled))
 	log.Info().Bool("enableTools", cfg.EnableTools).Bool("autoDiscover", cfg.AutoDiscover).Strs("allowList", cfg.ToolAllowList).Strs("tools", tools.SchemaNames(toolRegistry)).Msg("tool_registry_contents")
 	return toolRegistry, toolIndex
 }

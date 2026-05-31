@@ -194,6 +194,24 @@
             </div>
           </div>
         </fieldset>
+        <fieldset class="space-y-4">
+          <legend class="text-sm font-semibold text-foreground">
+            Interactive Tools
+          </legend>
+          <p class="text-xs text-subtle-foreground">
+            Defaults for agents that can pause to ask the user for missing
+            information.
+          </p>
+          <label class="inline-flex items-center gap-2">
+            <input
+              id="request-info-enabled"
+              type="checkbox"
+              class="h-4 w-4"
+              v-model="agentdSettings.requestInfoEnabled"
+            />
+            <span class="text-sm text-foreground">Enable request_info</span>
+          </label>
+        </fieldset>
       </template>
 
       <!-- Summarization -->
@@ -1322,6 +1340,7 @@ const defaultAgentdSettings: AgentdSettings = {
   summaryEnabled: false,
   summaryPlainTextContextWindowTokens: 0,
   summaryReserveBufferTokens: 25000,
+  requestInfoEnabled: true,
   promptBaseSystem: "",
   promptMemoryInstructions: "",
   promptToolDiscoveryInstructions: "",
@@ -1445,6 +1464,7 @@ type NumericSettingKey =
 
 type BooleanSettingKey =
   | "summaryEnabled"
+  | "requestInfoEnabled"
   | "rerankEnabled"
   | "logPayloads"
   | "logRawPrompts";
@@ -1461,6 +1481,7 @@ const numericSettingKeys: NumericSettingKey[] = [
 ];
 const booleanSettingKeys: BooleanSettingKey[] = [
   "summaryEnabled",
+  "requestInfoEnabled",
   "rerankEnabled",
   "logPayloads",
   "logRawPrompts",

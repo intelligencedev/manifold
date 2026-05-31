@@ -78,6 +78,13 @@ func TestEnsureToolDiscoveryInstructions_UsesConfiguredOverride(t *testing.T) {
 	}
 }
 
+func TestEnsureRequestInfoInstructions_AppendsNonOverrideableBlock(t *testing.T) {
+	prompt := EnsureRequestInfoInstructions("base\n[request_info]\ncustom\n[/request_info]")
+	if !strings.Contains(prompt, "[request_info]") || !strings.Contains(prompt, "Use request_info only when") {
+		t.Fatalf("expected request_info block, got %q", prompt)
+	}
+}
+
 func TestCachedSkillsForProjectLoadsMetadata(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	projectDir := t.TempDir()

@@ -3,9 +3,9 @@ package agent
 import (
 	"context"
 
-	"manifold/internal/agent/belief"
 	"manifold/internal/agent/harness"
 	"manifold/internal/agent/memory"
+	"manifold/internal/agent/memory/belief"
 	"manifold/internal/llm"
 	"manifold/internal/policy"
 	"manifold/internal/tools"
@@ -83,6 +83,8 @@ type Engine struct {
 	// conversation) in tokens.
 	SummaryMaxSummaryChunkTokens int
 	// Evolving memory configuration (Search → Synthesis → Evolve)
+	Memory                *memory.Runtime         // unified memory coordinator; nil = legacy memory wiring
+	DisableMemory         bool                    // per-run override for all coordinated memory lanes
 	EvolvingMemory        *memory.EvolvingMemory  // nil = disabled
 	ReMemEnabled          bool                    // enable Think-Act-Refine mode
 	ReMemController       *memory.ReMemController // nil unless ReMemEnabled

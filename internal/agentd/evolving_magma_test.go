@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"manifold/internal/agent/belief"
 	"manifold/internal/agent/memory"
-	"manifold/internal/memory/magma"
+	"manifold/internal/agent/memory/belief"
+	"manifold/internal/agent/memory/magma"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/rag/embedder"
 	"manifold/internal/transit"

@@ -51,7 +51,8 @@ func loadMainConfig(path string, cfg *Config) error {
 	}
 
 	var aliases struct {
-		OutputTruncateByte int `yaml:"outputTruncateByte"`
+		OutputTruncateByte int           `yaml:"outputTruncateByte"`
+		Memory             *MemoryConfig `yaml:"memory"`
 	}
 	if err := yaml.Unmarshal(data, &aliases); err != nil {
 		return fmt.Errorf("%s: could not parse configuration aliases: %w", path, err)
@@ -59,6 +60,7 @@ func loadMainConfig(path string, cfg *Config) error {
 	if cfg.OutputTruncateByte == 0 && aliases.OutputTruncateByte > 0 {
 		cfg.OutputTruncateByte = aliases.OutputTruncateByte
 	}
+	cfg.MemoryConfigured = aliases.Memory != nil
 
 	return nil
 }
@@ -193,7 +195,14 @@ func applyDerivedConfig(cfg *Config) {
 	cfg.EvolvingMemory.Provider = strings.ToLower(strings.TrimSpace(cfg.EvolvingMemory.Provider))
 	cfg.EvolvingMemory.LLMClient.Provider = strings.ToLower(strings.TrimSpace(cfg.EvolvingMemory.LLMClient.Provider))
 	cfg.BeliefMemory.LLMClient.Provider = strings.ToLower(strings.TrimSpace(cfg.BeliefMemory.LLMClient.Provider))
+	cfg.Magma.Consolidation.LLMClient.Provider = strings.ToLower(strings.TrimSpace(cfg.Magma.Consolidation.LLMClient.Provider))
 	cfg.BeliefMemory.Distillation.Mode = strings.ToLower(strings.TrimSpace(cfg.BeliefMemory.Distillation.Mode))
+	cfg.Memory.LLMClients.Evolving.Provider = strings.ToLower(strings.TrimSpace(cfg.Memory.LLMClients.Evolving.Provider))
+	cfg.Memory.LLMClients.BeliefDistillation.Provider = strings.ToLower(strings.TrimSpace(cfg.Memory.LLMClients.BeliefDistillation.Provider))
+	cfg.Memory.LLMClients.MagmaConsolidation.Provider = strings.ToLower(strings.TrimSpace(cfg.Memory.LLMClients.MagmaConsolidation.Provider))
+	cfg.Memory.Magma.Consolidation.LLMClient.Provider = strings.ToLower(strings.TrimSpace(cfg.Memory.Magma.Consolidation.LLMClient.Provider))
+	cfg.Memory.Belief.Distillation.Mode = strings.ToLower(strings.TrimSpace(cfg.Memory.Belief.Distillation.Mode))
+	cfg.Memory.Magma.Retrieval.IntentClassification = strings.ToLower(strings.TrimSpace(cfg.Memory.Magma.Retrieval.IntentClassification))
 
 	if cfg.LLMClient.Provider == "local" {
 		cfg.LLMClient.OpenAI.API = "completions"
@@ -252,6 +261,21 @@ func validateConfigProviders(cfg *Config) error {
 	}
 	if cfg.EvolvingMemory.LLMClient.Provider != "" {
 		if err := validateProvider("evolvingMemory.llmClient.provider", cfg.EvolvingMemory.LLMClient.Provider); err != nil {
+			return err
+		}
+	}
+	if cfg.Memory.LLMClients.Evolving.Provider != "" {
+		if err := validateProvider("memory.llmClients.evolving.provider", cfg.Memory.LLMClients.Evolving.Provider); err != nil {
+			return err
+		}
+	}
+	if cfg.Memory.LLMClients.BeliefDistillation.Provider != "" {
+		if err := validateProvider("memory.llmClients.beliefDistillation.provider", cfg.Memory.LLMClients.BeliefDistillation.Provider); err != nil {
+			return err
+		}
+	}
+	if cfg.Memory.LLMClients.MagmaConsolidation.Provider != "" {
+		if err := validateProvider("memory.llmClients.magmaConsolidation.provider", cfg.Memory.LLMClients.MagmaConsolidation.Provider); err != nil {
 			return err
 		}
 	}

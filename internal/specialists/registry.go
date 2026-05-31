@@ -19,6 +19,7 @@ import (
 	openaillm "manifold/internal/llm/openai"
 	"manifold/internal/tools"
 	tooldiscovery "manifold/internal/tools/discovery"
+	inputrequesttool "manifold/internal/tools/inputrequest"
 )
 
 // Agent represents a configured specialist bound to a specific endpoint/model.
@@ -31,6 +32,7 @@ type Agent struct {
 	Model                      string
 	SummaryContextWindowTokens int
 	EnableTools                bool
+	RequestInfoEnabled         bool
 	ImageGeneration            bool
 	AutoDiscover               bool
 	ReasoningEffort            string // optional: "low"|"medium"|"high"
@@ -59,6 +61,7 @@ type Registry struct {
 	toolsReg             tools.Registry
 	toolIndex            *tooldiscovery.ToolIndex
 	autoDiscover         bool
+	requestInfoEnabled   bool
 	maxDiscovered        int
 	promptOverrides      prompts.InstructionOverrides
 }
@@ -75,12 +78,13 @@ func NewRegistry(base config.LLMClientConfig, list []config.SpecialistConfig, ht
 // during initial system prompt composition.
 func NewRegistryWithWorkdir(base config.LLMClientConfig, list []config.SpecialistConfig, httpClient *http.Client, toolsReg tools.Registry, workdir string) *Registry {
 	reg := &Registry{
-		agents:     make(map[string]*Agent, len(list)),
-		workdir:    workdir,
-		base:       base,
-		configs:    cloneSpecialistConfigs(list),
-		httpClient: httpClient,
-		toolsReg:   toolsReg,
+		agents:             make(map[string]*Agent, len(list)),
+		workdir:            workdir,
+		base:               base,
+		configs:            cloneSpecialistConfigs(list),
+		httpClient:         httpClient,
+		toolsReg:           toolsReg,
+		requestInfoEnabled: true,
 	}
 	reg.rebuildLocked()
 	return reg
@@ -110,6 +114,13 @@ func (r *Registry) SetPromptOverrides(overrides prompts.InstructionOverrides) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.promptOverrides = overrides
+	r.rebuildLocked()
+}
+
+func (r *Registry) SetRequestInfoEnabled(enabled bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.requestInfoEnabled = enabled
 	r.rebuildLocked()
 }
 
@@ -231,12 +242,19 @@ func (r *Registry) rebuildLocked() {
 		if sc.AutoDiscover != nil {
 			resolvedAutoDiscover = *sc.AutoDiscover
 		}
+		resolvedRequestInfo := r.requestInfoEnabled
+		if sc.RequestInfoEnabled != nil {
+			resolvedRequestInfo = *sc.RequestInfoEnabled
+		}
 		var toolsView tools.Registry
 		if sc.EnableTools && r.toolsReg != nil {
 			if resolvedAutoDiscover && r.toolIndex != nil {
 				toolsView = tooldiscovery.NewDiscoverableRegistry(r.toolsReg, r.toolIndex, sc.AllowTools, r.maxDiscovered)
 			} else {
 				toolsView = tools.NewFilteredRegistry(r.toolsReg, sc.AllowTools)
+			}
+			if resolvedRequestInfo {
+				toolsView = tools.NewOverlayRegistry(toolsView, inputrequesttool.New())
 			}
 		} else {
 			toolsView = nil
@@ -247,6 +265,9 @@ func (r *Registry) rebuildLocked() {
 		if sc.EnableTools && resolvedAutoDiscover {
 			specialistSystem = prompts.EnsureToolDiscoveryInstructions(specialistSystem, r.promptOverrides)
 		}
+		if sc.EnableTools && resolvedRequestInfo {
+			specialistSystem = prompts.EnsureRequestInfoInstructions(specialistSystem)
+		}
 
 		a := &Agent{
 			Name:                       sc.Name,
@@ -255,6 +276,7 @@ func (r *Registry) rebuildLocked() {
 			Model:                      model,
 			SummaryContextWindowTokens: sc.SummaryContextWindowTokens,
 			EnableTools:                sc.EnableTools,
+			RequestInfoEnabled:         resolvedRequestInfo,
 			ImageGeneration:            sc.ImageGeneration,
 			AutoDiscover:               resolvedAutoDiscover,
 			ReasoningEffort:            strings.TrimSpace(sc.ReasoningEffort),
@@ -290,6 +312,10 @@ func cloneSpecialistConfigs(list []config.SpecialistConfig) []config.SpecialistC
 		if sc.AutoDiscover != nil {
 			value := *sc.AutoDiscover
 			clone.AutoDiscover = &value
+		}
+		if sc.RequestInfoEnabled != nil {
+			value := *sc.RequestInfoEnabled
+			clone.RequestInfoEnabled = &value
 		}
 		clone.Harness = cloneHarnessConfig(sc.Harness)
 		clone.ExtraHeaders = copyStringMap(sc.ExtraHeaders)

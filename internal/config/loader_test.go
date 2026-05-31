@@ -56,6 +56,7 @@ outputTruncateBytes: 12345
 maxSteps: 42
 maxToolParallelism: 3
 enableTools: true
+requestInfoEnabled: false
 allowTools:
   - run_cli
   - web_fetch
@@ -380,6 +381,9 @@ tokenization:
 	if !cfg.EnableTools || len(cfg.ToolAllowList) != 2 {
 		t.Fatalf("unexpected tool config: enabled=%v allow=%v", cfg.EnableTools, cfg.ToolAllowList)
 	}
+	if cfg.RequestInfoEnabled == nil || *cfg.RequestInfoEnabled {
+		t.Fatalf("expected requestInfoEnabled false, got %v", cfg.RequestInfoEnabled)
+	}
 	if !cfg.AutoDiscover || cfg.MaxDiscoveredTools != 7 {
 		t.Fatalf("unexpected discovery config: enabled=%v max=%d", cfg.AutoDiscover, cfg.MaxDiscoveredTools)
 	}
@@ -455,6 +459,7 @@ llm_client:
     apiKey: "${SPECIALIST_API_KEY}"
     model: gpt-5-mini
     enableTools: true
+    requestInfoEnabled: false
     imageGeneration: true
     autoDiscover: true
 routes:
@@ -473,6 +478,9 @@ routes:
 	}
 	if cfg.Specialists[0].AutoDiscover == nil || !*cfg.Specialists[0].AutoDiscover {
 		t.Fatalf("expected specialist autoDiscover to be true: %+v", cfg.Specialists[0])
+	}
+	if cfg.Specialists[0].RequestInfoEnabled == nil || *cfg.Specialists[0].RequestInfoEnabled {
+		t.Fatalf("expected specialist requestInfoEnabled to be false: %+v", cfg.Specialists[0])
 	}
 	if !cfg.Specialists[0].ImageGeneration {
 		t.Fatalf("expected specialist imageGeneration to be true: %+v", cfg.Specialists[0])
@@ -598,6 +606,157 @@ llm_client:
 	}
 	if cfg.Harness.Compact.KeepRecentSteps != 4 || !reflect.DeepEqual(cfg.Harness.Compact.PhaseThresholds, []float64{0.60, 0.75, 0.90}) {
 		t.Fatalf("unexpected default harness compact config: %+v", cfg.Harness.Compact)
+	}
+}
+
+func TestLoad_UnifiedMemoryConfigControlsSubsystems(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
+	t.Setenv("OPENAI_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_API_KEY", "dummy-anthropic")
+
+	configText := `workdir: .
+llm_client:
+  provider: openai
+  openai:
+    apiKey: "${OPENAI_API_KEY}"
+memory:
+  enabled: true
+  retrieval:
+    maxTokensPerPrompt: 1800
+    timeoutMs: 500
+    includeRecent: true
+  llmClients:
+    evolving:
+      provider: local
+      openai:
+        baseURL: http://localhost:11434/v1
+        model: qwen-memory
+    beliefDistillation:
+      provider: openai
+      openai:
+        model: gpt-5-nano
+    magmaConsolidation:
+      provider: anthropic
+      anthropic:
+        apiKey: "${ANTHROPIC_API_KEY}"
+        model: claude-sonnet-4-6
+  evolving:
+    topK: 4
+    windowSize: 20
+    enableRAG: true
+  belief:
+    maxBeliefsPerPrompt: 5
+    retrieval:
+      minConfidence: 0.35
+      maxTokensPerPrompt: 700
+      includeContradictions: true
+    lifecycle:
+      minEvidenceForPromotion: 2
+      staleAfterDays: 30
+  magma:
+    retrieval:
+      defaultHops: 2
+      defaultMaxNodes: 10
+      intentClassification: hybrid
+      contextFormat: structured
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(configText), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if !cfg.Memory.Enabled || !cfg.EvolvingMemory.Enabled || !cfg.BeliefMemory.Enabled || !cfg.Magma.Enabled {
+		t.Fatalf("expected unified memory to enable all systems: memory=%v evolving=%v belief=%v magma=%v", cfg.Memory.Enabled, cfg.EvolvingMemory.Enabled, cfg.BeliefMemory.Enabled, cfg.Magma.Enabled)
+	}
+	if cfg.Memory.Retrieval.MaxTokensPerPrompt != 1800 || cfg.Memory.Retrieval.TimeoutMs != 500 || !cfg.Memory.Retrieval.IncludeRecent {
+		t.Fatalf("unexpected unified retrieval defaults: %+v", cfg.Memory.Retrieval)
+	}
+	if cfg.EvolvingMemory.TopK != 4 || cfg.EvolvingMemory.WindowSize != 20 || !cfg.EvolvingMemory.EnableRAG {
+		t.Fatalf("unexpected evolving alias config: %+v", cfg.EvolvingMemory)
+	}
+	if cfg.BeliefMemory.MaxBeliefsPerPrompt != 5 || cfg.BeliefMemory.Retrieval.MinConfidence != 0.35 || !cfg.BeliefMemory.Retrieval.IncludeContradictions {
+		t.Fatalf("unexpected belief alias config: %+v", cfg.BeliefMemory)
+	}
+	if cfg.Magma.Retrieval.DefaultHops != 2 || cfg.Magma.Retrieval.DefaultMaxNodes != 10 || cfg.Magma.Retrieval.IntentClassification != "hybrid" {
+		t.Fatalf("unexpected magma alias config: %+v", cfg.Magma.Retrieval)
+	}
+	if cfg.EvolvingMemory.LLMClient.Provider != "local" || cfg.BeliefMemory.LLMClient.OpenAI.Model != "gpt-5-nano" || cfg.Memory.LLMClients.MagmaConsolidation.Provider != "anthropic" {
+		t.Fatalf("unexpected memory LLM clients: evolving=%+v belief=%+v magma=%+v", cfg.EvolvingMemory.LLMClient, cfg.BeliefMemory.LLMClient, cfg.Memory.LLMClients.MagmaConsolidation)
+	}
+}
+
+func TestLoad_MagmaConsolidationLLMClientAlias(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
+
+	configText := `workdir: .
+llm_client:
+  provider: local
+  openai:
+    baseURL: http://localhost:11434/v1
+    model: main
+    api: completions
+magma:
+  enabled: true
+  consolidation:
+    model: qwen-magma
+    llmClient:
+      provider: local
+      openai:
+        baseURL: http://localhost:11434/v1
+        model: qwen-memory
+        api: completions
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(configText), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Magma.Consolidation.LLMClient.Provider != "local" {
+		t.Fatalf("expected normalized magma llm provider, got %q", cfg.Magma.Consolidation.LLMClient.Provider)
+	}
+	if cfg.Magma.Consolidation.LLMClient.OpenAI.Model != "qwen-memory" {
+		t.Fatalf("expected magma consolidation llm model alias, got %q", cfg.Magma.Consolidation.LLMClient.OpenAI.Model)
+	}
+	if cfg.Memory.LLMClients.MagmaConsolidation.OpenAI.BaseURL != "http://localhost:11434/v1" {
+		t.Fatalf("expected unified memory magma llm alias to be populated, got %+v", cfg.Memory.LLMClients.MagmaConsolidation.OpenAI)
+	}
+}
+
+func TestLoad_LegacyMemoryTogglesResolveUnifiedMemory(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
+	t.Setenv("OPENAI_API_KEY", "dummy")
+
+	configText := `workdir: .
+llm_client:
+  provider: openai
+  openai:
+    apiKey: "${OPENAI_API_KEY}"
+evolvingMemory:
+  enabled: true
+beliefMemory:
+  enabled: false
+magma:
+  enabled: true
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(configText), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.Memory.Enabled {
+		t.Fatalf("expected legacy aliases to resolve memory.enabled=false, got %+v", cfg.Memory)
 	}
 }
 

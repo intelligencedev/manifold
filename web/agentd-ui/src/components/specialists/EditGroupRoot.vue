@@ -167,6 +167,20 @@
               <span class="text-sm text-foreground">Enable tools</span>
               <input v-model="orchestratorDraft.enableTools" type="checkbox" class="h-4 w-4" />
             </label>
+            <label
+              v-if="orchestratorDraft.enableTools"
+              class="inline-flex items-center justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2"
+            >
+              <span class="text-sm text-foreground">Enable auto-discovery</span>
+              <input v-model="orchestratorDraft.autoDiscover" type="checkbox" class="h-4 w-4" />
+            </label>
+            <label
+              v-if="orchestratorDraft.enableTools"
+              class="inline-flex items-center justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2"
+            >
+              <span class="text-sm text-foreground">Enable request_info</span>
+              <input v-model="orchestratorDraft.requestInfoEnabled" type="checkbox" class="h-4 w-4" />
+            </label>
             <div class="flex flex-col gap-1">
               <label
                 for="team-orch-allow"
@@ -379,6 +393,8 @@ const orchestratorDraft = reactive({
   baseURL: "",
   apiKey: "",
   enableTools: false,
+  autoDiscover: false,
+  requestInfoEnabled: true,
   allowToolsText: "",
   system: "",
   summaryContextWindowTokens: null as number | null,
@@ -454,6 +470,8 @@ const isDirty = computed(() => {
   if ((orchestratorDraft.baseURL || "") !== (orch.baseURL || "")) return true;
   if ((orchestratorDraft.apiKey || "") !== (orch.apiKey || "")) return true;
   if (orchestratorDraft.enableTools !== !!orch.enableTools) return true;
+  if (orchestratorDraft.autoDiscover !== (orch.autoDiscover === true)) return true;
+  if (orchestratorDraft.requestInfoEnabled !== (orch.requestInfoEnabled !== false)) return true;
   if ((orchestratorDraft.system || "") !== (orch.system || "")) return true;
   if ((orchestratorDraft.summaryContextWindowTokens ?? null) !== (orch.summaryContextWindowTokens ?? null)) return true;
 
@@ -485,6 +503,8 @@ function initFromInitial(team: SpecialistTeam) {
   orchestratorDraft.baseURL = orch.baseURL || "";
   orchestratorDraft.apiKey = orch.apiKey || "";
   orchestratorDraft.enableTools = !!orch.enableTools;
+  orchestratorDraft.autoDiscover = orch.autoDiscover === true;
+  orchestratorDraft.requestInfoEnabled = orch.requestInfoEnabled !== false;
   orchestratorDraft.allowToolsText = (orch.allowTools || []).join(", ");
   orchestratorDraft.system = orch.system || "";
   orchestratorDraft.summaryContextWindowTokens = orch.summaryContextWindowTokens ?? null;
@@ -523,6 +543,8 @@ function buildPayload(): SpecialistTeam {
     baseURL: orchestratorDraft.baseURL || "",
     apiKey: orchestratorDraft.apiKey || "",
     enableTools: orchestratorDraft.enableTools,
+    autoDiscover: orchestratorDraft.autoDiscover,
+    requestInfoEnabled: orchestratorDraft.requestInfoEnabled,
     paused: false,
     allowTools: normalizeAllowTools(orchestratorDraft.allowToolsText),
     system: orchestratorDraft.system || "",

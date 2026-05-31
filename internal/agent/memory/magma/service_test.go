@@ -155,6 +155,56 @@ func TestService_IngestConsolidateAndQuery(t *testing.T) {
 	}
 }
 
+func TestService_ObservabilityAccessorsExposeStoredGraph(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := NewService(databases.NewMemoryGraph(), databases.NewMemoryVector(), embedder.NewDeterministic(32, true, 0))
+
+	resp, err := svc.Ingest(ctx, IngestRequest{
+		ID:        "melanie-observe",
+		Tenant:    "t1",
+		SessionID: "s1",
+		Text:      "Melanie practiced guitar with Nora.",
+		CreatedAt: time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+	if _, err := svc.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("DrainConsolidation() error = %v", err)
+	}
+
+	events, err := svc.Events(ctx)
+	if err != nil {
+		t.Fatalf("Events() error = %v", err)
+	}
+	if len(events) != 1 || events[0].ID != resp.EventID {
+		t.Fatalf("Events() = %#v, want %q", events, resp.EventID)
+	}
+
+	edges, err := svc.Edges(ctx)
+	if err != nil {
+		t.Fatalf("Edges() error = %v", err)
+	}
+	if len(edges) == 0 {
+		t.Fatalf("Edges() returned no graph edges")
+	}
+	if !svc.MaintenanceEnabled() {
+		t.Fatalf("MaintenanceEnabled() = false, want true")
+	}
+
+	var nilSvc *Service
+	if events, err := nilSvc.Events(ctx); err != nil || events != nil {
+		t.Fatalf("nil Events() = (%#v, %v), want nil, nil", events, err)
+	}
+	if edges, err := nilSvc.Edges(ctx); err != nil || edges != nil {
+		t.Fatalf("nil Edges() = (%#v, %v), want nil, nil", edges, err)
+	}
+	if nilSvc.MaintenanceEnabled() {
+		t.Fatalf("nil MaintenanceEnabled() = true, want false")
+	}
+}
+
 func TestClassifyIntent(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

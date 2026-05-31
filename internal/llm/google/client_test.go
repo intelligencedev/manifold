@@ -68,6 +68,104 @@ func TestChatSuccess(t *testing.T) {
 	}
 }
 
+func TestChatUsesConfiguredCachedContent(t *testing.T) {
+	var gotCachedContent string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if v, ok := body["cachedContent"].(string); ok {
+			gotCachedContent = v
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"role":"model","parts":[{"text":"hello"}]}}]}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := New(config.GoogleConfig{
+		APIKey:  "k",
+		Model:   "test-model",
+		BaseURL: srv.URL,
+		ContextCache: config.GoogleContextCacheConfig{
+			Enabled:       true,
+			CachedContent: "cachedContents/cache-1",
+		},
+	}, srv.Client())
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	_, err = client.Chat(context.Background(), []llm.Message{{Role: "user", Content: "hi"}}, nil, "")
+	if err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+	if gotCachedContent != "cachedContents/cache-1" {
+		t.Fatalf("expected cachedContent to be sent, got %q", gotCachedContent)
+	}
+}
+
+func TestChatAutoCreatesContextCacheForSystemPrefix(t *testing.T) {
+	var cacheCreateCalled bool
+	var generateBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/v1beta/cachedContents":
+			cacheCreateCalled = true
+			if _, ok := body["systemInstruction"]; !ok {
+				t.Fatalf("expected systemInstruction in cache create body: %#v", body)
+			}
+			_, _ = w.Write([]byte(`{"name":"cachedContents/auto-1"}`))
+		case strings.Contains(r.URL.Path, ":generateContent"):
+			generateBody = body
+			_, _ = w.Write([]byte(`{"candidates":[{"content":{"role":"model","parts":[{"text":"hello"}]}}]}`))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := New(config.GoogleConfig{
+		APIKey:  "k",
+		Model:   "test-model",
+		BaseURL: srv.URL,
+		ContextCache: config.GoogleContextCacheConfig{
+			Enabled:     true,
+			AutoCreate:  true,
+			TTLSeconds:  60,
+			CacheSystem: true,
+		},
+	}, srv.Client())
+	if err != nil {
+		t.Fatalf("New returned error: %v", err)
+	}
+
+	_, err = client.Chat(context.Background(), []llm.Message{
+		{Role: "system", Content: "do"},
+		{Role: "user", Content: "hi"},
+	}, nil, "")
+	if err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+	if !cacheCreateCalled {
+		t.Fatalf("expected cache create request")
+	}
+	if got := generateBody["cachedContent"]; got != "cachedContents/auto-1" {
+		t.Fatalf("expected generate request to reference cache, got %#v", got)
+	}
+	contents, _ := generateBody["contents"].([]any)
+	if len(contents) != 1 {
+		t.Fatalf("expected system prefix removed from generate contents, got %#v", generateBody["contents"])
+	}
+}
+
 func TestTokenizerCountMessages(t *testing.T) {
 	t.Parallel()
 

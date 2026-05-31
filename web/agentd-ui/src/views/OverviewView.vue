@@ -1,14 +1,16 @@
 <template>
-  <section class="flex min-h-full flex-col gap-4">
-    <header class="flex items-start justify-between gap-4">
-      <div>
+  <section class="flex min-h-full min-w-0 flex-col gap-4 overflow-x-hidden">
+    <header
+      class="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"
+    >
+      <div class="min-w-0">
         <p class="mt-1 text-sm text-muted-foreground">
           Agents, throughput, recent work, and queue operations.
         </p>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex min-w-0 flex-wrap items-center gap-2 lg:justify-end">
         <label
-          v-if="overviewMode === 'customize'"
+          v-if="overviewMode !== 'queue-ops'"
           class="flex items-center gap-2 text-xs text-foreground"
         >
           <span>Time Range</span>
@@ -22,7 +24,8 @@
         <MSegmented
           v-model="overviewMode"
           :options="[
-            { value: 'customize', label: 'Customize' },
+            { value: 'customize', label: 'Dashboard' },
+            { value: 'memory', label: 'Memory' },
             { value: 'queue-ops', label: 'Queue Ops' },
           ]"
         />
@@ -220,6 +223,11 @@
       </DashboardGrid>
     </template>
 
+    <MemoryCommandCenter
+      v-else-if="overviewMode === 'memory'"
+      :time-range="dashboardTimeRange"
+    />
+
     <DurableView v-else embedded class="min-h-0 flex-1" />
 
     <LogDetailDrawer
@@ -242,6 +250,7 @@ import TokenUsagePanel from "@/components/observability/TokenUsagePanel.vue";
 import TracesPanel from "@/components/observability/TracesPanel.vue";
 import MemoryPanel from "@/components/observability/MemoryPanel.vue";
 import MemoryMetricsPanel from "@/components/observability/MemoryMetricsPanel.vue";
+import MemoryCommandCenter from "@/components/observability/MemoryCommandCenter.vue";
 import LogsPanel from "@/components/observability/LogsPanel.vue";
 import LogDetailDrawer from "@/components/observability/LogDetailDrawer.vue";
 import AgentsPanel from "@/components/overview/AgentsPanel.vue";
@@ -259,7 +268,7 @@ import {
   type MetricsTimeRangeValue,
 } from "@/composables/observability/useTokenMetrics";
 
-type OverviewMode = "customize" | "queue-ops";
+type OverviewMode = "customize" | "memory" | "queue-ops";
 
 const route = useRoute();
 const router = useRouter();
@@ -306,7 +315,7 @@ watch(overviewMode, (mode) => {
   void router.replace({
     query: {
       ...route.query,
-      tab: mode === "queue-ops" ? mode : undefined,
+      tab: mode === "customize" ? undefined : mode,
     },
   });
 });
@@ -534,6 +543,7 @@ function closeLogDetail() {
 
 function normalizeOverviewMode(value: unknown): OverviewMode {
   const raw = Array.isArray(value) ? value[0] : value;
+  if (raw === "memory") return "memory";
   return raw === "queue-ops" ? "queue-ops" : "customize";
 }
 </script>

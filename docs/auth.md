@@ -205,7 +205,7 @@ auth:
     defaultRoles: ["user"]  # automatically applied when the IdP does not send roles
 ```
 
-The OAuth2 block tells agentd how to exchange codes and which JSON fields to read from the user info response. `subjectField` must resolve to a stable identifier (falling back to `email` if left blank). `rolesField`, when present, should point at an array of strings; the values are synchronized into the RBAC table in addition to `defaultRoles`. Logout simply clears the local session unless `logoutURL` is provided (paired with `logoutRedirectParam`), in which case the browser is redirected to the upstream IdP after the local cookie is deleted.
+The OAuth2 block tells Manifold how to exchange codes and which JSON fields to read from the user info response. `subjectField` must resolve to a stable identifier (falling back to `email` if left blank). `rolesField`, when present, should point at an array of strings; the values are synchronized into the RBAC table in addition to `defaultRoles`. Logout simply clears the local session unless `logoutURL` is provided (paired with `logoutRedirectParam`), in which case the browser is redirected to the upstream IdP after the local cookie is deleted.
 
 ## Endpoints & Auth Flow
 

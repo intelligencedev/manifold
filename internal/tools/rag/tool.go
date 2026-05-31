@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"manifold/internal/memory/magma"
+	"manifold/internal/agent/memory/magma"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/rag/ingest"
 	"manifold/internal/rag/retrieve"

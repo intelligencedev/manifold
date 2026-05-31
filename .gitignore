@@ -76,6 +76,7 @@ internal/webui/dist/
 playground-artifacts
 .github/chatmodes/ManifoldAgent.chatmode.md
 /agentd
+/manifold
 /agent
 /openapi
 /plans

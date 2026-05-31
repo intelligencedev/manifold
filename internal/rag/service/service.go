@@ -5,9 +5,9 @@ import (
 	"maps"
 	"time"
 
+	"manifold/internal/agent/memory/magma"
 	"manifold/internal/config"
 	"manifold/internal/llm"
-	"manifold/internal/memory/magma"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/rag/chunker"
 	"manifold/internal/rag/embedder"

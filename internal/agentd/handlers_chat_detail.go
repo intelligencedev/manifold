@@ -426,16 +426,22 @@ type patchChatSessionRequest struct {
 	Name                        *string `json:"name"`
 	ProjectID                   *string `json:"projectId"`
 	LegacyProjectID             *string `json:"project_id"`
+	MemoryEnabled               *bool   `json:"memoryEnabled"`
+	LegacyMemoryEnabled         *bool   `json:"memory_enabled"`
 	EvolvingMemoryEnabled       *bool   `json:"evolvingMemoryEnabled"`
 	LegacyEvolvingMemoryEnabled *bool   `json:"evolving_memory_enabled"`
 	BeliefMemoryEnabled         *bool   `json:"beliefMemoryEnabled"`
 	LegacyBeliefMemoryEnabled   *bool   `json:"belief_memory_enabled"`
 }
 
-func (b patchChatSessionRequest) normalized() (*string, *bool, *bool) {
+func (b patchChatSessionRequest) normalized() (*string, *bool, *bool, *bool) {
 	projectID := b.ProjectID
 	if projectID == nil {
 		projectID = b.LegacyProjectID
+	}
+	memoryEnabled := b.MemoryEnabled
+	if memoryEnabled == nil {
+		memoryEnabled = b.LegacyMemoryEnabled
 	}
 	evolvingMemoryEnabled := b.EvolvingMemoryEnabled
 	if evolvingMemoryEnabled == nil {
@@ -445,7 +451,7 @@ func (b patchChatSessionRequest) normalized() (*string, *bool, *bool) {
 	if beliefMemoryEnabled == nil {
 		beliefMemoryEnabled = b.LegacyBeliefMemoryEnabled
 	}
-	return projectID, evolvingMemoryEnabled, beliefMemoryEnabled
+	return projectID, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled
 }
 
 func (a *app) patchChatSession(
@@ -461,8 +467,8 @@ func (a *app) patchChatSession(
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	projectID, evolvingMemoryEnabled, beliefMemoryEnabled := body.normalized()
-	if body.Name == nil && projectID == nil && evolvingMemoryEnabled == nil && beliefMemoryEnabled == nil {
+	projectID, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled := body.normalized()
+	if body.Name == nil && projectID == nil && memoryEnabled == nil && evolvingMemoryEnabled == nil && beliefMemoryEnabled == nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -470,9 +476,9 @@ func (a *app) patchChatSession(
 	if !ok {
 		return
 	}
-	if evolvingMemoryEnabled != nil || beliefMemoryEnabled != nil {
+	if memoryEnabled != nil || evolvingMemoryEnabled != nil || beliefMemoryEnabled != nil {
 		var err error
-		sess, err = a.patchChatSessionMemorySettings(r.Context(), userID, sessionID, sess, evolvingMemoryEnabled, beliefMemoryEnabled)
+		sess, err = a.patchChatSessionMemorySettings(r.Context(), userID, sessionID, sess, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled)
 		if err != nil {
 			writeChatDetailStoreError(w, r, err, sessionID, "set_chat_session_memory_settings")
 			return
@@ -520,6 +526,7 @@ func (a *app) patchChatSessionMemorySettings(
 	userID *int64,
 	sessionID string,
 	sess persist.ChatSession,
+	memoryEnabled *bool,
 	evolvingMemoryEnabled *bool,
 	beliefMemoryEnabled *bool,
 ) (persist.ChatSession, error) {
@@ -531,16 +538,24 @@ func (a *app) patchChatSessionMemorySettings(
 		}
 	}
 	nextSettings := chatMemorySettingsFromSession(sess)
-	if evolvingMemoryEnabled != nil {
-		nextSettings.EvolvingMemoryEnabled = *evolvingMemoryEnabled
+	if memoryEnabled != nil {
+		nextSettings.MemoryEnabled = *memoryEnabled
+	} else if evolvingMemoryEnabled != nil || beliefMemoryEnabled != nil {
+		if evolvingMemoryEnabled != nil {
+			nextSettings.EvolvingMemoryEnabled = *evolvingMemoryEnabled
+		}
+		if beliefMemoryEnabled != nil {
+			nextSettings.BeliefMemoryEnabled = *beliefMemoryEnabled
+		}
+		nextSettings.MemoryEnabled = nextSettings.EvolvingMemoryEnabled && nextSettings.BeliefMemoryEnabled
 	}
-	if beliefMemoryEnabled != nil {
-		nextSettings.BeliefMemoryEnabled = *beliefMemoryEnabled
-	}
+	nextSettings.EvolvingMemoryEnabled = nextSettings.MemoryEnabled
+	nextSettings.BeliefMemoryEnabled = nextSettings.MemoryEnabled
 	return a.chatStore.SetSessionMemorySettings(
 		ctx,
 		userID,
 		sessionID,
+		nextSettings.MemoryEnabled,
 		nextSettings.EvolvingMemoryEnabled,
 		nextSettings.BeliefMemoryEnabled,
 	)

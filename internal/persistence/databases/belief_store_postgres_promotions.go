@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"manifold/internal/agent/belief"
+	"manifold/internal/agent/memory/belief"
 )
 
 func (s *pgBeliefStore) RecordPromotion(ctx context.Context, promotion belief.Promotion) (belief.Promotion, error) {

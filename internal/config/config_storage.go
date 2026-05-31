@@ -139,6 +139,7 @@ type MagmaConfig struct {
 
 type MagmaConsolidationConfig struct {
 	Model        string             `yaml:"model" json:"model"`
+	LLMClient    LLMClientConfig    `yaml:"llmClient" json:"llmClient"`
 	BatchSize    int                `yaml:"batchSize" json:"batchSize"`
 	MaxQueueSize int                `yaml:"maxQueueSize" json:"maxQueueSize"`
 	WorkerCount  int                `yaml:"workerCount" json:"workerCount"`

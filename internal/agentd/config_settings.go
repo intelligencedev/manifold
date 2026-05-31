@@ -20,6 +20,7 @@ func currentAgentdSettings(cfg *config.Config) agentdSettings {
 		SummaryEnabled:                      cfg.SummaryEnabled,
 		SummaryPlainTextContextWindowTokens: cfg.Summary.PlainTextContextWindowTokens,
 		SummaryReserveBufferTokens:          cfg.SummaryReserveBufferTokens,
+		RequestInfoEnabled:                  config.RequestInfoEnabled(cfg.RequestInfoEnabled),
 		PromptBaseSystem:                    cfg.PromptOverrides.BaseSystem,
 		PromptMemoryInstructions:            cfg.PromptOverrides.MemoryInstructions,
 		PromptToolDiscoveryInstructions:     cfg.PromptOverrides.ToolDiscoveryInstructions,
@@ -148,6 +149,7 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	}
 
 	applySummarySettings(cfg, settings)
+	applyRequestInfoSettings(cfg, settings)
 	applyPromptOverrideSettings(cfg, settings)
 	applyEmbeddingSettings(cfg, settings)
 	applyRerankSettings(cfg, settings)
@@ -160,6 +162,10 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	applyWebSettings(cfg, settings)
 	applyDatabaseSettings(cfg, settings)
 	return nil
+}
+
+func applyRequestInfoSettings(cfg *config.Config, settings agentdSettings) {
+	cfg.RequestInfoEnabled = boolPtr(settings.RequestInfoEnabled)
 }
 
 func applyPromptOverrideSettings(cfg *config.Config, settings agentdSettings) {
@@ -394,6 +400,7 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	settings = normalizeAgentdSettings(settings)
 
 	applySummarySettingsYAML(root, settings)
+	setNestedMapValue(root, []string{"requestInfoEnabled"}, settings.RequestInfoEnabled)
 	applyPromptOverrideSettingsYAML(root, settings)
 	applyEmbeddingSettingsYAML(root, settings)
 	applyRerankSettingsYAML(root, settings)

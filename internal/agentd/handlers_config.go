@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"manifold/internal/config"
 )
 
 // agentdSettings mirrors the frontend AgentdSettings shape.
@@ -16,6 +18,7 @@ type agentdSettings struct {
 	SummaryEnabled                      bool   `json:"summaryEnabled"`
 	SummaryPlainTextContextWindowTokens int    `json:"summaryPlainTextContextWindowTokens"`
 	SummaryReserveBufferTokens          int    `json:"summaryReserveBufferTokens"`
+	RequestInfoEnabled                  bool   `json:"requestInfoEnabled"`
 
 	PromptBaseSystem                 string `json:"promptBaseSystem"`
 	PromptMemoryInstructions         string `json:"promptMemoryInstructions"`
@@ -141,6 +144,7 @@ func (a *app) handleUpdateAgentdConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.specRegistry != nil {
 		a.specRegistry.SetPromptOverrides(promptInstructionOverrides(a.cfg))
+		a.specRegistry.SetRequestInfoEnabled(config.RequestInfoEnabled(a.cfg.RequestInfoEnabled))
 	}
 	a.refreshEngineSystemPrompt()
 

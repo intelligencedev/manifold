@@ -91,8 +91,7 @@ describe("streamAgentRun", () => {
     await streamAgentRun({
       prompt: "hello",
       sessionId: "abc",
-      evolvingMemoryEnabled: false,
-      beliefMemoryEnabled: true,
+      memoryEnabled: false,
       onEvent: () => {},
       fetchImpl: fetchMock,
     });
@@ -101,8 +100,7 @@ describe("streamAgentRun", () => {
     expect(JSON.parse(String(init.body))).toMatchObject({
       prompt: "hello",
       session_id: "abc",
-      evolving_memory_enabled: false,
-      belief_memory_enabled: true,
+      memory_enabled: false,
     });
   });
 });

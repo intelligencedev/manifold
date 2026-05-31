@@ -13,7 +13,7 @@ You do **not** need local Node, pnpm, or Go for the default Docker deployment pa
 Local development only:
 
 - Node 22 and `pnpm` are needed if you want to run or build the frontend outside Docker.
-- Go 1.26.3 is needed if you want to build `agentd` on the host.
+- Go 1.26.3 is needed if you want to build `manifold` on the host.
 - Chrome or another Chromium-compatible browser is recommended when using browser-driven tools from a host build.
 
 If you use `nvm`, run `nvm use` from the repository root to pick up the checked-in Node version.
@@ -97,7 +97,7 @@ Useful endpoints:
 
 Use this path when you want Manifold to run without an external Postgres, ClickHouse, or OpenTelemetry Collector. You still need either an LLM API key or a local OpenAI-compatible model endpoint.
 
-1. Build `agentd`:
+1. Build `manifold`:
 
 ```bash
 make build-manifold
@@ -143,10 +143,10 @@ obs:
 1. Run the server:
 
 ```bash
-./dist/agentd
+./dist/manifold
 ```
 
-The first embedded Postgres run may download and unpack PostgreSQL binaries, then it stores data under `~/.manifold/embedded-postgres` unless `embeddedDataDir` is set. Dashboard telemetry uses in-process buffers and resets when `agentd` restarts.
+The first embedded Postgres run may download and unpack PostgreSQL binaries, then it stores data under `~/.manifold/embedded-postgres` unless `embeddedDataDir` is set. Dashboard telemetry uses in-process buffers and resets when `manifold` restarts.
 
 ## Optional Services
 

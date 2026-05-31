@@ -94,10 +94,20 @@ func hasConfigLLMClientOverride(cfg LLMClientConfig) bool {
 	if strings.TrimSpace(cfg.Anthropic.APIKey) != "" || strings.TrimSpace(cfg.Anthropic.Model) != "" || strings.TrimSpace(cfg.Anthropic.BaseURL) != "" || cfg.Anthropic.MaxTokens != 0 || len(cfg.Anthropic.ExtraParams) > 0 || cfg.Anthropic.PromptCache.Enabled || cfg.Anthropic.PromptCache.CacheSystem || cfg.Anthropic.PromptCache.CacheTools || cfg.Anthropic.PromptCache.CacheMessages {
 		return true
 	}
-	if strings.TrimSpace(cfg.Google.APIKey) != "" || strings.TrimSpace(cfg.Google.Model) != "" || strings.TrimSpace(cfg.Google.BaseURL) != "" || cfg.Google.Timeout != 0 || len(cfg.Google.ExtraParams) > 0 {
+	if strings.TrimSpace(cfg.Google.APIKey) != "" || strings.TrimSpace(cfg.Google.Model) != "" || strings.TrimSpace(cfg.Google.BaseURL) != "" || cfg.Google.Timeout != 0 || googleContextCacheConfigured(cfg.Google.ContextCache) || len(cfg.Google.ExtraParams) > 0 {
 		return true
 	}
 	return false
+}
+
+func googleContextCacheConfigured(cfg GoogleContextCacheConfig) bool {
+	return cfg.Enabled ||
+		cfg.AutoCreate ||
+		cfg.TTLSeconds != 0 ||
+		cfg.CacheSystem ||
+		cfg.CacheTools ||
+		strings.TrimSpace(cfg.CachedContent) != "" ||
+		strings.TrimSpace(cfg.DisplayName) != ""
 }
 
 func mergeOpenAIConfig(dst *OpenAIConfig, src OpenAIConfig) {
@@ -241,6 +251,9 @@ func applySummaryGoogleDefaults(cfg *Config) {
 	}
 	if cfg.Summary.LLMClient.Google.Timeout == 0 {
 		cfg.Summary.LLMClient.Google.Timeout = cfg.LLMClient.Google.Timeout
+	}
+	if !googleContextCacheConfigured(cfg.Summary.LLMClient.Google.ContextCache) && googleContextCacheConfigured(cfg.LLMClient.Google.ContextCache) {
+		cfg.Summary.LLMClient.Google.ContextCache = cfg.LLMClient.Google.ContextCache
 	}
 	if len(cfg.Summary.LLMClient.Google.ExtraParams) == 0 && len(cfg.LLMClient.Google.ExtraParams) > 0 {
 		cfg.Summary.LLMClient.Google.ExtraParams = cfg.LLMClient.Google.ExtraParams

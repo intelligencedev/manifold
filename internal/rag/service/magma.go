@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"manifold/internal/memory/magma"
+	"manifold/internal/agent/memory/magma"
 	"manifold/internal/rag/retrieve"
 )
 

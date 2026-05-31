@@ -5,8 +5,6 @@ import (
 	"manifold/internal/llm"
 	"manifold/internal/observability"
 	"time"
-
-	"github.com/rs/zerolog/log"
 )
 
 func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Message) (string, error) {
@@ -14,17 +12,14 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 	startedAt := time.Now().UTC()
 	var final string
 	var err error
-	var evolvingEntryID string
 	var reasoningTrace []string
 	defer func() {
-		evolvingEntryID = e.storeExperience(ctx, userInput, final, err, reasoningTrace)
-		e.recordRunEpisode(ctx, runEpisodeRecord{
-			startedAt:       startedAt,
-			userInput:       userInput,
-			final:           final,
-			runErr:          err,
-			evolvingEntryID: evolvingEntryID,
-			reasoningTrace:  reasoningTrace,
+		e.recordMemoryEpisode(ctx, runEpisodeRecord{
+			startedAt:      startedAt,
+			userInput:      userInput,
+			final:          final,
+			runErr:         err,
+			reasoningTrace: reasoningTrace,
 		})
 	}()
 
@@ -39,15 +34,19 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 		msgs = e.maybeSummarize(ctx, msgs)
 	}
 	msgs = AddRuntimeContextToCurrentUserMessage(msgs, e.UserPromptContext)
-	msgs = e.augmentWithPolicyContext(ctx, userInput, msgs)
-	msgs = e.augmentWithBeliefMemory(ctx, userInput, msgs)
-
-	// Augment with evolving memory (ExpRAG or ExpRecent)
-	if !e.DisableEvolvingMemory && e.EvolvingMemory != nil {
-		log.Info().Bool("enabled", true).Msg("evolving_memory_enabled")
-		msgs = e.augmentWithMemory(ctx, userInput, msgs)
+	if e.Memory != nil && !e.DisableMemory {
+		msgs = e.augmentWithUnifiedMemory(ctx, userInput, msgs)
 	} else {
-		log.Debug().Bool("enabled", false).Msg("evolving_memory_disabled")
+		msgs = e.augmentWithPolicyContext(ctx, userInput, msgs)
+		msgs = e.augmentWithBeliefMemory(ctx, userInput, msgs)
+
+		// Augment with evolving memory (ExpRAG or ExpRecent)
+		if !e.DisableEvolvingMemory && e.EvolvingMemory != nil {
+			log.Info().Bool("enabled", true).Msg("evolving_memory_enabled")
+			msgs = e.augmentWithMemory(ctx, userInput, msgs)
+		} else {
+			log.Debug().Bool("enabled", false).Msg("evolving_memory_disabled")
+		}
 	}
 
 	if e.HarnessEnabled {
@@ -64,20 +63,18 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 
 // RunStream executes the agent loop with streaming support
 func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.Message) (string, error) {
+	log := observability.LoggerWithTrace(ctx)
 	startedAt := time.Now().UTC()
 	var final string
 	var err error
-	var evolvingEntryID string
 	var reasoningTrace []string
 	defer func() {
-		evolvingEntryID = e.storeExperience(ctx, userInput, final, err, reasoningTrace)
-		e.recordRunEpisode(ctx, runEpisodeRecord{
-			startedAt:       startedAt,
-			userInput:       userInput,
-			final:           final,
-			runErr:          err,
-			evolvingEntryID: evolvingEntryID,
-			reasoningTrace:  reasoningTrace,
+		e.recordMemoryEpisode(ctx, runEpisodeRecord{
+			startedAt:      startedAt,
+			userInput:      userInput,
+			final:          final,
+			runErr:         err,
+			reasoningTrace: reasoningTrace,
 		})
 	}()
 
@@ -93,15 +90,19 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 		msgs = e.maybeSummarize(ctx, msgs)
 	}
 	msgs = AddRuntimeContextToCurrentUserMessage(msgs, e.UserPromptContext)
-	msgs = e.augmentWithPolicyContext(ctx, userInput, msgs)
-	msgs = e.augmentWithBeliefMemory(ctx, userInput, msgs)
-
-	// Augment with evolving memory (ExpRAG or ExpRecent)
-	if !e.DisableEvolvingMemory && e.EvolvingMemory != nil {
-		log.Info().Bool("enabled", true).Msg("evolving_memory_enabled_stream")
-		msgs = e.augmentWithMemory(ctx, userInput, msgs)
+	if e.Memory != nil && !e.DisableMemory {
+		msgs = e.augmentWithUnifiedMemory(ctx, userInput, msgs)
 	} else {
-		log.Debug().Bool("enabled", false).Msg("evolving_memory_disabled_stream")
+		msgs = e.augmentWithPolicyContext(ctx, userInput, msgs)
+		msgs = e.augmentWithBeliefMemory(ctx, userInput, msgs)
+
+		// Augment with evolving memory (ExpRAG or ExpRecent)
+		if !e.DisableEvolvingMemory && e.EvolvingMemory != nil {
+			log.Info().Bool("enabled", true).Msg("evolving_memory_enabled_stream")
+			msgs = e.augmentWithMemory(ctx, userInput, msgs)
+		} else {
+			log.Debug().Bool("enabled", false).Msg("evolving_memory_disabled_stream")
+		}
 	}
 
 	if e.HarnessEnabled {

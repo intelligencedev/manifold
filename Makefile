@@ -42,9 +42,9 @@ help:
 	@echo "  make sonar               # alias for sonar-scan"
 	@echo "  make sonar-down          # stop local SonarQube stack"
 	@echo "  make build              # build host platform binaries into $(DIST)/"
-	@echo "  make build-agentd       # build only the agentd binary"
-	@echo "  make build-manifold     # build Forge architecture agentd + embedded frontend"
-	@echo "  make build-manifold-beta # build Forge agentd + embedded frontend with beta UI links"
+	@echo "  make build-agentd       # build only the Manifold server binary"
+	@echo "  make build-manifold     # build Forge architecture manifold + embedded frontend"
+	@echo "  make build-manifold-beta # build Forge manifold + embedded frontend with beta UI links"
 	@echo "  make build-agent        # build only the agent binary"
 	@echo "  make frontend           # install frontend deps, then build Vue.js assets"
 	@echo "  make openapi            # generate docs/openapi/openapi.json"
@@ -161,7 +161,9 @@ ci: fmt-check imports-check vet lint test
 build: clean | $(DIST)
 	@echo "Building host platform binaries into $(DIST)/"
 	for b in $(BINS); do \
-		out=$(DIST)/$$b; \
+		out_name=$$b; \
+		if [ "$$b" = "agentd" ]; then out_name=manifold; fi; \
+		out=$(DIST)/$$out_name; \
 		echo "Building $$b -> $$out"; \
 		go build -o "$$out" ./cmd/$$b; \
 	done
@@ -177,8 +179,10 @@ cross: clean | $(DIST)
 		os=$${plat%%/*}; arch=$${plat##*/}; \
 		for b in $(BINS); do \
 			mkdir -p $(DIST)/$${os}_$${arch}; \
-			outfile=$${b}; \
-			if [ "$${os}" = "windows" ]; then outfile=$${b}.exe; fi; \
+			outname=$${b}; \
+			if [ "$$b" = "agentd" ]; then outname=manifold; fi; \
+			outfile=$${outname}; \
+			if [ "$${os}" = "windows" ]; then outfile=$${outname}.exe; fi; \
 			echo "Building $$b for $${os}/$${arch} -> $(DIST)/$${os}_$${arch}/$$outfile"; \
 			CGO_ENABLED=0 GOOS=$${os} GOARCH=$${arch} go build -o "$(DIST)/$${os}_$${arch}/$$outfile" ./cmd/$$b; \
 		done; \
@@ -218,9 +222,10 @@ clean:
 
 .PHONY: build-agentd
 build-agentd: | $(DIST)
-	@echo "Building agentd only into $(DIST)/"
-	go build -o $(DIST)/agentd ./cmd/agentd
-	@echo "agentd build complete"
+	@echo "Building Manifold server into $(DIST)/"
+	@rm -f $(DIST)/agentd
+	go build -o $(DIST)/manifold ./cmd/agentd
+	@echo "Manifold server build complete"
 
 .PHONY: build-agent
 build-agent: | $(DIST)
@@ -236,9 +241,10 @@ FEATURE_GATE ?= stable
 
 .PHONY: build-manifold build-manifold-beta
 build-manifold: frontend | $(DIST)
-	@echo "Building Forge architecture agentd with embedded frontend and tags '$(FORGE_BUILD_TAGS)' -> $(DIST)/agentd"
-	go build -tags "$(FORGE_BUILD_TAGS)" -o $(DIST)/agentd ./cmd/agentd
-	@echo "Forge architecture agentd with frontend build complete"
+	@echo "Building Forge architecture manifold with embedded frontend and tags '$(FORGE_BUILD_TAGS)' -> $(DIST)/manifold"
+	@rm -f $(DIST)/agentd
+	go build -tags "$(FORGE_BUILD_TAGS)" -o $(DIST)/manifold ./cmd/agentd
+	@echo "Forge architecture manifold with frontend build complete"
 
 build-manifold-beta: FEATURE_GATE := beta
 build-manifold-beta: build-manifold

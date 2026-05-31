@@ -9,7 +9,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const tracerName = "manifold/internal/memory/magma"
+const tracerName = "manifold/internal/agent/memory/magma"
 
 func startSpan(ctx context.Context, name string, attrs ...attribute.KeyValue) (context.Context, trace.Span) {
 	ctx, span := otel.Tracer(tracerName).Start(ctx, name)

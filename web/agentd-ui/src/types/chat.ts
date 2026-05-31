@@ -43,6 +43,24 @@ export interface ChatInputRequest {
   answeredAt?: string;
 }
 
+export interface ChatMemoryContextLane {
+  enabled?: boolean;
+  returned?: boolean;
+  timedOut?: boolean;
+  error?: string;
+  durationMs?: number;
+  items?: number;
+  tokens?: number;
+}
+
+export interface ChatMemoryContext {
+  text: string;
+  tokenEstimate?: number;
+  truncated?: boolean;
+  durationMs?: number;
+  lanes?: Record<string, ChatMemoryContextLane>;
+}
+
 export interface ChatMessage {
   id: string;
   role: ChatRole;
@@ -65,6 +83,7 @@ export interface ChatMessage {
   model?: string;
   activityToolTitle?: string;
   activityThoughtSummary?: string;
+  memoryContext?: ChatMemoryContext;
   inputRequests?: ChatInputRequest[];
 }
 

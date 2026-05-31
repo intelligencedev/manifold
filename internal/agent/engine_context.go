@@ -40,7 +40,15 @@ func (e *Engine) augmentWithUnifiedMemory(ctx context.Context, userInput string,
 		Bool("truncated", block.Truncated).
 		Int64("duration_ms", diag.DurationMs).
 		Msg("unified_memory_context_added")
+	e.emitMemoryContext(block, diag)
 	return AddRuntimeContextToCurrentUserMessage(msgs, block.Text)
+}
+
+func (e *Engine) emitMemoryContext(block memory.ContextBlock, diag memory.Diagnostics) {
+	if e == nil || e.OnMemoryContext == nil || strings.TrimSpace(block.Text) == "" {
+		return
+	}
+	e.OnMemoryContext(block, diag)
 }
 
 func (e *Engine) augmentWithMemory(ctx context.Context, userInput string, msgs []llm.Message) []llm.Message {

@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import { useQueryClient } from "@tanstack/vue-query";
 import type {
   AgentThread,
+  AgentTraceEntry,
   ChatAttachment,
   ChatInputRequest,
   ChatInputRequestChoice,
@@ -27,6 +28,19 @@ import {
   updateChatSessionProject as apiUpdateChatSessionProject,
   type ChatStreamEvent,
 } from "@/api/chat";
+import {
+  agentThreadKey,
+  agentToolEntry,
+  appendAgentEntry,
+  computeLocalTitle,
+  httpStatus,
+  memoryContextFromEvent,
+  mergeMemoryContext,
+  newAgentThread,
+  normalizeSessionMeta,
+  snippet,
+  withTeam,
+} from "@/stores/chatHelpers";
 import { stripLeadingSpecialistMention } from "@/utils/chatMentions";
 import { createId } from "@/utils/uuid";
 
@@ -184,10 +198,6 @@ export const useChatStore = defineStore("chat", () => {
     return idx;
   }
 
-  function agentThreadKey(callId: string, assistantMessageId?: string) {
-    return assistantMessageId ? `${assistantMessageId}:${callId}` : callId;
-  }
-
   function resetAgentThreads(sessionId: string) {
     const next = { ...agentThreadsBySession.value, [sessionId]: [] };
     agentThreadsBySession.value = next;
@@ -249,70 +259,6 @@ export const useChatStore = defineStore("chat", () => {
       [sessionId]: nextList,
     };
     return thread;
-  }
-
-  type AgentThreadBase = {
-    callId: string;
-    parentCallId?: string;
-    agentName?: string;
-    team?: string;
-    model?: string;
-    prompt?: string;
-    depth: number;
-    status?: AgentThread["status"];
-    content?: string;
-    entries?: AgentTraceEntry[];
-    thoughtSummaries?: string[];
-    startedAt: string;
-    finishedAt?: string;
-    error?: string;
-  };
-
-  function newAgentThread(base: AgentThreadBase): AgentThread {
-    return {
-      callId: base.callId,
-      parentCallId: base.parentCallId,
-      agent: base.agentName,
-      team: base.team,
-      model: base.model,
-      prompt: base.prompt,
-      depth: base.depth,
-      status: base.status ?? "running",
-      content: base.content ?? "",
-      entries: base.entries ?? [],
-      thoughtSummaries: base.thoughtSummaries ?? [],
-      startedAt: base.startedAt,
-      finishedAt: base.finishedAt,
-      error: base.error,
-    };
-  }
-
-  function withTeam(thread: AgentThread, team?: string): AgentThread {
-    return thread.team || !team ? thread : { ...thread, team };
-  }
-
-  function appendAgentEntry(
-    thread: AgentThread,
-    team: string | undefined,
-    entry: AgentTraceEntry,
-  ): AgentThread {
-    const baseThread = withTeam(thread, team);
-    return { ...baseThread, entries: [...baseThread.entries, entry] };
-  }
-
-  function agentToolEntry(
-    event: ChatStreamEvent,
-    field: "args" | "data",
-    value: string | undefined,
-    createdAt: string,
-  ): AgentTraceEntry {
-    return {
-      id: createId(),
-      type: "tool",
-      title: event.title || "Tool",
-      [field]: value,
-      createdAt,
-    };
   }
 
   function syncSessionMessageCount(sessionId: string, count: number) {
@@ -409,52 +355,6 @@ export const useChatStore = defineStore("chat", () => {
     return activeSessionId.value;
   }
 
-  function snippet(content: string) {
-    if (!content) return "";
-    const trimmed = content.replace(/\s+/g, " ").trim();
-    return trimmed.length > 80 ? `${trimmed.slice(0, 77)}…` : trimmed;
-  }
-
-  function normalizeSessionMeta(meta: ChatSessionMeta): ChatSessionMeta {
-    type ChatSessionMetaWire = ChatSessionMeta & {
-      message_count?: unknown;
-      project_id?: unknown;
-      memory_enabled?: unknown;
-      evolving_memory_enabled?: unknown;
-      belief_memory_enabled?: unknown;
-    };
-    const wire = meta as ChatSessionMetaWire;
-    const rawCount = wire.messageCount ?? wire.message_count;
-    const messageCount =
-      typeof rawCount === "number" && Number.isFinite(rawCount) && rawCount >= 0
-        ? rawCount
-        : 0;
-    const rawProjectID = wire.projectId ?? wire.project_id;
-    const projectId = typeof rawProjectID === "string" ? rawProjectID : "";
-    const rawEvolvingMemoryEnabled =
-      wire.evolvingMemoryEnabled ?? wire.evolving_memory_enabled;
-    const rawBeliefMemoryEnabled =
-      wire.beliefMemoryEnabled ?? wire.belief_memory_enabled;
-    const rawMemoryEnabled = wire.memoryEnabled ?? wire.memory_enabled;
-    const legacyMemoryEnabled =
-      typeof rawEvolvingMemoryEnabled === "boolean" &&
-      typeof rawBeliefMemoryEnabled === "boolean"
-        ? rawEvolvingMemoryEnabled && rawBeliefMemoryEnabled
-        : false;
-    const memoryEnabled =
-      typeof rawMemoryEnabled === "boolean"
-        ? rawMemoryEnabled
-        : legacyMemoryEnabled;
-    return {
-      ...meta,
-      messageCount,
-      projectId,
-      memoryEnabled,
-      evolvingMemoryEnabled: memoryEnabled,
-      beliefMemoryEnabled: memoryEnabled,
-    };
-  }
-
   const defaultSessionNames = new Set(["", "new chat", "conversation"]);
 
   function isDefaultSessionName(name?: string | null) {
@@ -475,17 +375,6 @@ export const useChatStore = defineStore("chat", () => {
     const clone = [...sessions.value];
     clone.splice(idx, 1, merged);
     sessions.value = clone;
-  }
-
-  function httpStatus(error: unknown): number | null {
-    if (!error || typeof error !== "object" || !("isAxiosError" in error)) {
-      return null;
-    }
-    const maybeResponse = (error as { response?: { status?: unknown } })
-      .response;
-    return typeof maybeResponse?.status === "number"
-      ? maybeResponse.status
-      : null;
   }
 
   async function init() {
@@ -869,35 +758,6 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
-  const CHAT_TITLE_MAX_RUNES = 48;
-  function collapseWhitespace(s: string): string {
-    if (!s || !s.trim()) return "";
-    return s.trim().replace(/\s+/g, " ");
-  }
-  function truncateRunes(s: string, max: number): string {
-    if (max <= 0) return "";
-    const codepoints = Array.from(s);
-    if (codepoints.length <= max) return s.trim();
-    return codepoints.slice(0, max).join("").trim();
-  }
-  function firstSentence(s: string): string {
-    const input = s.trim();
-    if (!input) return "";
-    for (let i = 0; i < input.length; i++) {
-      const ch = input[i];
-      if (ch === "." || ch === "?" || ch === "!" || ch === "\n") {
-        return input.slice(0, i + 1).trim();
-      }
-    }
-    return input;
-  }
-  function computeLocalTitle(prompt: string): string {
-    const sentence = firstSentence(prompt) || prompt;
-    const collapsed = collapseWhitespace(sentence);
-    if (!collapsed) return "Conversation";
-    return truncateRunes(collapsed, CHAT_TITLE_MAX_RUNES);
-  }
-
   function handleStreamEvent(
     event: ChatStreamEvent,
     sessionId: string,
@@ -912,6 +772,17 @@ export const useChatStore = defineStore("chat", () => {
           updateMessage(sessionId, assistantId, (m) => ({
             ...m,
             activityThoughtSummary: event.data,
+          }));
+        }
+        break;
+      }
+      case "memory_context": {
+        const text = typeof event.data === "string" ? event.data.trim() : "";
+        if (text) {
+          const incoming = memoryContextFromEvent(event, text);
+          updateMessage(sessionId, assistantId, (m) => ({
+            ...m,
+            memoryContext: mergeMemoryContext(m.memoryContext, incoming),
           }));
         }
         break;

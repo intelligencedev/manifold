@@ -586,6 +586,84 @@
                     </div>
                   </Transition>
                 </div>
+                <div
+                  v-if="hasMemoryContext(message)"
+                  class="direct-activity-wrapper memory-context-wrapper"
+                >
+                  <Transition name="activity-pill">
+                    <button
+                      v-if="!isMemoryContextExpanded(message.id)"
+                      type="button"
+                      class="direct-activity-pill"
+                      :aria-expanded="false"
+                      @click="expandMemoryContext(message.id)"
+                    >
+                      <span class="direct-activity-pill-dot"></span>
+                      <span class="direct-activity-pill-label">
+                        Retrieved memories
+                        <span
+                          v-if="memoryContextPillMeta(message)"
+                          class="memory-context-pill-meta"
+                        >
+                          {{ memoryContextPillMeta(message) }}
+                        </span>
+                      </span>
+                      <span class="direct-activity-pill-chevron">›</span>
+                    </button>
+                  </Transition>
+
+                  <Transition
+                    @before-enter="drawerBeforeEnter"
+                    @enter="drawerEnter"
+                    @after-enter="drawerAfterEnter"
+                    @before-leave="drawerBeforeLeave"
+                    @leave="drawerLeave"
+                  >
+                    <div
+                      v-if="isMemoryContextExpanded(message.id)"
+                      class="direct-activity memory-context-card"
+                    >
+                      <div class="direct-activity-header">
+                        <span class="direct-activity-label"
+                          >Retrieved memories</span
+                        >
+                        <button
+                          type="button"
+                          class="direct-activity-collapse-btn"
+                          :aria-expanded="true"
+                          @click="collapseMemoryContext(message.id)"
+                          title="Collapse"
+                        >
+                          collapse ›
+                        </button>
+                      </div>
+                      <div class="direct-activity-body memory-context-body">
+                        <div
+                          v-if="memoryContextPillMeta(message)"
+                          class="direct-activity-row"
+                        >
+                          <span class="direct-activity-label">Context</span>
+                          <span class="direct-activity-value">
+                            {{ memoryContextPillMeta(message) }}
+                          </span>
+                        </div>
+                        <div class="direct-activity-thought">
+                          <span class="direct-activity-label"
+                            >Prompt memory</span
+                          >
+                          <div
+                            class="chat-markdown direct-activity-summary"
+                            v-html="
+                              renderMarkdownOrHtml(
+                                message.memoryContext?.text || '',
+                              )
+                            "
+                          ></div>
+                        </div>
+                      </div>
+                    </div>
+                  </Transition>
+                </div>
                 <p v-if="message.title" class="font-semibold text-foreground">
                   {{ message.title }}
                 </p>
@@ -2412,6 +2490,35 @@ function shouldShowDirectThought(message: ChatMessage) {
   return Boolean(message.activityThoughtSummary);
 }
 
+function hasMemoryContext(message: ChatMessage) {
+  return Boolean(message.memoryContext?.text?.trim());
+}
+
+function returnedMemoryLaneCount(message: ChatMessage) {
+  const lanes = message.memoryContext?.lanes;
+  if (!lanes) return 0;
+  return Object.values(lanes).filter(
+    (lane) => lane.returned || (lane.items ?? 0) > 0,
+  ).length;
+}
+
+function memoryContextPillMeta(message: ChatMessage) {
+  const context = message.memoryContext;
+  if (!context) return "";
+  const parts: string[] = [];
+  const laneCount = returnedMemoryLaneCount(message);
+  if (laneCount > 0) {
+    parts.push(`${laneCount} ${laneCount === 1 ? "lane" : "lanes"}`);
+  }
+  if (context.tokenEstimate && context.tokenEstimate > 0) {
+    parts.push(`${context.tokenEstimate.toLocaleString()} tokens`);
+  }
+  if (context.truncated) {
+    parts.push("truncated");
+  }
+  return parts.join(" · ");
+}
+
 function inputRequestKey(message: ChatMessage, request: ChatInputRequest) {
   return `${message.id}:${request.id}`;
 }
@@ -2587,6 +2694,25 @@ function expandActivity(id: string) {
   const next = new Set(collapsedActivityIds.value);
   next.delete(id);
   collapsedActivityIds.value = next;
+}
+
+const expandedMemoryContextIds = ref<Set<string>>(new Set());
+
+function isMemoryContextExpanded(id: string): boolean {
+  return expandedMemoryContextIds.value.has(id);
+}
+
+function collapseMemoryContext(id: string) {
+  const next = new Set(expandedMemoryContextIds.value);
+  next.delete(id);
+  expandedMemoryContextIds.value = next;
+}
+
+function expandMemoryContext(id: string) {
+  expandedMemoryContextIds.value = new Set([
+    ...expandedMemoryContextIds.value,
+    id,
+  ]);
 }
 
 // Drawer JS transition hooks
@@ -4062,6 +4188,11 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 .direct-activity-pill-label {
   flex: 1;
 }
+.memory-context-pill-meta {
+  margin-left: 0.35rem;
+  color: rgb(var(--color-faint-foreground));
+  font-weight: 600;
+}
 .direct-activity-pill-chevron {
   font-size: 0.85rem;
   line-height: 1;
@@ -4167,6 +4298,10 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   color: rgb(var(--color-foreground));
   font-size: 0.78rem;
   line-height: 1.5;
+}
+
+.memory-context-body {
+  max-height: 18rem;
 }
 
 .input-request-list {

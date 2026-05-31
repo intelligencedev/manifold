@@ -102,6 +102,9 @@ type Engine struct {
 	OnToolStart        func(toolName string, args []byte, toolID string)
 	OnTurnMessage      func(llm.Message)
 	OnSummaryTriggered func(inputTokens, tokenBudget, messageCount, summarizedCount int)
+	// OnMemoryContext, if set, is called when memory context is added to the
+	// current user prompt.
+	OnMemoryContext func(memory.ContextBlock, memory.Diagnostics)
 	// OnMemoryEvent, if set, is invoked when the evolving memory system emits
 	// Search/Synthesis/Evolve events. Useful for debugging and observability.
 	OnMemoryEvent func(*memory.MemoryEvent)

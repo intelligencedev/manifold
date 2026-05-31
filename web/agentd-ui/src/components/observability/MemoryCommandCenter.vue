@@ -137,15 +137,19 @@
         </VueFlow>
       </section>
 
-      <aside class="flex min-h-0 flex-col gap-4 overflow-hidden">
+      <aside
+        class="memory-side-stack flex min-h-0 flex-col gap-4 overflow-hidden"
+      >
         <section
-          class="halo-surface min-h-0 flex-1 overflow-hidden rounded-md !p-4"
+          class="memory-inspector-card halo-surface flex min-h-0 flex-1 flex-col overflow-hidden rounded-md !p-4"
         >
-          <div class="flex h-full min-h-0 flex-col">
-            <h3 class="text-sm font-semibold text-foreground">Inspector</h3>
+          <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+            <h3 class="shrink-0 text-sm font-semibold text-foreground">
+              Inspector
+            </h3>
             <div
               v-if="selectedNode"
-              class="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto text-xs"
+              class="memory-inspector-body mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto text-xs"
             >
               <PillLabel :label="selectedNode.type" />
               <h4 class="break-words text-sm font-semibold text-foreground">
@@ -172,7 +176,7 @@
             </div>
             <div
               v-else-if="selectedEdge"
-              class="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto text-xs"
+              class="memory-inspector-body mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto text-xs"
             >
               <PillLabel :label="selectedEdge.graphType" />
               <h4 class="break-words text-sm font-semibold text-foreground">
@@ -216,7 +220,7 @@
             </div>
             <div
               v-else
-              class="mt-3 rounded-md border border-dashed border-border bg-surface-muted/40 p-4 text-sm text-faint-foreground"
+              class="memory-inspector-body mt-3 min-h-0 flex-1 overflow-y-auto rounded-md border border-dashed border-border bg-surface-muted/40 p-4 text-sm text-faint-foreground"
             >
               Select a graph node or edge to inspect its details and available
               actions.
@@ -918,6 +922,19 @@ const PillLabel = defineComponent({
 
 .memory-graph-card {
   height: clamp(28rem, 52vh, 42rem);
+}
+
+.memory-side-stack {
+  height: clamp(28rem, 52vh, 42rem);
+}
+
+.memory-inspector-card {
+  max-height: calc(100% - 8.75rem);
+}
+
+.memory-inspector-body {
+  overscroll-behavior: contain;
+  padding-right: 0.25rem;
 }
 
 .memory-scroll-card {

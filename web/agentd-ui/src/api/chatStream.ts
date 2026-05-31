@@ -1,7 +1,11 @@
-import type { ChatInputRequestChoice } from "@/types/chat";
+import type {
+  ChatInputRequestChoice,
+  ChatMemoryContextLane,
+} from "@/types/chat";
 
 export type ChatStreamEventType =
   | "thought_summary"
+  | "memory_context"
   | "delta"
   | "final"
   | "tool_start"
@@ -58,6 +62,10 @@ export interface ChatStreamEvent {
   token_budget?: number;
   message_count?: number;
   summarized_count?: number;
+  token_estimate?: number;
+  truncated?: boolean;
+  duration_ms?: number;
+  lanes?: Record<string, ChatMemoryContextLane>;
   [key: string]: unknown;
 }
 

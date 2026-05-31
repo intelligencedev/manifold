@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -163,6 +164,13 @@ func configureCommonStreamCallbacks(eng *agent.Engine, stream *chatSSEWriter, em
 	eng.OnDelta = func(d string) {
 		stream.write(map[string]string{"type": "delta", "data": d})
 	}
+	eng.OnMemoryContext = func(block agentmemory.ContextBlock, diag agentmemory.Diagnostics) {
+		text := strings.TrimSpace(block.Text)
+		if text == "" {
+			return
+		}
+		stream.write(buildChatMemoryContextPayload(text, block, diag))
+	}
 	if emitThoughtSummary {
 		eng.OnThoughtSummary = func(summary string) {
 			log.Debug().Int("summary_len", len(summary)).Msg("http_handler_thought_summary")
@@ -216,6 +224,51 @@ func configureCommonStreamCallbacks(eng *agent.Engine, stream *chatSSEWriter, em
 	} else {
 		eng.OnSummaryTriggered = nil
 	}
+}
+
+type chatMemoryContextPayload struct {
+	Type          string                           `json:"type"`
+	Data          string                           `json:"data"`
+	TokenEstimate int                              `json:"token_estimate,omitempty"`
+	Truncated     bool                             `json:"truncated,omitempty"`
+	DurationMs    int64                            `json:"duration_ms,omitempty"`
+	Lanes         map[string]chatMemoryLanePayload `json:"lanes,omitempty"`
+}
+
+type chatMemoryLanePayload struct {
+	Enabled    bool   `json:"enabled"`
+	Returned   bool   `json:"returned"`
+	TimedOut   bool   `json:"timed_out"`
+	Error      string `json:"error,omitempty"`
+	DurationMs int64  `json:"duration_ms,omitempty"`
+	Items      int    `json:"items,omitempty"`
+	Tokens     int    `json:"tokens,omitempty"`
+}
+
+func buildChatMemoryContextPayload(text string, block agentmemory.ContextBlock, diag agentmemory.Diagnostics) chatMemoryContextPayload {
+	payload := chatMemoryContextPayload{
+		Type:          "memory_context",
+		Data:          text,
+		TokenEstimate: block.TokenEstimate,
+		Truncated:     block.Truncated,
+		DurationMs:    diag.DurationMs,
+	}
+	if len(diag.Lanes) == 0 {
+		return payload
+	}
+	payload.Lanes = make(map[string]chatMemoryLanePayload, len(diag.Lanes))
+	for name, lane := range diag.Lanes {
+		payload.Lanes[name] = chatMemoryLanePayload{
+			Enabled:    lane.Enabled,
+			Returned:   lane.Returned,
+			TimedOut:   lane.TimedOut,
+			Error:      lane.Error,
+			DurationMs: lane.DurationMs,
+			Items:      lane.Items,
+			Tokens:     lane.Tokens,
+		}
+	}
+	return payload
 }
 
 type fleetCallbackRequest struct {

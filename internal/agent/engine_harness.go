@@ -131,9 +131,11 @@ func (e *Engine) runHarnessStep(ctx context.Context, state *harnessLoopState, st
 
 	state.history = e.prepareHarnessHistory(ctx, state.history, state.cfg, state.tracker)
 	priorHistory := state.history
+	e.emitContextMetrics(ctx, harness.SerializeMessages(state.history), ContextMetricPhasePreModel, nil, 0)
 	result, err := e.runHarnessInference(ctx, state, schemas, stream)
 	state.history = result.History
 	msg := e.acceptHarnessResult(priorHistory, result, step, stream)
+	e.emitContextMetrics(ctx, harness.SerializeMessages(state.history), ContextMetricPhaseAssistantAdded, nil, 0)
 	if err != nil {
 		log.Error().Err(err).Int("step", step).Msg(harnessStepErrorEvent(stream))
 		return llm.Message{}, err
@@ -188,6 +190,7 @@ func (e *Engine) handleHarnessTools(ctx context.Context, state *harnessLoopState
 		state.history = append(state.history, nudges...)
 		e.emitHarnessTurnMessages(nudges)
 	}
+	e.emitContextMetrics(ctx, harness.SerializeMessages(state.history), ContextMetricPhaseToolAdded, nil, 0)
 	if final != "" {
 		log.Info().Int("step", step).Int("final_len", len(final)).Msg(harnessTerminalFinalEvent(stream))
 	}

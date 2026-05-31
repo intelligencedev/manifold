@@ -10,6 +10,7 @@ import type {
   ChatMessage,
   ChatRole,
   ChatSessionMeta,
+  SummaryEvent,
 } from "@/types/chat";
 import {
   answerChatInputRequest as apiAnswerChatInputRequest,
@@ -33,26 +34,22 @@ import {
   agentToolEntry,
   appendAgentEntry,
   computeLocalTitle,
+  contextMetricsFromEvent,
+  contextMetricsFromSummaryEvent,
   httpStatus,
+  isDefaultSessionName,
+  localContextMetricsForMessages,
   memoryContextFromEvent,
   mergeMemoryContext,
   newAgentThread,
   normalizeSessionMeta,
   snippet,
+  updateLatestUserBeforeMessage,
   withTeam,
+  withEstimatedAssistantTokens,
 } from "@/stores/chatHelpers";
-import { stripLeadingSpecialistMention } from "@/utils/chatMentions";
+import { stripLeadingChatMention } from "@/utils/chatMentions";
 import { createId } from "@/utils/uuid";
-
-type FilesByAttachment = Map<string, File>;
-
-export interface SummaryEvent {
-  inputTokens: number;
-  tokenBudget: number;
-  messageCount: number;
-  summarizedCount: number;
-  timestamp: string;
-}
 
 export const useChatStore = defineStore("chat", () => {
   const queryClient = useQueryClient();
@@ -82,7 +79,6 @@ export const useChatStore = defineStore("chat", () => {
   const thoughtSummariesBySession = ref<Record<string, string[]>>({});
   const agentThreadsBySession = ref<Record<string, AgentThread[]>>({});
   const agentThreadIndex = new Map<string, Map<string, AgentThread>>();
-  // Track summary events per session - cleared after display
   const summaryEventBySession = ref<Record<string, SummaryEvent | null>>({});
 
   const activeSession = computed(
@@ -355,13 +351,6 @@ export const useChatStore = defineStore("chat", () => {
     return activeSessionId.value;
   }
 
-  const defaultSessionNames = new Set(["", "new chat", "conversation"]);
-
-  function isDefaultSessionName(name?: string | null) {
-    if (!name) return true;
-    return defaultSessionNames.has(name.trim().toLowerCase());
-  }
-
   function hasUserPrompt(sessionId: string) {
     const existing = messagesBySession.value[sessionId] || [];
     return existing.some((m) => m.role === "user");
@@ -565,11 +554,12 @@ export const useChatStore = defineStore("chat", () => {
   async function sendPrompt(
     text: string,
     attachments: ChatAttachment[] = [],
-    filesByAttachment?: FilesByAttachment,
+    filesByAttachment?: Map<string, File>,
     options: {
       echoUser?: boolean;
       specialist?: string;
       routingSpecialist?: string;
+      routingTargetName?: string;
       teamName?: string;
       projectId?: string;
       image?: boolean;
@@ -615,6 +605,9 @@ export const useChatStore = defineStore("chat", () => {
 
     const assistantId = createId();
     const streamId = createId();
+    const localMetrics = localContextMetricsForMessages(
+      messagesBySession.value[sessionId] || [],
+    );
     appendMessage(sessionId, {
       id: assistantId,
       role: "assistant",
@@ -624,7 +617,14 @@ export const useChatStore = defineStore("chat", () => {
       agentName: agentName || undefined,
       agentModel: agentModel || undefined,
       model: agentModel || undefined,
+      contextMetrics: localMetrics,
     });
+    const withUserMetrics = updateLatestUserBeforeMessage(
+      messagesBySession.value[sessionId] || [],
+      assistantId,
+      (m) => ({ ...m, contextMetrics: localMetrics }),
+    );
+    if (withUserMetrics) setMessages(sessionId, withUserMetrics);
 
     const controller = new AbortController();
     controller.signal.addEventListener(
@@ -646,10 +646,12 @@ export const useChatStore = defineStore("chat", () => {
     toolIndexFor(sessionId, streamId);
 
     try {
-      // Expand text attachments into the prompt
-      let promptToSend = stripLeadingSpecialistMention(
+      let promptToSend = stripLeadingChatMention(
         content,
-        options.routingSpecialist || options.specialist,
+        options.routingTargetName ||
+          options.routingSpecialist ||
+          options.specialist ||
+          options.teamName,
       );
       const textAtts = attachments.filter((a) => a.kind === "text");
       const imgAtts = attachments.filter((a) => a.kind === "image");
@@ -740,7 +742,6 @@ export const useChatStore = defineStore("chat", () => {
     const trimmed = prompt.trim();
     if (!trimmed) return;
     try {
-      // Optimistically set title immediately on the client for instant UI updates
       const localTitle = computeLocalTitle(trimmed);
       if (localTitle) {
         upsertSessionMeta({
@@ -787,11 +788,31 @@ export const useChatStore = defineStore("chat", () => {
         }
         break;
       }
+      case "context_metrics": {
+        const metrics = contextMetricsFromEvent(event);
+        if (metrics) {
+          updateMessage(sessionId, assistantId, (m) => ({
+            ...m,
+            contextMetrics: withEstimatedAssistantTokens(metrics, m.content),
+          }));
+          const nextMessages = updateLatestUserBeforeMessage(
+            messagesBySession.value[sessionId] || [],
+            assistantId,
+            (m) => ({ ...m, contextMetrics: metrics }),
+          );
+          if (nextMessages) setMessages(sessionId, nextMessages);
+        }
+        break;
+      }
       case "delta": {
         if (typeof event.data === "string" && event.data) {
           updateMessage(sessionId, assistantId, (m) => ({
             ...m,
             content: m.content + event.data,
+            contextMetrics: withEstimatedAssistantTokens(
+              m.contextMetrics,
+              m.content + event.data,
+            ),
           }));
         }
         break;
@@ -801,6 +822,10 @@ export const useChatStore = defineStore("chat", () => {
         updateMessage(sessionId, assistantId, (m) => ({
           ...m,
           content: text || m.content,
+          contextMetrics: withEstimatedAssistantTokens(
+            m.contextMetrics,
+            text || m.content,
+          ),
           streaming: false,
         }));
         if (text) touchSession(sessionId, snippet(text));
@@ -889,6 +914,14 @@ export const useChatStore = defineStore("chat", () => {
             typeof event.input_tokens === "number" ? event.input_tokens : 0,
           tokenBudget:
             typeof event.token_budget === "number" ? event.token_budget : 0,
+          contextWindow:
+            typeof event.context_window === "number"
+              ? event.context_window
+              : undefined,
+          reserveTokens:
+            typeof event.reserve_tokens === "number"
+              ? event.reserve_tokens
+              : undefined,
           messageCount:
             typeof event.message_count === "number" ? event.message_count : 0,
           summarizedCount:
@@ -901,6 +934,19 @@ export const useChatStore = defineStore("chat", () => {
           ...summaryEventBySession.value,
           [sessionId]: summaryEvt,
         };
+        const summaryMetrics = contextMetricsFromSummaryEvent(summaryEvt);
+        if (summaryMetrics) {
+          updateMessage(sessionId, assistantId, (m) => ({
+            ...m,
+            contextMetrics: summaryMetrics,
+          }));
+          const nextMessages = updateLatestUserBeforeMessage(
+            messagesBySession.value[sessionId] || [],
+            assistantId,
+            (m) => ({ ...m, contextMetrics: summaryMetrics }),
+          );
+          if (nextMessages) setMessages(sessionId, nextMessages);
+        }
         break;
       }
       case "input_request": {
@@ -1413,6 +1459,7 @@ export const useChatStore = defineStore("chat", () => {
     options: {
       specialist?: string;
       routingSpecialist?: string;
+      routingTargetName?: string;
       teamName?: string;
       projectId?: string;
       memoryEnabled?: boolean;
@@ -1445,6 +1492,7 @@ export const useChatStore = defineStore("chat", () => {
       echoUser: false,
       specialist: options.specialist,
       routingSpecialist: options.routingSpecialist,
+      routingTargetName: options.routingTargetName,
       teamName: options.teamName,
       projectId: options.projectId,
       memoryEnabled: options.memoryEnabled,
@@ -1456,7 +1504,6 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   return {
-    // state
     sessions,
     messagesBySession,
     sessionsLoading,
@@ -1471,7 +1518,6 @@ export const useChatStore = defineStore("chat", () => {
     activeSummaryEvent,
     activeThoughtSummaries,
     isSessionStreaming,
-    // actions
     init,
     refreshSessionsFromServer,
     loadMessagesFromServer,

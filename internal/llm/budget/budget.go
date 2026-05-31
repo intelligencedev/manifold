@@ -33,14 +33,17 @@ const DefaultPerMsgRunes = 64_000
 // the input). It performs three passes:
 //
 //  1. Truncate the content of any individual non-system message whose rune
-//     length exceeds perMsgRunes. Truncation keeps the head and tail of the
-//     content with a [TRUNCATED] marker in between.
+//     length exceeds perMsgRunes. Truncation keeps the head and tail of normal
+//     messages, but trims the head of the final user message so prepended
+//     runtime context is sacrificed before the current request.
 //  2. If the total estimated token count still exceeds (ctxWindow -
 //     reserveBuffer), drop the oldest tool/assistant messages until it fits,
 //     preserving the leading system message (if any) and the last user
 //     message.
-//  3. As a final fallback, hard-truncate the tail of the protected last user
-//     message so the request always fits.
+//  3. As a final fallback, hard-truncate the head of the protected last user
+//     message so the request always fits. Runtime context is commonly prepended
+//     to that message, so trimming from the head preserves the current request
+//     at the tail before sacrificing user text.
 //
 // Token estimation is heuristic (rune-count / 4 + 1 per message). It will
 // under-estimate for some tokenizers, so callers that talk to small-context
@@ -74,9 +77,21 @@ func FitWithProtectedPrefix(msgs []llm.Message, protectedPrefixEnd, ctxWindow, r
 	out := make([]llm.Message, len(msgs))
 	copy(out, msgs)
 
+	lastUser := -1
+	for i := len(out) - 1; i >= protectedPrefixEnd; i-- {
+		if out[i].Role == "user" {
+			lastUser = i
+			break
+		}
+	}
+
 	if perMsgRunes > 0 {
 		for i := range out {
 			if out[i].Role == "system" {
+				continue
+			}
+			if i == lastUser {
+				out[i].Content = truncateContentPreserveTail(out[i].Content, perMsgRunes)
 				continue
 			}
 			out[i].Content = truncateContent(out[i].Content, perMsgRunes)
@@ -103,7 +118,6 @@ func FitWithProtectedPrefix(msgs []llm.Message, protectedPrefixEnd, ctxWindow, r
 	}
 
 	start := protectedPrefixEnd
-	lastUser := -1
 	for i := len(out) - 1; i >= start; i-- {
 		if out[i].Role == "user" {
 			lastUser = i
@@ -132,7 +146,7 @@ func FitWithProtectedPrefix(msgs []llm.Message, protectedPrefixEnd, ctxWindow, r
 	if EstimateTokens(out) > budget && lastUser >= 0 && lastUser < len(out) {
 		over := EstimateTokens(out) - budget
 		trimRunes := (over + 64) * 4
-		out[lastUser].Content = trimContentTail(out[lastUser].Content, trimRunes)
+		out[lastUser].Content = trimContentHead(out[lastUser].Content, trimRunes)
 	}
 
 	return out
@@ -176,7 +190,18 @@ func truncateContent(content string, limit int) string {
 	return string(runes[:head]) + string(marker) + string(runes[len(runes)-tail:])
 }
 
-func trimContentTail(content string, runesToRemove int) string {
+func truncateContentPreserveTail(content string, limit int) string {
+	if limit <= 0 {
+		return content
+	}
+	runes := []rune(content)
+	if len(runes) <= limit {
+		return content
+	}
+	return trimContentHead(content, len(runes)-limit)
+}
+
+func trimContentHead(content string, runesToRemove int) string {
 	runes := []rune(content)
 	if runesToRemove <= 0 || len(runes) == 0 {
 		return content
@@ -184,6 +209,6 @@ func trimContentTail(content string, runesToRemove int) string {
 	if runesToRemove >= len(runes) {
 		return "[TRUNCATED]"
 	}
-	keep := max(len(runes)-runesToRemove, 1)
-	return string(runes[:keep]) + "\n[TRUNCATED]"
+	keepStart := min(runesToRemove, len(runes)-1)
+	return "[TRUNCATED]\n" + string(runes[keepStart:])
 }

@@ -39,6 +39,7 @@ func (e *Engine) maybeSummarize(ctx context.Context, msgs []llm.Message) []llm.M
 		return msgs
 	}
 	e.emitSummaryTriggered(inputTokens, cfg.tokenBudget, len(msgs), len(toSummarize))
+	e.emitContextMetrics(ctx, msgs, ContextMetricPhaseSummarizing, nil, len(toSummarize))
 	return e.buildSummarizedMessages(ctx, prefix, toSummarize, recent, len(recent))
 }
 
@@ -248,6 +249,7 @@ func (e *Engine) buildSummarizedMessages(
 	newMsgs = append(newMsgs, prefix...)
 	newMsgs = append(newMsgs, summary)
 	newMsgs = append(newMsgs, recent...)
+	e.emitContextMetrics(ctx, newMsgs, ContextMetricPhaseSummarized, nil, len(toSummarize))
 
 	observability.LoggerWithTrace(ctx).Info().
 		Int("orig_messages", len(toSummarize)+len(recent)).

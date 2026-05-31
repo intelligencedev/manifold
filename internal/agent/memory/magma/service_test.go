@@ -545,6 +545,72 @@ func TestService_ReportsQueueFull(t *testing.T) {
 	}
 }
 
+func TestService_CollectConsolidationBatchHonorsLimit(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), databases.NewMemoryVector(), embedder.NewDeterministic(32, true, 0), ServiceConfig{
+		BatchSize: 3,
+		QueueSize: 4,
+	})
+	for _, id := range []string{"first", "second", "third", "fourth"} {
+		resp, err := svc.Ingest(ctx, IngestRequest{ID: id, Tenant: "t1", Text: "Melanie practiced guitar."})
+		if err != nil {
+			t.Fatalf("Ingest(%q) error = %v", id, err)
+		}
+		if resp.Status != "queued" {
+			t.Fatalf("expected %q queued, got %q", id, resp.Status)
+		}
+	}
+
+	first := <-svc.queue
+	batch := svc.collectConsolidationBatch(first, svc.cfg.BatchSize)
+	if len(batch) != 3 {
+		t.Fatalf("expected batch of 3, got %#v", batch)
+	}
+	if got := svc.Stats().QueueDepth; got != 1 {
+		t.Fatalf("expected one event left queued, got %d", got)
+	}
+}
+
+func TestService_DrainConsolidationProcessesBatches(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), databases.NewMemoryVector(), embedder.NewDeterministic(32, true, 0), ServiceConfig{
+		BatchSize: 2,
+	})
+	eventIDs := make([]string, 0, 3)
+	for _, id := range []string{"first", "second", "third"} {
+		resp, err := svc.Ingest(ctx, IngestRequest{
+			ID:        id,
+			Tenant:    "t1",
+			Text:      "Yesterday Melanie practiced guitar.",
+			CreatedAt: time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC),
+		})
+		if err != nil {
+			t.Fatalf("Ingest(%q) error = %v", id, err)
+		}
+		eventIDs = append(eventIDs, resp.EventID)
+	}
+
+	processed, err := svc.DrainConsolidation(ctx, 3)
+	if err != nil {
+		t.Fatalf("DrainConsolidation() error = %v", err)
+	}
+	if processed != 3 {
+		t.Fatalf("expected 3 processed events, got %d", processed)
+	}
+	stats := svc.Stats()
+	if stats.QueueDepth != 0 || stats.ProcessedTotal != 3 || stats.FailedTotal != 0 {
+		t.Fatalf("unexpected stats after batch drain: %#v", stats)
+	}
+	for _, eventID := range eventIDs {
+		event, ok := svc.Event(ctx, eventID)
+		if !ok || event.TemporalAttrs.Date != "2026-05-27" {
+			t.Fatalf("expected consolidated event %q, got %#v ok=%v", eventID, event, ok)
+		}
+	}
+}
+
 func TestService_StatsTrackConsolidationFailure(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

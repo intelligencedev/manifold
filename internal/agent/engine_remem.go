@@ -10,10 +10,12 @@ func (e *Engine) runWithReMem(ctx context.Context, userInput string, history []l
 	log := observability.LoggerWithTrace(ctx)
 	if e.DisableEvolvingMemory || e.ReMemController == nil {
 		msgs := BuildInitialLLMMessages(e.System, userInput, history)
+		e.emitContextMetrics(ctx, msgs, ContextMetricPhaseAssembled, nil, 0)
 		if e != nil && e.SummaryEnabled && !e.consumeSkipInitialSummarization() {
 			msgs = e.maybeSummarize(ctx, msgs)
 		}
 		msgs = AddRuntimeContextToCurrentUserMessage(msgs, e.UserPromptContext)
+		e.emitContextMetrics(ctx, msgs, ContextMetricPhaseRuntimeAdded, nil, 0)
 		msgs = e.augmentWithPolicyContext(ctx, userInput, msgs)
 		msgs = e.augmentWithBeliefMemory(ctx, userInput, msgs)
 		if e != nil && !e.DisableEvolvingMemory && e.EvolvingMemory != nil {
@@ -38,11 +40,13 @@ func (e *Engine) runWithReMem(ctx context.Context, userInput string, history []l
 
 	// Now run the main agent loop with (potentially refined) memories
 	msgs := BuildInitialLLMMessages(e.System, userInput, history)
+	e.emitContextMetrics(ctx, msgs, ContextMetricPhaseAssembled, nil, 0)
 	// Possibly summarize older history
 	if e.SummaryEnabled && !e.consumeSkipInitialSummarization() {
 		msgs = e.maybeSummarize(ctx, msgs)
 	}
 	msgs = AddRuntimeContextToCurrentUserMessage(msgs, e.UserPromptContext)
+	e.emitContextMetrics(ctx, msgs, ContextMetricPhaseRuntimeAdded, nil, 0)
 	msgs = e.augmentWithPolicyContext(ctx, userInput, msgs)
 	msgs = e.augmentWithBeliefMemory(ctx, userInput, msgs)
 

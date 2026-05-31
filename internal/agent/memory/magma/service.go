@@ -234,10 +234,12 @@ func (s *Service) DrainConsolidation(ctx context.Context, limit int) (int, error
 	for processed < limit {
 		select {
 		case eventID := <-s.queue:
-			if err := s.consolidateQueued(ctx, eventID); err != nil {
+			batch := s.collectConsolidationBatch(eventID, min(s.cfg.BatchSize, limit-processed))
+			n, err := s.consolidateQueuedBatch(ctx, batch)
+			processed += n
+			if err != nil {
 				return processed, err
 			}
-			processed++
 		default:
 			return processed, nil
 		}
@@ -252,7 +254,7 @@ func (s *Service) runConsolidationWorker(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case eventID := <-s.queue:
-			_ = s.consolidateQueued(ctx, eventID)
+			_, _ = s.consolidateQueuedBatch(ctx, s.collectConsolidationBatch(eventID, s.cfg.BatchSize))
 		}
 	}
 }
@@ -361,6 +363,41 @@ func (s *Service) enqueue(eventID string) bool {
 	}
 }
 
+func (s *Service) collectConsolidationBatch(firstEventID string, limit int) []string {
+	if limit <= 0 {
+		limit = 1
+	}
+	batch := make([]string, 0, limit)
+	batch = append(batch, firstEventID)
+	for len(batch) < limit {
+		select {
+		case eventID := <-s.queue:
+			batch = append(batch, eventID)
+		default:
+			return batch
+		}
+	}
+	return batch
+}
+
+func (s *Service) consolidateQueuedBatch(ctx context.Context, eventIDs []string) (int, error) {
+	processed := 0
+	var firstErr error
+	for _, eventID := range eventIDs {
+		if err := s.consolidateQueued(ctx, eventID); err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		processed++
+	}
+	if firstErr != nil {
+		s.setLastError(firstErr)
+	}
+	return processed, firstErr
+}
+
 func (s *Service) consolidateQueued(ctx context.Context, eventID string) error {
 	if err := s.Consolidate(ctx, eventID); err != nil {
 		s.failedTotal.Add(1)
@@ -440,6 +477,9 @@ func (s *Service) skipEdgeForRetrieval(edge Edge) bool {
 func normalizeServiceConfig(cfg ServiceConfig) ServiceConfig {
 	if cfg.QueueSize <= 0 {
 		cfg.QueueSize = 1024
+	}
+	if cfg.BatchSize <= 0 {
+		cfg.BatchSize = 10
 	}
 	if cfg.SemanticTopK <= 0 {
 		cfg.SemanticTopK = 20

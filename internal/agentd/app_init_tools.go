@@ -70,6 +70,9 @@ func initAppTooling(ctx context.Context, cfg *config.Config, httpClient *http.Cl
 	}
 	registerRAGTools(toolRegistry, mgr, ragOpts)
 	runtimeRAGService := ragservice.New(mgr, ragOpts...)
+	if cfg.Magma.Enabled {
+		runtimeRAGService.StartMagmaBackgroundWorkers(context.Background())
+	}
 
 	toolRegistry.Register(codeevolvetool.New(cfg, llm))
 	toolRegistry.Register(codeqatool.NewJudge(cfg, codeQAService))

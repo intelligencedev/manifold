@@ -165,6 +165,49 @@ func TestBuildTeamChatEngineBuildsDelegatorAndDefaultPrompt(t *testing.T) {
 	}
 }
 
+func TestBuildTeamChatEngineUsesTeamOrchestratorConfig(t *testing.T) {
+	t.Parallel()
+
+	app := newChatEngineBuilderTestApp(t)
+	ctx := context.Background()
+
+	_, err := app.teamStore.Upsert(ctx, 9, persistence.SpecialistTeam{
+		Name: "ops",
+		Orchestrator: persistence.Specialist{
+			Name:                       "ops-orchestrator",
+			Provider:                   "openai",
+			Model:                      "gpt-4.1-mini",
+			System:                     "You are the OPS TEAM ORCHESTRATOR. Always answer with the ops runbook.",
+			EnableTools:                true,
+			AllowTools:                 []string{"shell"},
+			SummaryContextWindowTokens: 12345,
+		},
+	})
+	if err != nil {
+		t.Fatalf("upsert team: %v", err)
+	}
+
+	result := app.buildTeamChatEngine(ctx, buildTeamTestRequest("ops", "sess-team", 9))
+	if result.Err != nil {
+		t.Fatalf("buildTeamChatEngine: %v", result.Err)
+	}
+	if result.Engine == nil {
+		t.Fatal("expected team engine")
+	}
+	if !strings.Contains(result.Engine.System, "OPS TEAM ORCHESTRATOR") {
+		t.Fatalf("expected team orchestrator system prompt, got %q", result.Engine.System)
+	}
+	if result.Engine.Model != "gpt-4.1-mini" {
+		t.Fatalf("expected team orchestrator model, got %q", result.Engine.Model)
+	}
+	if result.ModelLabel != "ops:gpt-4.1-mini" {
+		t.Fatalf("unexpected model label: %q", result.ModelLabel)
+	}
+	if result.Engine.ContextWindowTokens != 12345 {
+		t.Fatalf("expected team context window 12345, got %d", result.Engine.ContextWindowTokens)
+	}
+}
+
 func TestBuildOrchestratorChatEngineUsesOverride(t *testing.T) {
 	t.Parallel()
 

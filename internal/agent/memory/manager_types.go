@@ -45,6 +45,10 @@ type SummaryResult struct {
 	EstimatedTokens int
 	// TokenBudget is the available token budget.
 	TokenBudget int
+	// ContextWindowTokens is the effective context window used for the summary decision.
+	ContextWindowTokens int
+	// ReserveBufferTokens is the output/reasoning reserve subtracted from the context window.
+	ReserveBufferTokens int
 	// MessageCount is the total number of messages before summarization.
 	MessageCount int
 	// SummarizedCount is the number of messages that were summarized.

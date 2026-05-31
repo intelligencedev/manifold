@@ -61,6 +61,32 @@ export interface ChatMemoryContext {
   lanes?: Record<string, ChatMemoryContextLane>;
 }
 
+export type ChatContextMetricSegmentKind =
+  | "system"
+  | "history"
+  | "user"
+  | "memory"
+  | "tools"
+  | "summary"
+  | "assistant";
+
+export interface ChatContextMetricSegment {
+  kind: ChatContextMetricSegmentKind;
+  tokens: number;
+}
+
+export interface ChatContextMetrics {
+  phase: string;
+  inputTokens: number;
+  contextWindow: number;
+  summaryThreshold: number;
+  reserveTokens: number;
+  messageCount: number;
+  summarizedCount?: number;
+  willSummarize: boolean;
+  segments: ChatContextMetricSegment[];
+}
+
 export interface ChatMessage {
   id: string;
   role: ChatRole;
@@ -84,7 +110,18 @@ export interface ChatMessage {
   activityToolTitle?: string;
   activityThoughtSummary?: string;
   memoryContext?: ChatMemoryContext;
+  contextMetrics?: ChatContextMetrics;
   inputRequests?: ChatInputRequest[];
+}
+
+export interface SummaryEvent {
+  inputTokens: number;
+  tokenBudget: number;
+  contextWindow?: number;
+  reserveTokens?: number;
+  messageCount: number;
+  summarizedCount: number;
+  timestamp: string;
 }
 
 export interface ChatSessionMeta {

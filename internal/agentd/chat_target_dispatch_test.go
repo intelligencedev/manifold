@@ -72,10 +72,10 @@ func TestDispatchBuiltChatTargetMapsInternalBuildError(t *testing.T) {
 	}
 }
 
-func TestDescribeChatTargetPrefersSpecialistOverTeam(t *testing.T) {
+func TestDescribeChatTargetPrefersTeamOverSpecialist(t *testing.T) {
 	t.Parallel()
 
-	a := &app{}
+	a := &app{cfg: &config.Config{WorkflowTimeoutSeconds: 90, AgentRunTimeoutSeconds: 30}}
 	descriptor, ok := a.describeChatTarget(chatTargetDescribeRequest{
 		Target:               chatDispatchTarget{SpecialistName: "weather", TeamName: "ops"},
 		SessionID:            "sess-1",
@@ -86,14 +86,20 @@ func TestDescribeChatTargetPrefersSpecialistOverTeam(t *testing.T) {
 	if !ok {
 		t.Fatal("expected target descriptor")
 	}
-	if descriptor.NotFoundMessage != "specialist not found" {
+	if descriptor.NotFoundMessage != "team not found" {
 		t.Fatalf("unexpected not found message: %q", descriptor.NotFoundMessage)
 	}
-	if !descriptor.Stream.IncludeMatrixMessages {
-		t.Fatal("expected specialist stream to include matrix messages")
+	if descriptor.Stream.IncludeMatrixMessages {
+		t.Fatal("expected team stream matrix messages to remain disabled")
 	}
-	if !descriptor.JSON.IncludeMatrixMessages {
-		t.Fatal("expected specialist JSON to include matrix messages")
+	if descriptor.JSON.IncludeMatrixMessages {
+		t.Fatal("expected team JSON matrix messages to remain disabled")
+	}
+	if descriptor.JSON.TimeoutSeconds != 90 {
+		t.Fatalf("expected workflow timeout for team JSON, got %d", descriptor.JSON.TimeoutSeconds)
+	}
+	if descriptor.Stream.TimeoutSeconds != 90 {
+		t.Fatalf("expected workflow timeout for team stream, got %d", descriptor.Stream.TimeoutSeconds)
 	}
 	if descriptor.Build == nil {
 		t.Fatal("expected build function")

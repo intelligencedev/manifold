@@ -106,7 +106,7 @@ func TestRuntimePrepareContextFusesMemoryLanesInPromptOrder(t *testing.T) {
 	assertOrder(t, block.Text,
 		"Runtime Policy Context",
 		"Shared Belief Memory",
-		"MAGMA Graph Memory",
+		"Graph Memory",
 		"Past Relevant Experiences",
 		"Recent Task History",
 	)

@@ -99,6 +99,15 @@ func (s *Service) Close() {
 	s.magma.Close()
 }
 
+// StartMagmaBackgroundWorkers starts MAGMA consolidation and lifecycle workers
+// for long-lived service instances.
+func (s *Service) StartMagmaBackgroundWorkers(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.startMagmaWorkers(ctx)
+}
+
 // Ingest performs chunk-centric ingestion. Stubbed for Milestone 3.
 func (s *Service) Ingest(ctx context.Context, in ingest.IngestRequest) (ingest.IngestResponse, error) {
 	start := s.clock.Now()
@@ -265,7 +274,7 @@ func (s *Service) ingestMagma(ctx context.Context, in ingest.IngestRequest, pre 
 		return "", nil, nil
 	}
 	t0 := s.clock.Now()
-	s.startMagmaWorkers()
+	s.startMagmaWorkers(context.Background())
 	resp, err := s.magma.Ingest(ctx, magma.IngestRequest{
 		ID:           in.ID,
 		Tenant:       in.Tenant,
@@ -282,10 +291,16 @@ func (s *Service) ingestMagma(ctx context.Context, in ingest.IngestRequest, pre 
 	return resp.EventID, warnings, nil
 }
 
-func (s *Service) startMagmaWorkers() {
-	s.magma.StartConsolidationWorkers(context.Background(), s.magmaCfg.Consolidation.WorkerCount)
+func (s *Service) startMagmaWorkers(ctx context.Context) {
+	if s == nil || s.magma == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.magma.StartConsolidationWorkers(ctx, s.magmaCfg.Consolidation.WorkerCount)
 	if s.magmaCfg.Lifecycle.PruneIntervalMinutes > 0 {
-		s.magma.StartLifecycleWorker(context.Background(), time.Duration(s.magmaCfg.Lifecycle.PruneIntervalMinutes)*time.Minute)
+		s.magma.StartLifecycleWorker(ctx, time.Duration(s.magmaCfg.Lifecycle.PruneIntervalMinutes)*time.Minute)
 	}
 }
 
@@ -443,6 +458,7 @@ func magmaGraphTypes(graphs []string) []magma.GraphType {
 func magmaServiceConfig(cfg config.MagmaConfig, observer magma.Observer, provider llm.Provider) magma.ServiceConfig {
 	return magma.ServiceConfig{
 		QueueSize:           cfg.Consolidation.MaxQueueSize,
+		BatchSize:           cfg.Consolidation.BatchSize,
 		SemanticTopK:        cfg.Graphs.Semantic.TopK,
 		SimilarityThreshold: cfg.Graphs.Semantic.SimilarityThreshold,
 		CausalThreshold:     cfg.Graphs.Causal.LLMThreshold,

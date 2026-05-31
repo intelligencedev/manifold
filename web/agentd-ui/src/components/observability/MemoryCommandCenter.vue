@@ -8,8 +8,8 @@
           Memory Command Center
         </h2>
         <p class="text-xs text-faint-foreground">
-          Unified health, graph memory, retrieval explainability, and guarded
-          maintenance controls.
+          Graph memory, retrieval explainability, and guarded maintenance
+          controls.
         </p>
       </div>
       <div
@@ -39,13 +39,7 @@
       </div>
     </header>
 
-    <div class="grid shrink-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
-      <KpiTile
-        label="Health"
-        :value="healthLabel"
-        :detail="healthDetail"
-        :tone="healthTone"
-      />
+    <div class="grid shrink-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
       <KpiTile
         label="Searches"
         :value="formatNumber(overview?.totals?.searches ?? 0)"
@@ -62,7 +56,7 @@
         :detail="`${formatNumber(overview?.totals?.evolveErrors ?? 0)} errors`"
       />
       <KpiTile
-        label="MAGMA queue"
+        label="Memory Queue"
         :value="formatNumber(overview?.magma?.queueDepth ?? 0)"
         :detail="`${formatNumber(overview?.magma?.failedTotal ?? 0)} failed · ${formatNumber(overview?.magma?.droppedTotal ?? 0)} dropped`"
         :tone="overview?.magma?.lastError ? 'danger' : 'default'"
@@ -84,7 +78,7 @@
         >
           <div>
             <h3 class="text-sm font-semibold text-foreground">
-              MAGMA Graph Memory
+              Graph Memory
             </h3>
             <p class="text-xs text-faint-foreground">
               {{ graphData?.nodes?.length ?? 0 }} nodes ·
@@ -533,29 +527,6 @@ const flowNodes = computed<Node[]>(() =>
 );
 const flowEdges = computed<Edge[]>(() =>
   (graphData.value?.edges ?? []).map(toFlowEdge),
-);
-
-const healthLabel = computed(() => {
-  if (!overview.value?.config?.memoryEnabled) return "Disabled";
-  if (overview.value.magma?.lastError) return "Attention";
-  if ((overview.value.magma?.queueDepth ?? 0) > 0) return "Working";
-  return "Healthy";
-});
-const healthTone = computed(() => {
-  if (!overview.value?.config?.memoryEnabled) return "muted";
-  if (overview.value.magma?.lastError) return "danger";
-  if (
-    (overview.value.graph?.reviewEdges ?? 0) > 0 ||
-    (overview.value.magma?.queueDepth ?? 0) > 0
-  )
-    return "warning";
-  return "success";
-});
-const healthDetail = computed(
-  () =>
-    overview.value?.magma?.lastError ||
-    overview.value?.source ||
-    "No telemetry",
 );
 
 function isRecord(value: unknown): value is Record<string, unknown> {

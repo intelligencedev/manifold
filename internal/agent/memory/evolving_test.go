@@ -36,6 +36,12 @@ type recordingMagmaSink struct {
 	entry     *MemoryEntry
 }
 
+type fakeEvolvingReranker struct {
+	order []string
+	err   error
+	seen  []string
+}
+
 func (c *countingEmbedder) embed(ctx context.Context, cfg config.EmbeddingConfig, texts []string) ([][]float32, error) {
 	c.mu.Lock()
 	c.calls++
@@ -76,6 +82,45 @@ func (s *recordingMagmaSink) IngestEvolvingMemory(_ context.Context, userID int6
 	s.sessionID = sessionID
 	s.entry = cloneEntry(entry)
 	return "event:user:7:evolving:" + entry.ID, nil
+}
+
+func (r *fakeEvolvingReranker) RerankEvolvingMemory(_ context.Context, _ string, items []ScoredMemoryEntry) ([]ScoredMemoryEntry, error) {
+	r.seen = r.seen[:0]
+	for _, item := range items {
+		if item.Entry != nil {
+			r.seen = append(r.seen, item.Entry.ID)
+		}
+	}
+	if r.err != nil {
+		return items, r.err
+	}
+	byID := make(map[string]ScoredMemoryEntry, len(items))
+	for _, item := range items {
+		if item.Entry != nil {
+			byID[item.Entry.ID] = item
+		}
+	}
+	out := make([]ScoredMemoryEntry, 0, len(items))
+	used := make(map[string]struct{}, len(items))
+	for i, id := range r.order {
+		item, ok := byID[id]
+		if !ok {
+			continue
+		}
+		item.Score = 1 - float64(i)*0.01
+		out = append(out, item)
+		used[id] = struct{}{}
+	}
+	for _, item := range items {
+		if item.Entry == nil {
+			continue
+		}
+		if _, ok := used[item.Entry.ID]; ok {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out, nil
 }
 
 func testEmbedFn(_ context.Context, _ config.EmbeddingConfig, texts []string) ([][]float32, error) {
@@ -557,6 +602,73 @@ func TestSearchAppliesQueryInstruction(t *testing.T) {
 	}
 	if !diag.EmbeddingInstructionApplied || diag.EmbeddingInstructionUseCase != embedding.UseCaseEvolvingMemoryQuery {
 		t.Fatalf("unexpected instruction diagnostics: %+v", diag)
+	}
+}
+
+func TestSearchReranksCandidatePoolBeforeSelection(t *testing.T) {
+	t.Parallel()
+
+	reranker := &fakeEvolvingReranker{order: []string{"wanted", "near", "far"}}
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbedFn: func(context.Context, config.EmbeddingConfig, []string) ([][]float32, error) {
+			return [][]float32{{1, 0, 0, 0, 0, 0, 0, 0}}, nil
+		},
+		TopK:      1,
+		EnableRAG: true,
+		MMRLambda: 1,
+		Reranker:  reranker,
+	})
+	em.mu.Lock()
+	em.entries = []*MemoryEntry{
+		{ID: "near", Summary: "near vector match", Embedding: []float32{1, 0, 0, 0, 0, 0, 0, 0}},
+		{ID: "wanted", Summary: "reranker says this is relevant", Embedding: []float32{0.8, 0, 0, 0, 0, 0, 0, 0}},
+		{ID: "far", Summary: "less relevant", Embedding: []float32{0.6, 0, 0, 0, 0, 0, 0, 0}},
+	}
+	em.mu.Unlock()
+
+	results, diag, err := em.SearchWithDiagnostics(context.Background(), "query")
+	if err != nil {
+		t.Fatalf("SearchWithDiagnostics failed: %v", err)
+	}
+	if len(results) != 1 || results[0].Entry.ID != "wanted" {
+		t.Fatalf("expected reranked candidate to be selected, got %#v", results)
+	}
+	if !diag.RerankEnabled || !diag.RerankApplied || diag.RerankCandidates != 3 {
+		t.Fatalf("unexpected rerank diagnostics: %+v", diag)
+	}
+	if strings.Join(reranker.seen, ",") != "near,wanted,far" {
+		t.Fatalf("expected reranker to see preselection pool, got %#v", reranker.seen)
+	}
+}
+
+func TestSearchFallsBackWhenRerankerFails(t *testing.T) {
+	t.Parallel()
+
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbedFn: func(context.Context, config.EmbeddingConfig, []string) ([][]float32, error) {
+			return [][]float32{{1, 0, 0, 0, 0, 0, 0, 0}}, nil
+		},
+		TopK:      1,
+		EnableRAG: true,
+		MMRLambda: 1,
+		Reranker:  &fakeEvolvingReranker{err: errors.New("reranker unavailable")},
+	})
+	em.mu.Lock()
+	em.entries = []*MemoryEntry{
+		{ID: "near", Summary: "near vector match", Embedding: []float32{1, 0, 0, 0, 0, 0, 0, 0}},
+		{ID: "far", Summary: "less relevant", Embedding: []float32{0.5, 0, 0, 0, 0, 0, 0, 0}},
+	}
+	em.mu.Unlock()
+
+	results, diag, err := em.SearchWithDiagnostics(context.Background(), "query")
+	if err != nil {
+		t.Fatalf("SearchWithDiagnostics failed: %v", err)
+	}
+	if len(results) != 1 || results[0].Entry.ID != "near" {
+		t.Fatalf("expected fallback local ranking, got %#v", results)
+	}
+	if !diag.RerankEnabled || diag.RerankApplied || !strings.Contains(diag.RerankError, "reranker unavailable") {
+		t.Fatalf("unexpected rerank diagnostics: %+v", diag)
 	}
 }
 
@@ -1076,6 +1188,70 @@ func TestSearchUsesServerSideStoreWhenLocalEntriesEmpty(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for server-side search")
+	}
+}
+
+func TestSearchFiltersVectorCandidatesBelowRetrievalSimilarityThreshold(t *testing.T) {
+	t.Parallel()
+
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbedFn:                      testEmbedFn,
+		TopK:                         3,
+		EnableRAG:                    true,
+		RetrievalSimilarityThreshold: 0.5,
+	})
+	em.embedFn = func(context.Context, config.EmbeddingConfig, []string) ([][]float32, error) {
+		return [][]float32{{1, 0}}, nil
+	}
+	em.mu.Lock()
+	em.entries = []*MemoryEntry{
+		{ID: "strong", Input: "strong semantic match", Embedding: []float32{1, 0}},
+		{ID: "weak", Input: "unrelated note", Embedding: []float32{0.2, 0}},
+	}
+	em.mu.Unlock()
+
+	results, diag, err := em.SearchWithDiagnostics(context.Background(), "semantic query")
+	if err != nil {
+		t.Fatalf("SearchWithDiagnostics failed: %v", err)
+	}
+	if len(results) != 1 || results[0].Entry.ID != "strong" {
+		t.Fatalf("expected only strong match above threshold, got %#v", results)
+	}
+	if diag.VectorFiltered != 1 || diag.SimilarityThreshold != 0.5 {
+		t.Fatalf("expected threshold diagnostics, got %#v", diag)
+	}
+}
+
+func TestSearchFiltersServerVectorCandidatesBelowRetrievalSimilarityThreshold(t *testing.T) {
+	t.Parallel()
+
+	store := &recordingSearchEvolvingMemoryStore{
+		searchQueries: make(chan []float32, 1),
+		results: []ScoredMemoryEntry{{
+			Entry: &MemoryEntry{ID: "weak-server-entry", Input: "weak server task", Embedding: []float32{1, 0}},
+			Score: 0.3,
+		}},
+	}
+	em := NewEvolvingMemory(EvolvingMemoryConfig{
+		EmbedFn:                      testEmbedFn,
+		Store:                        store,
+		TopK:                         1,
+		EnableRAG:                    true,
+		RetrievalSimilarityThreshold: 0.5,
+	})
+	em.embedFn = func(context.Context, config.EmbeddingConfig, []string) ([][]float32, error) {
+		return [][]float32{{1, 0}}, nil
+	}
+
+	results, diag, err := em.SearchWithDiagnostics(context.Background(), "server query")
+	if err != nil {
+		t.Fatalf("SearchWithDiagnostics failed: %v", err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("expected weak server result below threshold to be filtered, got %#v", results)
+	}
+	if diag.VectorFiltered != 1 || diag.SimilarityThreshold != 0.5 {
+		t.Fatalf("expected threshold diagnostics, got %#v", diag)
 	}
 }
 

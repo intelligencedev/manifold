@@ -171,6 +171,9 @@ func configureCommonStreamCallbacks(eng *agent.Engine, stream *chatSSEWriter, em
 		}
 		stream.write(buildChatMemoryContextPayload(text, block, diag))
 	}
+	eng.OnContextMetrics = func(metrics agent.ContextMetrics) {
+		stream.write(buildChatContextMetricsPayload(metrics))
+	}
 	if emitThoughtSummary {
 		eng.OnThoughtSummary = func(summary string) {
 			log.Debug().Int("summary_len", len(summary)).Msg("http_handler_thought_summary")
@@ -213,10 +216,13 @@ func configureCommonStreamCallbacks(eng *agent.Engine, stream *chatSSEWriter, em
 	}
 	if emitSummaryEvents {
 		eng.OnSummaryTriggered = func(inputTokens, tokenBudget, messageCount, summarizedCount int) {
+			contextWindow, reserveTokens := summaryEventBudgetFromEngine(eng, tokenBudget)
 			stream.write(map[string]any{
 				"type":             "summary",
 				"input_tokens":     inputTokens,
 				"token_budget":     tokenBudget,
+				"context_window":   contextWindow,
+				"reserve_tokens":   reserveTokens,
 				"message_count":    messageCount,
 				"summarized_count": summarizedCount,
 			})
@@ -224,6 +230,32 @@ func configureCommonStreamCallbacks(eng *agent.Engine, stream *chatSSEWriter, em
 	} else {
 		eng.OnSummaryTriggered = nil
 	}
+}
+
+func summaryEventBudgetFromEngine(eng *agent.Engine, tokenBudget int) (int, int) {
+	reserveTokens := 25_000
+	contextWindow := tokenBudget
+	if eng != nil {
+		if eng.SummaryReserveBufferTokens > 0 {
+			reserveTokens = eng.SummaryReserveBufferTokens
+		}
+		contextWindow = eng.ContextWindowTokens
+		if contextWindow <= 0 && strings.TrimSpace(eng.Model) != "" {
+			if size, _ := llm.ContextSize(eng.Model); size > 0 {
+				contextWindow = size
+			}
+		}
+	}
+	if contextWindow <= 0 {
+		contextWindow = tokenBudget + reserveTokens
+	}
+	if contextWindow < tokenBudget {
+		contextWindow = tokenBudget + reserveTokens
+	}
+	if contextWindow > tokenBudget {
+		reserveTokens = contextWindow - tokenBudget
+	}
+	return contextWindow, reserveTokens
 }
 
 type chatMemoryContextPayload struct {
@@ -267,6 +299,52 @@ func buildChatMemoryContextPayload(text string, block agentmemory.ContextBlock, 
 			Items:      lane.Items,
 			Tokens:     lane.Tokens,
 		}
+	}
+	return payload
+}
+
+type chatContextMetricsPayload struct {
+	Type             string                            `json:"type"`
+	Phase            string                            `json:"phase"`
+	InputTokens      int                               `json:"input_tokens"`
+	ContextWindow    int                               `json:"context_window"`
+	SummaryThreshold int                               `json:"summary_threshold"`
+	ReserveTokens    int                               `json:"reserve_tokens"`
+	MessageCount     int                               `json:"message_count"`
+	SummarizedCount  int                               `json:"summarized_count,omitempty"`
+	WillSummarize    bool                              `json:"will_summarize"`
+	Segments         []chatContextMetricSegmentPayload `json:"segments,omitempty"`
+}
+
+type chatContextMetricSegmentPayload struct {
+	Kind   string `json:"kind"`
+	Tokens int    `json:"tokens"`
+}
+
+func buildChatContextMetricsPayload(metrics agent.ContextMetrics) chatContextMetricsPayload {
+	payload := chatContextMetricsPayload{
+		Type:             "context_metrics",
+		Phase:            metrics.Phase,
+		InputTokens:      metrics.InputTokens,
+		ContextWindow:    metrics.ContextWindow,
+		SummaryThreshold: metrics.SummaryThreshold,
+		ReserveTokens:    metrics.ReserveTokens,
+		MessageCount:     metrics.MessageCount,
+		SummarizedCount:  metrics.SummarizedCount,
+		WillSummarize:    metrics.WillSummarize,
+	}
+	if len(metrics.Segments) == 0 {
+		return payload
+	}
+	payload.Segments = make([]chatContextMetricSegmentPayload, 0, len(metrics.Segments))
+	for _, segment := range metrics.Segments {
+		if segment.Tokens <= 0 || strings.TrimSpace(segment.Kind) == "" {
+			continue
+		}
+		payload.Segments = append(payload.Segments, chatContextMetricSegmentPayload{
+			Kind:   segment.Kind,
+			Tokens: segment.Tokens,
+		})
 	}
 	return payload
 }

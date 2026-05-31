@@ -1,4 +1,5 @@
 import type {
+  ChatContextMetricSegment,
   ChatInputRequestChoice,
   ChatMemoryContextLane,
 } from "@/types/chat";
@@ -6,6 +7,7 @@ import type {
 export type ChatStreamEventType =
   | "thought_summary"
   | "memory_context"
+  | "context_metrics"
   | "delta"
   | "final"
   | "tool_start"
@@ -66,6 +68,12 @@ export interface ChatStreamEvent {
   truncated?: boolean;
   duration_ms?: number;
   lanes?: Record<string, ChatMemoryContextLane>;
+  phase?: string;
+  context_window?: number;
+  summary_threshold?: number;
+  reserve_tokens?: number;
+  will_summarize?: boolean;
+  segments?: ChatContextMetricSegment[];
   [key: string]: unknown;
 }
 

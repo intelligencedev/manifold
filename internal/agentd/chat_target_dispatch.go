@@ -62,38 +62,6 @@ type chatTargetDescribeRequest struct {
 }
 
 func (a *app) describeChatTarget(req chatTargetDescribeRequest) (chatTargetDescriptor, bool) {
-	if req.Target.SpecialistName != "" && !strings.EqualFold(req.Target.SpecialistName, specialists.OrchestratorName) {
-		return chatTargetDescriptor{
-			Build: func(ctx context.Context) chatEngineBuildResult {
-				return a.buildSpecialistChatEngine(ctx, chatEngineBuildRequest{
-					Name:                 req.Target.SpecialistName,
-					SystemPromptOverride: req.SystemPromptOverride,
-					SessionID:            req.SessionID,
-					ProjectID:            req.ProjectID,
-					ObjectiveID:          req.ObjectiveID,
-					Owner:                req.Owner,
-					MemorySettings:       req.MemorySettings,
-				})
-			},
-			NotFoundMessage:      "specialist not found",
-			InternalErrorMessage: "specialist registry unavailable",
-			Stream: chatStreamOptions{
-				Endpoint:              "/agent/run",
-				IncludeMatrixMessages: true,
-				KeepAlive:             true,
-				EmitThoughtSummary:    true,
-				EmitSummaryEvents:     true,
-				StructuredErrors:      true,
-				InheritImagePrompt:    true,
-			},
-			JSON: chatJSONOptions{
-				Endpoint:              "/agent/run",
-				IncludeMatrixMessages: true,
-				InheritImagePrompt:    true,
-			},
-		}, true
-	}
-
 	if req.Target.TeamName != "" {
 		teamTimeout := workflowLikeTimeout(a.cfg.WorkflowTimeoutSeconds, a.cfg.AgentRunTimeoutSeconds)
 		return chatTargetDescriptor{
@@ -122,6 +90,38 @@ func (a *app) describeChatTarget(req chatTargetDescribeRequest) (chatTargetDescr
 				Endpoint:           "/agent/run",
 				InheritImagePrompt: true,
 				TimeoutSeconds:     teamTimeout,
+			},
+		}, true
+	}
+
+	if req.Target.SpecialistName != "" && !strings.EqualFold(req.Target.SpecialistName, specialists.OrchestratorName) {
+		return chatTargetDescriptor{
+			Build: func(ctx context.Context) chatEngineBuildResult {
+				return a.buildSpecialistChatEngine(ctx, chatEngineBuildRequest{
+					Name:                 req.Target.SpecialistName,
+					SystemPromptOverride: req.SystemPromptOverride,
+					SessionID:            req.SessionID,
+					ProjectID:            req.ProjectID,
+					ObjectiveID:          req.ObjectiveID,
+					Owner:                req.Owner,
+					MemorySettings:       req.MemorySettings,
+				})
+			},
+			NotFoundMessage:      "specialist not found",
+			InternalErrorMessage: "specialist registry unavailable",
+			Stream: chatStreamOptions{
+				Endpoint:              "/agent/run",
+				IncludeMatrixMessages: true,
+				KeepAlive:             true,
+				EmitThoughtSummary:    true,
+				EmitSummaryEvents:     true,
+				StructuredErrors:      true,
+				InheritImagePrompt:    true,
+			},
+			JSON: chatJSONOptions{
+				Endpoint:              "/agent/run",
+				IncludeMatrixMessages: true,
+				InheritImagePrompt:    true,
 			},
 		}, true
 	}

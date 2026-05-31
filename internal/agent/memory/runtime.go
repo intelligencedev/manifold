@@ -283,7 +283,7 @@ func (r *Runtime) retrieveMagmaContext(ctx context.Context, req Request) (string
 	if text == "" {
 		return "", magmaCtx.Items, nil
 	}
-	return "## MAGMA Graph Memory\n\n" + text, magmaCtx.Items, nil
+	return "## Graph Memory\n\n" + text, magmaCtx.Items, nil
 }
 
 func (r *Runtime) retrieveEvolvingContext(ctx context.Context, req Request) (string, int, error) {
@@ -334,7 +334,6 @@ func buildRuntimeContext(sections []string, maxTokens int) ContextBlock {
 	if text == "" {
 		return ContextBlock{}
 	}
-	text = "## Relevant Agent Memory\n\n" + text
 	tokenEstimate := llm.EstimateTokens(text)
 	if maxTokens <= 0 || tokenEstimate <= maxTokens {
 		return ContextBlock{Text: text, TokenEstimate: tokenEstimate}

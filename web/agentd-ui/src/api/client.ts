@@ -236,8 +236,14 @@ export interface AgentdSettings {
   openaiSummaryModel: string;
   openaiSummaryUrl: string;
   summaryEnabled: boolean;
+  summaryContextWindowTokens: number;
   summaryPlainTextContextWindowTokens: number;
   summaryReserveBufferTokens: number;
+  summaryMinKeepLastMessages: number;
+  summaryMaxKeepLastMessages: number;
+  summaryMaxSummaryChunkTokens: number;
+  summaryCallTimeoutSeconds: number;
+  summaryTokenBudget: number;
   requestInfoEnabled: boolean;
 
   promptBaseSystem: string;

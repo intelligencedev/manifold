@@ -103,4 +103,21 @@ describe("streamAgentRun", () => {
       memory_enabled: false,
     });
   });
+
+  it("routes team runs with the team query parameter", async () => {
+    const response = new Response(JSON.stringify({ result: "done" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+    const fetchMock = vi.fn().mockResolvedValue(response);
+
+    await streamAgentRun({
+      prompt: "hello",
+      teamName: "ops",
+      onEvent: () => {},
+      fetchImpl: fetchMock,
+    });
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/agent/run?team=ops");
+  });
 });

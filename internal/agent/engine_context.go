@@ -41,7 +41,9 @@ func (e *Engine) augmentWithUnifiedMemory(ctx context.Context, userInput string,
 		Int64("duration_ms", diag.DurationMs).
 		Msg("unified_memory_context_added")
 	e.emitMemoryContext(block, diag)
-	return AddRuntimeContextToCurrentUserMessage(msgs, block.Text)
+	msgs = AddRuntimeContextToCurrentUserMessage(msgs, block.Text)
+	e.emitContextMetrics(ctx, msgs, ContextMetricPhaseMemoryAdded, []ContextMetricSegment{{Kind: ContextMetricKindMemory, Tokens: block.TokenEstimate}}, 0)
+	return msgs
 }
 
 func (e *Engine) emitMemoryContext(block memory.ContextBlock, diag memory.Diagnostics) {

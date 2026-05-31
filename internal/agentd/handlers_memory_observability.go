@@ -538,7 +538,9 @@ type memoryObservabilityFilter struct {
 
 func (a *app) memoryObservabilityFilter(r *http.Request) memoryObservabilityFilter {
 	tenant := strings.TrimSpace(r.URL.Query().Get("tenant"))
-	if tenant == "" {
+	if a == nil || a.cfg == nil || !a.cfg.Auth.Enabled {
+		tenant = fmt.Sprintf("user:%d", systemUserID)
+	} else if tenant == "" {
 		if uid, err := a.memoryObservabilityUserID(r); err == nil && uid > 0 {
 			tenant = fmt.Sprintf("user:%d", uid)
 		}

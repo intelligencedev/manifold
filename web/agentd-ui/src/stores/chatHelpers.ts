@@ -2,9 +2,14 @@ import type { ChatStreamEvent } from "@/api/chat";
 import type {
   AgentThread,
   AgentTraceEntry,
+  ChatContextMetricSegment,
+  ChatContextMetricSegmentKind,
+  ChatContextMetrics,
   ChatMemoryContext,
   ChatMemoryContextLane,
+  ChatMessage,
   ChatSessionMeta,
+  SummaryEvent,
 } from "@/types/chat";
 import { createId } from "@/utils/uuid";
 
@@ -76,6 +81,22 @@ export function agentToolEntry(
   };
 }
 
+export function updateLatestUserBeforeMessage(
+  messages: ChatMessage[],
+  messageId: string,
+  updater: (m: ChatMessage) => ChatMessage,
+): ChatMessage[] | null {
+  const assistantIndex = messages.findIndex((m) => m.id === messageId);
+  if (assistantIndex <= 0) return null;
+  for (let i = assistantIndex - 1; i >= 0; i -= 1) {
+    if (messages[i].role !== "user") continue;
+    const next = [...messages];
+    next.splice(i, 1, updater(messages[i]));
+    return next;
+  }
+  return null;
+}
+
 export function normalizeSessionMeta(meta: ChatSessionMeta): ChatSessionMeta {
   type ChatSessionMetaWire = ChatSessionMeta & {
     message_count?: unknown;
@@ -114,6 +135,12 @@ export function normalizeSessionMeta(meta: ChatSessionMeta): ChatSessionMeta {
     evolvingMemoryEnabled: memoryEnabled,
     beliefMemoryEnabled: memoryEnabled,
   };
+}
+
+const defaultSessionNames = new Set(["", "new chat", "conversation"]);
+
+export function isDefaultSessionName(name?: string | null) {
+  return !name || defaultSessionNames.has(name.trim().toLowerCase());
 }
 
 export function httpStatus(error: unknown): number | null {
@@ -235,4 +262,202 @@ export function mergeMemoryContext(
       ...(incoming.lanes || {}),
     },
   };
+}
+
+const contextMetricKinds = new Set<ChatContextMetricSegmentKind>([
+  "system",
+  "history",
+  "user",
+  "memory",
+  "tools",
+  "summary",
+  "assistant",
+]);
+
+const localMetricContextWindow = 32_000;
+const localMetricReserveTokens = 25_000;
+
+type ContextMetricBudget = {
+  contextWindow?: number;
+  reserveTokens?: number;
+  summaryThreshold?: number;
+};
+
+export function localContextMetricsForMessages(
+  messages: ChatMessage[],
+  budget: ContextMetricBudget = {},
+): ChatContextMetrics {
+  const segments = localContextMetricSegments(messages);
+  const inputTokens = segments.reduce(
+    (sum, segment) => sum + segment.tokens,
+    0,
+  );
+  const contextWindow =
+    positiveNumber(budget.contextWindow) ?? localMetricContextWindow;
+  const reserveTokens =
+    positiveNumber(budget.reserveTokens) ?? localMetricReserveTokens;
+  const summaryThreshold =
+    positiveNumber(budget.summaryThreshold) ??
+    summaryThresholdForBudget(contextWindow, reserveTokens);
+  return {
+    phase: "client_estimate",
+    inputTokens,
+    contextWindow,
+    summaryThreshold,
+    reserveTokens,
+    messageCount: messages.length,
+    willSummarize: inputTokens > summaryThreshold,
+    segments,
+  };
+}
+
+export function contextMetricsFromEvent(
+  event: ChatStreamEvent,
+): ChatContextMetrics | null {
+  const inputTokens = numericEventValue(
+    event.input_tokens ?? event.inputTokens,
+  );
+  const contextWindow = numericEventValue(
+    event.context_window ?? event.contextWindow,
+  );
+  const summaryThreshold = numericEventValue(
+    event.summary_threshold ?? event.summaryThreshold ?? event.token_budget,
+  );
+  const reserveTokens = numericEventValue(
+    event.reserve_tokens ?? event.reserveTokens,
+  );
+  if (!inputTokens || !contextWindow || !summaryThreshold) return null;
+  return {
+    phase: typeof event.phase === "string" ? event.phase : "",
+    inputTokens,
+    contextWindow,
+    summaryThreshold,
+    reserveTokens:
+      reserveTokens ?? Math.max(contextWindow - summaryThreshold, 0),
+    messageCount:
+      numericEventValue(event.message_count ?? event.messageCount) ?? 0,
+    summarizedCount: numericEventValue(
+      event.summarized_count ?? event.summarizedCount,
+    ),
+    willSummarize:
+      event.will_summarize === true || event.willSummarize === true,
+    segments: parseContextMetricSegments(event.segments),
+  };
+}
+
+export function contextMetricsFromSummaryEvent(
+  event: SummaryEvent,
+  budget: ContextMetricBudget = {},
+): ChatContextMetrics | null {
+  if (event.inputTokens <= 0 || event.tokenBudget <= 0) return null;
+  const contextWindow =
+    positiveNumber(event.contextWindow) ??
+    positiveNumber(budget.contextWindow) ??
+    event.tokenBudget;
+  const summaryThreshold = event.tokenBudget;
+  const reserveTokens =
+    positiveNumber(event.reserveTokens) ??
+    positiveNumber(budget.reserveTokens) ??
+    Math.max(contextWindow - summaryThreshold, 0);
+  return {
+    phase: "summary_triggered",
+    inputTokens: event.inputTokens,
+    contextWindow,
+    summaryThreshold,
+    reserveTokens,
+    messageCount: event.messageCount,
+    summarizedCount: event.summarizedCount,
+    willSummarize: event.inputTokens >= summaryThreshold,
+    segments: [{ kind: "history", tokens: event.inputTokens }],
+  };
+}
+
+function positiveNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : null;
+}
+
+function summaryThresholdForBudget(
+  contextWindow: number,
+  reserveTokens: number,
+): number {
+  const budget = contextWindow - reserveTokens;
+  return budget > 0 ? budget : Math.floor(contextWindow / 2);
+}
+
+function localContextMetricSegments(
+  messages: ChatMessage[],
+): ChatContextMetricSegment[] {
+  const totals = new Map<ChatContextMetricSegmentKind, number>();
+  for (const message of messages) {
+    const tokens = estimateResponseTokens(message.content) + 8;
+    if (tokens <= 8) continue;
+    const kind = localContextMetricKind(message.role);
+    totals.set(kind, (totals.get(kind) ?? 0) + tokens);
+  }
+  return Array.from(totals, ([kind, tokens]) => ({ kind, tokens }));
+}
+
+function localContextMetricKind(
+  role: ChatMessage["role"],
+): ChatContextMetricSegmentKind {
+  if (role === "system") return "system";
+  if (role === "assistant") return "assistant";
+  if (role === "tool") return "tools";
+  if (role === "status") return "history";
+  return "user";
+}
+
+export function estimateResponseTokens(text: string): number {
+  const trimmed = text.trim();
+  if (!trimmed) return 0;
+  return Math.max(1, Math.ceil(trimmed.length / 4));
+}
+
+export function withEstimatedAssistantTokens(
+  metrics: ChatContextMetrics | undefined,
+  content: string,
+): ChatContextMetrics | undefined {
+  if (!metrics) return metrics;
+  const estimatedTokens = estimateResponseTokens(content);
+  if (estimatedTokens <= 0) return metrics;
+  if (
+    metrics.phase === "assistant_added" &&
+    metrics.segments.some((segment) => segment.kind === "assistant")
+  ) {
+    return metrics;
+  }
+  const segments = metrics.segments.filter(
+    (segment) => segment.kind !== "assistant",
+  );
+  segments.push({ kind: "assistant", tokens: estimatedTokens });
+  const nonAssistantTotal = segments.reduce(
+    (sum, segment) => sum + segment.tokens,
+    0,
+  );
+  return {
+    ...metrics,
+    inputTokens: Math.max(metrics.inputTokens, nonAssistantTotal),
+    segments,
+  };
+}
+
+function parseContextMetricSegments(
+  value: unknown,
+): ChatContextMetricSegment[] {
+  if (!Array.isArray(value)) return [];
+  const segments: ChatContextMetricSegment[] = [];
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object") continue;
+    const segment = raw as Record<string, unknown>;
+    const kind = typeof segment.kind === "string" ? segment.kind : "";
+    const tokens = numericEventValue(segment.tokens);
+    if (!contextMetricKinds.has(kind as ChatContextMetricSegmentKind)) {
+      continue;
+    }
+    if (!tokens || tokens <= 0) continue;
+    segments.push({ kind: kind as ChatContextMetricSegmentKind, tokens });
+  }
+  return segments;
 }

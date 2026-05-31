@@ -35,7 +35,13 @@ func TestApplyAgentdSettings_UsesNormalizedAliases(t *testing.T) {
 		DatabaseURL:                         "postgres://legacy",
 		DBURL:                               "postgres://dburl",
 		PostgresDSN:                         "postgres://canonical",
+		SummaryContextWindowTokens:          32000,
 		SummaryPlainTextContextWindowTokens: 8192,
+		SummaryReserveBufferTokens:          25000,
+		SummaryMinKeepLastMessages:          4,
+		SummaryMaxKeepLastMessages:          12,
+		SummaryMaxSummaryChunkTokens:        4096,
+		SummaryCallTimeoutSeconds:           120,
 		EmbedInstructionMode:                "enabled",
 		EmbedInstructionFormat:              "qwen",
 		EmbedRAGQueryInstruction:            "Retrieve relevant passages.",
@@ -64,6 +70,15 @@ func TestApplyAgentdSettings_UsesNormalizedAliases(t *testing.T) {
 	}
 	if cfg.Summary.PlainTextContextWindowTokens != 8192 {
 		t.Fatalf("expected plain text summary context tokens, got %d", cfg.Summary.PlainTextContextWindowTokens)
+	}
+	if cfg.Summary.ContextWindowTokens != 32000 || cfg.SummaryContextWindowTokens != 32000 {
+		t.Fatalf("expected summary context tokens to sync, nested=%d top=%d", cfg.Summary.ContextWindowTokens, cfg.SummaryContextWindowTokens)
+	}
+	if cfg.Summary.MaxSummaryChunkTokens != 4096 || cfg.SummaryMaxSummaryChunkTokens != 4096 {
+		t.Fatalf("expected summary chunk tokens to sync, nested=%d top=%d", cfg.Summary.MaxSummaryChunkTokens, cfg.SummaryMaxSummaryChunkTokens)
+	}
+	if got := currentAgentdSettings(cfg); got.SummaryTokenBudget != 7000 {
+		t.Fatalf("expected projected summary token budget 7000, got %d", got.SummaryTokenBudget)
 	}
 	if cfg.Embedding.Instructions.Mode != "enabled" || cfg.Embedding.Instructions.RAGQuery != "Retrieve relevant passages." {
 		t.Fatalf("expected embedding instruction settings, got %+v", cfg.Embedding.Instructions)
@@ -105,7 +120,13 @@ func TestApplyAgentdSettingsYAML_UsesNormalizedAliases(t *testing.T) {
 		DatabaseURL:                         "postgres://legacy",
 		DBURL:                               "postgres://dburl",
 		PostgresDSN:                         "postgres://canonical",
+		SummaryContextWindowTokens:          32000,
 		SummaryPlainTextContextWindowTokens: 8192,
+		SummaryReserveBufferTokens:          25000,
+		SummaryMinKeepLastMessages:          4,
+		SummaryMaxKeepLastMessages:          12,
+		SummaryMaxSummaryChunkTokens:        4096,
+		SummaryCallTimeoutSeconds:           120,
 		BlockBinaries:                       "git, rg",
 		EmbedInstructionMode:                "enabled",
 		EmbedInstructionFormat:              "qwen",
@@ -133,8 +154,11 @@ func TestApplyAgentdSettingsYAML_UsesNormalizedAliases(t *testing.T) {
 		t.Fatalf("expected exec config in YAML map")
 	}
 	summaryCfg, ok := root["summary"].(map[string]any)
-	if !ok || summaryCfg["plainTextContextWindowTokens"] != 8192 {
-		t.Fatalf("expected plain text summary tokens in YAML map, got %#v", root["summary"])
+	if !ok || summaryCfg["contextWindowTokens"] != 32000 || summaryCfg["plainTextContextWindowTokens"] != 8192 || summaryCfg["reserveBufferTokens"] != 25000 {
+		t.Fatalf("expected summary budget settings in YAML map, got %#v", root["summary"])
+	}
+	if root["summaryContextWindowTokens"] != 32000 || root["summaryReserveBufferTokens"] != 25000 {
+		t.Fatalf("expected top-level summary aliases in YAML map, got %#v", root)
 	}
 	binaries, ok := execCfg["blockBinaries"].([]string)
 	if !ok || len(binaries) != 2 || binaries[0] != "git" || binaries[1] != "rg" {

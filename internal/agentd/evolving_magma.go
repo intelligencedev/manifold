@@ -151,6 +151,9 @@ func (s transitMagmaSink) IngestTransitRecord(ctx context.Context, record transi
 	if s.service == nil || strings.TrimSpace(record.KeyName) == "" {
 		return "", nil
 	}
+	if !record.Embed {
+		return "", nil
+	}
 	s.service.StartConsolidationWorkers(context.Background(), s.workerCount)
 	resp, err := s.service.Ingest(ctx, magma.IngestRequest{
 		ID:        "transit:" + record.KeyName,

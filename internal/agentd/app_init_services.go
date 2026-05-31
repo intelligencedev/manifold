@@ -36,6 +36,7 @@ import (
 	playgroundregistry "manifold/internal/playground/registry"
 	"manifold/internal/playground/worker"
 	"manifold/internal/projects"
+	ragreranker "manifold/internal/rag/reranker"
 	"manifold/internal/skills"
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
@@ -356,26 +357,32 @@ func (a *app) evolvingMemoryConfig(cfg *config.Config, memLLM llmpkg.Provider, m
 	if cfg.EvolvingMemory.PersistDebounceMs > 0 {
 		persistDebounce = time.Duration(cfg.EvolvingMemory.PersistDebounceMs) * time.Millisecond
 	}
+	var reranker memory.EvolvingMemoryReranker
+	if cfg.Reranking.Enabled {
+		reranker = evolvingMemoryRAGReranker{reranker: ragreranker.NewClient(cfg.Reranking)}
+	}
 	return memory.EvolvingMemoryConfig{
-		EmbeddingConfig:          cfg.Embedding,
-		LLM:                      memLLM,
-		Model:                    memModel,
-		PersistDebounce:          persistDebounce,
-		MaxSize:                  cfg.EvolvingMemory.MaxSize,
-		TopK:                     cfg.EvolvingMemory.TopK,
-		WindowSize:               cfg.EvolvingMemory.WindowSize,
-		EnableRAG:                cfg.EvolvingMemory.EnableRAG,
-		EnableSmartPrune:         cfg.EvolvingMemory.EnableSmartPrune,
-		PruneThreshold:           cfg.EvolvingMemory.PruneThreshold,
-		RelevanceDecay:           cfg.EvolvingMemory.RelevanceDecay,
-		MinRelevance:             cfg.EvolvingMemory.MinRelevance,
-		PruneQualityFloor:        cfg.EvolvingMemory.PruneQualityFloor,
-		PromotionAccessThreshold: cfg.EvolvingMemory.PromotionAccessThreshold,
-		JanitorInterval:          storeJanitorInterval,
-		Metrics:                  memory.NewMemoryMetrics(),
-		Store:                    evStore,
-		UserID:                   systemUserID,
-		MagmaSink:                magmaSink,
+		EmbeddingConfig:              cfg.Embedding,
+		LLM:                          memLLM,
+		Model:                        memModel,
+		PersistDebounce:              persistDebounce,
+		MaxSize:                      cfg.EvolvingMemory.MaxSize,
+		TopK:                         cfg.EvolvingMemory.TopK,
+		WindowSize:                   cfg.EvolvingMemory.WindowSize,
+		EnableRAG:                    cfg.EvolvingMemory.EnableRAG,
+		RetrievalSimilarityThreshold: cfg.EvolvingMemory.RetrievalSimilarityThreshold,
+		EnableSmartPrune:             cfg.EvolvingMemory.EnableSmartPrune,
+		PruneThreshold:               cfg.EvolvingMemory.PruneThreshold,
+		RelevanceDecay:               cfg.EvolvingMemory.RelevanceDecay,
+		MinRelevance:                 cfg.EvolvingMemory.MinRelevance,
+		Reranker:                     reranker,
+		PruneQualityFloor:            cfg.EvolvingMemory.PruneQualityFloor,
+		PromotionAccessThreshold:     cfg.EvolvingMemory.PromotionAccessThreshold,
+		JanitorInterval:              storeJanitorInterval,
+		Metrics:                      memory.NewMemoryMetrics(),
+		Store:                        evStore,
+		UserID:                       systemUserID,
+		MagmaSink:                    magmaSink,
 	}
 }
 
@@ -389,7 +396,9 @@ func (a *app) logEvolvingMemoryInitialized(cfg *config.Config, memProvider, memM
 		Dur("janitorInterval", time.Duration(cfg.EvolvingMemory.JanitorIntervalMinutes)*time.Minute).
 		Int("maxSize", cfg.EvolvingMemory.MaxSize).
 		Int("topK", cfg.EvolvingMemory.TopK).
+		Float64("retrievalSimilarityThreshold", cfg.EvolvingMemory.RetrievalSimilarityThreshold).
 		Bool("rag", cfg.EvolvingMemory.EnableRAG).
+		Bool("rerank", cfg.Reranking.Enabled).
 		Bool("smartPrune", cfg.EvolvingMemory.EnableSmartPrune).
 		Msg("evolving_memory_initialized")
 }

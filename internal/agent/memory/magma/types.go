@@ -215,6 +215,7 @@ type ServiceStats struct {
 
 type ServiceConfig struct {
 	QueueSize           int
+	BatchSize           int
 	SemanticTopK        int
 	SimilarityThreshold float64
 	CausalThreshold     float64

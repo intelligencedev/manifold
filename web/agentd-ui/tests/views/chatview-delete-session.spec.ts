@@ -7,6 +7,20 @@ const chatApiMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/api/client", () => ({
+  fetchAgentdSettings: async () => ({
+    openaiSummaryModel: "gpt-5",
+    openaiSummaryUrl: "https://api.openai.com/v1",
+    summaryEnabled: true,
+    summaryContextWindowTokens: 32000,
+    summaryPlainTextContextWindowTokens: 90000,
+    summaryReserveBufferTokens: 25000,
+    summaryMinKeepLastMessages: 4,
+    summaryMaxKeepLastMessages: 12,
+    summaryMaxSummaryChunkTokens: 4096,
+    summaryCallTimeoutSeconds: 120,
+    summaryTokenBudget: 7000,
+    requestInfoEnabled: true,
+  }),
   listProjects: async () => [
     {
       id: "proj-1",

@@ -30,10 +30,12 @@ func (e *Engine) Run(ctx context.Context, userInput string, history []llm.Messag
 	}
 
 	msgs := BuildInitialLLMMessages(e.System, userInput, history)
+	e.emitContextMetrics(ctx, msgs, ContextMetricPhaseAssembled, nil, 0)
 	if e.SummaryEnabled && !e.consumeSkipInitialSummarization() {
 		msgs = e.maybeSummarize(ctx, msgs)
 	}
 	msgs = AddRuntimeContextToCurrentUserMessage(msgs, e.UserPromptContext)
+	e.emitContextMetrics(ctx, msgs, ContextMetricPhaseRuntimeAdded, nil, 0)
 	if e.Memory != nil && !e.DisableMemory {
 		msgs = e.augmentWithUnifiedMemory(ctx, userInput, msgs)
 	} else {
@@ -86,10 +88,12 @@ func (e *Engine) RunStream(ctx context.Context, userInput string, history []llm.
 	}
 
 	msgs := BuildInitialLLMMessages(e.System, userInput, history)
+	e.emitContextMetrics(ctx, msgs, ContextMetricPhaseAssembled, nil, 0)
 	if e.SummaryEnabled && !e.consumeSkipInitialSummarization() {
 		msgs = e.maybeSummarize(ctx, msgs)
 	}
 	msgs = AddRuntimeContextToCurrentUserMessage(msgs, e.UserPromptContext)
+	e.emitContextMetrics(ctx, msgs, ContextMetricPhaseRuntimeAdded, nil, 0)
 	if e.Memory != nil && !e.DisableMemory {
 		msgs = e.augmentWithUnifiedMemory(ctx, userInput, msgs)
 	} else {

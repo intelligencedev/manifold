@@ -353,6 +353,9 @@ func validateConfigExec(cfg *Config) error {
 }
 
 func validateConfigMemory(cfg *Config) error {
+	if cfg.EvolvingMemory.RetrievalSimilarityThreshold < 0 || cfg.EvolvingMemory.RetrievalSimilarityThreshold > 1 {
+		return fmt.Errorf("evolvingMemory.retrievalSimilarityThreshold must be between 0 and 1 (got %g)", cfg.EvolvingMemory.RetrievalSimilarityThreshold)
+	}
 	if cfg.BeliefMemory.DefaultConfidence < 0 || cfg.BeliefMemory.DefaultConfidence > 1 {
 		return fmt.Errorf("beliefMemory.defaultConfidence must be between 0 and 1 (got %g)", cfg.BeliefMemory.DefaultConfidence)
 	}

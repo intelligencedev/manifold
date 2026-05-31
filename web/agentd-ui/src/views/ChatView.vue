@@ -296,9 +296,11 @@
           </div>
         </header>
 
+        <TokenGaugeRail variant="session" :metrics="sessionContextMetrics" />
+
         <div
           ref="messagesPane"
-          class="flex-1 min-h-0 space-y-5 overflow-y-auto overflow-x-hidden overscroll-contain px-8 py-4 pb-3 xl:px-12"
+          class="flex-1 min-h-0 space-y-5 overflow-y-auto overflow-x-hidden overscroll-contain py-4 pb-3 pl-24 pr-8 xl:pl-28 xl:pr-12"
           @scroll="handleMessagesScroll"
           @click="handleMarkdownClick"
         >
@@ -948,7 +950,7 @@
                 <div class="max-h-60 overflow-y-auto py-1">
                   <button
                     v-for="(cand, i) in mentionCandidates"
-                    :key="cand.name"
+                    :key="cand.id"
                     type="button"
                     class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs transition"
                     :class="
@@ -956,11 +958,19 @@
                         ? 'bg-surface-muted/60 text-foreground'
                         : 'text-subtle-foreground hover:bg-surface-muted/40 hover:text-foreground'
                     "
-                    @mousedown.prevent="selectMentionCandidate(cand.name)"
+                    @mousedown.prevent="selectMentionCandidate(cand)"
                   >
-                    <span class="truncate font-medium">@{{ cand.name }}</span>
+                    <span class="truncate font-medium"
+                      >@{{ cand.mentionName }}</span
+                    >
                     <span class="shrink-0 text-[10px] text-faint-foreground">
-                      {{ cand.model ? `Model ${cand.model}` : "" }}
+                      {{
+                        cand.kind === "team_orchestrator"
+                          ? "Team orchestrator"
+                          : cand.model
+                            ? `Model ${cand.model}`
+                            : ""
+                      }}
                     </span>
                   </button>
 
@@ -968,7 +978,7 @@
                     v-if="!mentionCandidates.length"
                     class="px-3 py-2 text-xs text-faint-foreground"
                   >
-                    No matching specialists
+                    No matching participants
                   </div>
                 </div>
               </div>
@@ -1355,19 +1365,19 @@
                 <ul v-else class="participant-list">
                   <li
                     v-for="participant in participantList"
-                    :key="participant.name"
+                    :key="participant.id"
                     class="participant-list-item"
                   >
                     <button
                       type="button"
                       class="participant-row"
-                      :class="participantRowClasses(participant.name)"
+                      :class="participantRowClasses(participant)"
                       :aria-label="`Open activity for ${participant.name}`"
-                      @click="openParticipantActivity(participant.name)"
+                      @click="openParticipantActivity(participant)"
                     >
                       <span
                         class="participant-dot"
-                        :class="participantDotClasses(participant.name)"
+                        :class="participantDotClasses(participant)"
                       ></span>
                       <span class="participant-body">
                         <span class="participant-name">{{
@@ -1382,7 +1392,7 @@
                         </span>
                       </span>
                       <span class="participant-status">
-                        {{ participantStatusLabel(participant.name) }}
+                        {{ participantStatusLabel(participant) }}
                       </span>
                     </button>
                   </li>
@@ -1527,13 +1537,15 @@ import type {
 } from "@/types/chat";
 import { useQuery } from "@tanstack/vue-query";
 import {
+  fetchAgentdSettings,
   listTeams,
   listSpecialists,
+  type AgentdSettings,
   type Specialist,
   type SpecialistTeam,
 } from "@/api/client";
 import { renderMarkdown } from "@/utils/markdown";
-import { resolveLeadingSpecialistMention } from "@/utils/chatMentions";
+import { resolveLeadingChatMention } from "@/utils/chatMentions";
 import "highlight.js/styles/github-dark-dimmed.css";
 import SolarPaperclip2Bold from "@/components/icons/SolarPaperclip2Bold.vue";
 import SolarMicrophone3Bold from "@/components/icons/SolarMicrophone3Bold.vue";
@@ -1544,10 +1556,16 @@ import SolarTrashIcon from "@/components/icons/SolarTrash.vue";
 import SolarRefreshIcon from "@/components/icons/SolarRefresh.vue";
 import SolarDownloadIcon from "@/components/icons/SolarDownload.vue";
 import Camera from "@/components/icons/Camera.vue";
+import TokenGaugeRail from "@/components/chat/TokenGaugeRail.vue";
 import DropdownSelect from "@/components/DropdownSelect.vue";
 import GlassCard from "@/components/ui/GlassCard.vue";
 import { useChatStore } from "@/stores/chat";
+import {
+  contextMetricsFromSummaryEvent,
+  localContextMetricsForMessages,
+} from "@/stores/chatHelpers";
 import { useProjectsStore } from "@/stores/projects";
+import type { ChatContextMetrics } from "@/types/chat";
 import type { DropdownOption } from "@/types/dropdown";
 
 const router = useRouter();
@@ -1557,6 +1575,12 @@ let previousBodyOverflow: string | null = null;
 
 const chat = useChatStore();
 const proj = useProjectsStore();
+const summarySettingsQuery = useQuery({
+  queryKey: ["agentd-summary-settings"],
+  queryFn: fetchAgentdSettings,
+  staleTime: 60_000,
+  retry: false,
+});
 
 type CurrentUser = { name?: string; email?: string; picture?: string };
 const currentUser = ref<CurrentUser | null>(null);
@@ -1809,7 +1833,7 @@ const teamOptions = computed<DropdownOption[]>(() => {
     .sort((a, b) =>
       a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
     );
-  return [{ id: "", label: "All specialists", value: "" }, ...teams];
+  return [{ id: "", label: "All participants", value: "" }, ...teams];
 });
 
 const selectedSpecialistBySession = ref<Record<string, string>>({});
@@ -1860,7 +1884,7 @@ const selectedTeamMembers = computed(() => {
   );
 });
 
-// --- @mention specialist picker (Slack-like) ---
+// --- @mention participant picker (Slack-like) ---
 const mentionQuery = ref("");
 const mentionTokenStart = ref<number | null>(null);
 const mentionTokenEnd = ref<number | null>(null);
@@ -1868,14 +1892,31 @@ const mentionActiveIndex = ref(0);
 
 const mentionCandidates = computed<Participant[]>(() => {
   const q = (mentionQuery.value || "").trim().toLowerCase();
-  const base = participantList.value;
+  const base = mentionParticipantList.value;
   if (!q) return base;
-  return base.filter((p) => p.name.toLowerCase().includes(q));
+  return base.filter(
+    (p) =>
+      p.name.toLowerCase().includes(q) ||
+      p.mentionName.toLowerCase().includes(q),
+  );
 });
 
 const mentionMenuOpen = computed(() => {
   if (!projectSelected.value) return false;
   return mentionTokenStart.value != null && mentionTokenEnd.value != null;
+});
+
+const chatMentionTargets = computed(() => {
+  const teamTargets = (teamsData?.value || [])
+    .map((team) => (team.name || "").trim())
+    .filter(Boolean)
+    .map((name) => ({ kind: "team" as const, name }));
+  const specialistTargets = (specialistsData?.value || [])
+    .filter((spec: Specialist) => !spec.paused)
+    .map((spec) => (spec.name || "").trim())
+    .filter(Boolean)
+    .map((name) => ({ kind: "specialist" as const, name }));
+  return [...teamTargets, ...specialistTargets];
 });
 
 function closeMentionMenu() {
@@ -1931,7 +1972,7 @@ function updateMentionState() {
   }
 }
 
-function selectMentionCandidate(name: string) {
+function selectMentionCandidate(participant: Participant) {
   const start = mentionTokenStart.value;
   const end = mentionTokenEnd.value;
   if (start == null || end == null) return;
@@ -1939,9 +1980,14 @@ function selectMentionCandidate(name: string) {
   const value = draft.value || "";
   const before = value.slice(0, start);
   const after = value.slice(end);
-  const insert = `@${name} `;
+  const insert = `@${participant.mentionName} `;
 
-  selectedSpecialist.value = name.trim() || "orchestrator";
+  if (participant.kind === "team_orchestrator") {
+    selectedTeam.value = participant.teamName || participant.mentionName;
+    selectedSpecialist.value = "orchestrator";
+  } else {
+    selectedSpecialist.value = participant.routeName || participant.name;
+  }
 
   draft.value = `${before}${insert}${after}`;
   closeMentionMenu();
@@ -1962,6 +2008,11 @@ watch([selectedTeam, teamsData], ([teamName]) => {
   if (!teamsByName.value.has(name.toLowerCase())) {
     selectedTeam.value = "";
   }
+});
+
+watch(selectedTeam, () => {
+  selectedSpecialist.value = "orchestrator";
+  closeParticipantActivity();
 });
 
 watch([selectedTeam, selectedSpecialist, selectedTeamMembers], () => {
@@ -2089,6 +2140,95 @@ function renderMarkdownOrHtml(content: string) {
 const activeSession = computed(() => chat.activeSession);
 const activeMessages = computed(() => chat.activeMessages);
 const chatMessages = computed(() => chat.chatMessages);
+const activeSummaryEvent = computed(() => chat.activeSummaryEvent);
+const configuredSummaryBudget = computed(() =>
+  summaryBudgetFromAgentdSettings(summarySettingsQuery.data.value),
+);
+const sessionContextMetrics = computed(() => {
+  const latestMetrics = findLast(activeMessages.value, (message) =>
+    Boolean(message.contextMetrics),
+  )?.contextMetrics;
+  const streamingMetrics = findLast(activeMessages.value, (message) =>
+    Boolean(message.streaming && message.contextMetrics),
+  )?.contextMetrics;
+  if (streamingMetrics) return streamingMetrics;
+  const serverMetrics = findLast(
+    activeMessages.value,
+    (message) =>
+      !!message.contextMetrics &&
+      message.contextMetrics.phase !== "client_estimate",
+  )?.contextMetrics;
+  if (latestMetrics?.phase === "client_estimate") {
+    return withKnownContextBudget(latestMetrics, serverMetrics);
+  }
+  if (serverMetrics) return serverMetrics;
+  if (activeSummaryEvent.value) {
+    const summaryMetrics = contextMetricsFromSummaryEvent(
+      activeSummaryEvent.value,
+      configuredSummaryBudget.value ?? undefined,
+    );
+    if (summaryMetrics) return summaryMetrics;
+  }
+  return localContextMetricsForMessages(
+    activeMessages.value,
+    configuredSummaryBudget.value ?? undefined,
+  );
+});
+
+function summaryBudgetFromAgentdSettings(
+  settings?: AgentdSettings,
+): Pick<
+  ChatContextMetrics,
+  "contextWindow" | "reserveTokens" | "summaryThreshold"
+> | null {
+  if (!settings) return null;
+  const contextWindow = positiveMetricValue(
+    settings.summaryContextWindowTokens,
+  );
+  const reserveTokens = positiveMetricValue(
+    settings.summaryReserveBufferTokens,
+  );
+  const summaryThreshold =
+    positiveMetricValue(settings.summaryTokenBudget) ??
+    (contextWindow && reserveTokens
+      ? summaryThresholdForBudget(contextWindow, reserveTokens)
+      : null);
+  if (!contextWindow || !summaryThreshold) return null;
+  return {
+    contextWindow,
+    reserveTokens:
+      reserveTokens ?? Math.max(contextWindow - summaryThreshold, 0),
+    summaryThreshold,
+  };
+}
+
+function positiveMetricValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : null;
+}
+
+function summaryThresholdForBudget(
+  contextWindow: number,
+  reserveTokens: number,
+): number {
+  const budget = contextWindow - reserveTokens;
+  return budget > 0 ? budget : Math.floor(contextWindow / 2);
+}
+
+function withKnownContextBudget(
+  metrics: ChatContextMetrics,
+  budgetSource?: ChatContextMetrics,
+): ChatContextMetrics {
+  if (!budgetSource) return metrics;
+  return {
+    ...metrics,
+    contextWindow: budgetSource.contextWindow,
+    summaryThreshold: budgetSource.summaryThreshold,
+    reserveTokens: budgetSource.reserveTokens,
+    willSummarize: metrics.inputTokens >= budgetSource.summaryThreshold,
+  };
+}
 const toolMessages = computed(() => chat.toolMessages);
 const activeThoughtSummaries = computed(() => chat.activeThoughtSummaries);
 const memorySettingsSavingBySession = ref<Record<string, boolean>>({});
@@ -2112,7 +2252,6 @@ const hasPendingInputRequest = computed(() =>
   ),
 );
 const toolActivityMsById = ref<Record<string, number>>({});
-const activeSummaryEvent = computed(() => chat.activeSummaryEvent);
 const sessionAgentDefaults = computed(() =>
   parseAgentModelLabel(activeSession.value?.model || ""),
 );
@@ -2240,8 +2379,13 @@ type SpecialistActivityItem = {
   isOrchestrator: boolean;
 };
 type Participant = {
+  id: string;
   name: string;
   model: string;
+  kind: "specialist" | "team_orchestrator";
+  routeName: string;
+  mentionName: string;
+  teamName?: string;
 };
 
 const lastAssistant = computed(() =>
@@ -2331,6 +2475,7 @@ function activityItemFromThread(thread: AgentThread): SpecialistActivityItem {
 
 function orchestratorActivityItem(): SpecialistActivityItem {
   const { agentName, agentModel } = resolveAgentContext();
+  const teamName = selectedTeamConfig.value?.name?.trim() || undefined;
   const assistant = lastAssistant.value;
   const status: ActivityStatus = assistant?.error
     ? "error"
@@ -2344,6 +2489,7 @@ function orchestratorActivityItem(): SpecialistActivityItem {
   return {
     id: "orchestrator",
     name: agentName || "orchestrator",
+    team: teamName,
     model: agentModel || "",
     status,
     statusLabel: activityStateLabel(status),
@@ -2386,7 +2532,8 @@ function runActivityItemsForMessage(messageId: string) {
   const shouldShowOrchestrator =
     isLastAssistantMessage &&
     (activeThoughtSummaries.value.length > 0 ||
-      (isStreaming.value && items.length === 0));
+      (isStreaming.value && items.length === 0) ||
+      (Boolean(selectedTeamConfig.value) && Boolean(lastAssistant.value)));
   if (shouldShowOrchestrator) items.unshift(orchestratorActivityItem());
 
   return sortActivityItems(items);
@@ -2807,15 +2954,31 @@ function selectActivity(id: string) {
   scrollActivityPaneToBottom({ force: true });
 }
 
-function participantActivityItems(name: string) {
-  const key = name.trim().toLowerCase();
-  return visibleParticipantActivityItems.value.filter(
-    (item) => item.name.toLowerCase() === key,
-  );
+function participantActivityKey(participant: Participant) {
+  if (participant.kind === "team_orchestrator") {
+    const teamName = (participant.teamName || participant.mentionName)
+      .trim()
+      .toLowerCase();
+    return `team:${teamName}:orchestrator`;
+  }
+  return `specialist:${participant.routeName.trim().toLowerCase()}`;
 }
 
-function participantActivityKey(name: string) {
-  return name.trim().toLowerCase();
+function activityItemKey(item: SpecialistActivityItem) {
+  const team = (item.team || "").trim();
+  const name = item.name.trim();
+  if (team && name.toLowerCase() === "orchestrator") {
+    return `team:${team.toLowerCase()}:orchestrator`;
+  }
+  if (item.isOrchestrator && team) {
+    return `team:${team.toLowerCase()}:orchestrator`;
+  }
+  return `specialist:${name.toLowerCase()}`;
+}
+
+function participantActivityItems(participant: Participant) {
+  const key = participantActivityKey(participant);
+  return runActivityItems.value.filter((item) => activityItemKey(item) === key);
 }
 
 const selectedParticipantActivity = computed(() => {
@@ -2823,18 +2986,18 @@ const selectedParticipantActivity = computed(() => {
   if (!key) return null;
   return (
     participantList.value.find(
-      (participant) => participantActivityKey(participant.name) === key,
+      (participant) => participantActivityKey(participant) === key,
     ) || null
   );
 });
 
 const selectedParticipantActivityItems = computed(() => {
   const participant = selectedParticipantActivity.value;
-  return participant ? participantActivityItems(participant.name) : [];
+  return participant ? participantActivityItems(participant) : [];
 });
 
-function openParticipantActivity(name: string) {
-  selectedParticipantActivityName.value = participantActivityKey(name);
+function openParticipantActivity(participant: Participant) {
+  selectedParticipantActivityName.value = participantActivityKey(participant);
   activityAutoScrollEnabled.value = true;
   activityLastScrollTop.value = 0;
   nextTick(() => {
@@ -2864,24 +3027,68 @@ function activityMonitorRowClasses(item: SpecialistActivityItem) {
   };
 }
 
-const participantList = computed<Participant[]>(() => {
+function specialistParticipant(
+  name: string,
+  model?: string,
+): Participant | null {
+  const trimmed = (name || "").trim();
+  if (!trimmed) return null;
+  return {
+    id: `specialist:${trimmed.toLowerCase()}`,
+    name: trimmed,
+    model: (model || "").trim(),
+    kind: "specialist",
+    routeName: trimmed,
+    mentionName: trimmed,
+  };
+}
+
+function teamOrchestratorDisplayName(teamName: string) {
+  const trimmed = teamName.trim();
+  return trimmed ? `${trimmed} orchestrator` : "Team orchestrator";
+}
+
+function teamOrchestratorModel(team: SpecialistTeam) {
+  return (
+    (team.orchestrator?.model || "").trim() ||
+    sessionAgentDefaults.value.model ||
+    ""
+  );
+}
+
+function teamOrchestratorParticipant(team: SpecialistTeam): Participant | null {
+  const name = (team.name || "").trim();
+  if (!name) return null;
+  return {
+    id: `team:${name.toLowerCase()}:orchestrator`,
+    name: teamOrchestratorDisplayName(name),
+    model: teamOrchestratorModel(team),
+    kind: "team_orchestrator",
+    routeName: "orchestrator",
+    mentionName: name,
+    teamName: name,
+  };
+}
+
+function dedupeParticipants(participants: Participant[]) {
   const list: Participant[] = [];
   const seen = new Set<string>();
-  const add = (name: string, model?: string) => {
-    const trimmed = (name || "").trim();
-    if (!trimmed) return;
-    const key = trimmed.toLowerCase();
-    if (seen.has(key)) return;
-    seen.add(key);
-    list.push({ name: trimmed, model: (model || "").trim() });
+  for (const participant of participants) {
+    if (seen.has(participant.id)) continue;
+    seen.add(participant.id);
+    list.push(participant);
+  }
+  return list;
+}
+
+const participantList = computed<Participant[]>(() => {
+  const list: Participant[] = [];
+  const add = (participant: Participant | null) => {
+    if (participant) list.push(participant);
   };
   const selectedTeamValue = selectedTeamConfig.value;
   if (selectedTeamValue) {
-    const teamOrchestratorModel =
-      (selectedTeamValue.orchestrator?.model || "").trim() ||
-      sessionAgentDefaults.value.model ||
-      "";
-    add("orchestrator", teamOrchestratorModel);
+    add(teamOrchestratorParticipant(selectedTeamValue));
     const members = (selectedTeamValue.members || [])
       .map((name) => name.trim())
       .filter(Boolean)
@@ -2890,9 +3097,9 @@ const participantList = computed<Participant[]>(() => {
       if (name.toLowerCase() === "orchestrator") continue;
       const spec = specialistsByName.value.get(name.toLowerCase());
       if (spec?.paused) continue;
-      add(spec?.name || name, spec?.model || "");
+      add(specialistParticipant(spec?.name || name, spec?.model || ""));
     }
-    return list;
+    return dedupeParticipants(list);
   }
 
   const orchestratorModel =
@@ -2901,7 +3108,7 @@ const participantList = computed<Participant[]>(() => {
     "";
   const orchestratorSpec = specialistsByName.value.get("orchestrator");
   if (!orchestratorSpec?.paused) {
-    add("orchestrator", orchestratorModel);
+    add(specialistParticipant("orchestrator", orchestratorModel));
   }
   const extras = (specialistsData?.value || [])
     .filter((spec: Specialist) => !spec.paused)
@@ -2913,12 +3120,28 @@ const participantList = computed<Participant[]>(() => {
     .sort((a, b) =>
       a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
     );
-  extras.forEach((spec) => add(spec.name, spec.model));
-  return list;
+  extras.forEach((spec) => add(specialistParticipant(spec.name, spec.model)));
+  return dedupeParticipants(list);
 });
 
-function participantIsActive(name: string) {
-  const key = name.trim().toLowerCase();
+const mentionParticipantList = computed<Participant[]>(() => {
+  const participants = [...participantList.value];
+  if (!selectedTeamConfig.value) {
+    const teams = (teamsData?.value || [])
+      .map((team) => teamOrchestratorParticipant(team))
+      .filter((team): team is Participant => Boolean(team))
+      .sort((a, b) =>
+        a.mentionName.localeCompare(b.mentionName, undefined, {
+          sensitivity: "base",
+        }),
+      );
+    return dedupeParticipants([...teams, ...participants]);
+  }
+  return dedupeParticipants(participants);
+});
+
+function participantIsActive(participant: Participant) {
+  const key = participantActivityKey(participant);
 
   // Find the currently streaming assistant message to determine who is live.
   const streamingMsg = activeMessages.value.find(
@@ -2926,55 +3149,66 @@ function participantIsActive(name: string) {
   );
 
   if (streamingMsg) {
-    // Prefer the agent name embedded in the message; fall back to selectedSpecialist.
-    const liveAgent = (
-      streamingMsg.agentName ||
-      streamingMsg.agent ||
-      selectedSpecialist.value ||
-      "orchestrator"
-    )
+    const liveTeam = selectedTeam.value.trim();
+    const liveAgent = (streamingMsg.agentName || streamingMsg.agent || "")
       .trim()
       .toLowerCase();
+    const liveKey =
+      liveTeam &&
+      (liveAgent === teamOrchestratorDisplayName(liveTeam).toLowerCase() ||
+        liveAgent === "orchestrator")
+        ? `team:${liveTeam.toLowerCase()}:orchestrator`
+        : `specialist:${(
+            liveAgent ||
+            selectedSpecialist.value ||
+            "orchestrator"
+          ).toLowerCase()}`;
 
     // During streaming, only the agent whose name matches is live.
     // Never mark orchestrator live just because runActivityCounts > 0 here —
     // that count includes the specialist itself and causes false positives.
-    return liveAgent === key;
+    return liveKey === key;
   }
 
   // No active stream: fall back to agent-thread activity counts.
-  if (key === "orchestrator") {
+  if (
+    participant.kind === "specialist" &&
+    participant.routeName.toLowerCase() === "orchestrator"
+  ) {
     return runActivityCounts.value.running > 0;
   }
   return visibleParticipantActivityItems.value.some(
-    (item) => item.status === "running" && item.name.toLowerCase() === key,
+    (item) => item.status === "running" && activityItemKey(item) === key,
   );
 }
 
-function participantStatusLabel(name: string) {
-  const key = name.trim().toLowerCase();
-  const active = participantIsActive(name);
+function participantStatusLabel(participant: Participant) {
+  const active = participantIsActive(participant);
   if (active) return "Live";
-  if (key === "orchestrator") {
+  if (
+    participant.kind === "specialist" &&
+    participant.routeName.toLowerCase() === "orchestrator"
+  ) {
     const label = runActivityStateLabel.value;
     return label && label.toLowerCase() !== "completed" ? label : "Idle";
   }
-  const item = visibleParticipantActivityItems.value.find(
-    (activity) => activity.name.toLowerCase() === key,
+  const key = participantActivityKey(participant);
+  const item = runActivityItems.value.find(
+    (activity) => activityItemKey(activity) === key,
   );
   if (!item) return "Idle";
   const lbl = item.statusLabel;
   return lbl && lbl.toLowerCase() !== "completed" ? lbl : "Idle";
 }
 
-function participantRowClasses(name: string) {
+function participantRowClasses(participant: Participant) {
   return {
-    "participant-row--active": participantIsActive(name),
+    "participant-row--active": participantIsActive(participant),
   };
 }
 
-function participantDotClasses(name: string) {
-  const active = participantIsActive(name);
+function participantDotClasses(participant: Participant) {
+  const active = participantIsActive(participant);
   return {
     "participant-dot--active": active,
     "participant-dot--idle": !active,
@@ -3434,23 +3668,31 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
         (att) => att.kind !== "image",
       );
     }
-    const mentioned = resolveLeadingSpecialistMention(
+    const mentioned = resolveLeadingChatMention(
       content,
-      participantList.value.map((p) => p.name),
+      chatMentionTargets.value,
     );
-    const mentionedSpecialist = (mentioned.specialist || "").trim();
-    if (mentionedSpecialist) {
-      selectedSpecialist.value = mentionedSpecialist;
+    let teamName = (selectedTeam.value || "").trim() || undefined;
+    let routingSpecialist =
+      (selectedSpecialist.value || "orchestrator").trim() || "orchestrator";
+    let routingTargetName = routingSpecialist;
+    if (mentioned.kind === "team" && mentioned.name) {
+      teamName = mentioned.name;
+      selectedTeam.value = teamName;
+      selectedSpecialist.value = "orchestrator";
+      routingSpecialist = "orchestrator";
+      routingTargetName = teamName;
+    } else if (mentioned.kind === "specialist" && mentioned.name) {
+      routingSpecialist = mentioned.name;
+      selectedSpecialist.value = routingSpecialist;
+      routingTargetName = routingSpecialist;
+    } else if (teamName && routingSpecialist.toLowerCase() === "orchestrator") {
+      routingTargetName = teamName;
     }
-    const routingSpecialist =
-      mentionedSpecialist ||
-      (selectedSpecialist.value || "orchestrator").trim() ||
-      "orchestrator";
     const specialist =
       routingSpecialist.toLowerCase() !== "orchestrator"
         ? routingSpecialist
         : undefined;
-    const teamName = selectedTeam.value || undefined;
     const { agentName, agentModel } = resolveAgentContext();
     await chat.sendPrompt(
       content,
@@ -3460,6 +3702,7 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
         ...options,
         specialist,
         routingSpecialist,
+        routingTargetName,
         teamName,
         projectId: projectId || undefined,
         memoryEnabled: memoryEnabled.value,
@@ -3494,6 +3737,8 @@ async function regenerateAssistant(message: ChatMessage) {
       ? routingSpecialist
       : undefined;
   const teamName = selectedTeam.value || undefined;
+  const routingTargetName =
+    teamName && !specialist ? teamName : routingSpecialist;
   const { agentName, agentModel } = resolveAgentContext();
   const sessionId = activeSessionId.value;
   const projectId = selectedProjectId.value.trim();
@@ -3503,6 +3748,7 @@ async function regenerateAssistant(message: ChatMessage) {
   await chat.regenerateAssistant({
     specialist,
     routingSpecialist,
+    routingTargetName,
     teamName,
     projectId,
     memoryEnabled: memoryEnabled.value,
@@ -3515,10 +3761,14 @@ async function regenerateAssistant(message: ChatMessage) {
 function resolveAgentContext() {
   const selected = (selectedSpecialist.value || "orchestrator").trim();
   const fallback = sessionAgentDefaults.value;
-  const agentName = selected || fallback.agentName || "Agent";
+  const team = selectedTeamConfig.value;
+  const agentName =
+    team && selected.toLowerCase() === "orchestrator"
+      ? teamOrchestratorDisplayName(team.name)
+      : selected || fallback.agentName || "Agent";
   const teamModel =
-    selected.toLowerCase() === "orchestrator"
-      ? (selectedTeamConfig.value?.orchestrator?.model || "").trim()
+    team && selected.toLowerCase() === "orchestrator"
+      ? teamOrchestratorModel(team)
       : "";
   const spec = specialistsByName.value.get(agentName.toLowerCase());
   const agentModel =
@@ -3716,14 +3966,14 @@ function handleComposerKeydown(event: KeyboardEvent) {
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
       const cand = mentionCandidates.value[mentionActiveIndex.value];
-      if (cand) selectMentionCandidate(cand.name);
+      if (cand) selectMentionCandidate(cand);
       return;
     }
     if (event.key === "Tab") {
       const cand = mentionCandidates.value[mentionActiveIndex.value];
       if (cand) {
         event.preventDefault();
-        selectMentionCandidate(cand.name);
+        selectMentionCandidate(cand);
       }
       return;
     }

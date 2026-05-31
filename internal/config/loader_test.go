@@ -645,6 +645,7 @@ memory:
     topK: 4
     windowSize: 20
     enableRAG: true
+    retrievalSimilarityThreshold: 0.45
   belief:
     maxBeliefsPerPrompt: 5
     retrieval:
@@ -675,7 +676,7 @@ memory:
 	if cfg.Memory.Retrieval.MaxTokensPerPrompt != 1800 || cfg.Memory.Retrieval.TimeoutMs != 500 || !cfg.Memory.Retrieval.IncludeRecent {
 		t.Fatalf("unexpected unified retrieval defaults: %+v", cfg.Memory.Retrieval)
 	}
-	if cfg.EvolvingMemory.TopK != 4 || cfg.EvolvingMemory.WindowSize != 20 || !cfg.EvolvingMemory.EnableRAG {
+	if cfg.EvolvingMemory.TopK != 4 || cfg.EvolvingMemory.WindowSize != 20 || !cfg.EvolvingMemory.EnableRAG || cfg.EvolvingMemory.RetrievalSimilarityThreshold != 0.45 {
 		t.Fatalf("unexpected evolving alias config: %+v", cfg.EvolvingMemory)
 	}
 	if cfg.BeliefMemory.MaxBeliefsPerPrompt != 5 || cfg.BeliefMemory.Retrieval.MinConfidence != 0.35 || !cfg.BeliefMemory.Retrieval.IncludeContradictions {

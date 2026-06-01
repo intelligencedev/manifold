@@ -24,8 +24,16 @@ export interface AgentRun {
   tokens?: number;
 }
 
-export async function fetchAgentRuns(): Promise<AgentRun[]> {
-  const response = await apiClient.get<AgentRun[]>("/runs");
+export interface AgentRunsParams {
+  window?: string;
+  windowSeconds?: number;
+  limit?: number;
+}
+
+export async function fetchAgentRuns(
+  params?: AgentRunsParams,
+): Promise<AgentRun[]> {
+  const response = await apiClient.get<AgentRun[]>("/runs", { params });
   return response.data;
 }
 

@@ -283,7 +283,7 @@ func (r *Runtime) retrieveMagmaContext(ctx context.Context, req Request) (string
 	if text == "" {
 		return "", magmaCtx.Items, nil
 	}
-	return "## Graph Memory\n\n" + text, magmaCtx.Items, nil
+	return text, magmaCtx.Items, nil
 }
 
 func (r *Runtime) retrieveEvolvingContext(ctx context.Context, req Request) (string, int, error) {

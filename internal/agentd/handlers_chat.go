@@ -78,9 +78,16 @@ func (a *app) runsHandler() http.HandlerFunc {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json")
 
+		window, err := parseWindowParam(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		limit := parseLimitParam(r, 200)
+
 		// Prefer ClickHouse-backed runs when available so the UI persists across restarts.
 		if a.runMetrics != nil {
-			runs, err := a.runMetrics.RecentRuns(r.Context(), 24*time.Hour, 200)
+			runs, err := a.runMetrics.RecentRuns(r.Context(), runsWindowOrDefault(window), limit)
 			if err != nil {
 				log.Warn().Err(err).Msg("clickhouse runs query failed")
 			} else if len(runs) > 0 {
@@ -89,8 +96,41 @@ func (a *app) runsHandler() http.HandlerFunc {
 			}
 		}
 
-		_ = json.NewEncoder(w).Encode(a.runs.list())
+		runs := filterAgentRunsByWindow(a.runs.list(), time.Now(), window)
+		_ = json.NewEncoder(w).Encode(limitAgentRuns(runs, limit))
 	}
+}
+
+func runsWindowOrDefault(window time.Duration) time.Duration {
+	if window > 0 {
+		return window
+	}
+	return 24 * time.Hour
+}
+
+func filterAgentRunsByWindow(runs []AgentRun, now time.Time, window time.Duration) []AgentRun {
+	if window <= 0 {
+		return runs
+	}
+	cutoff := now.Add(-window)
+	filtered := make([]AgentRun, 0, len(runs))
+	for _, run := range runs {
+		createdAt, err := time.Parse(time.RFC3339, run.CreatedAt)
+		if err != nil {
+			continue
+		}
+		if !createdAt.Before(cutoff) && !createdAt.After(now) {
+			filtered = append(filtered, run)
+		}
+	}
+	return filtered
+}
+
+func limitAgentRuns(runs []AgentRun, limit int) []AgentRun {
+	if limit > 0 && len(runs) > limit {
+		return runs[:limit]
+	}
+	return runs
 }
 
 func (a *app) chatSessionsHandler() http.HandlerFunc {

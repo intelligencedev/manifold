@@ -14,7 +14,7 @@ const props = defineProps<{
 const segmentLabels: Record<ChatContextMetricSegmentKind, string> = {
   system: "System",
   history: "History",
-  user: "User prompt",
+  user: "User",
   memory: "Memory",
   tools: "Tools",
   summary: "Summary",

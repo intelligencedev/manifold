@@ -1,0 +1,307 @@
+import type { ChatMessage } from "@/types/chat";
+import {
+  createChatSession as apiCreateChatSession,
+  deleteChatSession as apiDeleteChatSession,
+  deleteChatMessage as apiDeleteChatMessage,
+  deleteChatMessagesAfter as apiDeleteChatMessagesAfter,
+  fetchChatActivities,
+  fetchChatMessages,
+  listChatSessions,
+  renameChatSession as apiRenameChatSession,
+  updateChatSessionMemorySettings as apiUpdateChatSessionMemorySettings,
+  updateChatSessionProject as apiUpdateChatSessionProject,
+} from "@/api/chat";
+import { httpStatus, normalizeSessionMeta } from "@/stores/chatHelpers";
+import type { ChatStoreState } from "@/stores/chatStoreState";
+
+function createMessageDeletionActions(state: ChatStoreState) {
+  async function deleteMessage(sessionId: string, messageId: string) {
+    if (!sessionId || !messageId) return;
+    await apiDeleteChatMessage(sessionId, messageId);
+    const refreshed = await fetchChatMessages(sessionId);
+    state.setMessages(sessionId, refreshed);
+    state.clearThoughtSummaries(sessionId);
+    state.clearSummaryEvent(sessionId);
+  }
+
+  async function deleteMessagesAfter(
+    sessionId: string,
+    messageId: string,
+    inclusive = false,
+  ) {
+    if (!sessionId || !messageId) return;
+    await apiDeleteChatMessagesAfter(sessionId, messageId, inclusive);
+    const refreshed = await fetchChatMessages(sessionId);
+    state.setMessages(sessionId, refreshed);
+    state.clearThoughtSummaries(sessionId);
+    state.clearSummaryEvent(sessionId);
+  }
+
+  return { deleteMessage, deleteMessagesAfter };
+}
+
+function createSessionLoadActions(state: ChatStoreState) {
+  async function init() {
+    if (state.sessions.value.length) return;
+    await refreshSessionsFromServer(true);
+  }
+
+  async function refreshSessionsFromServer(initial = false) {
+    state.sessionsLoading.value = true;
+    if (!initial) state.sessionsError.value = null;
+    try {
+      const remote = await normalizedRemoteSessions(initial);
+      state.sessionsError.value = null;
+      state.sessions.value = remote;
+      reconcileSessionMessages(state, remote);
+      if (!remote.length) {
+        state.activeSessionId.value = "";
+        return;
+      }
+      if (!remote.some((s) => s.id === state.activeSessionId.value)) {
+        state.activeSessionId.value = remote[0].id;
+      }
+      if (state.activeSessionId.value) {
+        await loadMessagesFromServer(state.activeSessionId.value, {
+          force: true,
+        });
+      }
+    } catch (error) {
+      applySessionLoadError(state, error);
+    } finally {
+      state.sessionsLoading.value = false;
+    }
+  }
+
+  async function loadMessagesFromServer(
+    sessionId: string,
+    options: { force?: boolean } = {},
+  ) {
+    if (!sessionId) return;
+    if (!options.force && state.fetchedMessageSessions.has(sessionId)) return;
+    const beforeFetch = state.messagesBySession.value[sessionId] || [];
+    try {
+      const [data, activities] = await Promise.all([
+        fetchChatMessages(sessionId),
+        fetchChatActivities(sessionId),
+      ]);
+      state.fetchedMessageSessions.add(sessionId);
+      const current = state.messagesBySession.value[sessionId] || [];
+      const changedDuringFetch = current !== beforeFetch;
+      const preserveLocal =
+        changedDuringFetch &&
+        (current.some((m) => !!m.streaming) || current.length > data.length);
+      if (preserveLocal) {
+        state.syncSessionMessageCount(sessionId, current.length);
+        return;
+      }
+      state.setMessages(sessionId, data);
+      state.setAgentThreads(sessionId, activities || []);
+    } catch (error) {
+      const status = httpStatus(error);
+      if (status === 403) {
+        state.sessionsError.value = "Access denied for this conversation.";
+      } else if (status === 404) await refreshSessionsFromServer();
+      console.error("Failed to load chat messages", error);
+    }
+  }
+
+  return { init, refreshSessionsFromServer, loadMessagesFromServer };
+}
+
+async function normalizedRemoteSessions(initial: boolean) {
+  let remote = await listChatSessions();
+  if (!remote) remote = [];
+  remote = remote.map(normalizeSessionMeta);
+  if (initial && remote.length === 0) {
+    const created = await apiCreateChatSession("New Chat");
+    if (created) remote = [normalizeSessionMeta(created)];
+  }
+  return remote;
+}
+
+function reconcileSessionMessages(
+  state: ChatStoreState,
+  remote: ReturnType<typeof normalizeSessionMeta>[],
+) {
+  const nextMessages: Record<string, ChatMessage[]> = {};
+  for (const s of remote) {
+    const existing = state.messagesBySession.value[s.id] || [];
+    nextMessages[s.id] = existing;
+    const fallbackCount =
+      typeof s.messageCount === "number" ? s.messageCount : 0;
+    const count = existing.length ? existing.length : fallbackCount;
+    state.syncSessionMessageCount(s.id, count);
+  }
+  state.messagesBySession.value = nextMessages;
+  state.fetchedMessageSessions.clear();
+}
+
+function applySessionLoadError(state: ChatStoreState, error: unknown) {
+  const status = httpStatus(error);
+  if (status === 401) state.sessionsError.value = "Authentication required.";
+  else if (status === 403) {
+    state.sessionsError.value =
+      "Access denied. You do not have permission to view conversations.";
+  } else state.sessionsError.value = "Failed to load conversations.";
+  console.error("Failed to load chat sessions", error);
+}
+
+function createSessionCrudActions(
+  state: ChatStoreState,
+  loadMessagesFromServer: (
+    sessionId: string,
+    options?: { force?: boolean },
+  ) => Promise<void>,
+) {
+  function selectSession(sessionId: string) {
+    state.activeSessionId.value = sessionId;
+    void loadMessagesFromServer(sessionId);
+  }
+
+  async function createSession(name = "New Chat") {
+    const session = await apiCreateChatSession(name);
+    if (!session) return;
+    const normalized = normalizeSessionMeta(session);
+    state.sessionsError.value = null;
+    state.sessions.value = [normalized, ...state.sessions.value];
+    state.setMessages(normalized.id, []);
+    state.fetchedMessageSessions.delete(normalized.id);
+    state.activeSessionId.value = normalized.id;
+    await loadMessagesFromServer(normalized.id, { force: true });
+  }
+
+  async function deleteSession(sessionId: string) {
+    await apiDeleteChatSession(sessionId);
+    state.sessionsError.value = null;
+    const nextSessions = state.sessions.value.filter((s) => s.id !== sessionId);
+    const { [sessionId]: _removed, ...rest } = state.messagesBySession.value;
+    state.messagesBySession.value = rest;
+    const { [sessionId]: _removedThreads, ...restThreads } =
+      state.agentThreadsBySession.value;
+    state.agentThreadsBySession.value = restThreads;
+    state.agentThreadIndex.delete(sessionId);
+    state.fetchedMessageSessions.delete(sessionId);
+    if (!nextSessions.length) {
+      await createReplacementSession(state, loadMessagesFromServer);
+      return;
+    }
+    state.sessions.value = nextSessions;
+    if (state.activeSessionId.value === sessionId) {
+      state.activeSessionId.value = nextSessions[0]?.id || "";
+      if (state.activeSessionId.value) {
+        await loadMessagesFromServer(state.activeSessionId.value, {
+          force: true,
+        });
+      }
+    }
+  }
+
+  async function renameSession(sessionId: string, name: string) {
+    const updated = await apiRenameChatSession(sessionId, name);
+    state.sessionsError.value = null;
+    state.upsertSessionMeta(updated);
+  }
+
+  return { selectSession, createSession, deleteSession, renameSession };
+}
+
+async function createReplacementSession(
+  state: ChatStoreState,
+  loadMessagesFromServer: (
+    sessionId: string,
+    options?: { force?: boolean },
+  ) => Promise<void>,
+) {
+  const fresh = await apiCreateChatSession("New Chat");
+  const normalizedFresh = normalizeSessionMeta(fresh);
+  state.sessions.value = [normalizedFresh];
+  state.setMessages(normalizedFresh.id, []);
+  state.fetchedMessageSessions.delete(normalizedFresh.id);
+  state.activeSessionId.value = normalizedFresh.id;
+  await loadMessagesFromServer(normalizedFresh.id, { force: true });
+}
+
+function createSessionSettingsActions(state: ChatStoreState) {
+  async function updateSessionProject(sessionId: string, projectId: string) {
+    const cleanProjectID = (projectId || "").trim();
+    const existing = state.sessions.value.find((s) => s.id === sessionId);
+    if (existing && (existing.projectId || "") === cleanProjectID) {
+      return existing;
+    }
+    const updated = await apiUpdateChatSessionProject(
+      sessionId,
+      cleanProjectID,
+    );
+    state.sessionsError.value = null;
+    const normalized = normalizeSessionMeta(updated);
+    state.upsertSessionMeta(normalized);
+    return normalized;
+  }
+
+  async function updateSessionMemorySettings(
+    sessionId: string,
+    settings: {
+      memoryEnabled?: boolean;
+      evolvingMemoryEnabled?: boolean;
+      beliefMemoryEnabled?: boolean;
+    },
+  ) {
+    const existing = state.sessions.value.find((s) => s.id === sessionId);
+    const nextMemory = nextMemoryEnabled(existing, settings);
+    if (existing && (existing.memoryEnabled ?? false) === nextMemory) {
+      return existing;
+    }
+    const updated = await apiUpdateChatSessionMemorySettings(sessionId, {
+      memoryEnabled: nextMemory,
+    });
+    state.sessionsError.value = null;
+    const normalized = normalizeSessionMeta(updated);
+    state.upsertSessionMeta(normalized);
+    return normalized;
+  }
+
+  return { updateSessionProject, updateSessionMemorySettings };
+}
+
+function nextMemoryEnabled(
+  existing: ReturnType<typeof normalizeSessionMeta> | undefined,
+  settings: {
+    memoryEnabled?: boolean;
+    evolvingMemoryEnabled?: boolean;
+    beliefMemoryEnabled?: boolean;
+  },
+) {
+  if (typeof settings.memoryEnabled === "boolean")
+    return settings.memoryEnabled;
+  if (
+    typeof settings.evolvingMemoryEnabled === "boolean" ||
+    typeof settings.beliefMemoryEnabled === "boolean"
+  ) {
+    return (
+      (settings.evolvingMemoryEnabled ??
+        existing?.evolvingMemoryEnabled ??
+        false) &&
+      (settings.beliefMemoryEnabled ?? existing?.beliefMemoryEnabled ?? false)
+    );
+  }
+  return existing?.memoryEnabled ?? false;
+}
+
+export function createChatSessionActions(state: ChatStoreState) {
+  const deletionActions = createMessageDeletionActions(state);
+  const loadActions = createSessionLoadActions(state);
+  const crudActions = createSessionCrudActions(
+    state,
+    loadActions.loadMessagesFromServer,
+  );
+  const settingsActions = createSessionSettingsActions(state);
+  return {
+    ...deletionActions,
+    ...loadActions,
+    ...crudActions,
+    ...settingsActions,
+  };
+}
+
+export type ChatSessionActions = ReturnType<typeof createChatSessionActions>;

@@ -192,7 +192,7 @@ function eventsToTrace(events: FlowV2RunEvent[]): FlowStepTrace[] {
   return Array.from(byStep.values());
 }
 
-function activeNodeIdsFromEvents(events: FlowV2RunEvent[]): string[] {
+export function activeNodeIdsFromEvents(events: FlowV2RunEvent[]): string[] {
   const active = new Set<string>();
   for (const event of events) {
     const stepId = String(event.node_id ?? "").trim();
@@ -236,7 +236,14 @@ function extractRunResult(events: FlowV2RunEvent[]): string {
   }
   if (runFailure) return runFailure;
   if (isPlainObject(lastCompletedOutput)) {
-    const preferredKeys = ["result", "text", "output", "llm_output", "report_md", "payload"];
+    const preferredKeys = [
+      "result",
+      "text",
+      "output",
+      "llm_output",
+      "report_md",
+      "payload",
+    ];
     for (const key of preferredKeys) {
       const value = lastCompletedOutput[key];
       if (typeof value === "string" && value.trim()) return value;

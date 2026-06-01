@@ -3,6 +3,7 @@ package agentd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sort"
 	"strings"
 	"sync"
@@ -355,6 +356,264 @@ func TestExecuteFlowV2RunGuardSkip(t *testing.T) {
 	}
 }
 
+func TestExecuteFlowV2RunSingleNode(t *testing.T) {
+	t.Parallel()
+
+	called := make(chan struct{}, 1)
+	reg := newRuntimeStubRegistry(runtimeTestTool{name: "single", callFn: func(ctx context.Context, raw json.RawMessage) (any, error) {
+		called <- struct{}{}
+		return map[string]any{"ok": true, "value": "done"}, nil
+	}})
+	a := &app{flowV2: newFlowV2Runtime(nil), baseToolRegistry: reg, toolRegistry: reg}
+	wf := flow.Workflow{
+		ID:      "wf_single",
+		Name:    "Single",
+		Trigger: flow.Trigger{Type: flow.TriggerTypeManual},
+		Nodes: []flow.Node{{
+			ID:   "single",
+			Name: "Single",
+			Kind: flow.NodeKindAction,
+			Type: "tool",
+			Tool: "single",
+		}},
+	}
+	plan, _ := flow.CompileWorkflow(wf)
+	runID := a.flowV2.createRun(0, wf.ID, nil)
+	a.executeFlowV2Run(context.Background(), 0, runID, wf, plan, nil)
+
+	select {
+	case <-called:
+	default:
+		t.Fatal("expected single node to execute")
+	}
+	events, status, ok := a.flowV2.getRunEvents(0, runID)
+	if !ok {
+		t.Fatal("expected run events")
+	}
+	if status != "completed" {
+		t.Fatalf("expected completed status, got %s with events=%+v", status, events)
+	}
+	if got := countNodeEvents(events, flow.RunEventTypeNodeStarted, "single"); got != 1 {
+		t.Fatalf("expected one node_started event, got %d in %+v", got, events)
+	}
+	if got := countNodeEvents(events, flow.RunEventTypeNodeCompleted, "single"); got != 1 {
+		t.Fatalf("expected one node_completed event, got %d in %+v", got, events)
+	}
+	assertMonotonicSequences(t, events)
+}
+
+func TestExecuteFlowV2RunAllRootsRunInParallel(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	started := map[string]time.Time{}
+	reg := newRuntimeStubRegistry(
+		runtimeTestTool{name: "alpha", callFn: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			mu.Lock()
+			started["alpha"] = time.Now()
+			mu.Unlock()
+			time.Sleep(90 * time.Millisecond)
+			return map[string]any{"ok": true}, nil
+		}},
+		runtimeTestTool{name: "beta", callFn: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			mu.Lock()
+			started["beta"] = time.Now()
+			mu.Unlock()
+			time.Sleep(90 * time.Millisecond)
+			return map[string]any{"ok": true}, nil
+		}},
+		runtimeTestTool{name: "gamma", callFn: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			mu.Lock()
+			started["gamma"] = time.Now()
+			mu.Unlock()
+			time.Sleep(90 * time.Millisecond)
+			return map[string]any{"ok": true}, nil
+		}},
+	)
+	a := &app{flowV2: newFlowV2Runtime(nil), baseToolRegistry: reg, toolRegistry: reg}
+	wf := flow.Workflow{
+		ID:       "wf_all_roots",
+		Name:     "All Roots",
+		Trigger:  flow.Trigger{Type: flow.TriggerTypeManual},
+		Settings: flow.WorkflowSettings{MaxConcurrency: 3},
+		Nodes: []flow.Node{
+			{ID: "alpha", Name: "Alpha", Kind: flow.NodeKindAction, Type: "tool", Tool: "alpha"},
+			{ID: "beta", Name: "Beta", Kind: flow.NodeKindAction, Type: "tool", Tool: "beta"},
+			{ID: "gamma", Name: "Gamma", Kind: flow.NodeKindAction, Type: "tool", Tool: "gamma"},
+		},
+	}
+	plan, _ := flow.CompileWorkflow(wf)
+	runID := a.flowV2.createRun(0, wf.ID, nil)
+	a.executeFlowV2Run(context.Background(), 0, runID, wf, plan, nil)
+
+	events, status, ok := a.flowV2.getRunEvents(0, runID)
+	if !ok {
+		t.Fatal("expected run events")
+	}
+	if status != "completed" {
+		t.Fatalf("expected completed status, got %s with events=%+v", status, events)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(started) != 3 {
+		t.Fatalf("expected all roots to execute, got started=%+v", started)
+	}
+	minStart, maxStart := started["alpha"], started["alpha"]
+	for _, at := range started {
+		if at.Before(minStart) {
+			minStart = at
+		}
+		if at.After(maxStart) {
+			maxStart = at
+		}
+	}
+	if delta := maxStart.Sub(minStart); delta > 60*time.Millisecond {
+		t.Fatalf("expected all root nodes to start in parallel, delta=%s started=%+v", delta, started)
+	}
+	assertMonotonicSequences(t, events)
+}
+
+func TestExecuteFlowV2RunGuardSkipCascadesToDownstreamOnlyNodes(t *testing.T) {
+	t.Parallel()
+
+	called := make(chan string, 3)
+	reg := newRuntimeStubRegistry(
+		runtimeTestTool{name: "guarded", callFn: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			called <- "guarded"
+			return map[string]any{"ok": true}, nil
+		}},
+		runtimeTestTool{name: "child", callFn: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			called <- "child"
+			return map[string]any{"ok": true}, nil
+		}},
+		runtimeTestTool{name: "grandchild", callFn: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			called <- "grandchild"
+			return map[string]any{"ok": true}, nil
+		}},
+	)
+	a := &app{flowV2: newFlowV2Runtime(nil), baseToolRegistry: reg, toolRegistry: reg}
+	wf := flow.Workflow{
+		ID:      "wf_guard_cascade",
+		Name:    "Guard Cascade",
+		Trigger: flow.Trigger{Type: flow.TriggerTypeManual},
+		Nodes: []flow.Node{
+			{ID: "guarded", Name: "Guarded", Kind: flow.NodeKindAction, Type: "tool", Tool: "guarded", Guard: "false"},
+			{ID: "child", Name: "Child", Kind: flow.NodeKindAction, Type: "tool", Tool: "child"},
+			{ID: "grandchild", Name: "Grandchild", Kind: flow.NodeKindAction, Type: "tool", Tool: "grandchild"},
+		},
+		Edges: []flow.Edge{
+			{Source: flow.PortRef{NodeID: "guarded", Port: "result"}, Target: flow.PortRef{NodeID: "child", Port: "input"}},
+			{Source: flow.PortRef{NodeID: "child", Port: "result"}, Target: flow.PortRef{NodeID: "grandchild", Port: "input"}},
+		},
+	}
+	plan, _ := flow.CompileWorkflow(wf)
+	runID := a.flowV2.createRun(0, wf.ID, nil)
+	a.executeFlowV2Run(context.Background(), 0, runID, wf, plan, nil)
+
+	events, status, ok := a.flowV2.getRunEvents(0, runID)
+	if !ok {
+		t.Fatal("expected run events")
+	}
+	if status != "completed" {
+		t.Fatalf("expected completed status, got %s with events=%+v", status, events)
+	}
+	for _, nodeID := range []string{"guarded", "child", "grandchild"} {
+		if got := countNodeEvents(events, flow.RunEventTypeNodeSkipped, nodeID); got != 1 {
+			t.Fatalf("expected one skipped event for %s, got %d in %+v", nodeID, got, events)
+		}
+		if got := countNodeEvents(events, flow.RunEventTypeNodeStarted, nodeID); got != 0 {
+			t.Fatalf("expected no started events for %s, got %d in %+v", nodeID, got, events)
+		}
+	}
+	select {
+	case nodeID := <-called:
+		t.Fatalf("did not expect skipped cascade to execute %s", nodeID)
+	default:
+	}
+	assertMonotonicSequences(t, events)
+}
+
+func TestExecuteFlowV2RunErrorContinueSkipsDownstreamOnlyNodes(t *testing.T) {
+	t.Parallel()
+
+	called := make(chan string, 2)
+	reg := newRuntimeStubRegistry(
+		runtimeTestTool{name: "root", callFn: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			return map[string]any{"ok": true}, nil
+		}},
+		runtimeTestTool{name: "failer", callFn: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			return nil, errors.New("planned failure")
+		}},
+		runtimeTestTool{name: "sibling", callFn: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			called <- "sibling"
+			return map[string]any{"ok": true}, nil
+		}},
+		runtimeTestTool{name: "dependent", callFn: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			called <- "dependent"
+			return map[string]any{"ok": true}, nil
+		}},
+	)
+	a := &app{flowV2: newFlowV2Runtime(nil), baseToolRegistry: reg, toolRegistry: reg}
+	wf := flow.Workflow{
+		ID:       "wf_continue",
+		Name:     "Continue",
+		Trigger:  flow.Trigger{Type: flow.TriggerTypeManual},
+		Settings: flow.WorkflowSettings{MaxConcurrency: 2},
+		Nodes: []flow.Node{
+			{ID: "root", Name: "Root", Kind: flow.NodeKindAction, Type: "tool", Tool: "root"},
+			{ID: "failer", Name: "Failer", Kind: flow.NodeKindAction, Type: "tool", Tool: "failer", Execution: flow.NodeExecution{OnError: flow.ErrorStrategyContinue}},
+			{ID: "sibling", Name: "Sibling", Kind: flow.NodeKindAction, Type: "tool", Tool: "sibling"},
+			{ID: "dependent", Name: "Dependent", Kind: flow.NodeKindAction, Type: "tool", Tool: "dependent"},
+		},
+		Edges: []flow.Edge{
+			{Source: flow.PortRef{NodeID: "root", Port: "result"}, Target: flow.PortRef{NodeID: "failer", Port: "input"}},
+			{Source: flow.PortRef{NodeID: "root", Port: "result"}, Target: flow.PortRef{NodeID: "sibling", Port: "input"}},
+			{Source: flow.PortRef{NodeID: "failer", Port: "result"}, Target: flow.PortRef{NodeID: "dependent", Port: "input"}},
+		},
+	}
+	plan, _ := flow.CompileWorkflow(wf)
+	runID := a.flowV2.createRun(0, wf.ID, nil)
+	a.executeFlowV2Run(context.Background(), 0, runID, wf, plan, nil)
+
+	events, status, ok := a.flowV2.getRunEvents(0, runID)
+	if !ok {
+		t.Fatal("expected run events")
+	}
+	if status != "completed" {
+		t.Fatalf("expected completed status, got %s with events=%+v", status, events)
+	}
+	if got := countNodeEvents(events, flow.RunEventTypeNodeFailed, "failer"); got != 1 {
+		t.Fatalf("expected failer node_failed event, got %d in %+v", got, events)
+	}
+	if got := countNodeEvents(events, flow.RunEventTypeNodeCompleted, "sibling"); got != 1 {
+		t.Fatalf("expected sibling to complete, got %d in %+v", got, events)
+	}
+	if got := countNodeEvents(events, flow.RunEventTypeNodeSkipped, "dependent"); got != 1 {
+		t.Fatalf("expected downstream-only dependent to skip, got %d in %+v", got, events)
+	}
+	if got := countNodeEvents(events, flow.RunEventTypeRunFailed, ""); got != 0 {
+		t.Fatalf("did not expect run_failed events, got %d in %+v", got, events)
+	}
+	seenSibling := false
+	for {
+		select {
+		case nodeID := <-called:
+			switch nodeID {
+			case "sibling":
+				seenSibling = true
+			case "dependent":
+				t.Fatal("did not expect downstream-only dependent to execute")
+			}
+		default:
+			if !seenSibling {
+				t.Fatal("expected sibling branch to execute")
+			}
+			assertMonotonicSequences(t, events)
+			return
+		}
+	}
+}
+
 func TestExecuteFlowV2RunUnknownPlannedNodeFailsWithoutHang(t *testing.T) {
 	t.Parallel()
 
@@ -464,4 +723,18 @@ func assertMonotonicSequences(t *testing.T, events []flow.RunEvent) {
 			t.Fatalf("expected monotonic sequence at idx=%d: prev=%d curr=%d", idx, events[idx-1].Sequence, events[idx].Sequence)
 		}
 	}
+}
+
+func countNodeEvents(events []flow.RunEvent, eventType flow.RunEventType, nodeID string) int {
+	count := 0
+	for _, event := range events {
+		if event.Type != eventType {
+			continue
+		}
+		if nodeID != "" && event.NodeID != nodeID {
+			continue
+		}
+		count++
+	}
+	return count
 }

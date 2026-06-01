@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"manifold/internal/agent"
-	"manifold/internal/agent/belief"
 	"manifold/internal/agent/inputrequest"
 	"manifold/internal/agent/memory"
+	"manifold/internal/agent/memory/belief"
 	"manifold/internal/agent/prompts"
 	"manifold/internal/llm"
 	"manifold/internal/observability"
@@ -30,6 +30,7 @@ type Delegator struct {
 	defaultSys      string
 	defaultMaxStep  int
 	defaultTimeout  time.Duration
+	memoryRuntime   *memory.Runtime
 	evolvingMemory  *memory.EvolvingMemory
 	reMemLLM        llm.Provider
 	reMemModel      string
@@ -78,6 +79,10 @@ func (d *Delegator) SetRegistry(reg tools.Registry) {
 
 func (d *Delegator) SetEvolvingMemory(em *memory.EvolvingMemory) {
 	d.evolvingMemory = em
+}
+
+func (d *Delegator) SetMemoryRuntime(runtime *memory.Runtime) {
+	d.memoryRuntime = runtime
 }
 
 func (d *Delegator) ConfigureReMem(provider llm.Provider, model string, maxInnerSteps int) {
@@ -197,7 +202,7 @@ func (d *Delegator) applySpecialistConfig(cfg *delegateRunConfig, agentName stri
 	}
 	cfg.provider = a.Provider()
 	cfg.toolsReg = a.ToolsRegistry()
-	cfg.inputRequestsEnabled = a.EnableTools
+	cfg.inputRequestsEnabled = a.EnableTools && a.RequestInfoEnabled
 	cfg.imageGeneration = a.ImageGeneration
 	cfg.system = a.System
 	cfg.model = a.Model
@@ -265,6 +270,8 @@ func (d *Delegator) newEngine(cfg delegateRunConfig, req agent.DelegateRequest, 
 		BeliefPromotionThreshold:  d.beliefThreshold,
 		PolicyEnforcer:            d.policyEnforcer,
 		EvolvingMemory:            d.evolvingMemory,
+		Memory:                    d.memoryRuntime.Clone(),
+		DisableMemory:             req.DisableEvolvingMemory || req.DisableBeliefMemory,
 		DisableEvolvingMemory:     req.DisableEvolvingMemory,
 		DisableBeliefMemory:       req.DisableBeliefMemory,
 		Delegator:                 d,
@@ -277,6 +284,8 @@ func (d *Delegator) newEngine(cfg delegateRunConfig, req agent.DelegateRequest, 
 
 func (d *Delegator) configureRuntimeFeatures(eng *agent.Engine, cfg delegateRunConfig, req agent.DelegateRequest) {
 	if req.DisableBeliefMemory {
+		eng.Memory = nil
+		eng.DisableMemory = true
 		eng.BeliefStore = nil
 		eng.BeliefDistiller = nil
 		eng.BeliefRetriever = nil
@@ -284,12 +293,16 @@ func (d *Delegator) configureRuntimeFeatures(eng *agent.Engine, cfg delegateRunC
 		eng.PolicyEnforcer = nil
 	}
 	if req.DisableEvolvingMemory {
+		eng.Memory = nil
+		eng.DisableMemory = true
 		eng.EvolvingMemory = nil
 	}
 	if cfg.imageGeneration {
 		eng.System = ""
 		eng.UserPromptContext = ""
 		eng.EvolvingMemory = nil
+		eng.Memory = nil
+		eng.DisableMemory = true
 		eng.DisableEvolvingMemory = true
 		eng.Delegator = nil
 		eng.TeamDelegator = nil

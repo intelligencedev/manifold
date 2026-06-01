@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"manifold/internal/agent/belief"
+	"manifold/internal/agent/memory/belief"
 )
 
 func TestMemoryBeliefStoreTenantAndScopeFiltering(t *testing.T) {

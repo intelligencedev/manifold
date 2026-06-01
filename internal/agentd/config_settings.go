@@ -11,80 +11,134 @@ import (
 )
 
 func currentAgentdSettings(cfg *config.Config) agentdSettings {
+	settings := currentSummaryAgentdSettings(cfg)
+	projectPromptAgentdSettings(&settings, cfg)
+	projectEmbeddingAgentdSettings(&settings, cfg)
+	projectRerankAgentdSettings(&settings, cfg)
+	projectRuntimeAgentdSettings(&settings, cfg)
+	projectOpsAgentdSettings(&settings, cfg)
+	projectDatabaseAgentdSettings(&settings, cfg)
+	return settings
+}
+
+func currentSummaryAgentdSettings(cfg *config.Config) agentdSettings {
+	contextWindow := firstPositiveInt(cfg.Summary.ContextWindowTokens, cfg.SummaryContextWindowTokens)
+	reserveTokens := firstPositiveInt(cfg.Summary.ReserveBufferTokens, cfg.SummaryReserveBufferTokens)
 	return agentdSettings{
 		OpenAISummaryModel:                  cfg.Summary.LLMClient.OpenAI.Model,
 		OpenAISummaryURL:                    cfg.Summary.LLMClient.OpenAI.BaseURL,
 		SummaryProvider:                     cfg.Summary.LLMClient.Provider,
 		SummaryModel:                        resolveLLMClientModel(cfg.Summary.LLMClient),
 		SummaryURL:                          cfg.Summary.LLMClient.OpenAI.BaseURL,
-		SummaryEnabled:                      cfg.SummaryEnabled,
-		SummaryPlainTextContextWindowTokens: cfg.Summary.PlainTextContextWindowTokens,
-		SummaryReserveBufferTokens:          cfg.SummaryReserveBufferTokens,
-
-		EmbedBaseURL:                        cfg.Embedding.BaseURL,
-		EmbedModel:                          cfg.Embedding.Model,
-		EmbedAPIKey:                         cfg.Embedding.APIKey,
-		EmbedAPIHeader:                      cfg.Embedding.APIHeader,
-		EmbedAPIHeaders:                     cfg.Embedding.Headers,
-		EmbedPath:                           cfg.Embedding.Path,
-		EmbedInstructionMode:                cfg.Embedding.Instructions.Mode,
-		EmbedInstructionFormat:              cfg.Embedding.Instructions.Format,
-		EmbedDefaultQueryInstruction:        cfg.Embedding.Instructions.DefaultQuery,
-		EmbedRAGQueryInstruction:            cfg.Embedding.Instructions.RAGQuery,
-		EmbedEvolvingMemoryQueryInstruction: cfg.Embedding.Instructions.EvolvingMemoryQuery,
-		EmbedTransitQueryInstruction:        cfg.Embedding.Instructions.TransitQuery,
-
-		RerankEnabled:     cfg.Reranking.Enabled,
-		RerankBaseURL:     cfg.Reranking.BaseURL,
-		RerankModel:       cfg.Reranking.Model,
-		RerankInstruction: cfg.Reranking.Instruction,
-		RerankAPIKey:      cfg.Reranking.APIKey,
-		RerankAPIHeader:   cfg.Reranking.APIHeader,
-		RerankAPIHeaders:  cfg.Reranking.Headers,
-		RerankPath:        cfg.Reranking.Path,
-
-		AgentRunTimeoutSeconds:  cfg.AgentRunTimeoutSeconds,
-		StreamRunTimeoutSeconds: cfg.StreamRunTimeoutSeconds,
-		WorkflowTimeoutSeconds:  cfg.WorkflowTimeoutSeconds,
-
-		BlockBinaries:             strings.Join(cfg.Exec.BlockBinaries, ","),
-		MaxCommandSeconds:         cfg.Exec.MaxCommandSeconds,
-		OutputTruncateBytes:       cfg.OutputTruncateByte,
-		MaxTerminalSessions:       cfg.Exec.MaxTerminalSessions,
-		MaxTerminalRuntimeSeconds: cfg.Exec.MaxTerminalRuntimeSeconds,
-		TerminalIdleTTLSeconds:    cfg.Exec.TerminalIdleTTLSeconds,
-		TerminalOutputBufferBytes: cfg.Exec.TerminalOutputBufferBytes,
-
-		OTELServiceName: cfg.Obs.ServiceName,
-		ServiceVersion:  cfg.Obs.ServiceVersion,
-		Environment:     cfg.Obs.Environment,
-		OTLPEndpoint:    cfg.Obs.OTLP,
-
-		LogPath:       cfg.LogPath,
-		LogLevel:      cfg.LogLevel,
-		LogPayloads:   cfg.LogPayloads,
-		LogRawPrompts: cfg.LogRawPrompts,
-
-		SearXNGURL:    cfg.Web.SearXNGURL,
-		WebSearXNGURL: cfg.Web.SearXNGURL,
-
-		DatabaseURL: cfg.Databases.DefaultDSN,
-		DBURL:       cfg.Databases.DefaultDSN,
-		PostgresDSN: cfg.Databases.DefaultDSN,
-
-		SearchBackend: cfg.Databases.Search.Backend,
-		SearchDSN:     cfg.Databases.Search.DSN,
-		SearchIndex:   cfg.Databases.Search.Index,
-
-		VectorBackend: cfg.Databases.Vector.Backend,
-		VectorDSN:     cfg.Databases.Vector.DSN,
-		VectorIndex:   cfg.Databases.Vector.Index,
-		VectorDims:    cfg.Databases.Vector.Dimensions,
-		VectorMetric:  cfg.Databases.Vector.Metric,
-
-		GraphBackend: cfg.Databases.Graph.Backend,
-		GraphDSN:     cfg.Databases.Graph.DSN,
+		SummaryEnabled:                      cfg.Summary.Enabled || cfg.SummaryEnabled,
+		SummaryContextWindowTokens:          contextWindow,
+		SummaryPlainTextContextWindowTokens: firstPositiveInt(cfg.Summary.PlainTextContextWindowTokens, cfg.SummaryPlainTextContextWindowTokens),
+		SummaryReserveBufferTokens:          reserveTokens,
+		SummaryMinKeepLastMessages:          firstPositiveInt(cfg.Summary.MinKeepLastMessages, cfg.SummaryMinKeepLastMessages),
+		SummaryMaxKeepLastMessages:          firstPositiveInt(cfg.Summary.MaxKeepLastMessages, cfg.SummaryMaxKeepLastMessages),
+		SummaryMaxSummaryChunkTokens:        firstPositiveInt(cfg.Summary.MaxSummaryChunkTokens, cfg.SummaryMaxSummaryChunkTokens),
+		SummaryCallTimeoutSeconds:           cfg.Summary.CallTimeoutSeconds,
+		SummaryTokenBudget:                  effectiveSummaryTokenBudget(contextWindow, reserveTokens),
+		RequestInfoEnabled:                  config.RequestInfoEnabled(cfg.RequestInfoEnabled),
 	}
+}
+
+func projectPromptAgentdSettings(settings *agentdSettings, cfg *config.Config) {
+	settings.PromptBaseSystem = cfg.PromptOverrides.BaseSystem
+	settings.PromptMemoryInstructions = cfg.PromptOverrides.MemoryInstructions
+	settings.PromptToolDiscoveryInstructions = cfg.PromptOverrides.ToolDiscoveryInstructions
+	settings.PromptSkillDiscoveryInstructions = cfg.PromptOverrides.SkillDiscoveryInstructions
+}
+
+func projectEmbeddingAgentdSettings(settings *agentdSettings, cfg *config.Config) {
+	settings.EmbedBaseURL = cfg.Embedding.BaseURL
+	settings.EmbedModel = cfg.Embedding.Model
+	settings.EmbedAPIKey = cfg.Embedding.APIKey
+	settings.EmbedAPIHeader = cfg.Embedding.APIHeader
+	settings.EmbedAPIHeaders = cfg.Embedding.Headers
+	settings.EmbedPath = cfg.Embedding.Path
+	settings.EmbedInstructionMode = cfg.Embedding.Instructions.Mode
+	settings.EmbedInstructionFormat = cfg.Embedding.Instructions.Format
+	settings.EmbedDefaultQueryInstruction = cfg.Embedding.Instructions.DefaultQuery
+	settings.EmbedRAGQueryInstruction = cfg.Embedding.Instructions.RAGQuery
+	settings.EmbedEvolvingMemoryQueryInstruction = cfg.Embedding.Instructions.EvolvingMemoryQuery
+	settings.EmbedTransitQueryInstruction = cfg.Embedding.Instructions.TransitQuery
+}
+
+func projectRerankAgentdSettings(settings *agentdSettings, cfg *config.Config) {
+	settings.RerankEnabled = cfg.Reranking.Enabled
+	settings.RerankBaseURL = cfg.Reranking.BaseURL
+	settings.RerankModel = cfg.Reranking.Model
+	settings.RerankInstruction = cfg.Reranking.Instruction
+	settings.RerankAPIKey = cfg.Reranking.APIKey
+	settings.RerankAPIHeader = cfg.Reranking.APIHeader
+	settings.RerankAPIHeaders = cfg.Reranking.Headers
+	settings.RerankPath = cfg.Reranking.Path
+}
+
+func projectRuntimeAgentdSettings(settings *agentdSettings, cfg *config.Config) {
+	settings.AgentRunTimeoutSeconds = cfg.AgentRunTimeoutSeconds
+	settings.StreamRunTimeoutSeconds = cfg.StreamRunTimeoutSeconds
+	settings.WorkflowTimeoutSeconds = cfg.WorkflowTimeoutSeconds
+	settings.BlockBinaries = strings.Join(cfg.Exec.BlockBinaries, ",")
+	settings.MaxCommandSeconds = cfg.Exec.MaxCommandSeconds
+	settings.OutputTruncateBytes = cfg.OutputTruncateByte
+	settings.MaxTerminalSessions = cfg.Exec.MaxTerminalSessions
+	settings.MaxTerminalRuntimeSeconds = cfg.Exec.MaxTerminalRuntimeSeconds
+	settings.TerminalIdleTTLSeconds = cfg.Exec.TerminalIdleTTLSeconds
+	settings.TerminalOutputBufferBytes = cfg.Exec.TerminalOutputBufferBytes
+}
+
+func projectOpsAgentdSettings(settings *agentdSettings, cfg *config.Config) {
+	settings.OTELServiceName = cfg.Obs.ServiceName
+	settings.ServiceVersion = cfg.Obs.ServiceVersion
+	settings.Environment = cfg.Obs.Environment
+	settings.OTLPEndpoint = cfg.Obs.OTLP
+	settings.LogPath = cfg.LogPath
+	settings.LogLevel = cfg.LogLevel
+	settings.LogPayloads = cfg.LogPayloads
+	settings.LogRawPrompts = cfg.LogRawPrompts
+	settings.SearXNGURL = cfg.Web.SearXNGURL
+	settings.WebSearXNGURL = cfg.Web.SearXNGURL
+}
+
+func projectDatabaseAgentdSettings(settings *agentdSettings, cfg *config.Config) {
+	settings.DatabaseURL = cfg.Databases.DefaultDSN
+	settings.DBURL = cfg.Databases.DefaultDSN
+	settings.PostgresDSN = cfg.Databases.DefaultDSN
+	settings.SearchBackend = cfg.Databases.Search.Backend
+	settings.SearchDSN = cfg.Databases.Search.DSN
+	settings.SearchIndex = cfg.Databases.Search.Index
+	settings.VectorBackend = cfg.Databases.Vector.Backend
+	settings.VectorDSN = cfg.Databases.Vector.DSN
+	settings.VectorIndex = cfg.Databases.Vector.Index
+	settings.VectorDims = cfg.Databases.Vector.Dimensions
+	settings.VectorMetric = cfg.Databases.Vector.Metric
+	settings.GraphBackend = cfg.Databases.Graph.Backend
+	settings.GraphDSN = cfg.Databases.Graph.DSN
+}
+
+func firstPositiveInt(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func effectiveSummaryTokenBudget(contextWindow, reserveTokens int) int {
+	if contextWindow <= 0 {
+		contextWindow = 32_000
+	}
+	if reserveTokens <= 0 {
+		reserveTokens = 25_000
+	}
+	budget := contextWindow - reserveTokens
+	if budget <= 0 {
+		return contextWindow / 2
+	}
+	return budget
 }
 
 func normalizeAgentdSettings(settings agentdSettings) agentdSettings {
@@ -144,6 +198,8 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	}
 
 	applySummarySettings(cfg, settings)
+	applyRequestInfoSettings(cfg, settings)
+	applyPromptOverrideSettings(cfg, settings)
 	applyEmbeddingSettings(cfg, settings)
 	applyRerankSettings(cfg, settings)
 	applyTimeoutSettings(cfg, settings)
@@ -155,6 +211,17 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	applyWebSettings(cfg, settings)
 	applyDatabaseSettings(cfg, settings)
 	return nil
+}
+
+func applyRequestInfoSettings(cfg *config.Config, settings agentdSettings) {
+	cfg.RequestInfoEnabled = boolPtr(settings.RequestInfoEnabled)
+}
+
+func applyPromptOverrideSettings(cfg *config.Config, settings agentdSettings) {
+	cfg.PromptOverrides.BaseSystem = settings.PromptBaseSystem
+	cfg.PromptOverrides.MemoryInstructions = settings.PromptMemoryInstructions
+	cfg.PromptOverrides.ToolDiscoveryInstructions = settings.PromptToolDiscoveryInstructions
+	cfg.PromptOverrides.SkillDiscoveryInstructions = settings.PromptSkillDiscoveryInstructions
 }
 
 func applySummarySettings(cfg *config.Config, settings agentdSettings) {
@@ -173,14 +240,19 @@ func applySummarySettings(cfg *config.Config, settings agentdSettings) {
 	}
 	cfg.SummaryEnabled = settings.SummaryEnabled
 	cfg.Summary.Enabled = settings.SummaryEnabled
-	if settings.SummaryPlainTextContextWindowTokens != 0 {
-		cfg.SummaryPlainTextContextWindowTokens = settings.SummaryPlainTextContextWindowTokens
-		cfg.Summary.PlainTextContextWindowTokens = settings.SummaryPlainTextContextWindowTokens
-	}
-	if settings.SummaryReserveBufferTokens != 0 {
-		cfg.SummaryReserveBufferTokens = settings.SummaryReserveBufferTokens
-		cfg.Summary.ReserveBufferTokens = settings.SummaryReserveBufferTokens
-	}
+	cfg.SummaryContextWindowTokens = settings.SummaryContextWindowTokens
+	cfg.Summary.ContextWindowTokens = settings.SummaryContextWindowTokens
+	cfg.SummaryPlainTextContextWindowTokens = settings.SummaryPlainTextContextWindowTokens
+	cfg.Summary.PlainTextContextWindowTokens = settings.SummaryPlainTextContextWindowTokens
+	cfg.SummaryReserveBufferTokens = settings.SummaryReserveBufferTokens
+	cfg.Summary.ReserveBufferTokens = settings.SummaryReserveBufferTokens
+	cfg.SummaryMinKeepLastMessages = settings.SummaryMinKeepLastMessages
+	cfg.Summary.MinKeepLastMessages = settings.SummaryMinKeepLastMessages
+	cfg.SummaryMaxKeepLastMessages = settings.SummaryMaxKeepLastMessages
+	cfg.Summary.MaxKeepLastMessages = settings.SummaryMaxKeepLastMessages
+	cfg.SummaryMaxSummaryChunkTokens = settings.SummaryMaxSummaryChunkTokens
+	cfg.Summary.MaxSummaryChunkTokens = settings.SummaryMaxSummaryChunkTokens
+	cfg.Summary.CallTimeoutSeconds = settings.SummaryCallTimeoutSeconds
 }
 
 func applyEmbeddingSettings(cfg *config.Config, settings agentdSettings) {
@@ -382,6 +454,8 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	settings = normalizeAgentdSettings(settings)
 
 	applySummarySettingsYAML(root, settings)
+	setNestedMapValue(root, []string{"requestInfoEnabled"}, settings.RequestInfoEnabled)
+	applyPromptOverrideSettingsYAML(root, settings)
 	applyEmbeddingSettingsYAML(root, settings)
 	applyRerankSettingsYAML(root, settings)
 	applyTimeoutSettingsYAML(root, settings)
@@ -392,17 +466,29 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	applyDatabaseSettingsYAML(root, settings)
 }
 
+func applyPromptOverrideSettingsYAML(root map[string]any, settings agentdSettings) {
+	setNestedMapValue(root, []string{"promptOverrides", "baseSystem"}, settings.PromptBaseSystem)
+	setNestedMapValue(root, []string{"promptOverrides", "memoryInstructions"}, settings.PromptMemoryInstructions)
+	setNestedMapValue(root, []string{"promptOverrides", "toolDiscoveryInstructions"}, settings.PromptToolDiscoveryInstructions)
+	setNestedMapValue(root, []string{"promptOverrides", "skillDiscoveryInstructions"}, settings.PromptSkillDiscoveryInstructions)
+}
+
 func applySummarySettingsYAML(root map[string]any, settings agentdSettings) {
 	setNestedMapValue(root, []string{"summaryEnabled"}, settings.SummaryEnabled)
 	setNestedMapValue(root, []string{"summary", "enabled"}, settings.SummaryEnabled)
-	if settings.SummaryPlainTextContextWindowTokens != 0 {
-		setNestedMapValue(root, []string{"summaryPlainTextContextWindowTokens"}, settings.SummaryPlainTextContextWindowTokens)
-		setNestedMapValue(root, []string{"summary", "plainTextContextWindowTokens"}, settings.SummaryPlainTextContextWindowTokens)
-	}
-	if settings.SummaryReserveBufferTokens != 0 {
-		setNestedMapValue(root, []string{"summaryReserveBufferTokens"}, settings.SummaryReserveBufferTokens)
-		setNestedMapValue(root, []string{"summary", "reserveBufferTokens"}, settings.SummaryReserveBufferTokens)
-	}
+	setNestedMapValue(root, []string{"summaryContextWindowTokens"}, settings.SummaryContextWindowTokens)
+	setNestedMapValue(root, []string{"summary", "contextWindowTokens"}, settings.SummaryContextWindowTokens)
+	setNestedMapValue(root, []string{"summaryPlainTextContextWindowTokens"}, settings.SummaryPlainTextContextWindowTokens)
+	setNestedMapValue(root, []string{"summary", "plainTextContextWindowTokens"}, settings.SummaryPlainTextContextWindowTokens)
+	setNestedMapValue(root, []string{"summaryReserveBufferTokens"}, settings.SummaryReserveBufferTokens)
+	setNestedMapValue(root, []string{"summary", "reserveBufferTokens"}, settings.SummaryReserveBufferTokens)
+	setNestedMapValue(root, []string{"summaryMinKeepLastMessages"}, settings.SummaryMinKeepLastMessages)
+	setNestedMapValue(root, []string{"summary", "minKeepLastMessages"}, settings.SummaryMinKeepLastMessages)
+	setNestedMapValue(root, []string{"summaryMaxKeepLastMessages"}, settings.SummaryMaxKeepLastMessages)
+	setNestedMapValue(root, []string{"summary", "maxKeepLastMessages"}, settings.SummaryMaxKeepLastMessages)
+	setNestedMapValue(root, []string{"summaryMaxSummaryChunkTokens"}, settings.SummaryMaxSummaryChunkTokens)
+	setNestedMapValue(root, []string{"summary", "maxSummaryChunkTokens"}, settings.SummaryMaxSummaryChunkTokens)
+	setNestedMapValue(root, []string{"summary", "callTimeoutSeconds"}, settings.SummaryCallTimeoutSeconds)
 
 	if settings.SummaryProvider != "" {
 		setNestedMapValue(root, []string{"summary", "llm_client", "provider"}, settings.SummaryProvider)

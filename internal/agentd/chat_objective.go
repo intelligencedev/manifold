@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
-	"manifold/internal/agent/belief"
+	"manifold/internal/agent/memory/belief"
 	"manifold/internal/persistence"
 	transitdomain "manifold/internal/transit"
 )

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"manifold/internal/agent/belief"
+	"manifold/internal/agent/memory/belief"
 	"manifold/internal/config"
 	"manifold/internal/durable"
 	"manifold/internal/persistence"

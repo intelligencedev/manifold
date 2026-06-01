@@ -62,38 +62,6 @@ type chatTargetDescribeRequest struct {
 }
 
 func (a *app) describeChatTarget(req chatTargetDescribeRequest) (chatTargetDescriptor, bool) {
-	if req.Target.SpecialistName != "" && !strings.EqualFold(req.Target.SpecialistName, specialists.OrchestratorName) {
-		return chatTargetDescriptor{
-			Build: func(ctx context.Context) chatEngineBuildResult {
-				return a.buildSpecialistChatEngine(ctx, chatEngineBuildRequest{
-					Name:                 req.Target.SpecialistName,
-					SystemPromptOverride: req.SystemPromptOverride,
-					SessionID:            req.SessionID,
-					ProjectID:            req.ProjectID,
-					ObjectiveID:          req.ObjectiveID,
-					Owner:                req.Owner,
-					MemorySettings:       req.MemorySettings,
-				})
-			},
-			NotFoundMessage:      "specialist not found",
-			InternalErrorMessage: "specialist registry unavailable",
-			Stream: chatStreamOptions{
-				Endpoint:              "/agent/run",
-				IncludeMatrixMessages: true,
-				KeepAlive:             true,
-				EmitThoughtSummary:    true,
-				EmitSummaryEvents:     true,
-				StructuredErrors:      true,
-				InheritImagePrompt:    true,
-			},
-			JSON: chatJSONOptions{
-				Endpoint:              "/agent/run",
-				IncludeMatrixMessages: true,
-				InheritImagePrompt:    true,
-			},
-		}, true
-	}
-
 	if req.Target.TeamName != "" {
 		teamTimeout := workflowLikeTimeout(a.cfg.WorkflowTimeoutSeconds, a.cfg.AgentRunTimeoutSeconds)
 		return chatTargetDescriptor{
@@ -122,6 +90,38 @@ func (a *app) describeChatTarget(req chatTargetDescribeRequest) (chatTargetDescr
 				Endpoint:           "/agent/run",
 				InheritImagePrompt: true,
 				TimeoutSeconds:     teamTimeout,
+			},
+		}, true
+	}
+
+	if req.Target.SpecialistName != "" && !strings.EqualFold(req.Target.SpecialistName, specialists.OrchestratorName) {
+		return chatTargetDescriptor{
+			Build: func(ctx context.Context) chatEngineBuildResult {
+				return a.buildSpecialistChatEngine(ctx, chatEngineBuildRequest{
+					Name:                 req.Target.SpecialistName,
+					SystemPromptOverride: req.SystemPromptOverride,
+					SessionID:            req.SessionID,
+					ProjectID:            req.ProjectID,
+					ObjectiveID:          req.ObjectiveID,
+					Owner:                req.Owner,
+					MemorySettings:       req.MemorySettings,
+				})
+			},
+			NotFoundMessage:      "specialist not found",
+			InternalErrorMessage: "specialist registry unavailable",
+			Stream: chatStreamOptions{
+				Endpoint:              "/agent/run",
+				IncludeMatrixMessages: true,
+				KeepAlive:             true,
+				EmitThoughtSummary:    true,
+				EmitSummaryEvents:     true,
+				StructuredErrors:      true,
+				InheritImagePrompt:    true,
+			},
+			JSON: chatJSONOptions{
+				Endpoint:              "/agent/run",
+				IncludeMatrixMessages: true,
+				InheritImagePrompt:    true,
 			},
 		}, true
 	}
@@ -233,33 +233,65 @@ func (a *app) promptOrchestratorDescriptor(baseCtx context.Context, owner int64,
 }
 
 func (a *app) dispatchBuiltChatTarget(w http.ResponseWriter, r *http.Request, opts chatTargetDispatchOptions) bool {
+	build, history, summary, ok := a.loadBuiltChatTarget(w, r, opts)
+	if !ok {
+		return true
+	}
+	run := builtChatTargetRun{
+		opts:    opts,
+		build:   build,
+		history: history,
+		summary: summary,
+		runCtx:  chatTargetRunContext(r, opts, build),
+		req:     chatRunRequestFromDispatchOptions(opts),
+	}
+	if r.Header.Get("Accept") == "text/event-stream" {
+		return a.dispatchStreamBuiltChatTarget(w, r, run)
+	}
+	return a.dispatchJSONBuiltChatTarget(w, r, run)
+}
+
+type builtChatTargetRun struct {
+	opts    chatTargetDispatchOptions
+	build   chatEngineBuildResult
+	history []llm.Message
+	summary *memory.SummaryResult
+	runCtx  context.Context
+	req     chatRunRequest
+}
+
+func (a *app) loadBuiltChatTarget(w http.ResponseWriter, r *http.Request, opts chatTargetDispatchOptions) (chatEngineBuildResult, []llm.Message, *memory.SummaryResult, bool) {
 	build := opts.Build(r.Context())
 	if build.Err != nil {
 		writeChatTargetBuildError(w, build, opts.NotFoundMessage, opts.InternalErrorMessage)
-		return true
+		return chatEngineBuildResult{}, nil, nil, false
 	}
 	build = sanitizeImageGenerationBuild(build)
 
 	var history []llm.Message
 	var summary *memory.SummaryResult
-	if !build.ImageGeneration {
-		var err error
-		history, summary, err = a.chatMemory.BuildContextForProvider(r.Context(), opts.UserID, opts.SessionID, build.Engine.LLM, build.Engine.Model, memory.SummaryPolicy{
-			TargetContextWindowTokens:    build.Engine.ContextWindowTokens,
-			PlainTextContextWindowTokens: a.cfg.Summary.PlainTextContextWindowTokens,
-		})
-		if err != nil {
-			if err == persist.ErrForbidden {
-				http.Error(w, "forbidden", http.StatusForbidden)
-				return true
-			}
-			log.Error().Err(err).Str("session", opts.SessionID).Msg("load_chat_history")
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return true
-		}
-		build.Engine.SkipInitialSummarization = summary != nil && summary.Triggered
+	if build.ImageGeneration {
+		return build, history, summary, true
 	}
+	var err error
+	history, summary, err = a.chatMemory.BuildContextForProvider(r.Context(), opts.UserID, opts.SessionID, build.Engine.LLM, build.Engine.Model, memory.SummaryPolicy{
+		TargetContextWindowTokens:    build.Engine.ContextWindowTokens,
+		PlainTextContextWindowTokens: a.cfg.Summary.PlainTextContextWindowTokens,
+	})
+	if err != nil {
+		if err == persist.ErrForbidden {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return chatEngineBuildResult{}, nil, nil, false
+		}
+		log.Error().Err(err).Str("session", opts.SessionID).Msg("load_chat_history")
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return chatEngineBuildResult{}, nil, nil, false
+	}
+	build.Engine.SkipInitialSummarization = summary != nil && summary.Triggered
+	return build, history, summary, true
+}
 
+func chatTargetRunContext(r *http.Request, opts chatTargetDispatchOptions, build chatEngineBuildResult) context.Context {
 	runCtx := opts.RunContext
 	if runCtx == nil {
 		runCtx = r.Context()
@@ -267,56 +299,62 @@ func (a *app) dispatchBuiltChatTarget(w http.ResponseWriter, r *http.Request, op
 	if strings.TrimSpace(opts.ObjectiveID) != "" {
 		runCtx = sandbox.WithObjectiveID(runCtx, opts.ObjectiveID)
 	}
-	runCtx = applyBuildImagePrompt(runCtx, build)
-	req := chatRunRequest{
+	return applyBuildImagePrompt(runCtx, build)
+}
+
+func chatRunRequestFromDispatchOptions(opts chatTargetDispatchOptions) chatRunRequest {
+	return chatRunRequest{
 		Prompt:                opts.Prompt,
 		SessionID:             opts.SessionID,
 		ProjectID:             opts.ProjectID,
 		ObjectiveID:           opts.ObjectiveID,
 		EphemeralSession:      opts.EphemeralSession,
+		MemoryEnabled:         boolPtr(opts.MemorySettings.MemoryEnabled),
 		EvolvingMemoryEnabled: boolPtr(opts.MemorySettings.EvolvingMemoryEnabled),
 		BeliefMemoryEnabled:   boolPtr(opts.MemorySettings.BeliefMemoryEnabled),
 	}
+}
 
-	if r.Header.Get("Accept") == "text/event-stream" {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		prun := a.runs.create(opts.Prompt)
-		streamOpts := opts.Stream
-		if streamOpts.StoreModel == "" {
-			streamOpts.StoreModel = build.ModelLabel
-		}
-		if opts.IncludeSummary {
-			streamOpts.InitialSummary = summary
-		}
-		if streamOpts.Tracer == nil {
-			streamOpts.Tracer = newAgentStreamTracer(w)
-		}
-		a.executeStreamChat(w, r, chatExecutionRequest{
-			RunContext:          runCtx,
-			Engine:              build.Engine,
-			RunRequest:          req,
-			History:             history,
-			RunID:               prun.ID,
-			UserID:              opts.UserID,
-			CheckedOutWorkspace: opts.CheckedOutWorkspace,
-		}, streamOpts)
-		return true
+func (a *app) dispatchStreamBuiltChatTarget(w http.ResponseWriter, r *http.Request, run builtChatTargetRun) bool {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	prun := a.runs.create(run.opts.Prompt)
+	streamOpts := run.opts.Stream
+	if streamOpts.StoreModel == "" {
+		streamOpts.StoreModel = run.build.ModelLabel
 	}
+	if run.opts.IncludeSummary {
+		streamOpts.InitialSummary = run.summary
+	}
+	if streamOpts.Tracer == nil {
+		streamOpts.Tracer = newAgentStreamTracer(w)
+	}
+	a.executeStreamChat(w, r, chatExecutionRequest{
+		RunContext:          run.runCtx,
+		Engine:              run.build.Engine,
+		RunRequest:          run.req,
+		History:             run.history,
+		RunID:               prun.ID,
+		UserID:              run.opts.UserID,
+		CheckedOutWorkspace: run.opts.CheckedOutWorkspace,
+	}, streamOpts)
+	return true
+}
 
-	prun := a.runs.create(opts.Prompt)
-	jsonOpts := opts.JSON
+func (a *app) dispatchJSONBuiltChatTarget(w http.ResponseWriter, r *http.Request, run builtChatTargetRun) bool {
+	prun := a.runs.create(run.opts.Prompt)
+	jsonOpts := run.opts.JSON
 	if jsonOpts.StoreModel == "" {
-		jsonOpts.StoreModel = build.ModelLabel
+		jsonOpts.StoreModel = run.build.ModelLabel
 	}
 	a.executeJSONChat(w, r, chatExecutionRequest{
-		RunContext:          runCtx,
-		Engine:              build.Engine,
-		RunRequest:          req,
-		History:             history,
+		RunContext:          run.runCtx,
+		Engine:              run.build.Engine,
+		RunRequest:          run.req,
+		History:             run.history,
 		RunID:               prun.ID,
-		UserID:              opts.UserID,
-		CheckedOutWorkspace: opts.CheckedOutWorkspace,
+		UserID:              run.opts.UserID,
+		CheckedOutWorkspace: run.opts.CheckedOutWorkspace,
 	}, jsonOpts)
 	return true
 }

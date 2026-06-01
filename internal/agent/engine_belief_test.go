@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"manifold/internal/agent/belief"
 	"manifold/internal/agent/memory"
+	"manifold/internal/agent/memory/belief"
 	"manifold/internal/llm"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/tools"

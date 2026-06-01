@@ -3,8 +3,9 @@ package agentd
 import (
 	"context"
 	"manifold/internal/agent"
-	"manifold/internal/agent/belief"
 	"manifold/internal/agent/memory"
+	"manifold/internal/agent/memory/belief"
+	"manifold/internal/agent/memory/magma"
 	"manifold/internal/config"
 	"manifold/internal/embedding"
 	llmproviders "manifold/internal/llm/providers"
@@ -65,7 +66,7 @@ func (a *app) applyUserOrchestratorOverlay(ctx context.Context, eng *agent.Engin
 		return
 	}
 	a.applyUserOrchestratorLLM(eng, sp)
-	eng.Tools = a.chatToolRegistry(sp.EnableTools, sp.AllowTools, sp.AutoDiscover)
+	eng.Tools = a.chatToolRegistry(sp.EnableTools, sp.AllowTools, sp.AutoDiscover, sp.RequestInfoEnabled)
 	if sp.Harness != nil {
 		harnessCfg := harnessOverrideConfig(a.cfg.Harness, harnessConfigFromPersist(sp.Harness))
 		eng.HarnessEnabled = harnessCfg.Enabled
@@ -122,6 +123,8 @@ func (a *app) newRunDelegator(ctx context.Context, eng *agent.Engine, userID int
 	if eng.DisableEvolvingMemory {
 		em = nil
 	}
+	a.configureUnifiedMemoryRuntime(eng, em, settings)
+	delegator.SetMemoryRuntime(eng.Memory)
 	delegator.SetEvolvingMemory(em)
 	delegator.SetBeliefMemory(eng.BeliefStore)
 	delegator.SetBeliefDistiller(eng.BeliefDistiller)
@@ -133,6 +136,72 @@ func (a *app) newRunDelegator(ctx context.Context, eng *agent.Engine, userID int
 		delegator.ConfigureReMem(a.evolvingCfg.LLM, a.evolvingCfg.Model, a.rememMaxInnerSteps)
 	}
 	return delegator
+}
+
+func (a *app) configureUnifiedMemoryRuntime(eng *agent.Engine, em *memory.EvolvingMemory, settings chatMemoryRunSettings) {
+	if eng == nil {
+		return
+	}
+	settings = normalizeChatMemoryRunSettings(settings)
+	if a.cfg == nil || !a.cfg.Memory.Enabled || !settings.MemoryEnabled {
+		eng.Memory = nil
+		eng.DisableMemory = true
+		return
+	}
+	eng.DisableMemory = false
+	var policyProvider policy.ContextProvider
+	if provider, ok := eng.PolicyEnforcer.(policy.ContextProvider); ok {
+		policyProvider = provider
+	}
+	var magmaRetriever memory.MagmaRetriever
+	if magmaService := a.ragServiceMagma(); magmaService != nil {
+		magmaRetriever = runtimeMagmaRetriever{service: magmaService}
+	}
+	eng.Memory = &memory.Runtime{
+		Config: memory.RuntimeConfig{
+			Enabled:            true,
+			MaxTokensPerPrompt: a.cfg.Memory.Retrieval.MaxTokensPerPrompt,
+			Timeout:            time.Duration(a.cfg.Memory.Retrieval.TimeoutMs) * time.Millisecond,
+			IncludeRecent:      a.cfg.Memory.Retrieval.IncludeRecent,
+		},
+		Evolving:                  em,
+		Belief:                    eng.BeliefRetriever,
+		PolicyProvider:            policyProvider,
+		Magma:                     magmaRetriever,
+		BeliefMaxBeliefs:          eng.BeliefMaxBeliefsPerPrompt,
+		BeliefPromptTokenBudget:   eng.BeliefPromptTokenBudget,
+		BeliefMinConfidence:       eng.BeliefRetrievalMinConfidence,
+		BeliefContradictions:      eng.BeliefIncludeContradictions,
+		MagmaIntentClassification: a.cfg.Magma.Retrieval.IntentClassification,
+		MagmaContextFormat:        a.cfg.Magma.Retrieval.ContextFormat,
+		MagmaMaxHops:              a.cfg.Magma.Retrieval.DefaultHops,
+		MagmaMaxNodes:             a.cfg.Magma.Retrieval.DefaultMaxNodes,
+	}
+}
+
+func (a *app) ragServiceMagma() *magma.Service {
+	if a == nil || a.ragService == nil {
+		return nil
+	}
+	return a.ragService.MagmaService()
+}
+
+type runtimeMagmaRetriever struct {
+	service *magma.Service
+}
+
+func (r runtimeMagmaRetriever) RetrieveMagmaContext(ctx context.Context, req memory.MagmaRequest) (memory.MagmaContext, error) {
+	magmaCtx, err := (magma.QueryEngine{Service: r.service}).Query(ctx, req.Query, magma.QueryOptions{
+		Tenant:               req.Tenant,
+		MaxHops:              req.MaxHops,
+		MaxNodes:             req.MaxNodes,
+		ContextFormat:        req.ContextFormat,
+		IntentClassification: req.IntentClassification,
+	})
+	if err != nil {
+		return memory.MagmaContext{}, err
+	}
+	return memory.MagmaContext{Text: magmaCtx.Text, Items: len(magmaCtx.RawEvents)}, nil
 }
 
 func (a *app) configureBeliefRunState(eng *agent.Engine, userID int64, sessionID, projectID, objectiveID, agentRole string) {

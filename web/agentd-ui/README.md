@@ -1,6 +1,6 @@
 # agentd-ui
 
-This directory contains the frontend bundled into the `manifold` container and embedded into `agentd` for production-style runs.
+This directory contains the frontend bundled into the `manifold` container and embedded into the `manifold` binary for production-style runs.
 
 For a normal Docker deployment from the repository root, you do not need to build this directory manually. The Docker build handles the frontend bundle.
 
@@ -41,6 +41,6 @@ That target installs frontend dependencies with `pnpm install --frozen-lockfile`
 
 ## Notes
 
-- The embedded production UI is served by `agentd` on port `32180`.
+- The embedded production UI is served by `manifold` on port `32180`.
 - The Vite dev server uses its own port during frontend development.
-- API routes still target the running `agentd` instance.
+- API routes still target the running Manifold instance.

@@ -4,11 +4,24 @@ import ChatView from "@/views/ChatView.vue";
 import type { StreamAgentRunOptions } from "@/api/chat";
 
 const chatApiMocks = vi.hoisted(() => ({
+  specialists: [
+    { name: "orchestrator", model: "gpt-5", paused: false },
+    { name: "orchestrator-max", model: "gpt-5", paused: false },
+    { name: "ops", model: "gpt-specialist", paused: false },
+  ],
+  teams: [
+    {
+      name: "ops",
+      orchestrator: { name: "ops-orchestrator", model: "gpt-team" },
+      members: ["orchestrator-max"],
+    },
+  ],
   streamAgentRun: vi.fn(async (_options: StreamAgentRunOptions) => {}),
   updateChatSessionMemorySettings: vi.fn(
     async (
       id: string,
       settings: {
+        memoryEnabled?: boolean;
         evolvingMemoryEnabled?: boolean;
         beliefMemoryEnabled?: boolean;
       },
@@ -16,19 +29,31 @@ const chatApiMocks = vi.hoisted(() => ({
       id,
       name: "Session",
       projectId: "proj-1",
-      evolvingMemoryEnabled: settings.evolvingMemoryEnabled ?? true,
-      beliefMemoryEnabled: settings.beliefMemoryEnabled ?? true,
+      memoryEnabled: settings.memoryEnabled ?? true,
+      evolvingMemoryEnabled: settings.memoryEnabled ?? true,
+      beliefMemoryEnabled: settings.memoryEnabled ?? true,
     }),
   ),
 }));
 
 vi.mock("@/api/client", () => ({
+  fetchAgentdSettings: async () => ({
+    openaiSummaryModel: "gpt-5",
+    openaiSummaryUrl: "https://api.openai.com/v1",
+    summaryEnabled: true,
+    summaryContextWindowTokens: 32000,
+    summaryPlainTextContextWindowTokens: 90000,
+    summaryReserveBufferTokens: 25000,
+    summaryMinKeepLastMessages: 4,
+    summaryMaxKeepLastMessages: 12,
+    summaryMaxSummaryChunkTokens: 4096,
+    summaryCallTimeoutSeconds: 120,
+    summaryTokenBudget: 7000,
+    requestInfoEnabled: true,
+  }),
   listProjects: async () => [{ id: "proj-1", name: "Demo Project" }],
-  listSpecialists: async () => [
-    { name: "orchestrator", model: "gpt-5" },
-    { name: "orchestrator-max", model: "gpt-5" },
-  ],
-  listTeams: async () => [],
+  listSpecialists: async () => chatApiMocks.specialists,
+  listTeams: async () => chatApiMocks.teams,
   getUserPreferences: async () => ({ activeProjectId: "proj-1" }),
   setActiveProject: async () => {},
   createProject: async () => ({ id: "proj-1", name: "Demo Project" }),
@@ -48,6 +73,7 @@ vi.mock("@/api/chat", () => ({
     id: "session-1",
     name: "Session",
     projectId: "proj-1",
+    memoryEnabled: true,
     evolvingMemoryEnabled: true,
     beliefMemoryEnabled: true,
   }),
@@ -57,15 +83,16 @@ vi.mock("@/api/chat", () => ({
     id,
     name: "Session",
     projectId,
+    memoryEnabled: true,
     evolvingMemoryEnabled: true,
     beliefMemoryEnabled: true,
   }),
-  updateChatSessionMemorySettings:
-    chatApiMocks.updateChatSessionMemorySettings,
+  updateChatSessionMemorySettings: chatApiMocks.updateChatSessionMemorySettings,
   generateChatSessionTitle: async () => ({
     id: "session-1",
     name: "Session",
     projectId: "proj-1",
+    memoryEnabled: true,
     evolvingMemoryEnabled: true,
     beliefMemoryEnabled: true,
   }),
@@ -74,6 +101,18 @@ vi.mock("@/api/chat", () => ({
 }));
 
 beforeEach(() => {
+  chatApiMocks.specialists = [
+    { name: "orchestrator", model: "gpt-5", paused: false },
+    { name: "orchestrator-max", model: "gpt-5", paused: false },
+    { name: "ops", model: "gpt-specialist", paused: false },
+  ];
+  chatApiMocks.teams = [
+    {
+      name: "ops",
+      orchestrator: { name: "ops-orchestrator", model: "gpt-team" },
+      members: ["orchestrator-max"],
+    },
+  ];
   chatApiMocks.streamAgentRun.mockClear();
   chatApiMocks.updateChatSessionMemorySettings.mockClear();
   vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
@@ -94,6 +133,42 @@ afterEach(() => {
 // Smoke test for chat send interaction
 
 describe("ChatView", () => {
+  function configureOpsTeam() {
+    chatApiMocks.teams = [
+      {
+        name: "ops",
+        orchestrator: { name: "ops-orchestrator", model: "gpt-team" },
+        members: ["orchestrator-max"],
+      },
+    ];
+  }
+
+  async function waitForProjectSelection(
+    findByLabelText: (text: string) => Promise<HTMLElement>,
+  ) {
+    const projectSelect = (await findByLabelText(
+      "Project",
+    )) as HTMLSelectElement;
+    await waitFor(() => {
+      expect(projectSelect.value).toBe("proj-1");
+    });
+  }
+
+  async function waitForTeamOption(
+    findByLabelText: (text: string) => Promise<HTMLElement>,
+    value: string,
+  ) {
+    const teamSelect = (await findByLabelText(
+      "Specialist team",
+    )) as HTMLSelectElement;
+    await waitFor(() => {
+      expect(
+        Array.from(teamSelect.options).some((option) => option.value === value),
+      ).toBe(true);
+    });
+    return teamSelect;
+  }
+
   it("sends a message and echoes", async () => {
     const { findByLabelText, findByPlaceholderText, getByText } =
       render(ChatView);
@@ -139,6 +214,103 @@ describe("ChatView", () => {
     expect(args?.prompt).toBe("write a haiku");
   });
 
+  it("routes by leading @team tag and strips it from provider prompt", async () => {
+    configureOpsTeam();
+    const { findByLabelText, findByPlaceholderText } = render(ChatView);
+
+    const input = (await findByPlaceholderText(
+      "Message the agent...",
+    )) as HTMLTextAreaElement;
+    await waitForProjectSelection(findByLabelText);
+    await waitForTeamOption(findByLabelText, "ops");
+    await fireEvent.update(input, "@ops write a rollout plan");
+    await fireEvent.submit(input.form as HTMLFormElement);
+
+    await waitFor(() => {
+      expect(chatApiMocks.streamAgentRun).toHaveBeenCalled();
+    });
+    const args = chatApiMocks.streamAgentRun.mock.calls.at(-1)?.[0];
+    expect(args?.teamName).toBe("ops");
+    expect(args?.specialist).toBeUndefined();
+    expect(args?.prompt).toBe("write a rollout plan");
+  });
+
+  it("prefers a team when a leading mention matches a team and specialist", async () => {
+    configureOpsTeam();
+    chatApiMocks.specialists = [
+      ...chatApiMocks.specialists,
+      { name: "ops", model: "gpt-specialist", paused: false },
+    ];
+    const { findByLabelText, findByPlaceholderText } = render(ChatView);
+
+    const input = (await findByPlaceholderText(
+      "Message the agent...",
+    )) as HTMLTextAreaElement;
+    await waitForProjectSelection(findByLabelText);
+    await waitForTeamOption(findByLabelText, "ops");
+    await fireEvent.update(input, "@ops inspect the incident");
+    await fireEvent.submit(input.form as HTMLFormElement);
+
+    await waitFor(() => {
+      expect(chatApiMocks.streamAgentRun).toHaveBeenCalled();
+    });
+    const args = chatApiMocks.streamAgentRun.mock.calls.at(-1)?.[0];
+    expect(args?.teamName).toBe("ops");
+    expect(args?.specialist).toBeUndefined();
+    expect(args?.prompt).toBe("inspect the incident");
+  });
+
+  it("routes untagged prompts through selected team and returns to default on all participants", async () => {
+    configureOpsTeam();
+    const { findByLabelText, findByPlaceholderText } = render(ChatView);
+
+    const input = (await findByPlaceholderText(
+      "Message the agent...",
+    )) as HTMLTextAreaElement;
+    await waitForProjectSelection(findByLabelText);
+    const teamSelect = await waitForTeamOption(findByLabelText, "ops");
+
+    await fireEvent.update(teamSelect, "ops");
+    await fireEvent.update(input, "status update");
+    await fireEvent.submit(input.form as HTMLFormElement);
+
+    await waitFor(() => {
+      expect(chatApiMocks.streamAgentRun).toHaveBeenCalled();
+    });
+    let args = chatApiMocks.streamAgentRun.mock.calls.at(-1)?.[0];
+    expect(args?.teamName).toBe("ops");
+    expect(args?.specialist).toBeUndefined();
+
+    await fireEvent.update(teamSelect, "");
+    await fireEvent.update(input, "default status");
+    await fireEvent.submit(input.form as HTMLFormElement);
+
+    await waitFor(() => {
+      expect(chatApiMocks.streamAgentRun).toHaveBeenCalledTimes(2);
+    });
+    args = chatApiMocks.streamAgentRun.mock.calls.at(-1)?.[0];
+    expect(args?.teamName).toBeUndefined();
+    expect(args?.specialist).toBeUndefined();
+  });
+
+  it("shows the selected team orchestrator instead of the default orchestrator participant", async () => {
+    configureOpsTeam();
+    const { findByLabelText } = render(ChatView);
+
+    await waitForProjectSelection(findByLabelText);
+    const teamSelect = await waitForTeamOption(findByLabelText, "ops");
+    await fireEvent.update(teamSelect, "ops");
+
+    await waitFor(() => {
+      const participantNames = Array.from(
+        document.querySelectorAll(".participant-name"),
+      ).map((el) => el.textContent?.trim());
+      expect(participantNames).toContain("ops orchestrator");
+      expect(participantNames).toContain("orchestrator-max");
+      expect(participantNames).not.toContain("orchestrator");
+    });
+  });
+
   it("sends the active session memory toggles with a run", async () => {
     const { findByLabelText, findByPlaceholderText } = render(ChatView);
 
@@ -152,14 +324,12 @@ describe("ChatView", () => {
       expect(projectSelect.value).toBe("proj-1");
     });
 
-    const memoryToggle = (await findByLabelText(
-      "Evolving memory",
-    )) as HTMLInputElement;
+    const memoryToggle = (await findByLabelText("Memory")) as HTMLInputElement;
     await fireEvent.click(memoryToggle);
     await waitFor(() => {
       expect(chatApiMocks.updateChatSessionMemorySettings).toHaveBeenCalledWith(
         "session-1",
-        { evolvingMemoryEnabled: false, beliefMemoryEnabled: true },
+        { memoryEnabled: false },
       );
     });
 
@@ -170,7 +340,6 @@ describe("ChatView", () => {
       expect(chatApiMocks.streamAgentRun).toHaveBeenCalled();
     });
     const args = chatApiMocks.streamAgentRun.mock.calls.at(-1)?.[0];
-    expect(args?.evolvingMemoryEnabled).toBe(false);
-    expect(args?.beliefMemoryEnabled).toBe(true);
+    expect(args?.memoryEnabled).toBe(false);
   });
 });

@@ -140,7 +140,7 @@ Relevant migration files:
 | `model` | inherited/resolved | Legacy model shorthand for memory summarization/ReMem when `llmClient` does not provide one. |
 | `persistDebounceMs` | `250` | Debounces async persistence writes after memory changes. Lower values persist sooner; higher values reduce write churn. |
 | `sessionTTLMinutes` | `60` | Evicts idle in-process per-session memory objects after this many minutes. This does not delete durable rows. |
-| `janitorIntervalMinutes` | `15` | How often agentd scans idle in-process session memories for eviction. |
+| `janitorIntervalMinutes` | `15` | How often Manifold scans idle in-process session memories for eviction. |
 | `storeJanitorIntervalMinutes` | `60` | How often the durable store janitor removes rows whose `expires_at` has passed. |
 | `maxSize` | `1000` | Maximum entries retained per in-memory memory instance. Smart pruning or FIFO pruning runs when this is exceeded. |
 | `topK` | `4` | Number of memories injected for a task after ranking and MMR diversification. |
@@ -315,7 +315,7 @@ Common fixes:
 
 - If searches fail, verify `embedding.baseURL`, `embedding.path`, `embedding.model`, and API credentials.
 - If Postgres vector search fails, confirm `pgvector` is installed and the migrations were applied with a dimensioned `vector(N)` column.
-- If memory is lost after restart, verify `databases.defaultDSN` points to Postgres and agentd can connect during startup.
+- If memory is lost after restart, verify `databases.defaultDSN` points to Postgres and Manifold can connect during startup.
 - If ReMem is slow or noisy, reduce `maxInnerSteps` to `3`, disable ReMem, or use a stronger instruction-following memory model.
 - If too many duplicates accumulate, enable smart pruning and keep `pruneThreshold` around `0.95` to `0.97`.
 - If useful old memories disappear too quickly, lower pruning aggressiveness by reducing `minRelevance` or increasing `maxSize`.
@@ -325,7 +325,7 @@ Common fixes:
 - Runtime implementation: `internal/agent/memory/evolving.go`
 - ReMem controller: `internal/agent/memory/remem.go`
 - Metrics instruments: `internal/agent/memory/metrics.go`
-- Agentd wiring: `internal/agentd/run.go`
+- Manifold server wiring: `internal/agentd/run.go`
 - Debug endpoints: `internal/agentd/handlers_memory.go`
 - Metrics endpoint: `internal/agentd/memory_metrics_clickhouse.go` and `internal/agentd/process_metrics.go`
 - Postgres store: `internal/persistence/databases/evolving_memory_store_postgres.go`

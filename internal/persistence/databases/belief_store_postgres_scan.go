@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"manifold/internal/agent/belief"
+	"manifold/internal/agent/memory/belief"
 )
 
 type scanner interface {

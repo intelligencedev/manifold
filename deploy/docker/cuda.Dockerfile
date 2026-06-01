@@ -45,7 +45,7 @@ COPY --from=ui-build /src/web/agentd-ui/dist/ ./internal/webui/dist/
 RUN --mount=type=cache,id=manifold-go-mod,target=/go/pkg/mod \
     --mount=type=cache,id=manifold-go-build,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/agentd ./cmd/agentd
+    go build -trimpath -buildvcs=false -ldflags="-s -w" -o /out/manifold ./cmd/agentd
 
 
 FROM ${CUDA_RUNTIME_IMAGE} AS runtime
@@ -80,7 +80,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 
 WORKDIR /app
 COPY --from=go-base /usr/local/go /usr/local/go
-COPY --from=go-build /out/agentd /app/agentd
+COPY --from=go-build /out/manifold /usr/local/bin/manifold
 COPY --link example.env config.yaml.example ./
 COPY --link docs/ ./docs/
 RUN ln -sf /usr/local/go/bin/go /usr/local/bin/go \
@@ -89,4 +89,4 @@ RUN ln -sf /usr/local/go/bin/go /usr/local/bin/go \
     && chown -R 65532:65532 /app
 
 USER 65532:65532
-ENTRYPOINT ["dumb-init", "--", "/app/agentd"]
+ENTRYPOINT ["dumb-init", "--", "/usr/local/bin/manifold"]

@@ -194,6 +194,24 @@
             </div>
           </div>
         </fieldset>
+        <fieldset class="space-y-4">
+          <legend class="text-sm font-semibold text-foreground">
+            Interactive Tools
+          </legend>
+          <p class="text-xs text-subtle-foreground">
+            Defaults for agents that can pause to ask the user for missing
+            information.
+          </p>
+          <label class="inline-flex items-center gap-2">
+            <input
+              id="request-info-enabled"
+              type="checkbox"
+              class="h-4 w-4"
+              v-model="agentdSettings.requestInfoEnabled"
+            />
+            <span class="text-sm text-foreground">Enable request_info</span>
+          </label>
+        </fieldset>
       </template>
 
       <!-- Summarization -->
@@ -244,6 +262,25 @@
             </div>
             <div class="space-y-1 col-span-2">
               <label
+                for="summary-context-window"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Chat Context Window</label
+              >
+              <input
+                id="summary-context-window"
+                type="number"
+                min="0"
+                v-model.number="agentdSettings.summaryContextWindowTokens"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              />
+              <p class="text-xs text-subtle-foreground">
+                Primary chat summary window. With the current reserve, the
+                effective trigger budget is {{ summaryTokenBudgetLabel }}
+                tokens.
+              </p>
+            </div>
+            <div class="space-y-1 col-span-2">
+              <label
                 for="summary-reserve-buffer"
                 class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
                 >Reserve Output Tokens</label
@@ -256,9 +293,9 @@
                 class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
               />
               <p class="text-xs text-subtle-foreground">
-                Summaries are triggered automatically when the chat approaches the
-                model context window. This reserve keeps token budget available
-                for the model response.
+                Summaries are triggered automatically when the chat approaches
+                the model context window. This reserve keeps token budget
+                available for the model response.
               </p>
             </div>
             <div class="space-y-1 col-span-2">
@@ -271,14 +308,140 @@
                 id="summary-plain-text-context-window"
                 type="number"
                 min="0"
-                v-model.number="agentdSettings.summaryPlainTextContextWindowTokens"
+                v-model.number="
+                  agentdSettings.summaryPlainTextContextWindowTokens
+                "
                 class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
               />
               <p class="text-xs text-subtle-foreground">
-                Optional global trigger budget for portable plain-text summaries.
-                Lower values force earlier summarization for summary-only models;
-                0 falls back to the summary model context size.
+                Optional global trigger budget for portable plain-text
+                summaries. Lower values force earlier summarization for
+                summary-only models; 0 falls back to the summary model context
+                size.
               </p>
+            </div>
+            <div class="space-y-1">
+              <label
+                for="summary-min-keep-last"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Min Tail Messages</label
+              >
+              <input
+                id="summary-min-keep-last"
+                type="number"
+                min="0"
+                v-model.number="agentdSettings.summaryMinKeepLastMessages"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              />
+            </div>
+            <div class="space-y-1">
+              <label
+                for="summary-max-keep-last"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Max Tail Messages</label
+              >
+              <input
+                id="summary-max-keep-last"
+                type="number"
+                min="0"
+                v-model.number="agentdSettings.summaryMaxKeepLastMessages"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              />
+            </div>
+            <div class="space-y-1">
+              <label
+                for="summary-max-chunk"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Chunk Budget</label
+              >
+              <input
+                id="summary-max-chunk"
+                type="number"
+                min="0"
+                v-model.number="agentdSettings.summaryMaxSummaryChunkTokens"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              />
+            </div>
+            <div class="space-y-1">
+              <label
+                for="summary-call-timeout"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Timeout Seconds</label
+              >
+              <input
+                id="summary-call-timeout"
+                type="number"
+                min="0"
+                v-model.number="agentdSettings.summaryCallTimeoutSeconds"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+        </fieldset>
+      </template>
+
+      <!-- Prompts -->
+      <template v-if="activeSection === 'prompts'">
+        <fieldset class="space-y-4">
+          <legend class="text-sm font-semibold text-foreground">
+            Built-in Prompt Overrides
+          </legend>
+          <div class="grid gap-4 grid-cols-2">
+            <div class="space-y-1 col-span-2">
+              <label
+                for="prompt-base-system"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Base System</label
+              >
+              <textarea
+                id="prompt-base-system"
+                v-model="agentdSettings.promptBaseSystem"
+                rows="8"
+                placeholder="Leave empty to use the built-in base system prompt."
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 font-mono text-xs"
+              />
+            </div>
+            <div class="space-y-1">
+              <label
+                for="prompt-memory"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Memory Instructions</label
+              >
+              <textarea
+                id="prompt-memory"
+                v-model="agentdSettings.promptMemoryInstructions"
+                rows="8"
+                placeholder="Leave empty to use the built-in [memory] block."
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 font-mono text-xs"
+              />
+            </div>
+            <div class="space-y-1">
+              <label
+                for="prompt-tool-discovery"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Tool Discovery Instructions</label
+              >
+              <textarea
+                id="prompt-tool-discovery"
+                v-model="agentdSettings.promptToolDiscoveryInstructions"
+                rows="8"
+                placeholder="Leave empty to use the built-in [tool_discovery] block."
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 font-mono text-xs"
+              />
+            </div>
+            <div class="space-y-1">
+              <label
+                for="prompt-skill-discovery"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Skill Discovery Instructions</label
+              >
+              <textarea
+                id="prompt-skill-discovery"
+                v-model="agentdSettings.promptSkillDiscoveryInstructions"
+                rows="8"
+                placeholder="Leave empty to use the built-in [skill_discovery] block."
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 font-mono text-xs"
+              />
             </div>
           </div>
         </fieldset>
@@ -1253,8 +1416,19 @@ const defaultAgentdSettings: AgentdSettings = {
   openaiSummaryModel: "",
   openaiSummaryUrl: "",
   summaryEnabled: false,
+  summaryContextWindowTokens: 32000,
   summaryPlainTextContextWindowTokens: 0,
   summaryReserveBufferTokens: 25000,
+  summaryMinKeepLastMessages: 4,
+  summaryMaxKeepLastMessages: 12,
+  summaryMaxSummaryChunkTokens: 4096,
+  summaryCallTimeoutSeconds: 120,
+  summaryTokenBudget: 7000,
+  requestInfoEnabled: true,
+  promptBaseSystem: "",
+  promptMemoryInstructions: "",
+  promptToolDiscoveryInstructions: "",
+  promptSkillDiscoveryInstructions: "",
   embedBaseUrl: "https://api.openai.com",
   embedModel: "text-embedding-3-small",
   embedApiKey: "",
@@ -1363,8 +1537,14 @@ const embedInstructionFormatDropdownOptions = embedInstructionFormatOptions.map(
 );
 
 type NumericSettingKey =
+  | "summaryContextWindowTokens"
   | "summaryPlainTextContextWindowTokens"
   | "summaryReserveBufferTokens"
+  | "summaryMinKeepLastMessages"
+  | "summaryMaxKeepLastMessages"
+  | "summaryMaxSummaryChunkTokens"
+  | "summaryCallTimeoutSeconds"
+  | "summaryTokenBudget"
   | "agentRunTimeoutSeconds"
   | "streamRunTimeoutSeconds"
   | "workflowTimeoutSeconds"
@@ -1374,13 +1554,20 @@ type NumericSettingKey =
 
 type BooleanSettingKey =
   | "summaryEnabled"
+  | "requestInfoEnabled"
   | "rerankEnabled"
   | "logPayloads"
   | "logRawPrompts";
 
 const numericSettingKeys: NumericSettingKey[] = [
+  "summaryContextWindowTokens",
   "summaryPlainTextContextWindowTokens",
   "summaryReserveBufferTokens",
+  "summaryMinKeepLastMessages",
+  "summaryMaxKeepLastMessages",
+  "summaryMaxSummaryChunkTokens",
+  "summaryCallTimeoutSeconds",
+  "summaryTokenBudget",
   "agentRunTimeoutSeconds",
   "streamRunTimeoutSeconds",
   "workflowTimeoutSeconds",
@@ -1390,6 +1577,7 @@ const numericSettingKeys: NumericSettingKey[] = [
 ];
 const booleanSettingKeys: BooleanSettingKey[] = [
   "summaryEnabled",
+  "requestInfoEnabled",
   "rerankEnabled",
   "logPayloads",
   "logRawPrompts",
@@ -1437,8 +1625,33 @@ function normalizeAgentdSettings(
   for (const key of booleanSettingKeys) {
     merged[key] = toBoolean(input?.[key], defaultAgentdSettings[key]);
   }
+  merged.summaryTokenBudget = effectiveSummaryTokenBudget(merged);
   return merged;
 }
+
+function effectiveSummaryTokenBudget(
+  settings: Pick<
+    AgentdSettings,
+    "summaryContextWindowTokens" | "summaryReserveBufferTokens"
+  >,
+): number {
+  const contextWindow = Math.max(
+    0,
+    toNumber(settings.summaryContextWindowTokens, 0),
+  );
+  const reserveTokens = Math.max(
+    0,
+    toNumber(settings.summaryReserveBufferTokens, 0),
+  );
+  if (contextWindow <= 0) return 0;
+  const budget = contextWindow - reserveTokens;
+  return budget > 0 ? budget : Math.floor(contextWindow / 2);
+}
+
+const summaryTokenBudgetLabel = computed(() => {
+  const budget = effectiveSummaryTokenBudget(agentdSettings.value);
+  return budget > 0 ? budget.toLocaleString() : "Derived";
+});
 
 async function loadAgentdSettings() {
   agentdLoading.value = true;
@@ -1579,6 +1792,7 @@ function handleMessage(event: MessageEvent) {
 type SectionKey =
   | "general"
   | "summarization"
+  | "prompts"
   | "embeddings"
   | "timeouts"
   | "observability"
@@ -1588,6 +1802,7 @@ type SectionKey =
 const sections: { key: SectionKey; label: string }[] = [
   { key: "general", label: "General" },
   { key: "summarization", label: "Summarization" },
+  { key: "prompts", label: "Prompts" },
   { key: "embeddings", label: "Embeddings" },
   { key: "timeouts", label: "Timeouts & Safety" },
   { key: "observability", label: "Observability & Logging" },
@@ -1599,6 +1814,8 @@ const activeSection = ref<SectionKey>("general");
 const sectionDescriptions: Record<SectionKey, string> = {
   general: "Client-local app settings and runtime identifiers.",
   summarization: "Control conversation summarization cadence and retention.",
+  prompts:
+    "Override built-in prompt blocks while keeping custom orchestrator and specialist instructions additive.",
   embeddings: "Configure embedding provider parameters.",
   timeouts: "Global execution time limits and shell safety.",
   observability: "Telemetry export and logging verbosity.",

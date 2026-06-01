@@ -1,14 +1,16 @@
 <template>
-  <section class="flex min-h-full flex-col gap-4">
-    <header class="flex items-start justify-between gap-4">
-      <div>
+  <section class="flex min-h-full min-w-0 flex-col gap-4 overflow-x-hidden">
+    <header
+      class="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"
+    >
+      <div class="min-w-0">
         <p class="mt-1 text-sm text-muted-foreground">
           Agents, throughput, recent work, and queue operations.
         </p>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex min-w-0 flex-wrap items-center gap-2 lg:justify-end">
         <label
-          v-if="overviewMode === 'customize'"
+          v-if="overviewMode !== 'queue-ops'"
           class="flex items-center gap-2 text-xs text-foreground"
         >
           <span>Time Range</span>
@@ -22,7 +24,8 @@
         <MSegmented
           v-model="overviewMode"
           :options="[
-            { value: 'customize', label: 'Customize' },
+            { value: 'customize', label: 'Dashboard' },
+            { value: 'memory', label: 'Memory' },
             { value: 'queue-ops', label: 'Queue Ops' },
           ]"
         />
@@ -103,7 +106,7 @@
                   Throughput
                 </h2>
                 <p class="mt-1 text-xs leading-snug text-muted-foreground">
-                  Rolling hourly buckets for runs started in the last 8 hours.
+                  {{ throughputDescription }}
                 </p>
               </div>
               <dl class="grid shrink-0 grid-cols-3 gap-3 text-right">
@@ -147,7 +150,7 @@
                 viewBox="0 0 1080 220"
                 preserveAspectRatio="none"
                 role="img"
-                aria-label="Run throughput"
+                :aria-label="throughputAriaLabel"
               >
                 <g
                   v-for="tick in chartYTicks"
@@ -188,7 +191,7 @@
                 />
                 <g v-for="point in chartPoints" :key="point.timestamp">
                   <title>
-                    {{ point.value }} runs started at {{ point.timestamp }}
+                    {{ point.value }} runs started from {{ point.timestamp }}
                   </title>
                   <circle
                     :cx="point.x"
@@ -197,6 +200,7 @@
                     fill="rgb(var(--data))"
                   />
                   <text
+                    v-if="point.showValueLabel"
                     :x="point.x"
                     :y="point.valueLabelY"
                     text-anchor="middle"
@@ -205,6 +209,7 @@
                     {{ point.value }}
                   </text>
                   <text
+                    v-if="point.showAxisLabel"
                     :x="point.x"
                     y="204"
                     text-anchor="middle"
@@ -220,6 +225,11 @@
       </DashboardGrid>
     </template>
 
+    <MemoryCommandCenter
+      v-else-if="overviewMode === 'memory'"
+      :time-range="dashboardTimeRange"
+    />
+
     <DurableView v-else embedded class="min-h-0 flex-1" />
 
     <LogDetailDrawer
@@ -233,7 +243,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from "vue";
-import { useQuery } from "@tanstack/vue-query";
+import { keepPreviousData, useQuery } from "@tanstack/vue-query";
 import { useRoute, useRouter } from "vue-router";
 import DashboardGrid, {
   type GridItemConfig,
@@ -242,6 +252,7 @@ import TokenUsagePanel from "@/components/observability/TokenUsagePanel.vue";
 import TracesPanel from "@/components/observability/TracesPanel.vue";
 import MemoryPanel from "@/components/observability/MemoryPanel.vue";
 import MemoryMetricsPanel from "@/components/observability/MemoryMetricsPanel.vue";
+import MemoryCommandCenter from "@/components/observability/MemoryCommandCenter.vue";
 import LogsPanel from "@/components/observability/LogsPanel.vue";
 import LogDetailDrawer from "@/components/observability/LogDetailDrawer.vue";
 import AgentsPanel from "@/components/overview/AgentsPanel.vue";
@@ -259,7 +270,7 @@ import {
   type MetricsTimeRangeValue,
 } from "@/composables/observability/useTokenMetrics";
 
-type OverviewMode = "customize" | "queue-ops";
+type OverviewMode = "customize" | "memory" | "queue-ops";
 
 const route = useRoute();
 const router = useRouter();
@@ -267,12 +278,55 @@ const selectedLogId = ref<string | null>(null);
 const selectedLogWindow = ref<MetricsTimeRangeValue>("24h");
 const overviewMode = ref<OverviewMode>(normalizeOverviewMode(route.query.tab));
 const dashboardTimeRange = ref<MetricsTimeRangeValue>("24h");
+const RUNS_QUERY_LIMIT = 5000;
 
 const timeRangeDropdownOptions = TOKEN_METRIC_TIME_RANGES.map((option) => ({
   id: option.value,
   label: option.label,
   value: option.value,
 }));
+
+type ThroughputRangeConfig = {
+  durationMs: number;
+  bucketCount: number;
+  bucketLabel: string;
+};
+
+const THROUGHPUT_RANGE_CONFIG: Record<
+  MetricsTimeRangeValue,
+  ThroughputRangeConfig
+> = {
+  "1h": {
+    durationMs: 60 * 60 * 1000,
+    bucketCount: 12,
+    bucketLabel: "5-minute",
+  },
+  "6h": {
+    durationMs: 6 * 60 * 60 * 1000,
+    bucketCount: 12,
+    bucketLabel: "30-minute",
+  },
+  "12h": {
+    durationMs: 12 * 60 * 60 * 1000,
+    bucketCount: 12,
+    bucketLabel: "hourly",
+  },
+  "24h": {
+    durationMs: 24 * 60 * 60 * 1000,
+    bucketCount: 24,
+    bucketLabel: "hourly",
+  },
+  "7d": {
+    durationMs: 7 * 24 * 60 * 60 * 1000,
+    bucketCount: 14,
+    bucketLabel: "12-hour",
+  },
+  "30d": {
+    durationMs: 30 * 24 * 60 * 60 * 1000,
+    bucketCount: 30,
+    bucketLabel: "daily",
+  },
+};
 
 // Define default dashboard layout
 // 12 columns grid, row height = 80px + 16px margin = 96px per row
@@ -306,7 +360,7 @@ watch(overviewMode, (mode) => {
   void router.replace({
     query: {
       ...route.query,
-      tab: mode === "queue-ops" ? mode : undefined,
+      tab: mode === "customize" ? undefined : mode,
     },
   });
 });
@@ -330,6 +384,21 @@ const { data: specialistsData } = useQuery({
 const { data: runsData } = useQuery({
   queryKey: ["agent-runs"],
   queryFn: fetchAgentRuns,
+  staleTime: 15_000,
+});
+
+const { data: throughputRunsData } = useQuery({
+  queryKey: computed(() => [
+    "agent-runs",
+    "throughput",
+    dashboardTimeRange.value,
+  ]),
+  queryFn: () =>
+    fetchAgentRuns({
+      window: dashboardTimeRange.value,
+      limit: RUNS_QUERY_LIMIT,
+    }),
+  placeholderData: keepPreviousData,
   staleTime: 15_000,
 });
 
@@ -362,6 +431,7 @@ const agents = computed(() => {
   return base;
 });
 const runs = computed(() => runsData.value ?? []);
+const throughputRuns = computed(() => throughputRunsData.value ?? []);
 
 const specialistCount = computed(() => (specialistsData?.value ?? []).length);
 
@@ -396,26 +466,50 @@ const overviewStats = computed(() => [
   },
 ]);
 
+const selectedTimeRangeLabel = computed(
+  () =>
+    timeRangeDropdownOptions.find(
+      (option) => option.value === dashboardTimeRange.value,
+    )?.label ?? "Selected range",
+);
+
+const selectedThroughputRange = computed(
+  () => THROUGHPUT_RANGE_CONFIG[dashboardTimeRange.value],
+);
+
+const throughputDescription = computed(() => {
+  const label = selectedTimeRangeLabel.value.toLowerCase();
+  return `Rolling ${selectedThroughputRange.value.bucketLabel} buckets for runs started in the ${label}.`;
+});
+
+const throughputAriaLabel = computed(
+  () => `Run throughput for ${selectedTimeRangeLabel.value.toLowerCase()}`,
+);
+
 const chartBuckets = computed(() => {
   const now = new Date();
-  return Array.from({ length: 8 }, (_, index) => {
-    const bucketStart = new Date(now);
-    bucketStart.setMinutes(0, 0, 0);
-    bucketStart.setHours(bucketStart.getHours() - (7 - index));
-    const bucketEnd = new Date(bucketStart);
-    bucketEnd.setHours(bucketEnd.getHours() + 1);
-    const value = runs.value.filter((run) => {
-      const created = new Date(run.createdAt);
-      return created >= bucketStart && created < bucketEnd;
-    }).length;
+  const range = selectedThroughputRange.value;
+  const endMs = now.getTime();
+  const startMs = endMs - range.durationMs;
+  const bucketMs = range.durationMs / range.bucketCount;
+  const runTimes = throughputRuns.value
+    .map((run) => new Date(run.createdAt).getTime())
+    .filter((createdMs) => Number.isFinite(createdMs));
+
+  return Array.from({ length: range.bucketCount }, (_, index) => {
+    const bucketStartMs = startMs + index * bucketMs;
+    const bucketEndMs =
+      index === range.bucketCount - 1
+        ? endMs
+        : startMs + (index + 1) * bucketMs;
+    const bucketStart = new Date(bucketStartMs);
+    const bucketEnd = new Date(bucketEndMs);
+    const value = runTimes.filter(
+      (createdMs) => createdMs >= bucketStartMs && createdMs < bucketEndMs,
+    ).length;
     return {
-      label: bucketStart.toLocaleTimeString([], {
-        hour: "numeric",
-      }),
-      timestamp: bucketStart.toLocaleTimeString([], {
-        hour: "numeric",
-        minute: "2-digit",
-      }),
+      label: formatBucketLabel(bucketStart, dashboardTimeRange.value),
+      timestamp: `${formatBucketTimestamp(bucketStart, dashboardTimeRange.value)} - ${formatBucketTimestamp(bucketEnd, dashboardTimeRange.value)}`,
       value,
     };
   });
@@ -430,14 +524,19 @@ const chartPoints = computed(() => {
   const top = 26;
   const bottom = 174;
   const height = bottom - top;
+  const labelEvery = Math.max(1, Math.ceil(chartBuckets.value.length / 12));
   return chartBuckets.value.map((bucket, index) => {
     const x = 52 + index * (996 / Math.max(1, chartBuckets.value.length - 1));
     const y = bottom - (bucket.value / max) * height;
+    const isBoundary = index === 0 || index === chartBuckets.value.length - 1;
     return {
       ...bucket,
       x,
       y,
       valueLabelY: Math.max(14, y - 10),
+      showAxisLabel: isBoundary || index % labelEvery === 0,
+      showValueLabel:
+        chartBuckets.value.length <= 14 || bucket.value === max || isBoundary,
     };
   });
 });
@@ -518,6 +617,39 @@ function isToday(value: string) {
   );
 }
 
+function formatBucketLabel(date: Date, range: MetricsTimeRangeValue) {
+  if (range === "1h") {
+    return date.toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+  if (range === "7d" || range === "30d") {
+    return date.toLocaleDateString([], {
+      month: "short",
+      day: "numeric",
+    });
+  }
+  return date.toLocaleTimeString([], {
+    hour: "numeric",
+  });
+}
+
+function formatBucketTimestamp(date: Date, range: MetricsTimeRangeValue) {
+  if (range === "7d" || range === "30d") {
+    return date.toLocaleString([], {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+  return date.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function onLayoutChange(newLayout: GridItemConfig[]) {
   // Layout changes are automatically saved via DashboardGrid component
   console.log("Dashboard layout updated:", newLayout);
@@ -534,6 +666,7 @@ function closeLogDetail() {
 
 function normalizeOverviewMode(value: unknown): OverviewMode {
   const raw = Array.isArray(value) ? value[0] : value;
+  if (raw === "memory") return "memory";
   return raw === "queue-ops" ? "queue-ops" : "customize";
 }
 </script>

@@ -40,8 +40,9 @@ func TestDefaultSystemPrompt_AppendsOverrideAfterBaseInstructions(t *testing.T) 
 	}
 }
 
-func TestDefaultSystemPrompt_IncludesCurrentMemoryHeadings(t *testing.T) {
+func TestEnsureMemoryInstructions_IncludesCurrentMemoryHeadings(t *testing.T) {
 	prompt := DefaultSystemPrompt("/tmp/workdir", "")
+	prompt = EnsureMemoryInstructions(prompt)
 
 	for _, want := range []string{
 		"## Past Relevant Experiences",
@@ -56,6 +57,31 @@ func TestDefaultSystemPrompt_IncludesCurrentMemoryHeadings(t *testing.T) {
 	}
 	if strings.Contains(prompt, "## Current Task\" appears") {
 		t.Fatalf("default system prompt still references stale Current Task memory heading: %s", prompt)
+	}
+}
+
+func TestDefaultSystemPrompt_UsesConfiguredBaseOverride(t *testing.T) {
+	prompt := DefaultSystemPrompt("/tmp/workdir", "custom", InstructionOverrides{
+		BaseSystem: "Base at {{workdir}}.",
+	})
+	if prompt != "Base at /tmp/workdir.\n\ncustom" {
+		t.Fatalf("unexpected prompt override: %q", prompt)
+	}
+}
+
+func TestEnsureToolDiscoveryInstructions_UsesConfiguredOverride(t *testing.T) {
+	prompt := EnsureToolDiscoveryInstructions("base", InstructionOverrides{
+		ToolDiscoveryInstructions: "[tool_discovery]\ncustom tool search\n[/tool_discovery]",
+	})
+	if !strings.Contains(prompt, "custom tool search") {
+		t.Fatalf("expected custom tool discovery block, got %q", prompt)
+	}
+}
+
+func TestEnsureRequestInfoInstructions_AppendsNonOverrideableBlock(t *testing.T) {
+	prompt := EnsureRequestInfoInstructions("base\n[request_info]\ncustom\n[/request_info]")
+	if !strings.Contains(prompt, "[request_info]") || !strings.Contains(prompt, "Use request_info only when") {
+		t.Fatalf("expected request_info block, got %q", prompt)
 	}
 }
 

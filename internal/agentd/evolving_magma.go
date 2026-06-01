@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"manifold/internal/agent/belief"
 	"manifold/internal/agent/memory"
-	"manifold/internal/memory/magma"
+	"manifold/internal/agent/memory/belief"
+	"manifold/internal/agent/memory/magma"
 	"manifold/internal/transit"
 )
 
@@ -149,6 +149,9 @@ type transitMagmaSink struct {
 
 func (s transitMagmaSink) IngestTransitRecord(ctx context.Context, record transit.Record) (string, error) {
 	if s.service == nil || strings.TrimSpace(record.KeyName) == "" {
+		return "", nil
+	}
+	if !record.Embed {
 		return "", nil
 	}
 	s.service.StartConsolidationWorkers(context.Background(), s.workerCount)

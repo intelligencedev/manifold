@@ -209,11 +209,13 @@ func logSummaryPlan(ctx context.Context, req summaryRequest, plan summaryPlan, s
 
 func summaryResult(plan summaryPlan, messageCount, summarizedCount int) *SummaryResult {
 	return &SummaryResult{
-		Triggered:       true,
-		EstimatedTokens: plan.effectiveTokens,
-		TokenBudget:     plan.budget,
-		MessageCount:    messageCount,
-		SummarizedCount: summarizedCount,
+		Triggered:           true,
+		EstimatedTokens:     plan.effectiveTokens,
+		TokenBudget:         plan.budget,
+		ContextWindowTokens: plan.contextSize,
+		ReserveBufferTokens: plan.reserveBuffer,
+		MessageCount:        messageCount,
+		SummarizedCount:     summarizedCount,
 	}
 }
 

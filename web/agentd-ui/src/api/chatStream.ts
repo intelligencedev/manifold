@@ -1,7 +1,13 @@
-import type { ChatInputRequestChoice } from "@/types/chat";
+import type {
+  ChatContextMetricSegment,
+  ChatInputRequestChoice,
+  ChatMemoryContextLane,
+} from "@/types/chat";
 
 export type ChatStreamEventType =
   | "thought_summary"
+  | "memory_context"
+  | "context_metrics"
   | "delta"
   | "final"
   | "tool_start"
@@ -58,6 +64,16 @@ export interface ChatStreamEvent {
   token_budget?: number;
   message_count?: number;
   summarized_count?: number;
+  token_estimate?: number;
+  truncated?: boolean;
+  duration_ms?: number;
+  lanes?: Record<string, ChatMemoryContextLane>;
+  phase?: string;
+  context_window?: number;
+  summary_threshold?: number;
+  reserve_tokens?: number;
+  will_summarize?: boolean;
+  segments?: ChatContextMetricSegment[];
   [key: string]: unknown;
 }
 
@@ -71,6 +87,7 @@ export interface StreamAgentRunOptions {
   specialist?: string;
   teamName?: string;
   projectId?: string;
+  memoryEnabled?: boolean;
   evolvingMemoryEnabled?: boolean;
   beliefMemoryEnabled?: boolean;
   image?: boolean;
@@ -130,6 +147,7 @@ async function postAgentRun(options: StreamAgentRunOptions) {
     specialist,
     teamName,
     projectId,
+    memoryEnabled,
     evolvingMemoryEnabled,
     beliefMemoryEnabled,
   } = options;
@@ -137,9 +155,14 @@ async function postAgentRun(options: StreamAgentRunOptions) {
   if (assistantMessageId && assistantMessageId.trim())
     payload.assistant_message_id = assistantMessageId.trim();
   if (projectId && projectId.trim()) payload.project_id = projectId.trim();
-  if (typeof evolvingMemoryEnabled === "boolean")
+  if (typeof memoryEnabled === "boolean")
+    payload.memory_enabled = memoryEnabled;
+  else if (typeof evolvingMemoryEnabled === "boolean")
     payload.evolving_memory_enabled = evolvingMemoryEnabled;
-  if (typeof beliefMemoryEnabled === "boolean")
+  if (
+    typeof memoryEnabled !== "boolean" &&
+    typeof beliefMemoryEnabled === "boolean"
+  )
     payload.belief_memory_enabled = beliefMemoryEnabled;
   if (options.image) payload.image = true;
   if (options.imageSize && options.imageSize.trim())
@@ -215,7 +238,12 @@ export async function streamAgentVisionRun(
   },
 ): Promise<void> {
   const { response, decoder } = await postAgentVisionRun(options);
-  await streamAgentResponse(response, decoder, options.onEvent, "agent vision run");
+  await streamAgentResponse(
+    response,
+    decoder,
+    options.onEvent,
+    "agent vision run",
+  );
 }
 
 async function postAgentVisionRun(

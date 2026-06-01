@@ -61,7 +61,126 @@ auth:
 
 For local dev, put `AUTH_CLIENT_SECRET="dev-agentd-secret"` in `.env`.
 
-### Using a plain OAuth2 provider
+## Provider Examples
+
+Use OIDC providers when possible. Manifold discovers OIDC endpoints from `issuerURL`, verifies the ID token, and stores a local httpOnly session cookie. Use `provider: oauth2` for providers that do not expose a compatible OIDC discovery document or when you need explicit endpoint and JSON-field mapping.
+
+### Google
+
+Google supports OIDC discovery at `https://accounts.google.com/.well-known/openid-configuration`. Register an OAuth web application in Google Cloud Console and add Manifold's callback URL as an authorized redirect URI.
+
+```yaml
+auth:
+  enabled: true
+  provider: oidc
+  issuerURL: "https://accounts.google.com"
+  clientID: "${GOOGLE_CLIENT_ID}"
+  clientSecret: "${GOOGLE_CLIENT_SECRET}"
+  redirectURL: "http://localhost:32180/auth/callback"
+  allowedDomains:
+    - example.com
+  cookieName: "manifold_session"
+  cookieSecure: false
+  cookieDomain: ""
+  stateTTLSeconds: 600
+  sessionTTLHours: 72
+```
+
+Notes:
+
+- Set `allowedDomains: []` to allow any Google account.
+- In production, use an HTTPS redirect URL and set `cookieSecure: true`.
+- Google account identity should be keyed by the OIDC `sub` claim. Manifold already stores the verified ID token subject as `users.subject`.
+- Google does not provide a browser RP-initiated logout endpoint. Manifold logout clears the local session and redirects locally unless `auth.oidc.logoutURL` is configured.
+
+### GitHub
+
+GitHub OAuth Apps use explicit OAuth2 endpoints rather than Manifold's OIDC path. Create a GitHub OAuth App and set its authorization callback URL to Manifold's callback URL.
+
+```yaml
+auth:
+  enabled: true
+  provider: oauth2
+  clientID: "${GITHUB_CLIENT_ID}"
+  clientSecret: "${GITHUB_CLIENT_SECRET}"
+  redirectURL: "http://localhost:32180/auth/callback"
+  allowedDomains: []
+  cookieName: "manifold_session"
+  cookieSecure: false
+  cookieDomain: ""
+  stateTTLSeconds: 600
+  sessionTTLHours: 72
+  oauth2:
+    authURL: "https://github.com/login/oauth/authorize"
+    tokenURL: "https://github.com/login/oauth/access_token"
+    userInfoURL: "https://api.github.com/user"
+    scopes:
+      - read:user
+      - user:email
+    providerName: "github"
+    defaultRoles:
+      - user
+    emailField: "email"
+    nameField: "name"
+    pictureField: "avatar_url"
+    subjectField: "id"
+    rolesField: ""
+    disablePKCE: false
+```
+
+Notes:
+
+- GitHub users can hide their public email address. Manifold's generic OAuth2 user-info mapper currently reads `email` from `https://api.github.com/user`; if that field is empty, login fails with `email required`. Supporting private GitHub email addresses requires adding provider-specific lookup against GitHub's email API and selecting the primary verified address.
+- Keep `disablePKCE: false` unless you are integrating a provider or app type that rejects PKCE.
+
+### Apple
+
+Apple supports OIDC discovery at `https://appleid.apple.com/.well-known/openid-configuration`, but its web flow has provider-specific requirements. Manifold supports these through the `auth.oidc` block:
+
+- Apple scopes are `openid`, `email`, and `name`.
+- Apple requires `response_mode=form_post` when requesting user scopes.
+- Apple's token endpoint expects client credentials in the form body, so set `tokenAuthStyle: "params"`.
+- Apple uses an ES256 client-secret JWT. Manifold can generate it from your Apple Team ID, Services ID, Key ID, and private key.
+
+```yaml
+auth:
+  enabled: true
+  provider: oidc
+  issuerURL: "https://appleid.apple.com"
+  clientID: "${APPLE_SERVICE_ID}"
+  redirectURL: "https://manifold.example.com/auth/callback"
+  allowedDomains: []
+  cookieName: "manifold_session"
+  cookieSecure: true
+  cookieDomain: ""
+  stateTTLSeconds: 600
+  sessionTTLHours: 72
+  oidc:
+    scopes:
+      - openid
+      - email
+      - name
+    responseMode: "form_post"
+    tokenAuthStyle: "params"
+    providerName: "apple"
+    apple:
+      teamID: "${APPLE_TEAM_ID}"
+      keyID: "${APPLE_KEY_ID}"
+      privateKeyPath: "${APPLE_PRIVATE_KEY_PATH}"
+      # Or provide the PEM content directly through an environment variable:
+      # privateKey: "${APPLE_PRIVATE_KEY}"
+      clientSecretTTLHours: 4320
+```
+
+Notes:
+
+- `APPLE_SERVICE_ID` is the Services ID registered for Sign in with Apple.
+- `clientSecretTTLHours` defaults to Apple's six-month maximum and is capped to that maximum.
+- Apple requires HTTPS redirect URIs for web flows and does not allow localhost redirect URLs for a Services ID. For local testing, use a real HTTPS development hostname or a tunnel registered in the Apple developer portal.
+- Apple only sends the user's name on the first authorization. Manifold stores that first value when Apple provides it and preserves existing local profile data when later callbacks omit it.
+- Apple logout clears Manifold's local session. Apple does not expose a Keycloak-style browser logout endpoint.
+
+### Plain OAuth2 Template
 
 Set `provider: oauth2` and describe the authorization/token/user info endpoints manually:
 
@@ -86,20 +205,28 @@ auth:
     defaultRoles: ["user"]  # automatically applied when the IdP does not send roles
 ```
 
-The OAuth2 block tells agentd how to exchange codes and which JSON fields to read from the user info response. `subjectField` must resolve to a stable identifier (falling back to `email` if left blank). `rolesField`, when present, should point at an array of strings; the values are synchronized into the RBAC table in addition to `defaultRoles`. Logout simply clears the local session unless `logoutURL` is provided (paired with `logoutRedirectParam`), in which case the browser is redirected to the upstream IdP after the local cookie is deleted.
+The OAuth2 block tells Manifold how to exchange codes and which JSON fields to read from the user info response. `subjectField` must resolve to a stable identifier (falling back to `email` if left blank). `rolesField`, when present, should point at an array of strings; the values are synchronized into the RBAC table in addition to `defaultRoles`. Logout simply clears the local session unless `logoutURL` is provided (paired with `logoutRedirectParam`), in which case the browser is redirected to the upstream IdP after the local cookie is deleted.
 
 ## Endpoints & Auth Flow
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | /auth/login | Start OIDC Authorization Code + PKCE flow |
-| GET | /auth/callback | Complete code exchange, create session |
-| GET | /auth/logout | Application + RP-initiated IdP logout (ends SSO) |
+| GET | /auth/login | Start OIDC or OAuth2 Authorization Code + PKCE flow |
+| GET | /auth/callback | Complete query-mode code exchange, create session |
+| POST | /auth/callback | Complete `form_post` code exchange, used by providers such as Apple |
+| GET | /auth/logout | Clear the local session; may also redirect to the upstream IdP logout endpoint |
 | GET | /api/me | Current user JSON or 401 |
 
 ### Logout Semantics
 
-The logout endpoint now performs **RP-initiated logout** against the IdP (Keycloak) so that:
+The logout endpoint always deletes the local Manifold session row and clears the httpOnly session cookie. Upstream IdP logout behavior depends on provider configuration:
+
+- The plain OAuth2 provider redirects to `oauth2.logoutURL` when configured; otherwise it completes local logout only.
+- The OIDC provider redirects to `oidc.logoutURL` when configured.
+- For backward compatibility with the bundled Keycloak setup, the OIDC provider still derives a Keycloak end-session URL from issuer URLs containing `/realms/`.
+- Providers such as Google and Apple normally complete local logout only.
+
+For Keycloak, OIDC logout performs **RP-initiated logout** so that:
 
 1. The local session row (and httpOnly cookie) are deleted.
 2. We redirect the browser to the IdP end-session endpoint with:

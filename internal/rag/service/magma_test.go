@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"manifold/internal/agent/memory/magma"
 	"manifold/internal/config"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/rag/ingest"
@@ -151,6 +152,40 @@ func TestService_MagmaQueueFullWarning(t *testing.T) {
 	if len(second.Warnings) != 1 {
 		t.Fatalf("expected queue full warning, got %#v", second.Warnings)
 	}
+}
+
+func TestService_StartMagmaBackgroundWorkersProcessesDirectMagmaIngest(t *testing.T) {
+	t.Parallel()
+	mgr := databases.Manager{
+		Search: databases.NewMemorySearch(),
+		Vector: databases.NewMemoryVector(),
+		Graph:  databases.NewMemoryGraph(),
+	}
+	svc := New(mgr, WithMagmaConfig(config.MagmaConfig{
+		Enabled: true,
+		Consolidation: config.MagmaConsolidationConfig{
+			BatchSize:   2,
+			WorkerCount: 1,
+		},
+		Graphs: config.MagmaGraphsConfig{
+			Temporal: config.MagmaTemporalGraphConfig{Enabled: true},
+		},
+	}))
+	t.Cleanup(svc.Close)
+	ctx := context.Background()
+	svc.StartMagmaBackgroundWorkers(ctx)
+
+	resp, err := svc.MagmaService().Ingest(ctx, magma.IngestRequest{
+		ID:        "direct-background",
+		Tenant:    "t1",
+		SessionID: "s1",
+		Text:      "Yesterday Melanie practiced guitar.",
+		CreatedAt: time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("MagmaService().Ingest() error = %v", err)
+	}
+	waitForMagmaEvent(t, ctx, svc, resp.EventID)
 }
 
 func TestService_MagmaIngestGraphsOptionRestrictsConsolidation(t *testing.T) {

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"manifold/internal/config"
 )
 
 // agentdSettings mirrors the frontend AgentdSettings shape.
@@ -14,8 +16,20 @@ type agentdSettings struct {
 	SummaryModel                        string `json:"summaryModel"`
 	SummaryURL                          string `json:"summaryUrl"`
 	SummaryEnabled                      bool   `json:"summaryEnabled"`
+	SummaryContextWindowTokens          int    `json:"summaryContextWindowTokens"`
 	SummaryPlainTextContextWindowTokens int    `json:"summaryPlainTextContextWindowTokens"`
 	SummaryReserveBufferTokens          int    `json:"summaryReserveBufferTokens"`
+	SummaryMinKeepLastMessages          int    `json:"summaryMinKeepLastMessages"`
+	SummaryMaxKeepLastMessages          int    `json:"summaryMaxKeepLastMessages"`
+	SummaryMaxSummaryChunkTokens        int    `json:"summaryMaxSummaryChunkTokens"`
+	SummaryCallTimeoutSeconds           int    `json:"summaryCallTimeoutSeconds"`
+	SummaryTokenBudget                  int    `json:"summaryTokenBudget"`
+	RequestInfoEnabled                  bool   `json:"requestInfoEnabled"`
+
+	PromptBaseSystem                 string `json:"promptBaseSystem"`
+	PromptMemoryInstructions         string `json:"promptMemoryInstructions"`
+	PromptToolDiscoveryInstructions  string `json:"promptToolDiscoveryInstructions"`
+	PromptSkillDiscoveryInstructions string `json:"promptSkillDiscoveryInstructions"`
 
 	EmbedBaseURL                        string            `json:"embedBaseUrl"`
 	EmbedModel                          string            `json:"embedModel"`
@@ -134,10 +148,42 @@ func (a *app) handleUpdateAgentdConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("persist config.yaml: %w", err))
 		return
 	}
+	if err := a.refreshSummaryRuntime(); err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Errorf("refresh summary runtime: %w", err))
+		return
+	}
+	if a.specRegistry != nil {
+		a.specRegistry.SetPromptOverrides(promptInstructionOverrides(a.cfg))
+		a.specRegistry.SetRequestInfoEnabled(config.RequestInfoEnabled(a.cfg.RequestInfoEnabled))
+	}
+	a.refreshEngineSystemPrompt()
 
 	// Indicate that a restart is required for some changes to fully apply.
 	w.Header().Set("X-Needs-Restart", "true")
-	writeJSON(w, http.StatusOK, payload)
+	writeJSON(w, http.StatusOK, currentAgentdSettings(a.cfg))
+}
+
+func (a *app) refreshSummaryRuntime() error {
+	if a == nil || a.cfg == nil {
+		return nil
+	}
+	summaryLLM, summaryModel, err := buildSummaryLLM(a.cfg, a.httpClient)
+	if err != nil {
+		return err
+	}
+	a.summaryLLM = summaryLLM
+	if a.mgr != nil {
+		if err := a.initChatMemory(a.cfg, *a.mgr, summaryLLM, summaryModel); err != nil {
+			return err
+		}
+	}
+	if a.engine != nil {
+		a.engine.SummaryEnabled = a.cfg.Summary.Enabled || a.cfg.SummaryEnabled
+		a.engine.SummaryReserveBufferTokens = firstPositiveInt(a.cfg.Summary.ReserveBufferTokens, a.cfg.SummaryReserveBufferTokens)
+		a.engine.SummaryMinKeepLastMessages = firstPositiveInt(a.cfg.Summary.MinKeepLastMessages, a.cfg.SummaryMinKeepLastMessages)
+		a.engine.SummaryMaxSummaryChunkTokens = firstPositiveInt(a.cfg.Summary.MaxSummaryChunkTokens, a.cfg.SummaryMaxSummaryChunkTokens)
+	}
+	return nil
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

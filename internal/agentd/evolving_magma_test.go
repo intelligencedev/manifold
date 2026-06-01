@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"manifold/internal/agent/belief"
 	"manifold/internal/agent/memory"
-	"manifold/internal/memory/magma"
+	"manifold/internal/agent/memory/belief"
+	"manifold/internal/agent/memory/magma"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/rag/embedder"
 	"manifold/internal/transit"
@@ -149,5 +149,36 @@ func TestTransitMagmaSinkIngestsTransitEvent(t *testing.T) {
 	}
 	if got, ok := event.Metadata["version"].(float64); !ok || got != 3 {
 		t.Fatalf("unexpected version metadata: %#v", event.Metadata["version"])
+	}
+}
+
+func TestTransitMagmaSinkSkipsUnembeddedTransitEvent(t *testing.T) {
+	t.Parallel()
+
+	svc := magma.NewService(databases.NewMemoryGraph(), databases.NewMemoryVector(), embedder.NewDeterministic(32, true, 0))
+	defer svc.Close()
+	sink := transitMagmaSink{service: svc, workerCount: 0}
+	record := transit.Record{
+		TenantID:    42,
+		KeyName:     "objective/project/demo/objective-1/manifest",
+		Description: "Shared belief objective manifest",
+		Value:       `{"id":"objective-1","status":"active"}`,
+		Embed:       false,
+		Version:     1,
+	}
+
+	eventID, err := sink.IngestTransitRecord(context.Background(), record)
+	if err != nil {
+		t.Fatalf("IngestTransitRecord() error = %v", err)
+	}
+	if eventID != "" {
+		t.Fatalf("expected unembedded transit record to skip MAGMA ingest, got event %q", eventID)
+	}
+	events, err := svc.Events(context.Background())
+	if err != nil {
+		t.Fatalf("Events() error = %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("expected no MAGMA events, got %#v", events)
 	}
 }

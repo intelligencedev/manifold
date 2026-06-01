@@ -103,6 +103,8 @@ func writeInitialSummaryEvent(stream *chatSSEWriter, summary *agentmemory.Summar
 		"type":             "summary",
 		"input_tokens":     summary.EstimatedTokens,
 		"token_budget":     summary.TokenBudget,
+		"context_window":   summary.ContextWindowTokens,
+		"reserve_tokens":   summary.ReserveBufferTokens,
 		"message_count":    summary.MessageCount,
 		"summarized_count": summary.SummarizedCount,
 	})

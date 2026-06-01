@@ -154,19 +154,26 @@ type MemoryScoreExplanation struct {
 // SearchDiagnostics describes how a memory search was executed. It is kept
 // small so it can be returned by debug APIs and attached to MemoryEvents.
 type SearchDiagnostics struct {
-	EnableRAG                   bool   `json:"enableRAG"`
-	Mode                        string `json:"mode"`
-	VectorCandidates            int    `json:"vectorCandidates"`
-	KeywordCandidates           int    `json:"keywordCandidates"`
-	UsedServerVector            bool   `json:"usedServerVector"`
-	UsedKeywordStore            bool   `json:"usedKeywordStore"`
-	EmbeddingInstructionUsed    bool   `json:"embeddingInstructionUsed"`
-	EmbeddingInstructionApplied bool   `json:"embeddingInstructionApplied"`
-	EmbeddingInstructionUseCase string `json:"embeddingInstructionUseCase,omitempty"`
-	EmbeddingInstructionFormat  string `json:"embeddingInstructionFormat,omitempty"`
-	EmbeddingInstructionMode    string `json:"embeddingInstructionMode,omitempty"`
-	EmbeddingInstructionSource  string `json:"embeddingInstructionSource,omitempty"`
-	EmbeddingError              string `json:"embeddingError,omitempty"`
+	EnableRAG                   bool    `json:"enableRAG"`
+	Mode                        string  `json:"mode"`
+	VectorCandidates            int     `json:"vectorCandidates"`
+	VectorFiltered              int     `json:"vectorFiltered"`
+	SimilarityThreshold         float64 `json:"similarityThreshold,omitempty"`
+	KeywordCandidates           int     `json:"keywordCandidates"`
+	UsedServerVector            bool    `json:"usedServerVector"`
+	UsedKeywordStore            bool    `json:"usedKeywordStore"`
+	EmbeddingInstructionUsed    bool    `json:"embeddingInstructionUsed"`
+	EmbeddingInstructionApplied bool    `json:"embeddingInstructionApplied"`
+	EmbeddingInstructionUseCase string  `json:"embeddingInstructionUseCase,omitempty"`
+	EmbeddingInstructionFormat  string  `json:"embeddingInstructionFormat,omitempty"`
+	EmbeddingInstructionMode    string  `json:"embeddingInstructionMode,omitempty"`
+	EmbeddingInstructionSource  string  `json:"embeddingInstructionSource,omitempty"`
+	EmbeddingError              string  `json:"embeddingError,omitempty"`
+	RerankEnabled               bool    `json:"rerankEnabled"`
+	RerankApplied               bool    `json:"rerankApplied"`
+	RerankCandidates            int     `json:"rerankCandidates,omitempty"`
+	RerankDurationMs            int64   `json:"rerankDurationMs,omitempty"`
+	RerankError                 string  `json:"rerankError,omitempty"`
 }
 
 // RankingWeights controls how dense similarity is blended with memory quality,
@@ -231,6 +238,12 @@ type EvolvingMemoryMagmaSink interface {
 	IngestEvolvingMemory(ctx context.Context, userID int64, sessionID string, entry *MemoryEntry) (string, error)
 }
 
+// EvolvingMemoryReranker optionally reorders query-time memory candidates using
+// a stronger relevance model after local vector/keyword retrieval.
+type EvolvingMemoryReranker interface {
+	RerankEvolvingMemory(ctx context.Context, query string, items []ScoredMemoryEntry) ([]ScoredMemoryEntry, error)
+}
+
 // EvolvingMemory implements the Search → Synthesis → Evolve loop from the paper.
 // It provides:
 // - R: retrieval function (top-k similarity search)
@@ -249,16 +262,18 @@ type EvolvingMemory struct {
 	enableRAG bool
 
 	// Similarity-based pruning configuration (from paper analysis)
-	pruneThreshold           float64 // similarity threshold for auto-pruning duplicates
-	relevanceDecay           float64 // decay factor for relevance scores over time
-	minRelevance             float64 // minimum relevance to keep entry during pruning
-	enableSmartPrune         bool    // enable similarity-based pruning
-	rankingWeights           RankingWeights
-	mmrLambda                float64
-	promotionAccessThreshold int
-	pruneQualityFloor        int
-	janitorInterval          time.Duration
-	metrics                  *MemoryMetrics
+	pruneThreshold               float64 // similarity threshold for auto-pruning duplicates
+	retrievalSimilarityThreshold float64 // minimum query-time dense/vector similarity to retrieve
+	relevanceDecay               float64 // decay factor for relevance scores over time
+	minRelevance                 float64 // minimum relevance to keep entry during pruning
+	enableSmartPrune             bool    // enable similarity-based pruning
+	rankingWeights               RankingWeights
+	mmrLambda                    float64
+	reranker                     EvolvingMemoryReranker
+	promotionAccessThreshold     int
+	pruneQualityFloor            int
+	janitorInterval              time.Duration
+	metrics                      *MemoryMetrics
 
 	queryCacheMu  sync.Mutex
 	queryCache    map[string]embeddingCacheEntry
@@ -329,16 +344,18 @@ type EvolvingMemoryConfig struct {
 	EnableRAG       bool // enable ExpRAG retrieval
 
 	// Similarity-based pruning configuration
-	PruneThreshold           float64 // default 0.95 - entries above this similarity are candidates for merge
-	RelevanceDecay           float64 // default 0.99 - daily decay factor for relevance scores
-	MinRelevance             float64 // default 0.1 - entries below this relevance may be pruned
-	EnableSmartPrune         bool    // default false - enable intelligent pruning
-	RankingWeights           RankingWeights
-	MMRLambda                float64 // default 0.7
-	PromotionAccessThreshold int
-	PruneQualityFloor        int
-	JanitorInterval          time.Duration
-	Metrics                  *MemoryMetrics
+	PruneThreshold               float64 // default 0.95 - entries above this similarity are candidates for merge
+	RetrievalSimilarityThreshold float64 // minimum dense/vector similarity to retrieve; 0 disables
+	RelevanceDecay               float64 // default 0.99 - daily decay factor for relevance scores
+	MinRelevance                 float64 // default 0.1 - entries below this relevance may be pruned
+	EnableSmartPrune             bool    // default false - enable intelligent pruning
+	RankingWeights               RankingWeights
+	MMRLambda                    float64 // default 0.7
+	Reranker                     EvolvingMemoryReranker
+	PromotionAccessThreshold     int
+	PruneQualityFloor            int
+	JanitorInterval              time.Duration
+	Metrics                      *MemoryMetrics
 
 	QueryEmbeddingCacheTTL  time.Duration // default 5 minutes
 	QueryEmbeddingCacheSize int           // default 128

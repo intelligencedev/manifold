@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"manifold/internal/agent/belief"
+	"manifold/internal/agent/memory/belief"
 	"manifold/internal/llm"
 	"manifold/internal/tools"
 )

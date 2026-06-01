@@ -26,6 +26,7 @@ type chatRunRequest struct {
 	SystemPrompt          string `json:"system_prompt,omitempty"`
 	Image                 bool   `json:"image,omitempty"`
 	ImageSize             string `json:"image_size,omitempty"`
+	MemoryEnabled         *bool  `json:"memory_enabled,omitempty"`
 	EvolvingMemoryEnabled *bool  `json:"evolving_memory_enabled,omitempty"`
 	BeliefMemoryEnabled   *bool  `json:"belief_memory_enabled,omitempty"`
 }
@@ -44,6 +45,8 @@ func (req *chatRunRequest) UnmarshalJSON(data []byte) error {
 		SystemPrompt                string `json:"system_prompt,omitempty"`
 		Image                       bool   `json:"image,omitempty"`
 		ImageSize                   string `json:"image_size,omitempty"`
+		MemoryEnabled               *bool  `json:"memoryEnabled,omitempty"`
+		LegacyMemoryEnabled         *bool  `json:"memory_enabled,omitempty"`
 		EvolvingMemoryEnabled       *bool  `json:"evolvingMemoryEnabled,omitempty"`
 		LegacyEvolvingMemoryEnabled *bool  `json:"evolving_memory_enabled,omitempty"`
 		BeliefMemoryEnabled         *bool  `json:"beliefMemoryEnabled,omitempty"`
@@ -67,6 +70,10 @@ func (req *chatRunRequest) UnmarshalJSON(data []byte) error {
 	req.SystemPrompt = decoded.SystemPrompt
 	req.Image = decoded.Image
 	req.ImageSize = decoded.ImageSize
+	req.MemoryEnabled = decoded.MemoryEnabled
+	if req.MemoryEnabled == nil {
+		req.MemoryEnabled = decoded.LegacyMemoryEnabled
+	}
 	req.EvolvingMemoryEnabled = decoded.EvolvingMemoryEnabled
 	if req.EvolvingMemoryEnabled == nil {
 		req.EvolvingMemoryEnabled = decoded.LegacyEvolvingMemoryEnabled

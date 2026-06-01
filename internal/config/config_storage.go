@@ -139,6 +139,7 @@ type MagmaConfig struct {
 
 type MagmaConsolidationConfig struct {
 	Model        string             `yaml:"model" json:"model"`
+	LLMClient    LLMClientConfig    `yaml:"llmClient" json:"llmClient"`
 	BatchSize    int                `yaml:"batchSize" json:"batchSize"`
 	MaxQueueSize int                `yaml:"maxQueueSize" json:"maxQueueSize"`
 	WorkerCount  int                `yaml:"workerCount" json:"workerCount"`
@@ -214,19 +215,20 @@ type ImageToolConfig struct {
 
 // EvolvingMemoryConfig configures the Search-Synthesis-Evolve memory system.
 type EvolvingMemoryConfig struct {
-	Enabled                bool            `yaml:"enabled" json:"enabled"`                               // enable evolving memory
-	Provider               string          `yaml:"provider" json:"provider"`                             // optional provider override (openai, anthropic, google, local)
-	LLMClient              LLMClientConfig `yaml:"llmClient" json:"llmClient"`                           // optional dedicated provider configuration for evolving memory
-	PersistDebounceMs      int             `yaml:"persistDebounceMs" json:"persistDebounceMs"`           // debounce async persistence writes (default 250ms)
-	SessionTTLMinutes      int             `yaml:"sessionTTLMinutes" json:"sessionTTLMinutes"`           // evict idle per-session memory after this many minutes (default 60)
-	JanitorIntervalMinutes int             `yaml:"janitorIntervalMinutes" json:"janitorIntervalMinutes"` // cleanup cadence for idle per-session memory (default 15)
-	MaxSize                int             `yaml:"maxSize" json:"maxSize"`                               // max entries (default 1000)
-	TopK                   int             `yaml:"topK" json:"topK"`                                     // retrieval top-k (default 4)
-	WindowSize             int             `yaml:"windowSize" json:"windowSize"`                         // ExpRecent window (default 20)
-	EnableRAG              bool            `yaml:"enableRAG" json:"enableRAG"`                           // enable ExpRAG retrieval
-	ReMemEnabled           bool            `yaml:"reMemEnabled" json:"reMemEnabled"`                     // enable Think-Act-Refine mode
-	MaxInnerSteps          int             `yaml:"maxInnerSteps" json:"maxInnerSteps"`                   // ReMem max inner loops (default 5)
-	Model                  string          `yaml:"model" json:"model"`                                   // LLM model for summarization
+	Enabled                      bool            `yaml:"enabled" json:"enabled"`                                           // enable evolving memory
+	Provider                     string          `yaml:"provider" json:"provider"`                                         // optional provider override (openai, anthropic, google, local)
+	LLMClient                    LLMClientConfig `yaml:"llmClient" json:"llmClient"`                                       // optional dedicated provider configuration for evolving memory
+	PersistDebounceMs            int             `yaml:"persistDebounceMs" json:"persistDebounceMs"`                       // debounce async persistence writes (default 250ms)
+	SessionTTLMinutes            int             `yaml:"sessionTTLMinutes" json:"sessionTTLMinutes"`                       // evict idle per-session memory after this many minutes (default 60)
+	JanitorIntervalMinutes       int             `yaml:"janitorIntervalMinutes" json:"janitorIntervalMinutes"`             // cleanup cadence for idle per-session memory (default 15)
+	MaxSize                      int             `yaml:"maxSize" json:"maxSize"`                                           // max entries (default 1000)
+	TopK                         int             `yaml:"topK" json:"topK"`                                                 // retrieval top-k (default 4)
+	WindowSize                   int             `yaml:"windowSize" json:"windowSize"`                                     // ExpRecent window (default 20)
+	EnableRAG                    bool            `yaml:"enableRAG" json:"enableRAG"`                                       // enable ExpRAG retrieval
+	RetrievalSimilarityThreshold float64         `yaml:"retrievalSimilarityThreshold" json:"retrievalSimilarityThreshold"` // minimum dense/vector similarity to retrieve (0 disables)
+	ReMemEnabled                 bool            `yaml:"reMemEnabled" json:"reMemEnabled"`                                 // enable Think-Act-Refine mode
+	MaxInnerSteps                int             `yaml:"maxInnerSteps" json:"maxInnerSteps"`                               // ReMem max inner loops (default 5)
+	Model                        string          `yaml:"model" json:"model"`                                               // LLM model for summarization
 
 	// Smart pruning options (advanced)
 	EnableSmartPrune            bool    `yaml:"enableSmartPrune" json:"enableSmartPrune"`                       // enable similarity-based dedup & relevance pruning

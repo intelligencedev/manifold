@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"manifold/internal/persistence"
-	"manifold/internal/specialists"
 )
 
 func (a *app) teamsHandler() http.HandlerFunc {
@@ -162,10 +161,7 @@ func (a *app) normalizeTeamOrchestrator(teamName string, sp persistence.Speciali
 		sp.ExtraParams = params
 	}
 	if strings.TrimSpace(sp.System) == "" {
-		sp.System = a.cfg.SystemPrompt
-		if strings.TrimSpace(sp.System) == "" {
-			sp.System = specialists.DefaultOrchestratorPrompt
-		}
+		sp.System = a.orchestratorSystemPrompt()
 	}
 	sp.Name = orchestratorName
 	if strings.TrimSpace(sp.Description) == "" {

@@ -43,6 +43,50 @@ export interface ChatInputRequest {
   answeredAt?: string;
 }
 
+export interface ChatMemoryContextLane {
+  enabled?: boolean;
+  returned?: boolean;
+  timedOut?: boolean;
+  error?: string;
+  durationMs?: number;
+  items?: number;
+  tokens?: number;
+}
+
+export interface ChatMemoryContext {
+  text: string;
+  tokenEstimate?: number;
+  truncated?: boolean;
+  durationMs?: number;
+  lanes?: Record<string, ChatMemoryContextLane>;
+}
+
+export type ChatContextMetricSegmentKind =
+  | "system"
+  | "history"
+  | "user"
+  | "memory"
+  | "tools"
+  | "summary"
+  | "assistant";
+
+export interface ChatContextMetricSegment {
+  kind: ChatContextMetricSegmentKind;
+  tokens: number;
+}
+
+export interface ChatContextMetrics {
+  phase: string;
+  inputTokens: number;
+  contextWindow: number;
+  summaryThreshold: number;
+  reserveTokens: number;
+  messageCount: number;
+  summarizedCount?: number;
+  willSummarize: boolean;
+  segments: ChatContextMetricSegment[];
+}
+
 export interface ChatMessage {
   id: string;
   role: ChatRole;
@@ -65,7 +109,19 @@ export interface ChatMessage {
   model?: string;
   activityToolTitle?: string;
   activityThoughtSummary?: string;
+  memoryContext?: ChatMemoryContext;
+  contextMetrics?: ChatContextMetrics;
   inputRequests?: ChatInputRequest[];
+}
+
+export interface SummaryEvent {
+  inputTokens: number;
+  tokenBudget: number;
+  contextWindow?: number;
+  reserveTokens?: number;
+  messageCount: number;
+  summarizedCount: number;
+  timestamp: string;
 }
 
 export interface ChatSessionMeta {
@@ -77,6 +133,7 @@ export interface ChatSessionMeta {
   messageCount?: number;
   model?: string;
   projectId?: string;
+  memoryEnabled?: boolean;
   evolvingMemoryEnabled?: boolean;
   beliefMemoryEnabled?: boolean;
 }

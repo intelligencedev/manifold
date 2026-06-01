@@ -52,6 +52,7 @@ func routeCatalogPart1() []routeSpec {
 		}},
 		{path: "/auth/callback", operations: []operationSpec{
 			jsonOp(http.MethodGet, "Auth", "Auth callback", false, withDescription("OIDC/OAuth2 callback endpoint."), withSuccess(http.StatusFound), withResponseMode("none")),
+			jsonOp(http.MethodPost, "Auth", "Auth callback (form_post)", false, withDescription("OIDC callback endpoint for providers that require response_mode=form_post, such as Apple."), withRequestBody("form"), withSuccess(http.StatusFound), withResponseMode("none")),
 		}},
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"manifold/internal/auth"
 	"manifold/internal/config"
 	"manifold/internal/llm"
+	"manifold/internal/projects"
 	"manifold/internal/testhelpers"
 	"manifold/internal/tools"
 	"manifold/internal/workspaces"
@@ -186,5 +187,51 @@ func TestPrepareChatHandlerStateLocksFirstRunProject(t *testing.T) {
 	}
 	if session.ProjectID != "project-1" {
 		t.Fatalf("expected session project lock, got %q", session.ProjectID)
+	}
+}
+
+func TestPrepareChatHandlerStateCreatesTemporaryProjectForNewChat(t *testing.T) {
+	t.Parallel()
+
+	chatStore := newPromptHandlerChatStore()
+	projectService := projects.NewService(t.TempDir(), "")
+	var gotProjectID string
+	a := &app{
+		cfg:             &config.Config{},
+		chatStore:       chatStore,
+		projectsService: projectService,
+		workspaceManager: stubWorkspaceManager{checkout: func(ctx context.Context, userID int64, projectID, sessionID string) (workspaces.Workspace, error) {
+			gotProjectID = projectID
+			return workspaces.Workspace{UserID: userID, ProjectID: projectID, SessionID: sessionID, BaseDir: "/tmp/" + projectID}, nil
+		}},
+	}
+
+	req := chatRunRequest{Prompt: "start", SessionID: "sess-temp"}
+	httpReq := httptest.NewRequest(http.MethodPost, "/api/prompt", nil)
+	rr := httptest.NewRecorder()
+
+	state, ok := a.prepareChatHandlerState(rr, httpReq, req)
+	if !ok {
+		t.Fatalf("expected prepareChatHandlerState to succeed: %d %s", rr.Code, rr.Body.String())
+	}
+	if state.RunRequest.ProjectID == "" {
+		t.Fatal("expected run request to use a temporary project")
+	}
+	if gotProjectID != state.RunRequest.ProjectID {
+		t.Fatalf("expected checkout project %q, got %q", state.RunRequest.ProjectID, gotProjectID)
+	}
+	session, err := chatStore.GetSession(context.Background(), nil, "sess-temp")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if session.ProjectID != state.RunRequest.ProjectID {
+		t.Fatalf("expected session project lock %q, got %q", state.RunRequest.ProjectID, session.ProjectID)
+	}
+	temporaryProjects, err := projectService.ListProjectsByKind(context.Background(), systemUserID, projects.ProjectKindTemporary)
+	if err != nil {
+		t.Fatalf("ListProjectsByKind: %v", err)
+	}
+	if len(temporaryProjects) != 1 || temporaryProjects[0].ID != state.RunRequest.ProjectID {
+		t.Fatalf("expected one temporary project matching session, got %#v", temporaryProjects)
 	}
 }

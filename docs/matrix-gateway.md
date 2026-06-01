@@ -11,11 +11,11 @@ Matrix is an open chat protocol. You can think of it as a federated chat network
 - a Matrix `room` is a shared chat space, similar to a channel or group chat
 - a Matrix `room ID` is the internal identifier for a room, for example `!abc123:matrix.example.com`
 
-Manifold's Matrix gateway lets `agentd` act as a Matrix chat participant. When someone sends a message in a configured room, Manifold can route that message to the orchestrator or to a named specialist and send the reply back into the room.
+Manifold's Matrix gateway lets the Manifold server act as a Matrix chat participant. When someone sends a message in a configured room, Manifold can route that message to the orchestrator or to a named specialist and send the reply back into the room.
 
 ## What The Gateway Does
 
-When the gateway is enabled, `agentd`:
+When the gateway is enabled, Manifold:
 
 - connects to your Matrix homeserver using a Matrix account and access token
 - long-polls Matrix for new room messages
@@ -137,7 +137,7 @@ matrix:
 `enabled`
 
 - Turns the gateway on or off.
-- If `false`, `agentd` starts normally without connecting to Matrix.
+- If `false`, Manifold starts normally without connecting to Matrix.
 
 `homeserverURL`
 
@@ -368,12 +368,12 @@ This is an advanced feature. Most users do not need it to start using Matrix cha
 
 Important behavior:
 
-- pulse execution runs inside `agentd`
+- pulse execution runs inside Manifold
 - pulse logs are internal by default
 - room-facing pulse messages should be sent intentionally through the Matrix message tool, not assumed automatically
 - interval tasks run every `interval_seconds`
-- daily-time tasks run at `specific_time` using the `agentd` server's local timezone
-- one-off tasks use `specific_at` and also interpret `YYYY-MM-DDTHH:MM` values in the `agentd` server's local timezone
+- daily-time tasks run at `specific_time` using the Manifold server's local timezone
+- one-off tasks use `specific_at` and also interpret `YYYY-MM-DDTHH:MM` values in the Manifold server's local timezone
 - newly created pulse tasks run immediately once, then follow their configured schedule after that first successful run
 
 Examples:

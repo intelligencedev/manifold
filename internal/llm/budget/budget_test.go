@@ -93,6 +93,45 @@ func TestFit_TruncatesProtectedUserAsLastResort(t *testing.T) {
 	}
 }
 
+func TestFit_TruncatesRuntimePrefixBeforeCurrentPrompt(t *testing.T) {
+	runtimeContext := "[RUNTIME CONTEXT]\n" + strings.Repeat("memory facts should be expendable. ", 1200)
+	currentPrompt := "[CURRENT REQUEST]\nPlease keep this entire prompt: fix the billing webhook retry bug."
+	msgs := []llm.Message{
+		{Role: "system", Content: "sys"},
+		{Role: "user", Content: runtimeContext + "\n\n" + currentPrompt},
+	}
+
+	out := Fit(msgs, 800, 200, 0)
+	if got := EstimateTokens(out); got > 600 {
+		t.Fatalf("expected fit to stay under token budget, got %d", got)
+	}
+	got := out[len(out)-1].Content
+	if !strings.Contains(got, currentPrompt) {
+		t.Fatalf("expected current prompt to survive runtime context truncation, got %q", got)
+	}
+	if !strings.Contains(got, "[TRUNCATED]") {
+		t.Fatalf("expected truncation marker on runtime-prefixed user message")
+	}
+}
+
+func TestFit_PerMessageCapTruncatesRuntimePrefixBeforeCurrentPrompt(t *testing.T) {
+	runtimeContext := "[RUNTIME CONTEXT]\n" + strings.Repeat("memory facts. ", 80)
+	currentPrompt := "[CURRENT REQUEST]\n" + strings.Repeat("full user prompt details. ", 20)
+	msgs := []llm.Message{
+		{Role: "system", Content: "sys"},
+		{Role: "user", Content: runtimeContext + "\n\n" + currentPrompt},
+	}
+
+	out := Fit(msgs, 0, 0, 600)
+	got := out[len(out)-1].Content
+	if !strings.Contains(got, currentPrompt) {
+		t.Fatalf("expected current prompt to survive per-message runtime context truncation, got %q", got)
+	}
+	if !strings.Contains(got, "[TRUNCATED]") {
+		t.Fatalf("expected truncation marker on runtime-prefixed user message")
+	}
+}
+
 func TestFit_NoOpWhenUnderBudget(t *testing.T) {
 	msgs := []llm.Message{
 		{Role: "system", Content: "sys"},

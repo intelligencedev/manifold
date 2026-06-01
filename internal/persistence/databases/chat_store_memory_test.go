@@ -23,6 +23,9 @@ func TestMemChatStoreLifecycle(t *testing.T) {
 	if sess.ID != "session-1" {
 		t.Fatalf("unexpected session id: %s", sess.ID)
 	}
+	if !sess.MemoryEnabled || !sess.EvolvingMemoryEnabled || !sess.BeliefMemoryEnabled {
+		t.Fatalf("new sessions should default unified memory on, got memory=%v evolving=%v belief=%v", sess.MemoryEnabled, sess.EvolvingMemoryEnabled, sess.BeliefMemoryEnabled)
+	}
 
 	if err := store.AppendMessages(ctx, nil, "session-1", nil, "", ""); err != nil {
 		t.Fatalf("AppendMessages with empty slice: %v", err)

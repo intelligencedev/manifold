@@ -51,10 +51,20 @@ func hasLLMClientOverride(cfg config.LLMClientConfig) bool {
 	if strings.TrimSpace(cfg.Anthropic.APIKey) != "" || strings.TrimSpace(cfg.Anthropic.Model) != "" || strings.TrimSpace(cfg.Anthropic.BaseURL) != "" || cfg.Anthropic.MaxTokens != 0 || len(cfg.Anthropic.ExtraParams) > 0 || cfg.Anthropic.PromptCache.Enabled || cfg.Anthropic.PromptCache.CacheSystem || cfg.Anthropic.PromptCache.CacheTools || cfg.Anthropic.PromptCache.CacheMessages {
 		return true
 	}
-	if strings.TrimSpace(cfg.Google.APIKey) != "" || strings.TrimSpace(cfg.Google.Model) != "" || strings.TrimSpace(cfg.Google.BaseURL) != "" || cfg.Google.Timeout != 0 || len(cfg.Google.ExtraParams) > 0 {
+	if strings.TrimSpace(cfg.Google.APIKey) != "" || strings.TrimSpace(cfg.Google.Model) != "" || strings.TrimSpace(cfg.Google.BaseURL) != "" || cfg.Google.Timeout != 0 || googleContextCacheConfigured(cfg.Google.ContextCache) || len(cfg.Google.ExtraParams) > 0 {
 		return true
 	}
 	return false
+}
+
+func googleContextCacheConfigured(cfg config.GoogleContextCacheConfig) bool {
+	return cfg.Enabled ||
+		cfg.AutoCreate ||
+		cfg.TTLSeconds != 0 ||
+		cfg.CacheSystem ||
+		cfg.CacheTools ||
+		strings.TrimSpace(cfg.CachedContent) != "" ||
+		strings.TrimSpace(cfg.DisplayName) != ""
 }
 
 func mergeLLMClientConfig(base, override config.LLMClientConfig) config.LLMClientConfig {
@@ -129,6 +139,9 @@ func mergeLLMClientConfig(base, override config.LLMClientConfig) config.LLMClien
 	}
 	if override.Google.Timeout != 0 {
 		out.Google.Timeout = override.Google.Timeout
+	}
+	if googleContextCacheConfigured(override.Google.ContextCache) {
+		out.Google.ContextCache = override.Google.ContextCache
 	}
 	if len(override.Google.ExtraParams) > 0 {
 		out.Google.ExtraParams = mergeAnyMap(out.Google.ExtraParams, override.Google.ExtraParams)
@@ -224,6 +237,42 @@ func resolveBeliefMemoryLLM(cfg *config.Config, mainLLM llmpkg.Provider, httpCli
 		return nil, "", "", err
 	}
 	return provider, resolveLLMClientModel(cfg.LLMClient), strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider)), nil
+}
+
+func resolveMagmaMemoryLLM(cfg *config.Config, mainLLM llmpkg.Provider, httpClient *http.Client) (llmpkg.Provider, string, string, error) {
+	if cfg == nil {
+		return nil, "", "", nil
+	}
+	override := cfg.Memory.LLMClients.MagmaConsolidation
+	if !hasLLMClientOverride(override) {
+		override = cfg.Magma.Consolidation.LLMClient
+	}
+	if hasLLMClientOverride(override) {
+		llmCfg := mergeLLMClientConfig(cfg.LLMClient, override)
+		if model := strings.TrimSpace(cfg.Magma.Consolidation.Model); model != "" && !llmClientHasExplicitModel(override, llmCfg.Provider) {
+			switch strings.ToLower(strings.TrimSpace(llmCfg.Provider)) {
+			case "anthropic":
+				llmCfg.Anthropic.Model = model
+			case "google":
+				llmCfg.Google.Model = model
+			default:
+				llmCfg.OpenAI.Model = model
+			}
+		}
+		provider, err := llmproviders.BuildFromLLMClientConfig(llmCfg, httpClient)
+		if err != nil {
+			return nil, "", "", err
+		}
+		return provider, resolveLLMClientModel(llmCfg), strings.ToLower(strings.TrimSpace(llmCfg.Provider)), nil
+	}
+	if mainLLM != nil {
+		return mainLLM, strings.TrimSpace(cfg.Magma.Consolidation.Model), strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider)), nil
+	}
+	provider, err := llmproviders.BuildFromLLMClientConfig(cfg.LLMClient, httpClient)
+	if err != nil {
+		return nil, "", "", err
+	}
+	return provider, strings.TrimSpace(cfg.Magma.Consolidation.Model), strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider)), nil
 }
 
 func buildSummaryLLM(cfg *config.Config, httpClient *http.Client) (llmpkg.Provider, string, error) {

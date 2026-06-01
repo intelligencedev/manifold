@@ -6,7 +6,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"manifold/internal/agent/belief"
+	"manifold/internal/agent/memory/belief"
 )
 
 func (s *pgBeliefStore) AddEvidence(ctx context.Context, evidence belief.Evidence) (belief.Evidence, error) {

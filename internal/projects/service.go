@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	ProjectKindChat   = "chat"
-	ProjectKindMatrix = "matrix"
+	ProjectKindChat      = "chat"
+	ProjectKindMatrix    = "matrix"
+	ProjectKindTemporary = "temporary"
 
 	matrixProjectNamePrefix = "Matrix Room "
 )

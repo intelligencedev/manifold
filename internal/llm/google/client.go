@@ -2,10 +2,15 @@ package google
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"iter"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -22,6 +27,29 @@ type Client struct {
 	model       string
 	httpOptions genai.HTTPOptions
 	extra       map[string]any
+	cache       geminiContextCache
+	cacheMu     sync.Mutex
+	caches      map[string]managedCache
+}
+
+type managedCache struct {
+	name      string
+	expiresAt time.Time
+}
+
+type geminiContextCache struct {
+	enabled       bool
+	cachedContent string
+	autoCreate    bool
+	ttl           time.Duration
+	cacheSystem   bool
+	cacheTools    bool
+	displayName   string
+}
+
+type googleCacheUse struct {
+	name      string
+	omitTools bool
 }
 
 type ImageAttachment struct {
@@ -62,7 +90,142 @@ func New(cfg config.GoogleConfig, httpClient *http.Client) (*Client, error) {
 		model:       model,
 		httpOptions: httpOpts,
 		extra:       llm.NormalizeExtraParams(cfg.ExtraParams),
+		cache:       normalizeGeminiContextCache(cfg.ContextCache),
+		caches:      map[string]managedCache{},
 	}, nil
+}
+
+func normalizeGeminiContextCache(cfg config.GoogleContextCacheConfig) geminiContextCache {
+	enabled := cfg.Enabled || strings.TrimSpace(cfg.CachedContent) != "" || cfg.AutoCreate
+	ttl := time.Duration(cfg.TTLSeconds) * time.Second
+	if cfg.AutoCreate && ttl <= 0 {
+		ttl = time.Hour
+	}
+	cacheSystem := cfg.CacheSystem
+	cacheTools := cfg.CacheTools
+	if cfg.AutoCreate && !cacheSystem && !cacheTools {
+		cacheSystem = true
+		cacheTools = true
+	}
+	return geminiContextCache{
+		enabled:       enabled,
+		cachedContent: strings.TrimSpace(cfg.CachedContent),
+		autoCreate:    cfg.AutoCreate,
+		ttl:           ttl,
+		cacheSystem:   cacheSystem,
+		cacheTools:    cacheTools,
+		displayName:   strings.TrimSpace(cfg.DisplayName),
+	}
+}
+
+func (c *Client) prepareContextCache(
+	ctx context.Context,
+	model string,
+	contents []*genai.Content,
+	tools []*genai.Tool,
+	toolCfg *genai.ToolConfig,
+	log *zerolog.Logger,
+) ([]*genai.Content, googleCacheUse) {
+	if !c.cache.enabled {
+		return contents, googleCacheUse{}
+	}
+	if c.cache.cachedContent != "" {
+		return contents, googleCacheUse{name: c.cache.cachedContent}
+	}
+	if !c.cache.autoCreate {
+		return contents, googleCacheUse{}
+	}
+
+	cacheContents := contents
+	var systemInstruction *genai.Content
+	if c.cache.cacheSystem {
+		systemInstruction, cacheContents = splitSystemInstructionPrefix(contents)
+	}
+	cacheTools := c.cache.cacheTools && len(tools) > 0
+	if systemInstruction == nil && !cacheTools {
+		return contents, googleCacheUse{}
+	}
+
+	key := c.contextCacheKey(model, systemInstruction, tools, toolCfg)
+	if name, ok := c.cachedContentName(key); ok {
+		return cacheContents, googleCacheUse{name: name, omitTools: cacheTools}
+	}
+
+	cfg := &genai.CreateCachedContentConfig{
+		SystemInstruction: systemInstruction,
+	}
+	if c.cache.ttl > 0 {
+		cfg.TTL = c.cache.ttl
+	}
+	if c.cache.displayName != "" {
+		cfg.DisplayName = c.cache.displayName
+	}
+	if cacheTools {
+		cfg.Tools = tools
+		cfg.ToolConfig = toolCfg
+	}
+
+	cache, err := c.client.Caches.Create(ctx, model, cfg)
+	if err != nil {
+		if log != nil {
+			log.Warn().Err(err).Str("model", model).Msg("google_context_cache_create_failed")
+		}
+		return contents, googleCacheUse{}
+	}
+	if cache == nil || strings.TrimSpace(cache.Name) == "" {
+		return contents, googleCacheUse{}
+	}
+
+	c.storeCachedContentName(key, cache.Name)
+	if log != nil {
+		log.Debug().Str("model", model).Str("cache", cache.Name).Msg("google_context_cache_created")
+	}
+	return cacheContents, googleCacheUse{name: cache.Name, omitTools: cacheTools}
+}
+
+func (c *Client) cachedContentName(key string) (string, bool) {
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	entry, ok := c.caches[key]
+	if !ok {
+		return "", false
+	}
+	if !entry.expiresAt.IsZero() && time.Now().After(entry.expiresAt) {
+		delete(c.caches, key)
+		return "", false
+	}
+	return entry.name, entry.name != ""
+}
+
+func (c *Client) storeCachedContentName(key, name string) {
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	entry := managedCache{name: name}
+	if c.cache.ttl > 0 {
+		entry.expiresAt = time.Now().Add(c.cache.ttl).Add(-5 * time.Second)
+	}
+	c.caches[key] = entry
+}
+
+func (c *Client) contextCacheKey(model string, systemInstruction *genai.Content, tools []*genai.Tool, toolCfg *genai.ToolConfig) string {
+	payload := struct {
+		Model             string            `json:"model"`
+		SystemInstruction *genai.Content    `json:"systemInstruction,omitempty"`
+		Tools             []*genai.Tool     `json:"tools,omitempty"`
+		ToolConfig        *genai.ToolConfig `json:"toolConfig,omitempty"`
+		TTLSeconds        int64             `json:"ttlSeconds,omitempty"`
+	}{
+		Model:             model,
+		SystemInstruction: systemInstruction,
+		TTLSeconds:        int64(c.cache.ttl / time.Second),
+	}
+	if c.cache.cacheTools {
+		payload.Tools = tools
+		payload.ToolConfig = toolCfg
+	}
+	data, _ := json.Marshal(payload)
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string) (llm.Message, error) {
@@ -91,7 +254,13 @@ func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolS
 	log.Debug().Str("model", effectiveModel).Int("tools", len(tools)).Int("contents", len(contents)).Msg("google_chat_api_call_start")
 
 	start := time.Now()
-	resp, err := c.client.Models.GenerateContent(ctx, effectiveModel, contents, c.buildContentConfig(ctx, effectiveModel, toolDecls, toolCfg))
+	contents, cacheUse := c.prepareContextCache(ctx, effectiveModel, contents, toolDecls, toolCfg, log)
+	configTools, configToolCfg := toolDecls, toolCfg
+	if cacheUse.omitTools {
+		configTools, configToolCfg = nil, nil
+	}
+
+	resp, err := c.client.Models.GenerateContent(ctx, effectiveModel, contents, c.buildContentConfig(ctx, effectiveModel, configTools, configToolCfg, cacheUse.name))
 	dur := time.Since(start)
 
 	log.Debug().Dur("duration", dur).Bool("has_response", resp != nil).Bool("has_error", err != nil).Msg("google_chat_api_call_complete")
@@ -279,7 +448,6 @@ func (c *Client) buildVisionContentConfig(model string, tools []*genai.Tool, too
 func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, h llm.StreamHandler) error {
 	effectiveModel := c.pickModel(model)
 
-	// Add observability like OpenAI/Anthropic clients
 	ctx, span := llm.StartRequestSpan(ctx, "Google ChatStream", effectiveModel, len(tools), len(msgs))
 	defer span.End()
 	llm.LogRedactedPrompt(ctx, msgs)
@@ -302,12 +470,34 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 	start := time.Now()
 	log.Debug().Str("model", effectiveModel).Int("tools", len(tools)).Int("msgs", len(msgs)).Msg("google_stream_start")
 
-	stream := c.client.Models.GenerateContentStream(ctx, effectiveModel, contents, c.buildContentConfig(ctx, effectiveModel, toolDecls, toolCfg))
+	contents, configTools, configToolCfg, cacheName := c.prepareStreamConfig(ctx, effectiveModel, contents, toolDecls, toolCfg, log)
 
-	hasContent := false
-	var toolCallCount int
-	var thoughtSummaryCount int
-	var thoughtSummary strings.Builder
+	stream := c.client.Models.GenerateContentStream(ctx, effectiveModel, contents, c.buildContentConfig(ctx, effectiveModel, configTools, configToolCfg, cacheName))
+	state := googleStreamState{}
+	if err := state.consume(stream, h, span, log, start); err != nil {
+		return err
+	}
+	state.logComplete(log, start)
+
+	return nil
+}
+
+func (c *Client) prepareStreamConfig(ctx context.Context, model string, contents []*genai.Content, tools []*genai.Tool, toolCfg *genai.ToolConfig, log *zerolog.Logger) ([]*genai.Content, []*genai.Tool, *genai.ToolConfig, string) {
+	contents, cacheUse := c.prepareContextCache(ctx, model, contents, tools, toolCfg, log)
+	if cacheUse.omitTools {
+		return contents, nil, nil, cacheUse.name
+	}
+	return contents, tools, toolCfg, cacheUse.name
+}
+
+type googleStreamState struct {
+	hasContent          bool
+	toolCallCount       int
+	thoughtSummaryCount int
+	thoughtSummary      strings.Builder
+}
+
+func (s *googleStreamState) consume(stream iter.Seq2[*genai.GenerateContentResponse, error], h llm.StreamHandler, span trace.Span, log *zerolog.Logger, start time.Time) error {
 	for resp, err := range stream {
 		if err != nil {
 			dur := time.Since(start)
@@ -315,48 +505,57 @@ func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm
 			log.Error().Err(err).Dur("duration", dur).Msg("google_stream_error")
 			return err
 		}
-		// Use streaming-aware response parser that tolerates intermediate chunks
-		// with empty candidates or nil content (normal in streaming).
-		msg, summaryDelta, skip, err := messageFromStreamResponse(resp)
-		if err != nil {
-			dur := time.Since(start)
-			span.RecordError(err)
-			log.Error().Err(err).Dur("duration", dur).Msg("google_stream_response_parse_error")
+		if err := s.handleChunk(resp, h, span, log, start); err != nil {
 			return err
 		}
-		if summaryDelta != "" && h != nil {
-			thoughtSummaryCount++
-			thoughtSummary.WriteString(summaryDelta)
-			log.Debug().Int("thought_count", thoughtSummaryCount).Int("summary_len", thoughtSummary.Len()).Msg("google_stream_thought_summary")
-			h.OnThoughtSummary(thoughtSummary.String())
-		}
-		if skip {
-			// Intermediate chunk with no actionable content - continue streaming
-			continue
-		}
-		hasContent = true
-		if h != nil {
-			if msg.Content != "" {
-				h.OnDelta(msg.Content)
-			}
-			for _, img := range msg.Images {
-				h.OnImage(img)
-			}
-		}
-		for _, tc := range msg.ToolCalls {
-			toolCallCount++
-			if h != nil {
-				h.OnToolCall(tc)
-			}
-		}
 	}
-
-	dur := time.Since(start)
-	if !hasContent {
-		log.Warn().Dur("duration", dur).Int("thought_summaries", thoughtSummaryCount).Msg("google_stream_empty_response")
-	} else {
-		log.Debug().Dur("duration", dur).Int("tool_calls", toolCallCount).Int("thought_summaries", thoughtSummaryCount).Msg("google_stream_ok")
-	}
-
 	return nil
+}
+
+func (s *googleStreamState) handleChunk(resp *genai.GenerateContentResponse, h llm.StreamHandler, span trace.Span, log *zerolog.Logger, start time.Time) error {
+	msg, summaryDelta, skip, err := messageFromStreamResponse(resp)
+	if err != nil {
+		dur := time.Since(start)
+		span.RecordError(err)
+		log.Error().Err(err).Dur("duration", dur).Msg("google_stream_response_parse_error")
+		return err
+	}
+	if summaryDelta != "" && h != nil {
+		s.thoughtSummaryCount++
+		s.thoughtSummary.WriteString(summaryDelta)
+		log.Debug().Int("thought_count", s.thoughtSummaryCount).Int("summary_len", s.thoughtSummary.Len()).Msg("google_stream_thought_summary")
+		h.OnThoughtSummary(s.thoughtSummary.String())
+	}
+	if skip {
+		return nil
+	}
+	s.hasContent = true
+	emitGoogleStreamMessage(msg, h, &s.toolCallCount)
+	return nil
+}
+
+func emitGoogleStreamMessage(msg llm.Message, h llm.StreamHandler, toolCallCount *int) {
+	if h != nil {
+		if msg.Content != "" {
+			h.OnDelta(msg.Content)
+		}
+		for _, img := range msg.Images {
+			h.OnImage(img)
+		}
+	}
+	for _, tc := range msg.ToolCalls {
+		*toolCallCount = *toolCallCount + 1
+		if h != nil {
+			h.OnToolCall(tc)
+		}
+	}
+}
+
+func (s *googleStreamState) logComplete(log *zerolog.Logger, start time.Time) {
+	dur := time.Since(start)
+	if !s.hasContent {
+		log.Warn().Dur("duration", dur).Int("thought_summaries", s.thoughtSummaryCount).Msg("google_stream_empty_response")
+		return
+	}
+	log.Debug().Dur("duration", dur).Int("tool_calls", s.toolCallCount).Int("thought_summaries", s.thoughtSummaryCount).Msg("google_stream_ok")
 }

@@ -3,9 +3,9 @@ package agent
 import (
 	"context"
 
-	"manifold/internal/agent/belief"
 	"manifold/internal/agent/harness"
 	"manifold/internal/agent/memory"
+	"manifold/internal/agent/memory/belief"
 	"manifold/internal/llm"
 	"manifold/internal/policy"
 	"manifold/internal/tools"
@@ -83,6 +83,8 @@ type Engine struct {
 	// conversation) in tokens.
 	SummaryMaxSummaryChunkTokens int
 	// Evolving memory configuration (Search → Synthesis → Evolve)
+	Memory                *memory.Runtime         // unified memory coordinator; nil = legacy memory wiring
+	DisableMemory         bool                    // per-run override for all coordinated memory lanes
 	EvolvingMemory        *memory.EvolvingMemory  // nil = disabled
 	ReMemEnabled          bool                    // enable Think-Act-Refine mode
 	ReMemController       *memory.ReMemController // nil unless ReMemEnabled
@@ -100,6 +102,12 @@ type Engine struct {
 	OnToolStart        func(toolName string, args []byte, toolID string)
 	OnTurnMessage      func(llm.Message)
 	OnSummaryTriggered func(inputTokens, tokenBudget, messageCount, summarizedCount int)
+	// OnContextMetrics, if set, receives token budget snapshots at key prompt
+	// assembly and compaction boundaries.
+	OnContextMetrics func(ContextMetrics)
+	// OnMemoryContext, if set, is called when memory context is added to the
+	// current user prompt.
+	OnMemoryContext func(memory.ContextBlock, memory.Diagnostics)
 	// OnMemoryEvent, if set, is invoked when the evolving memory system emits
 	// Search/Synthesis/Evolve events. Useful for debugging and observability.
 	OnMemoryEvent func(*memory.MemoryEvent)

@@ -23,7 +23,7 @@ func (c *Client) pickModel(model string) string {
 	return m
 }
 
-func (c *Client) buildContentConfig(ctx context.Context, model string, tools []*genai.Tool, toolCfg *genai.ToolConfig) *genai.GenerateContentConfig {
+func (c *Client) buildContentConfig(ctx context.Context, model string, tools []*genai.Tool, toolCfg *genai.ToolConfig, cachedContent string) *genai.GenerateContentConfig {
 	httpOpts := c.httpOptions
 	if extraBody := c.buildExtraBody(); extraBody != nil {
 		if httpOpts.ExtraBody != nil {
@@ -34,9 +34,10 @@ func (c *Client) buildContentConfig(ctx context.Context, model string, tools []*
 	}
 
 	cfg := &genai.GenerateContentConfig{
-		HTTPOptions: &httpOpts,
-		Tools:       tools,
-		ToolConfig:  toolCfg,
+		HTTPOptions:   &httpOpts,
+		Tools:         tools,
+		ToolConfig:    toolCfg,
+		CachedContent: strings.TrimSpace(cachedContent),
 	}
 	if shouldIncludeThoughtSummaries(model) {
 		cfg.ThinkingConfig = &genai.ThinkingConfig{IncludeThoughts: true}
@@ -52,6 +53,30 @@ func (c *Client) buildContentConfig(ctx context.Context, model string, tools []*
 		}
 	}
 	return cfg
+}
+
+func splitSystemInstructionPrefix(contents []*genai.Content) (*genai.Content, []*genai.Content) {
+	var text []string
+	idx := 0
+	for idx < len(contents) {
+		content := contents[idx]
+		if content == nil || content.Role != genai.RoleUser {
+			break
+		}
+		if len(content.Parts) != 1 || content.Parts[0] == nil {
+			break
+		}
+		partText := strings.TrimSpace(content.Parts[0].Text)
+		if !strings.HasPrefix(partText, "[system] ") {
+			break
+		}
+		text = append(text, strings.TrimSpace(strings.TrimPrefix(partText, "[system] ")))
+		idx++
+	}
+	if len(text) == 0 {
+		return nil, contents
+	}
+	return genai.NewContentFromText(strings.Join(text, "\n\n"), genai.RoleUser), contents[idx:]
 }
 
 func (c *Client) buildExtraBody() map[string]any {

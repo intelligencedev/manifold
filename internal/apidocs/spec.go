@@ -103,7 +103,7 @@ func buildSpec(opts Options) map[string]any {
 		"info": map[string]any{
 			"title":       "Manifold API",
 			"version":     version.Version,
-			"description": "HTTP API for Manifold agentd, workflows, projects, MCP, and playground services.",
+			"description": "HTTP API for Manifold workflows, projects, MCP, and playground services.",
 		},
 		"servers": []map[string]any{
 			{
@@ -136,7 +136,7 @@ func buildSpec(opts Options) map[string]any {
 				"type":        "apiKey",
 				"in":          "cookie",
 				"name":        cookieName,
-				"description": "Session cookie used by agentd authentication.",
+				"description": "Session cookie used by Manifold authentication.",
 			},
 		}
 	}
@@ -258,6 +258,22 @@ func buildRequestBody(kind string) map[string]any {
 					"schema": map[string]any{
 						"type":                 "object",
 						"additionalProperties": true,
+					},
+				},
+			},
+		}
+	case "form":
+		return map[string]any{
+			"required": true,
+			"content": map[string]any{
+				"application/x-www-form-urlencoded": map[string]any{
+					"schema": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"state": map[string]any{"type": "string"},
+							"code":  map[string]any{"type": "string"},
+							"user":  map[string]any{"type": "string"},
+						},
 					},
 				},
 			},

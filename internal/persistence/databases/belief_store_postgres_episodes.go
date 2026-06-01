@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"manifold/internal/agent/belief"
+	"manifold/internal/agent/memory/belief"
 )
 
 func (s *pgBeliefStore) UpsertEpisode(ctx context.Context, episode belief.Episode) (belief.Episode, error) {

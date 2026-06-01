@@ -3,12 +3,14 @@ import { computed, ref } from "vue";
 import { useQueryClient } from "@tanstack/vue-query";
 import type {
   AgentThread,
+  AgentTraceEntry,
   ChatAttachment,
   ChatInputRequest,
   ChatInputRequestChoice,
   ChatMessage,
   ChatRole,
   ChatSessionMeta,
+  SummaryEvent,
 } from "@/types/chat";
 import {
   answerChatInputRequest as apiAnswerChatInputRequest,
@@ -27,18 +29,27 @@ import {
   updateChatSessionProject as apiUpdateChatSessionProject,
   type ChatStreamEvent,
 } from "@/api/chat";
-import { stripLeadingSpecialistMention } from "@/utils/chatMentions";
+import {
+  agentThreadKey,
+  agentToolEntry,
+  appendAgentEntry,
+  computeLocalTitle,
+  contextMetricsFromEvent,
+  contextMetricsFromSummaryEvent,
+  httpStatus,
+  isDefaultSessionName,
+  localContextMetricsForMessages,
+  memoryContextFromEvent,
+  mergeMemoryContext,
+  newAgentThread,
+  normalizeSessionMeta,
+  snippet,
+  updateLatestUserBeforeMessage,
+  withTeam,
+  withEstimatedAssistantTokens,
+} from "@/stores/chatHelpers";
+import { stripLeadingChatMention } from "@/utils/chatMentions";
 import { createId } from "@/utils/uuid";
-
-type FilesByAttachment = Map<string, File>;
-
-export interface SummaryEvent {
-  inputTokens: number;
-  tokenBudget: number;
-  messageCount: number;
-  summarizedCount: number;
-  timestamp: string;
-}
 
 export const useChatStore = defineStore("chat", () => {
   const queryClient = useQueryClient();
@@ -68,7 +79,6 @@ export const useChatStore = defineStore("chat", () => {
   const thoughtSummariesBySession = ref<Record<string, string[]>>({});
   const agentThreadsBySession = ref<Record<string, AgentThread[]>>({});
   const agentThreadIndex = new Map<string, Map<string, AgentThread>>();
-  // Track summary events per session - cleared after display
   const summaryEventBySession = ref<Record<string, SummaryEvent | null>>({});
 
   const activeSession = computed(
@@ -184,10 +194,6 @@ export const useChatStore = defineStore("chat", () => {
     return idx;
   }
 
-  function agentThreadKey(callId: string, assistantMessageId?: string) {
-    return assistantMessageId ? `${assistantMessageId}:${callId}` : callId;
-  }
-
   function resetAgentThreads(sessionId: string) {
     const next = { ...agentThreadsBySession.value, [sessionId]: [] };
     agentThreadsBySession.value = next;
@@ -249,70 +255,6 @@ export const useChatStore = defineStore("chat", () => {
       [sessionId]: nextList,
     };
     return thread;
-  }
-
-  type AgentThreadBase = {
-    callId: string;
-    parentCallId?: string;
-    agentName?: string;
-    team?: string;
-    model?: string;
-    prompt?: string;
-    depth: number;
-    status?: AgentThread["status"];
-    content?: string;
-    entries?: AgentTraceEntry[];
-    thoughtSummaries?: string[];
-    startedAt: string;
-    finishedAt?: string;
-    error?: string;
-  };
-
-  function newAgentThread(base: AgentThreadBase): AgentThread {
-    return {
-      callId: base.callId,
-      parentCallId: base.parentCallId,
-      agent: base.agentName,
-      team: base.team,
-      model: base.model,
-      prompt: base.prompt,
-      depth: base.depth,
-      status: base.status ?? "running",
-      content: base.content ?? "",
-      entries: base.entries ?? [],
-      thoughtSummaries: base.thoughtSummaries ?? [],
-      startedAt: base.startedAt,
-      finishedAt: base.finishedAt,
-      error: base.error,
-    };
-  }
-
-  function withTeam(thread: AgentThread, team?: string): AgentThread {
-    return thread.team || !team ? thread : { ...thread, team };
-  }
-
-  function appendAgentEntry(
-    thread: AgentThread,
-    team: string | undefined,
-    entry: AgentTraceEntry,
-  ): AgentThread {
-    const baseThread = withTeam(thread, team);
-    return { ...baseThread, entries: [...baseThread.entries, entry] };
-  }
-
-  function agentToolEntry(
-    event: ChatStreamEvent,
-    field: "args" | "data",
-    value: string | undefined,
-    createdAt: string,
-  ): AgentTraceEntry {
-    return {
-      id: createId(),
-      type: "tool",
-      title: event.title || "Tool",
-      [field]: value,
-      createdAt,
-    };
   }
 
   function syncSessionMessageCount(sessionId: string, count: number) {
@@ -409,55 +351,6 @@ export const useChatStore = defineStore("chat", () => {
     return activeSessionId.value;
   }
 
-  function snippet(content: string) {
-    if (!content) return "";
-    const trimmed = content.replace(/\s+/g, " ").trim();
-    return trimmed.length > 80 ? `${trimmed.slice(0, 77)}…` : trimmed;
-  }
-
-  function normalizeSessionMeta(meta: ChatSessionMeta): ChatSessionMeta {
-    type ChatSessionMetaWire = ChatSessionMeta & {
-      message_count?: unknown;
-      project_id?: unknown;
-      evolving_memory_enabled?: unknown;
-      belief_memory_enabled?: unknown;
-    };
-    const wire = meta as ChatSessionMetaWire;
-    const rawCount = wire.messageCount ?? wire.message_count;
-    const messageCount =
-      typeof rawCount === "number" && Number.isFinite(rawCount) && rawCount >= 0
-        ? rawCount
-        : 0;
-    const rawProjectID = wire.projectId ?? wire.project_id;
-    const projectId = typeof rawProjectID === "string" ? rawProjectID : "";
-    const rawEvolvingMemoryEnabled =
-      wire.evolvingMemoryEnabled ?? wire.evolving_memory_enabled;
-    const rawBeliefMemoryEnabled =
-      wire.beliefMemoryEnabled ?? wire.belief_memory_enabled;
-    const evolvingMemoryEnabled =
-      typeof rawEvolvingMemoryEnabled === "boolean"
-        ? rawEvolvingMemoryEnabled
-        : true;
-    const beliefMemoryEnabled =
-      typeof rawBeliefMemoryEnabled === "boolean"
-        ? rawBeliefMemoryEnabled
-        : true;
-    return {
-      ...meta,
-      messageCount,
-      projectId,
-      evolvingMemoryEnabled,
-      beliefMemoryEnabled,
-    };
-  }
-
-  const defaultSessionNames = new Set(["", "new chat", "conversation"]);
-
-  function isDefaultSessionName(name?: string | null) {
-    if (!name) return true;
-    return defaultSessionNames.has(name.trim().toLowerCase());
-  }
-
   function hasUserPrompt(sessionId: string) {
     const existing = messagesBySession.value[sessionId] || [];
     return existing.some((m) => m.role === "user");
@@ -471,17 +364,6 @@ export const useChatStore = defineStore("chat", () => {
     const clone = [...sessions.value];
     clone.splice(idx, 1, merged);
     sessions.value = clone;
-  }
-
-  function httpStatus(error: unknown): number | null {
-    if (!error || typeof error !== "object" || !("isAxiosError" in error)) {
-      return null;
-    }
-    const maybeResponse = (error as { response?: { status?: unknown } })
-      .response;
-    return typeof maybeResponse?.status === "number"
-      ? maybeResponse.status
-      : null;
   }
 
   async function init() {
@@ -639,29 +521,29 @@ export const useChatStore = defineStore("chat", () => {
   async function updateSessionMemorySettings(
     sessionId: string,
     settings: {
+      memoryEnabled?: boolean;
       evolvingMemoryEnabled?: boolean;
       beliefMemoryEnabled?: boolean;
     },
   ) {
     const existing = sessions.value.find((s) => s.id === sessionId);
-    const nextEvolving =
-      typeof settings.evolvingMemoryEnabled === "boolean"
-        ? settings.evolvingMemoryEnabled
-        : (existing?.evolvingMemoryEnabled ?? true);
-    const nextBelief =
-      typeof settings.beliefMemoryEnabled === "boolean"
-        ? settings.beliefMemoryEnabled
-        : (existing?.beliefMemoryEnabled ?? true);
-    if (
-      existing &&
-      (existing.evolvingMemoryEnabled ?? true) === nextEvolving &&
-      (existing.beliefMemoryEnabled ?? true) === nextBelief
-    ) {
+    const nextMemory =
+      typeof settings.memoryEnabled === "boolean"
+        ? settings.memoryEnabled
+        : typeof settings.evolvingMemoryEnabled === "boolean" ||
+            typeof settings.beliefMemoryEnabled === "boolean"
+          ? (settings.evolvingMemoryEnabled ??
+              existing?.evolvingMemoryEnabled ??
+              false) &&
+            (settings.beliefMemoryEnabled ??
+              existing?.beliefMemoryEnabled ??
+              false)
+          : (existing?.memoryEnabled ?? false);
+    if (existing && (existing.memoryEnabled ?? false) === nextMemory) {
       return existing;
     }
     const updated = await apiUpdateChatSessionMemorySettings(sessionId, {
-      evolvingMemoryEnabled: nextEvolving,
-      beliefMemoryEnabled: nextBelief,
+      memoryEnabled: nextMemory,
     });
     sessionsError.value = null;
     const normalized = normalizeSessionMeta(updated);
@@ -672,15 +554,17 @@ export const useChatStore = defineStore("chat", () => {
   async function sendPrompt(
     text: string,
     attachments: ChatAttachment[] = [],
-    filesByAttachment?: FilesByAttachment,
+    filesByAttachment?: Map<string, File>,
     options: {
       echoUser?: boolean;
       specialist?: string;
       routingSpecialist?: string;
+      routingTargetName?: string;
       teamName?: string;
       projectId?: string;
       image?: boolean;
       imageSize?: string;
+      memoryEnabled?: boolean;
       evolvingMemoryEnabled?: boolean;
       beliefMemoryEnabled?: boolean;
       agentName?: string;
@@ -721,6 +605,9 @@ export const useChatStore = defineStore("chat", () => {
 
     const assistantId = createId();
     const streamId = createId();
+    const localMetrics = localContextMetricsForMessages(
+      messagesBySession.value[sessionId] || [],
+    );
     appendMessage(sessionId, {
       id: assistantId,
       role: "assistant",
@@ -730,7 +617,14 @@ export const useChatStore = defineStore("chat", () => {
       agentName: agentName || undefined,
       agentModel: agentModel || undefined,
       model: agentModel || undefined,
+      contextMetrics: localMetrics,
     });
+    const withUserMetrics = updateLatestUserBeforeMessage(
+      messagesBySession.value[sessionId] || [],
+      assistantId,
+      (m) => ({ ...m, contextMetrics: localMetrics }),
+    );
+    if (withUserMetrics) setMessages(sessionId, withUserMetrics);
 
     const controller = new AbortController();
     controller.signal.addEventListener(
@@ -752,10 +646,12 @@ export const useChatStore = defineStore("chat", () => {
     toolIndexFor(sessionId, streamId);
 
     try {
-      // Expand text attachments into the prompt
-      let promptToSend = stripLeadingSpecialistMention(
+      let promptToSend = stripLeadingChatMention(
         content,
-        options.routingSpecialist || options.specialist,
+        options.routingTargetName ||
+          options.routingSpecialist ||
+          options.specialist ||
+          options.teamName,
       );
       const textAtts = attachments.filter((a) => a.kind === "text");
       const imgAtts = attachments.filter((a) => a.kind === "image");
@@ -785,6 +681,7 @@ export const useChatStore = defineStore("chat", () => {
           specialist: options.specialist,
           teamName: options.teamName,
           projectId: options.projectId,
+          memoryEnabled: options.memoryEnabled,
           evolvingMemoryEnabled: options.evolvingMemoryEnabled,
           beliefMemoryEnabled: options.beliefMemoryEnabled,
         });
@@ -799,6 +696,7 @@ export const useChatStore = defineStore("chat", () => {
           specialist: options.specialist,
           teamName: options.teamName,
           projectId: options.projectId,
+          memoryEnabled: options.memoryEnabled,
           evolvingMemoryEnabled: options.evolvingMemoryEnabled,
           beliefMemoryEnabled: options.beliefMemoryEnabled,
           image: options.image,
@@ -844,7 +742,6 @@ export const useChatStore = defineStore("chat", () => {
     const trimmed = prompt.trim();
     if (!trimmed) return;
     try {
-      // Optimistically set title immediately on the client for instant UI updates
       const localTitle = computeLocalTitle(trimmed);
       if (localTitle) {
         upsertSessionMeta({
@@ -860,35 +757,6 @@ export const useChatStore = defineStore("chat", () => {
       console.warn("auto-title failed", error);
       return;
     }
-  }
-
-  const CHAT_TITLE_MAX_RUNES = 48;
-  function collapseWhitespace(s: string): string {
-    if (!s || !s.trim()) return "";
-    return s.trim().replace(/\s+/g, " ");
-  }
-  function truncateRunes(s: string, max: number): string {
-    if (max <= 0) return "";
-    const codepoints = Array.from(s);
-    if (codepoints.length <= max) return s.trim();
-    return codepoints.slice(0, max).join("").trim();
-  }
-  function firstSentence(s: string): string {
-    const input = s.trim();
-    if (!input) return "";
-    for (let i = 0; i < input.length; i++) {
-      const ch = input[i];
-      if (ch === "." || ch === "?" || ch === "!" || ch === "\n") {
-        return input.slice(0, i + 1).trim();
-      }
-    }
-    return input;
-  }
-  function computeLocalTitle(prompt: string): string {
-    const sentence = firstSentence(prompt) || prompt;
-    const collapsed = collapseWhitespace(sentence);
-    if (!collapsed) return "Conversation";
-    return truncateRunes(collapsed, CHAT_TITLE_MAX_RUNES);
   }
 
   function handleStreamEvent(
@@ -909,11 +777,42 @@ export const useChatStore = defineStore("chat", () => {
         }
         break;
       }
+      case "memory_context": {
+        const text = typeof event.data === "string" ? event.data.trim() : "";
+        if (text) {
+          const incoming = memoryContextFromEvent(event, text);
+          updateMessage(sessionId, assistantId, (m) => ({
+            ...m,
+            memoryContext: mergeMemoryContext(m.memoryContext, incoming),
+          }));
+        }
+        break;
+      }
+      case "context_metrics": {
+        const metrics = contextMetricsFromEvent(event);
+        if (metrics) {
+          updateMessage(sessionId, assistantId, (m) => ({
+            ...m,
+            contextMetrics: withEstimatedAssistantTokens(metrics, m.content),
+          }));
+          const nextMessages = updateLatestUserBeforeMessage(
+            messagesBySession.value[sessionId] || [],
+            assistantId,
+            (m) => ({ ...m, contextMetrics: metrics }),
+          );
+          if (nextMessages) setMessages(sessionId, nextMessages);
+        }
+        break;
+      }
       case "delta": {
         if (typeof event.data === "string" && event.data) {
           updateMessage(sessionId, assistantId, (m) => ({
             ...m,
             content: m.content + event.data,
+            contextMetrics: withEstimatedAssistantTokens(
+              m.contextMetrics,
+              m.content + event.data,
+            ),
           }));
         }
         break;
@@ -923,6 +822,10 @@ export const useChatStore = defineStore("chat", () => {
         updateMessage(sessionId, assistantId, (m) => ({
           ...m,
           content: text || m.content,
+          contextMetrics: withEstimatedAssistantTokens(
+            m.contextMetrics,
+            text || m.content,
+          ),
           streaming: false,
         }));
         if (text) touchSession(sessionId, snippet(text));
@@ -1011,6 +914,14 @@ export const useChatStore = defineStore("chat", () => {
             typeof event.input_tokens === "number" ? event.input_tokens : 0,
           tokenBudget:
             typeof event.token_budget === "number" ? event.token_budget : 0,
+          contextWindow:
+            typeof event.context_window === "number"
+              ? event.context_window
+              : undefined,
+          reserveTokens:
+            typeof event.reserve_tokens === "number"
+              ? event.reserve_tokens
+              : undefined,
           messageCount:
             typeof event.message_count === "number" ? event.message_count : 0,
           summarizedCount:
@@ -1023,6 +934,19 @@ export const useChatStore = defineStore("chat", () => {
           ...summaryEventBySession.value,
           [sessionId]: summaryEvt,
         };
+        const summaryMetrics = contextMetricsFromSummaryEvent(summaryEvt);
+        if (summaryMetrics) {
+          updateMessage(sessionId, assistantId, (m) => ({
+            ...m,
+            contextMetrics: summaryMetrics,
+          }));
+          const nextMessages = updateLatestUserBeforeMessage(
+            messagesBySession.value[sessionId] || [],
+            assistantId,
+            (m) => ({ ...m, contextMetrics: summaryMetrics }),
+          );
+          if (nextMessages) setMessages(sessionId, nextMessages);
+        }
         break;
       }
       case "input_request": {
@@ -1535,8 +1459,10 @@ export const useChatStore = defineStore("chat", () => {
     options: {
       specialist?: string;
       routingSpecialist?: string;
+      routingTargetName?: string;
       teamName?: string;
       projectId?: string;
+      memoryEnabled?: boolean;
       evolvingMemoryEnabled?: boolean;
       beliefMemoryEnabled?: boolean;
       agentName?: string;
@@ -1566,8 +1492,10 @@ export const useChatStore = defineStore("chat", () => {
       echoUser: false,
       specialist: options.specialist,
       routingSpecialist: options.routingSpecialist,
+      routingTargetName: options.routingTargetName,
       teamName: options.teamName,
       projectId: options.projectId,
+      memoryEnabled: options.memoryEnabled,
       evolvingMemoryEnabled: options.evolvingMemoryEnabled,
       beliefMemoryEnabled: options.beliefMemoryEnabled,
       agentName: options.agentName,
@@ -1576,7 +1504,6 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   return {
-    // state
     sessions,
     messagesBySession,
     sessionsLoading,
@@ -1591,7 +1518,6 @@ export const useChatStore = defineStore("chat", () => {
     activeSummaryEvent,
     activeThoughtSummaries,
     isSessionStreaming,
-    // actions
     init,
     refreshSessionsFromServer,
     loadMessagesFromServer,

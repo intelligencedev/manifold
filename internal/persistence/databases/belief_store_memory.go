@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"manifold/internal/agent/belief"
+	"manifold/internal/agent/memory/belief"
 
 	"github.com/google/uuid"
 )

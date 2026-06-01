@@ -4,8 +4,8 @@ import (
 	"context"
 	"reflect"
 
-	"manifold/internal/agent/belief"
 	"manifold/internal/agent/memory"
+	"manifold/internal/agent/memory/belief"
 	"manifold/internal/durable"
 	"manifold/internal/persistence"
 	"manifold/internal/transit"

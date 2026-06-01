@@ -61,6 +61,56 @@ func engineTestEmbedFn(_ context.Context, _ config.EmbeddingConfig, texts []stri
 	return out, nil
 }
 
+type memoryContextTestMagma struct {
+	ctx memory.MagmaContext
+}
+
+func (m memoryContextTestMagma) RetrieveMagmaContext(context.Context, memory.MagmaRequest) (memory.MagmaContext, error) {
+	return m.ctx, nil
+}
+
+func TestRunStreamEmitsUnifiedMemoryContext(t *testing.T) {
+	t.Parallel()
+
+	provider := &memoryTestProvider{streamResponse: "streamed final"}
+	var gotBlock memory.ContextBlock
+	var gotDiag memory.Diagnostics
+	eng := &Engine{
+		LLM:      provider,
+		MaxSteps: 1,
+		Memory: &memory.Runtime{
+			Config: memory.RuntimeConfig{
+				Enabled:            true,
+				MaxTokensPerPrompt: 2200,
+				Timeout:            time.Second,
+			},
+			Magma: memoryContextTestMagma{ctx: memory.MagmaContext{
+				Text:  "semantic node: user prefers concise summaries",
+				Items: 1,
+			}},
+		},
+		Tools: tools.NewRegistry(),
+		OnMemoryContext: func(block memory.ContextBlock, diag memory.Diagnostics) {
+			gotBlock = block
+			gotDiag = diag
+		},
+	}
+
+	final, err := eng.RunStream(context.Background(), "summarize the plan", nil)
+	if err != nil {
+		t.Fatalf("RunStream failed: %v", err)
+	}
+	if final != "streamed final" {
+		t.Fatalf("expected streamed final response, got %q", final)
+	}
+	if !strings.Contains(gotBlock.Text, "user prefers concise summaries") {
+		t.Fatalf("expected emitted memory context, got %q", gotBlock.Text)
+	}
+	if !gotDiag.Lanes["magma"].Returned {
+		t.Fatalf("expected magma lane diagnostics to be returned, got %#v", gotDiag.Lanes["magma"])
+	}
+}
+
 func TestRunStreamStoresEvolvingMemory(t *testing.T) {
 	t.Parallel()
 

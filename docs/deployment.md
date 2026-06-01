@@ -11,23 +11,23 @@ Manifold currently stores projects on the local filesystem under the `workdir` c
 For a fresh clone, the supported first-run path is:
 
 - `pg-manifold` for PostgreSQL
-- `manifold` for `agentd` and the embedded frontend
+- `manifold` for the Manifold server and the embedded frontend
 
 Optional services can be added later:
 
 - `keycloak-db` and `keycloak` for authentication testing
 - `clickhouse` and `otel-collector` for persistent observability
 
-The default dashboard does not require ClickHouse. When `obs.local.enabled` is true, `agentd` serves metrics, logs, and traces from bounded process-local buffers.
+The default dashboard does not require ClickHouse. When `obs.local.enabled` is true, Manifold serves metrics, logs, and traces from bounded process-local buffers.
 
 ### Local Host Builds
 
 Local host builds are supported through the Makefile, but they are a developer workflow, not the simplest deployment path. Use them when you want to:
 
-- iterate on Go code with `make build-agentd` or `make build-manifold`
+- iterate on Go code with `make build-agentd` or `make build-manifold`; both server builds write `dist/manifold`
 - run the frontend separately with `pnpm -C web/agentd-ui dev`
 
-Host builds can also run with embedded Postgres. In that mode Manifold starts a bundled PostgreSQL process during `agentd` startup and no external database service is required.
+Host builds can also run with embedded Postgres. In that mode Manifold starts a bundled PostgreSQL process during server startup and no external database service is required.
 
 ## Prerequisites
 
@@ -92,7 +92,7 @@ This mode runs without Compose services, external Postgres, ClickHouse, or an Op
 
 Prerequisites:
 
-- Go toolchain for building `agentd`
+- Go toolchain for building `manifold`
 - An LLM provider, either remote or local OpenAI-compatible
 
 Build:
@@ -141,10 +141,10 @@ obs:
 Run:
 
 ```bash
-./dist/agentd
+./dist/manifold
 ```
 
-When `databases.embedded` is true, `agentd` starts bundled Postgres before initializing stores, sets the runtime default DSN internally, and stops the embedded process during shutdown. The default data directory is `~/.manifold/embedded-postgres`; set `embeddedDataDir` to choose a different persistent location.
+When `databases.embedded` is true, Manifold starts bundled Postgres before initializing stores, sets the runtime default DSN internally, and stops the embedded process during shutdown. The default data directory is `~/.manifold/embedded-postgres`; set `embeddedDataDir` to choose a different persistent location.
 
 The embedded mode installs the configured extensions (`pgvector`, `postgis`, and `pgrouting` by default) when available. If `pgvector` cannot be installed, vector storage falls back to memory while the rest of the Postgres-backed stores continue to use the embedded database.
 
@@ -152,7 +152,7 @@ The embedded mode installs the configured extensions (`pgvector`, `postgis`, and
 
 Core services:
 
-- `manifold`: the main `agentd` container with the embedded web UI
+- `manifold`: the main Manifold container with the embedded web UI
 - `pg-manifold`: PostgreSQL with pgvector, PostGIS, and pgRouting
 
 Optional services:
@@ -178,7 +178,7 @@ Inside the compose network, Manifold connects to Postgres at `pg-manifold:5432`.
 - The runtime validates that `workdir` exists and is a directory.
 - `config.yaml.example` is the full runtime reference. `specialists.yaml.example` and `mcp.yaml.example` document the optional external specialist and MCP config files.
 - `databases.defaultDSN` and the per-subsystem DSNs in `config.yaml.example` are wired to `${DATABASE_URL}` for the compose network.
-- For embedded Postgres, set `databases.embedded: true` and leave `DATABASE_URL`, `databases.defaultDSN`, and per-subsystem DSNs empty so `agentd` can supply the embedded DSN at runtime.
+- For embedded Postgres, set `databases.embedded: true` and leave `DATABASE_URL`, `databases.defaultDSN`, and per-subsystem DSNs empty so Manifold can supply the embedded DSN at runtime.
 - `obs.local.enabled: true` gives the dashboard local process telemetry without ClickHouse or an OpenTelemetry Collector. `obs.clickhouse.dsn` upgrades the dashboard to persistent telemetry when ClickHouse is available.
 - If you use `llm_client.openai.api: responses`, you can tune context-management behavior through `llm_client.openai.extraParams` in [config.yaml.example](../config.yaml.example).
 - Voice input requires an OpenAI-compatible transcription endpoint through the `stt` section in [config.yaml.example](../config.yaml.example).

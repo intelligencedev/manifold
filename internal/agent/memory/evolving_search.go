@@ -89,6 +89,7 @@ func (em *EvolvingMemory) searchWithScores(ctx context.Context, query string, up
 	}
 
 	denseCandidates := em.denseCandidates(ctx, queryVec, entries, fetchK, &diag, log)
+	denseCandidates = em.filterDenseCandidatesByThreshold(denseCandidates, &diag)
 	diag.VectorCandidates = len(denseCandidates)
 	candidates := mergeMemoryCandidates(denseCandidates, keywordCandidates, fetchK, &diag)
 	if len(candidates) == 0 {
@@ -96,7 +97,9 @@ func (em *EvolvingMemory) searchWithScores(ctx context.Context, query string, up
 		return nil, diag, nil
 	}
 
-	out := em.rankMemoryCandidates(candidates)
+	ranked := em.scoreMemoryCandidates(candidates)
+	ranked = em.rerankMemoryCandidates(ctx, query, ranked, &diag, log)
+	out := applyMMR(ranked, min(em.topK, len(ranked)), em.mmrLambda)
 	retrievedIDs := scoredMemoryIDs(out)
 	if updateAccess {
 		go em.updateAccessMetrics(retrievedIDs)
@@ -155,6 +158,27 @@ func localDenseCandidates(queryVec []float32, entries []*MemoryEntry) []ScoredMe
 	return candidates
 }
 
+func (em *EvolvingMemory) filterDenseCandidatesByThreshold(candidates []ScoredMemoryEntry, diag *SearchDiagnostics) []ScoredMemoryEntry {
+	threshold := em.retrievalSimilarityThreshold
+	if threshold <= 0 {
+		return candidates
+	}
+	if diag != nil {
+		diag.SimilarityThreshold = threshold
+	}
+	filtered := make([]ScoredMemoryEntry, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.Score >= threshold {
+			filtered = append(filtered, candidate)
+			continue
+		}
+		if diag != nil {
+			diag.VectorFiltered++
+		}
+	}
+	return filtered
+}
+
 func mergeMemoryCandidates(denseCandidates, keywordCandidates []ScoredMemoryEntry, fetchK int, diag *SearchDiagnostics) []ScoredMemoryEntry {
 	switch {
 	case len(denseCandidates) > 0 && len(keywordCandidates) > 0:
@@ -171,7 +195,7 @@ func mergeMemoryCandidates(denseCandidates, keywordCandidates []ScoredMemoryEntr
 	}
 }
 
-func (em *EvolvingMemory) rankMemoryCandidates(candidates []ScoredMemoryEntry) []ScoredMemoryEntry {
+func (em *EvolvingMemory) scoreMemoryCandidates(candidates []ScoredMemoryEntry) []ScoredMemoryEntry {
 	now := time.Now()
 	for i, candidate := range candidates {
 		if candidate.Entry != nil {
@@ -181,7 +205,44 @@ func (em *EvolvingMemory) rankMemoryCandidates(candidates []ScoredMemoryEntry) [
 	sort.Slice(candidates, func(i, j int) bool {
 		return candidates[i].Score > candidates[j].Score
 	})
-	return applyMMR(candidates, min(em.topK, len(candidates)), em.mmrLambda)
+	return candidates
+}
+
+func (em *EvolvingMemory) rerankMemoryCandidates(ctx context.Context, query string, candidates []ScoredMemoryEntry, diag *SearchDiagnostics, log *zerolog.Logger) []ScoredMemoryEntry {
+	if em.reranker == nil {
+		return candidates
+	}
+	if diag != nil {
+		diag.RerankEnabled = true
+		diag.RerankCandidates = len(candidates)
+	}
+	if len(candidates) <= 1 {
+		return candidates
+	}
+	start := time.Now()
+	reranked, err := em.reranker.RerankEvolvingMemory(ctx, query, candidates)
+	if diag != nil {
+		diag.RerankDurationMs = time.Since(start).Milliseconds()
+	}
+	if err != nil {
+		if diag != nil {
+			diag.RerankError = err.Error()
+		}
+		if log != nil {
+			log.Warn().Err(err).Msg("evolving_memory_rerank_failed")
+		}
+		return candidates
+	}
+	if len(reranked) == 0 {
+		if diag != nil {
+			diag.RerankError = "reranker returned no candidates"
+		}
+		return candidates
+	}
+	if diag != nil {
+		diag.RerankApplied = true
+	}
+	return reranked
 }
 
 func scoredMemoryIDs(scored []ScoredMemoryEntry) []string {
@@ -277,6 +338,7 @@ func (em *EvolvingMemory) ExplainSearch(ctx context.Context, query string) ([]Me
 				candidates = append(candidates, ScoredMemoryEntry{Entry: entry, Score: dotProduct(queryVec, entry.Embedding)})
 			}
 		}
+		candidates = em.filterDenseCandidatesByThreshold(candidates, nil)
 	}
 	if len(candidates) > 0 && len(keywordCandidates) > 0 {
 		candidates = rrfFuse([][]ScoredMemoryEntry{candidates, keywordCandidates}, fetchK, 60)

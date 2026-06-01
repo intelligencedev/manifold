@@ -22,7 +22,6 @@ import (
 	"manifold/internal/testhelpers"
 	"manifold/internal/tools"
 	tooldiscovery "manifold/internal/tools/discovery"
-	inputrequesttool "manifold/internal/tools/inputrequest"
 	"manifold/internal/workspaces"
 )
 
@@ -98,21 +97,26 @@ func TestChatToolRegistryExposesInputRequestWhenAllowListIsNarrow(t *testing.T) 
 	t.Parallel()
 
 	base := tools.NewRegistry()
-	base.Register(inputrequesttool.New())
 	app := &app{
 		cfg:              &config.Config{EnableTools: true},
 		baseToolRegistry: base,
 	}
 
-	reg := app.chatToolRegistry(true, []string{"run_cli"}, nil)
+	reg := app.chatToolRegistry(true, []string{"run_cli"}, nil, nil)
 	names := tools.SchemaNames(reg)
 	if !containsString(names, "request_info") {
 		t.Fatalf("expected request_info to be exposed, got %v", names)
 	}
 
-	disabled := app.chatToolRegistry(false, []string{"request_info"}, nil)
+	disabled := app.chatToolRegistry(false, []string{"request_info"}, nil, nil)
 	if containsString(tools.SchemaNames(disabled), "request_info") {
 		t.Fatal("did not expect request_info when tools are disabled")
+	}
+
+	requestInfoOff := false
+	withoutRequestInfo := app.chatToolRegistry(true, []string{"run_cli"}, nil, &requestInfoOff)
+	if containsString(tools.SchemaNames(withoutRequestInfo), "request_info") {
+		t.Fatal("did not expect request_info when requestInfoEnabled is false")
 	}
 }
 
@@ -158,6 +162,49 @@ func TestBuildTeamChatEngineBuildsDelegatorAndDefaultPrompt(t *testing.T) {
 	}
 	if result.Engine.ContextWindowTokens <= 0 {
 		t.Fatalf("expected context window tokens, got %d", result.Engine.ContextWindowTokens)
+	}
+}
+
+func TestBuildTeamChatEngineUsesTeamOrchestratorConfig(t *testing.T) {
+	t.Parallel()
+
+	app := newChatEngineBuilderTestApp(t)
+	ctx := context.Background()
+
+	_, err := app.teamStore.Upsert(ctx, 9, persistence.SpecialistTeam{
+		Name: "ops",
+		Orchestrator: persistence.Specialist{
+			Name:                       "ops-orchestrator",
+			Provider:                   "openai",
+			Model:                      "gpt-4.1-mini",
+			System:                     "You are the OPS TEAM ORCHESTRATOR. Always answer with the ops runbook.",
+			EnableTools:                true,
+			AllowTools:                 []string{"shell"},
+			SummaryContextWindowTokens: 12345,
+		},
+	})
+	if err != nil {
+		t.Fatalf("upsert team: %v", err)
+	}
+
+	result := app.buildTeamChatEngine(ctx, buildTeamTestRequest("ops", "sess-team", 9))
+	if result.Err != nil {
+		t.Fatalf("buildTeamChatEngine: %v", result.Err)
+	}
+	if result.Engine == nil {
+		t.Fatal("expected team engine")
+	}
+	if !strings.Contains(result.Engine.System, "OPS TEAM ORCHESTRATOR") {
+		t.Fatalf("expected team orchestrator system prompt, got %q", result.Engine.System)
+	}
+	if result.Engine.Model != "gpt-4.1-mini" {
+		t.Fatalf("expected team orchestrator model, got %q", result.Engine.Model)
+	}
+	if result.ModelLabel != "ops:gpt-4.1-mini" {
+		t.Fatalf("unexpected model label: %q", result.ModelLabel)
+	}
+	if result.Engine.ContextWindowTokens != 12345 {
+		t.Fatalf("expected team context window 12345, got %d", result.Engine.ContextWindowTokens)
 	}
 }
 
@@ -588,6 +635,9 @@ func TestBuildSpecialistChatEngineCanDisableSessionEvolvingMemory(t *testing.T) 
 	}
 	if !result.Engine.DisableEvolvingMemory {
 		t.Fatal("expected DisableEvolvingMemory flag")
+	}
+	if strings.Contains(result.Engine.System, "[memory]") {
+		t.Fatalf("did not expect memory instructions when evolving memory is disabled: %q", result.Engine.System)
 	}
 }
 

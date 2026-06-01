@@ -2,7 +2,7 @@
 
 Manifold supports two observability modes:
 
-- **Local process telemetry**: enabled by default with `obs.local.enabled: true`. Metrics, logs, and traces are stored in bounded in-memory buffers inside `agentd` and are visible in the Overview dashboard without ClickHouse or an OpenTelemetry Collector.
+- **Local process telemetry**: enabled by default with `obs.local.enabled: true`. Metrics, logs, and traces are stored in bounded in-memory buffers inside Manifold and are visible in the Overview dashboard without ClickHouse or an OpenTelemetry Collector.
 - **Persistent telemetry**: optional ClickHouse and OTLP export for historical queries, cross-restart data, and external dashboards.
 
 A basic Docker first run only needs `pg-manifold` and `manifold`. A host run with embedded Postgres does not need external database or telemetry services.
@@ -63,8 +63,8 @@ Dashboard endpoints return a `source` field so the UI can show where data came f
 
 Local telemetry caveats:
 
-- Data resets when `agentd` restarts.
-- Data is scoped to one `agentd` process and does not aggregate multiple replicas.
+- Data resets when `manifold` restarts.
+- Data is scoped to one `manifold` process and does not aggregate multiple replicas.
 - Buffers are capped by the `obs.local` limits.
 
 Use local telemetry for local installs, development, and single-process runs. Add ClickHouse when you need durable observability history.
@@ -81,7 +81,7 @@ docker compose up -d clickhouse otel-collector
 
 The collector supports two log ingestion paths:
 
-- Direct `agentd` runs export logs over OTLP when `OTEL_LOGS_EXPORTER=otlp` is set.
+- Direct `manifold` runs export logs over OTLP when `OTEL_LOGS_EXPORTER=otlp` is set.
 - Docker deployments can tail container `stdout` and `stderr` with the `filelog`
   receiver and the OpenTelemetry container parser.
 
@@ -185,7 +185,7 @@ Use these metric names/attributes when configuring dashboards or querying teleme
 
 ### Health Checks
 
-`agentd` provides health check endpoints:
+Manifold provides health check endpoints:
 
 - `GET /healthz`: Basic health check
 - `GET /readyz`: Readiness check

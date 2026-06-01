@@ -110,7 +110,7 @@ Then open <http://localhost:32180>.
 
 ### Self-contained host run
 
-Manifold can also run without external database or telemetry services when you build `agentd` locally. Enable the embedded Postgres runtime and keep ClickHouse/OTLP unset:
+Manifold can also run without external database or telemetry services when you build the `manifold` binary locally. Enable the embedded Postgres runtime and keep ClickHouse/OTLP unset:
 
 ```yaml
 databases:
@@ -125,7 +125,7 @@ obs:
     dsn: ""
 ```
 
-With that configuration, `agentd` starts a bundled PostgreSQL process for durable state and serves metrics, logs, and traces from bounded process-local telemetry. You still need an LLM provider, which can be a remote API key or a local OpenAI-compatible endpoint.
+With that configuration, `manifold` starts a bundled PostgreSQL process for durable state and serves metrics, logs, and traces from bounded process-local telemetry. You still need an LLM provider, which can be a remote API key or a local OpenAI-compatible endpoint.
 
 For the full deployment walkthrough, see:
 
@@ -137,7 +137,7 @@ For the full deployment walkthrough, see:
 
 ### Frontend feature gates
 
-`make build-manifold` builds `agentd` with the embedded frontend using the stable UI feature gate. Stable builds do render frontend undocumented features still in active development.
+`make build-manifold` builds `dist/manifold` with the embedded frontend using the stable UI feature gate. Stable builds do render frontend undocumented features still in active development.
 
 To build the same backend and embedded frontend with beta UI links enabled, use either command:
 

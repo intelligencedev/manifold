@@ -1,0 +1,32 @@
+[
+  {
+    "name": "preference recall",
+    "query": "How should I format API examples?",
+    "belief": "User prefers concise curl examples before SDK snippets.",
+    "expected": "concise curl examples"
+  },
+  {
+    "name": "project fact",
+    "query": "Which database backs chat sessions?",
+    "belief": "Chat sessions are stored in Postgres in production.",
+    "expected": "Postgres"
+  },
+  {
+    "name": "repeated tool failure avoidance",
+    "query": "Run the flaky migration test again.",
+    "evolving": "Previous migration test failed until the deterministic clock was injected.",
+    "expected": "deterministic clock"
+  },
+  {
+    "name": "contradiction handling",
+    "query": "Can we enforce this as policy?",
+    "belief": "The coding policy is still disputed and needs another supporting episode.",
+    "expected": "disputed"
+  },
+  {
+    "name": "causal MAGMA retrieval",
+    "query": "Why did the worker queue stall?",
+    "magma": "causal edge: unbounded queue growth caused worker stalls",
+    "expected": "worker stalls"
+  }
+]

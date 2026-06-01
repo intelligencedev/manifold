@@ -24,8 +24,16 @@ export interface AgentRun {
   tokens?: number;
 }
 
-export async function fetchAgentRuns(): Promise<AgentRun[]> {
-  const response = await apiClient.get<AgentRun[]>("/runs");
+export interface AgentRunsParams {
+  window?: string;
+  windowSeconds?: number;
+  limit?: number;
+}
+
+export async function fetchAgentRuns(
+  params?: AgentRunsParams,
+): Promise<AgentRun[]> {
+  const response = await apiClient.get<AgentRun[]>("/runs", { params });
   return response.data;
 }
 
@@ -59,6 +67,7 @@ export interface Specialist {
   model: string;
   summaryContextWindowTokens?: number;
   enableTools: boolean;
+  requestInfoEnabled?: boolean | null;
   imageGeneration?: boolean;
   autoDiscover?: boolean | null;
   paused: boolean;
@@ -235,8 +244,20 @@ export interface AgentdSettings {
   openaiSummaryModel: string;
   openaiSummaryUrl: string;
   summaryEnabled: boolean;
+  summaryContextWindowTokens: number;
   summaryPlainTextContextWindowTokens: number;
   summaryReserveBufferTokens: number;
+  summaryMinKeepLastMessages: number;
+  summaryMaxKeepLastMessages: number;
+  summaryMaxSummaryChunkTokens: number;
+  summaryCallTimeoutSeconds: number;
+  summaryTokenBudget: number;
+  requestInfoEnabled: boolean;
+
+  promptBaseSystem: string;
+  promptMemoryInstructions: string;
+  promptToolDiscoveryInstructions: string;
+  promptSkillDiscoveryInstructions: string;
 
   embedBaseUrl: string;
   embedModel: string;

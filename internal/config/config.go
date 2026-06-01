@@ -3,8 +3,13 @@ package config
 // Config is the top-level runtime configuration for the agent.
 type Config struct {
 	Workdir string `yaml:"workdir" json:"workdir"`
-	// If empty, the built-in hard-coded prompt is used.
+	// Deprecated: systemPrompt is retained only to read older config files.
+	// New orchestrator system instructions should be configured through the
+	// persisted orchestrator specialist, and shared prompt blocks should be
+	// customized through PromptOverrides.
 	SystemPrompt string `yaml:"systemPrompt" json:"systemPrompt"`
+	// PromptOverrides replaces selected built-in prompt blocks.
+	PromptOverrides PromptOverridesConfig `yaml:"promptOverrides" json:"promptOverrides"`
 	// Rolling summarization config: enable and tuning knobs (token-based only)
 	SummaryEnabled bool `yaml:"summaryEnabled" json:"summaryEnabled"`
 	// Summary configures rolling chat summaries independently from the primary LLM.
@@ -75,6 +80,9 @@ type Config struct {
 	Databases DBConfig `yaml:"databases" json:"databases"`
 	// EnableTools globally enables/disables tool exposure to the main agent.
 	EnableTools bool `yaml:"enableTools" json:"enableTools"`
+	// RequestInfoEnabled controls whether interactive agents may ask the user
+	// for missing information through request_info. Nil defaults to enabled.
+	RequestInfoEnabled *bool `yaml:"requestInfoEnabled" json:"requestInfoEnabled"`
 	// Top-level allow list of tool names to expose to the main orchestrator agent.
 	// If empty or omitted, all registered tools are exposed.
 	ToolAllowList []string `yaml:"allowTools" json:"allowTools"`
@@ -90,6 +98,12 @@ type Config struct {
 	Reranking RerankingConfig `yaml:"reranking" json:"reranking"`
 	// Magma configures optional multi-graph agentic memory support for RAG.
 	Magma MagmaConfig `yaml:"magma" json:"magma"`
+	// Memory coordinates evolving memory, belief memory, and MAGMA behind a
+	// single runtime toggle. The legacy top-level memory blocks remain accepted
+	// as aliases for compatibility.
+	Memory MemoryConfig `yaml:"memory" json:"memory"`
+	// MemoryConfigured is set when the YAML contains a top-level memory block.
+	MemoryConfigured bool `yaml:"-" json:"-"`
 	// ImageTool configures defaults for the describe_image tool.
 	ImageTool ImageToolConfig `yaml:"imageTool" json:"imageTool"`
 	// EvolvingMemory configures the Search-Synthesis-Evolve memory system.
@@ -118,6 +132,40 @@ type Config struct {
 	CodeQA CodeQAConfig `yaml:"codeQA" json:"codeQA"`
 	// Tokenization configures accurate token counting for summarization.
 	Tokenization TokenizationConfig `yaml:"tokenization" json:"tokenization"`
+}
+
+// MemoryConfig is the unified agent-memory configuration. The nested subsystem
+// configs preserve their existing shapes while the Enabled flag controls whether
+// all coordinated memory lanes are active for new runs.
+type MemoryConfig struct {
+	Enabled    bool                   `yaml:"enabled" json:"enabled"`
+	Retrieval  MemoryRetrievalConfig  `yaml:"retrieval" json:"retrieval"`
+	LLMClients MemoryLLMClientsConfig `yaml:"llmClients" json:"llmClients"`
+	Evolving   EvolvingMemoryConfig   `yaml:"evolving" json:"evolving"`
+	Belief     BeliefMemoryConfig     `yaml:"belief" json:"belief"`
+	Magma      MagmaConfig            `yaml:"magma" json:"magma"`
+}
+
+type MemoryRetrievalConfig struct {
+	MaxTokensPerPrompt int  `yaml:"maxTokensPerPrompt" json:"maxTokensPerPrompt"`
+	TimeoutMs          int  `yaml:"timeoutMs" json:"timeoutMs"`
+	IncludeRecent      bool `yaml:"includeRecent" json:"includeRecent"`
+}
+
+type MemoryLLMClientsConfig struct {
+	Evolving           LLMClientConfig `yaml:"evolving" json:"evolving"`
+	BeliefDistillation LLMClientConfig `yaml:"beliefDistillation" json:"beliefDistillation"`
+	MagmaConsolidation LLMClientConfig `yaml:"magmaConsolidation" json:"magmaConsolidation"`
+}
+
+// PromptOverridesConfig customizes built-in prompt blocks.
+//
+// Empty fields use the hard-coded defaults from internal/agent/prompts.
+type PromptOverridesConfig struct {
+	BaseSystem                 string `yaml:"baseSystem" json:"baseSystem"`
+	MemoryInstructions         string `yaml:"memoryInstructions" json:"memoryInstructions"`
+	ToolDiscoveryInstructions  string `yaml:"toolDiscoveryInstructions" json:"toolDiscoveryInstructions"`
+	SkillDiscoveryInstructions string `yaml:"skillDiscoveryInstructions" json:"skillDiscoveryInstructions"`
 }
 
 // HarnessConfig controls the optional Forge-style guarded agent loop.
@@ -363,11 +411,23 @@ type AnthropicPromptCacheConfig struct {
 
 // GoogleConfig holds Google Gemini provider settings.
 type GoogleConfig struct {
-	APIKey      string         `yaml:"apiKey" json:"apiKey"`
-	Model       string         `yaml:"model" json:"model"`
-	BaseURL     string         `yaml:"baseURL" json:"baseURL"`
-	Timeout     int            `yaml:"timeoutSeconds" json:"timeoutSeconds"`
-	ExtraParams map[string]any `yaml:"extraParams" json:"extraParams"`
+	APIKey       string                   `yaml:"apiKey" json:"apiKey"`
+	Model        string                   `yaml:"model" json:"model"`
+	BaseURL      string                   `yaml:"baseURL" json:"baseURL"`
+	Timeout      int                      `yaml:"timeoutSeconds" json:"timeoutSeconds"`
+	ContextCache GoogleContextCacheConfig `yaml:"contextCache" json:"contextCache"`
+	ExtraParams  map[string]any           `yaml:"extraParams" json:"extraParams"`
+}
+
+// GoogleContextCacheConfig controls Gemini explicit context caching.
+type GoogleContextCacheConfig struct {
+	Enabled       bool   `yaml:"enabled" json:"enabled"`
+	CachedContent string `yaml:"cachedContent" json:"cachedContent"`
+	AutoCreate    bool   `yaml:"autoCreate" json:"autoCreate"`
+	TTLSeconds    int    `yaml:"ttlSeconds" json:"ttlSeconds"`
+	CacheSystem   bool   `yaml:"cacheSystem" json:"cacheSystem"`
+	CacheTools    bool   `yaml:"cacheTools" json:"cacheTools"`
+	DisplayName   string `yaml:"displayName" json:"displayName"`
 }
 
 // SpecialistConfig describes a single specialist agent bound to a specific
@@ -384,8 +444,9 @@ type SpecialistConfig struct {
 	// for this specialist. Zero means use the global fallback.
 	SummaryContextWindowTokens int `yaml:"summaryContextWindowTokens" json:"summaryContextWindowTokens"`
 	// API, when set, overrides which API surface to use for this specialist: "completions" or "responses".
-	API         string `yaml:"api" json:"api"`
-	EnableTools bool   `yaml:"enableTools" json:"enableTools"`
+	API                string `yaml:"api" json:"api"`
+	EnableTools        bool   `yaml:"enableTools" json:"enableTools"`
+	RequestInfoEnabled *bool  `yaml:"requestInfoEnabled" json:"requestInfoEnabled"`
 	// ImageGeneration routes specialist chat requests through provider image generation.
 	ImageGeneration bool `yaml:"imageGeneration" json:"imageGeneration"`
 	// AutoDiscover overrides the global auto-discovery setting for this specialist.
@@ -411,6 +472,10 @@ type SpecialistRoute struct {
 	Name     string   `yaml:"name" json:"name"`
 	Contains []string `yaml:"contains" json:"contains"`
 	Regex    []string `yaml:"regex" json:"regex"`
+}
+
+func RequestInfoEnabled(enabled *bool) bool {
+	return enabled == nil || *enabled
 }
 
 type ClickHouseConfig struct {
@@ -479,6 +544,8 @@ type AuthConfig struct {
 	SessionTTLHours int `yaml:"sessionTTLHours" json:"sessionTTLHours"`
 	// OAuth2 provides additional configuration when Provider=="oauth2".
 	OAuth2 OAuth2Config `yaml:"oauth2" json:"oauth2"`
+	// OIDC provides additional configuration when Provider=="oidc".
+	OIDC OIDCConfig `yaml:"oidc" json:"oidc"`
 }
 
 // OAuth2Config contains the endpoints and mapping hints required for plain OAuth2 providers.
@@ -497,6 +564,26 @@ type OAuth2Config struct {
 	SubjectField        string   `yaml:"subjectField" json:"subjectField"`
 	RolesField          string   `yaml:"rolesField" json:"rolesField"`
 	DisablePKCE         bool     `yaml:"disablePKCE" json:"disablePKCE"` // Disable PKCE for providers that don't support it well
+}
+
+// OIDCConfig contains optional provider-specific controls for OIDC providers.
+type OIDCConfig struct {
+	Scopes              []string        `yaml:"scopes" json:"scopes"`
+	ResponseMode        string          `yaml:"responseMode" json:"responseMode"`
+	TokenAuthStyle      string          `yaml:"tokenAuthStyle" json:"tokenAuthStyle"`
+	ProviderName        string          `yaml:"providerName" json:"providerName"`
+	LogoutURL           string          `yaml:"logoutURL" json:"logoutURL"`
+	LogoutRedirectParam string          `yaml:"logoutRedirectParam" json:"logoutRedirectParam"`
+	Apple               AppleOIDCConfig `yaml:"apple" json:"apple"`
+}
+
+// AppleOIDCConfig configures Sign in with Apple client-secret JWT generation.
+type AppleOIDCConfig struct {
+	TeamID               string `yaml:"teamID" json:"teamID"`
+	KeyID                string `yaml:"keyID" json:"keyID"`
+	PrivateKeyPath       string `yaml:"privateKeyPath" json:"privateKeyPath"`
+	PrivateKey           string `yaml:"privateKey" json:"privateKey"`
+	ClientSecretTTLHours int    `yaml:"clientSecretTTLHours" json:"clientSecretTTLHours"`
 }
 
 // DBConfig contains sub-config for each pluggable database backend.

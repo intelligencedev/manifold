@@ -350,6 +350,9 @@ func (s *Service) ingestMagma(ctx context.Context, record Record) error {
 	if s == nil || s.magmaSink == nil {
 		return nil
 	}
+	if !record.Embed {
+		return nil
+	}
 	_, err := s.magmaSink.IngestTransitRecord(ctx, record)
 	return err
 }

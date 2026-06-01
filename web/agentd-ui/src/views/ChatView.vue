@@ -31,13 +31,19 @@
               <button
                 type="button"
                 class="rounded-4 border px-2 py-1 text-xs font-semibold transition"
-                :class="selectedSessionIds.length > 0
-                  ? 'border-danger/60 bg-danger/10 text-danger hover:bg-danger/20'
-                  : 'border-border/40 text-faint-foreground cursor-not-allowed opacity-50'"
+                :class="
+                  selectedSessionIds.length > 0
+                    ? 'border-danger/60 bg-danger/10 text-danger hover:bg-danger/20'
+                    : 'border-border/40 text-faint-foreground cursor-not-allowed opacity-50'
+                "
                 :disabled="selectedSessionIds.length === 0"
                 @click="openBulkDeleteDialog"
               >
-                Delete{{ selectedSessionIds.length > 0 ? ` (${selectedSessionIds.length})` : '' }}
+                Delete{{
+                  selectedSessionIds.length > 0
+                    ? ` (${selectedSessionIds.length})`
+                    : ""
+                }}
               </button>
               <button
                 type="button"
@@ -79,11 +85,17 @@
                   ? 'border-accent/70 bg-surface-muted/60'
                   : 'hover:border-border hover:bg-surface-muted/40'
             "
-            @click="sessionSelectMode ? toggleSessionSelection(session.id) : selectSession(session.id)"
+            @click="
+              sessionSelectMode
+                ? toggleSessionSelection(session.id)
+                : selectSession(session.id)
+            "
           >
             <div class="flex items-center justify-between gap-2">
               <template v-if="sessionSelectMode">
-                <p class="truncate font-medium text-foreground flex-1">{{ session.name }}</p>
+                <p class="truncate font-medium text-foreground flex-1">
+                  {{ session.name }}
+                </p>
               </template>
               <template v-else-if="renamingSessionId === session.id">
                 <input
@@ -211,11 +223,12 @@
                 </svg>
               </button>
             </span>
-            <div class="flex items-center gap-3" aria-label="Conversation settings">
+            <div
+              class="flex items-center gap-3"
+              aria-label="Conversation settings"
+            >
               <div class="flex items-center gap-1.5">
-                <span
-                  class="text-[11px] font-medium text-subtle-foreground"
-                >
+                <span class="text-[11px] font-medium text-subtle-foreground">
                   Project
                 </span>
                 <DropdownSelect
@@ -228,63 +241,39 @@
                 />
               </div>
               <span class="h-4 w-px bg-border/60" aria-hidden="true"></span>
-              <div
-                class="flex items-center gap-3"
-                aria-label="Memory controls"
-              >
+              <div class="flex items-center gap-3" aria-label="Memory controls">
                 <label
                   class="inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium leading-none text-subtle-foreground"
-                  title="Enable evolving memory and ReMem for this conversation"
+                  title="Enable unified evolving, belief, and MAGMA memory for this conversation"
                 >
                   <input
                     type="checkbox"
                     class="sr-only"
-                    :checked="evolvingMemoryEnabled"
-                    :disabled="!activeSessionId || isStreaming || activeMemorySettingsSaving"
-                    aria-label="Evolving memory"
-                    @change="setSessionMemorySetting('evolving', $event)"
+                    :checked="memoryEnabled"
+                    :disabled="
+                      !activeSessionId ||
+                      isStreaming ||
+                      activeMemorySettingsSaving
+                    "
+                    aria-label="Memory"
+                    @change="setSessionMemorySetting($event)"
                   />
                   <span
                     class="relative h-4 w-7 rounded-full border transition-colors"
                     :class="
-                      evolvingMemoryEnabled
+                      memoryEnabled
                         ? 'border-accent bg-accent'
                         : 'border-border bg-surface'
                     "
                   >
                     <span
                       class="absolute top-0.5 h-2.5 w-2.5 rounded-full bg-background shadow-1 transition-transform"
-                      :class="evolvingMemoryEnabled ? 'translate-x-3.5' : 'translate-x-0.5'"
+                      :class="
+                        memoryEnabled ? 'translate-x-3.5' : 'translate-x-0.5'
+                      "
                     ></span>
                   </span>
                   <span>Memory</span>
-                </label>
-                <label
-                  class="inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium leading-none text-subtle-foreground"
-                  title="Enable belief memory for this conversation"
-                >
-                  <input
-                    type="checkbox"
-                    class="sr-only"
-                    :checked="beliefMemoryEnabled"
-                    :disabled="!activeSessionId || isStreaming || activeMemorySettingsSaving"
-                    aria-label="Belief memory"
-                    @change="setSessionMemorySetting('belief', $event)"
-                  />
-                  <span
-                    class="relative h-4 w-7 rounded-full border transition-colors"
-                    :class="
-                      beliefMemoryEnabled
-                        ? 'border-accent bg-accent'
-                        : 'border-border bg-surface'
-                    "
-                  >
-                    <span
-                      class="absolute top-0.5 h-2.5 w-2.5 rounded-full bg-background shadow-1 transition-transform"
-                      :class="beliefMemoryEnabled ? 'translate-x-3.5' : 'translate-x-0.5'"
-                    ></span>
-                  </span>
-                  <span>Beliefs</span>
                 </label>
               </div>
               <!-- Render mode dropdown retained for future use.
@@ -307,9 +296,11 @@
           </div>
         </header>
 
+        <TokenGaugeRail variant="session" :metrics="sessionContextMetrics" />
+
         <div
           ref="messagesPane"
-          class="flex-1 min-h-0 space-y-5 overflow-y-auto overflow-x-hidden overscroll-contain px-8 py-4 pb-3 xl:px-12"
+          class="flex-1 min-h-0 space-y-5 overflow-y-auto overflow-x-hidden overscroll-contain py-4 pb-3 pl-24 pr-8 xl:pl-28 xl:pr-12"
           @scroll="handleMessagesScroll"
           @click="handleMarkdownClick"
         >
@@ -387,12 +378,22 @@
               >
                 <!-- Parallel specialist activity (sub-agents invoked concurrently) -->
                 <div
-                  v-if="visibleParticipantActivityItemsForMessage(message.id).length > 0"
+                  v-if="
+                    visibleParticipantActivityItemsForMessage(message.id)
+                      .length > 0
+                  "
                   class="parallel-activity-grid"
-                  :class="visibleParticipantActivityItemsForMessage(message.id).length <= 2 ? 'parallel-activity-grid--row' : 'parallel-activity-grid--col'"
+                  :class="
+                    visibleParticipantActivityItemsForMessage(message.id)
+                      .length <= 2
+                      ? 'parallel-activity-grid--row'
+                      : 'parallel-activity-grid--col'
+                  "
                 >
                   <div
-                    v-for="thread in visibleParticipantActivityItemsForMessage(message.id)"
+                    v-for="thread in visibleParticipantActivityItemsForMessage(
+                      message.id,
+                    )"
                     :key="thread.id"
                     class="parallel-activity-card"
                   >
@@ -405,9 +406,15 @@
                       >
                         <span
                           class="direct-activity-pill-dot"
-                          :class="thread.status === 'running' ? 'direct-activity-pill-dot--live' : ''"
+                          :class="
+                            thread.status === 'running'
+                              ? 'direct-activity-pill-dot--live'
+                              : ''
+                          "
                         ></span>
-                        <span class="direct-activity-pill-label">{{ thread.name }}</span>
+                        <span class="direct-activity-pill-label">{{
+                          thread.name
+                        }}</span>
                         <span class="direct-activity-pill-chevron">›</span>
                       </button>
                     </Transition>
@@ -423,50 +430,77 @@
                         class="direct-activity"
                       >
                         <div class="direct-activity-header">
-                          <span class="direct-activity-label">{{ thread.name }}</span>
+                          <span class="direct-activity-label">{{
+                            thread.name
+                          }}</span>
                           <button
                             v-if="thread.status !== 'running'"
                             type="button"
                             class="direct-activity-collapse-btn"
                             @click="collapseActivity(thread.id)"
                             title="Collapse"
-                          >collapse ›</button>
-                          <span v-else class="direct-activity-streaming-dot"></span>
+                          >
+                            collapse ›
+                          </button>
+                          <span
+                            v-else
+                            class="direct-activity-streaming-dot"
+                          ></span>
                         </div>
                         <div
                           class="direct-activity-body"
-                          :ref="(el) => registerThreadBody(el as Element | null, thread.id)"
+                          :ref="
+                            (el) =>
+                              registerThreadBody(
+                                el as Element | null,
+                                thread.id,
+                              )
+                          "
                           @scroll="handleThreadBodyScroll($event, thread.id)"
                         >
-                        <div
-                          v-if="thread.toolEntries.length"
-                          class="direct-activity-row"
-                        >
-                          <span class="direct-activity-label">Tool</span>
-                          <span class="direct-activity-value">
-                            {{ thread.toolEntries[thread.toolEntries.length - 1]?.title || '' }}
-                          </span>
-                        </div>
-                        <div
-                          v-if="thread.thoughtSummaries.length"
-                          class="direct-activity-thought"
-                        >
-                          <span class="direct-activity-label">Thought summary</span>
                           <div
-                            class="chat-markdown direct-activity-summary"
-                            v-html="renderMarkdownOrHtml(thread.thoughtSummaries[thread.thoughtSummaries.length - 1] || '')"
-                          ></div>
-                        </div>
-                        <div
-                          v-if="thread.response && thread.status !== 'running'"
-                          class="direct-activity-thought"
-                        >
-                          <span class="direct-activity-label">Response</span>
+                            v-if="thread.toolEntries.length"
+                            class="direct-activity-row"
+                          >
+                            <span class="direct-activity-label">Tool</span>
+                            <span class="direct-activity-value">
+                              {{
+                                thread.toolEntries[
+                                  thread.toolEntries.length - 1
+                                ]?.title || ""
+                              }}
+                            </span>
+                          </div>
                           <div
-                            class="chat-markdown direct-activity-summary"
-                            v-html="renderMarkdownOrHtml(thread.response)"
-                          ></div>
-                        </div>
+                            v-if="thread.thoughtSummaries.length"
+                            class="direct-activity-thought"
+                          >
+                            <span class="direct-activity-label"
+                              >Thought summary</span
+                            >
+                            <div
+                              class="chat-markdown direct-activity-summary"
+                              v-html="
+                                renderMarkdownOrHtml(
+                                  thread.thoughtSummaries[
+                                    thread.thoughtSummaries.length - 1
+                                  ] || '',
+                                )
+                              "
+                            ></div>
+                          </div>
+                          <div
+                            v-if="
+                              thread.response && thread.status !== 'running'
+                            "
+                            class="direct-activity-thought"
+                          >
+                            <span class="direct-activity-label">Response</span>
+                            <div
+                              class="chat-markdown direct-activity-summary"
+                              v-html="renderMarkdownOrHtml(thread.response)"
+                            ></div>
+                          </div>
                         </div>
                       </div>
                     </Transition>
@@ -479,16 +513,18 @@
                 >
                   <!-- Collapsed pill: click to expand -->
                   <Transition name="activity-pill">
-                  <button
-                    v-if="isActivityCollapsed(message.id)"
-                    type="button"
-                    class="direct-activity-pill"
-                    @click="expandActivity(message.id)"
-                  >
-                    <span class="direct-activity-pill-dot"></span>
-                    <span class="direct-activity-pill-label">{{ agentNameFor(message) }} activity</span>
-                    <span class="direct-activity-pill-chevron">›</span>
-                  </button>
+                    <button
+                      v-if="isActivityCollapsed(message.id)"
+                      type="button"
+                      class="direct-activity-pill"
+                      @click="expandActivity(message.id)"
+                    >
+                      <span class="direct-activity-pill-dot"></span>
+                      <span class="direct-activity-pill-label"
+                        >{{ agentNameFor(message) }} activity</span
+                      >
+                      <span class="direct-activity-pill-chevron">›</span>
+                    </button>
                   </Transition>
 
                   <!-- Expanded panel (drawer animation) -->
@@ -499,44 +535,135 @@
                     @before-leave="drawerBeforeLeave"
                     @leave="drawerLeave"
                   >
-                  <div
-                    v-if="!isActivityCollapsed(message.id)"
-                    class="direct-activity"
-                  >
-                    <!-- Header row: name + collapse button -->
-                    <div class="direct-activity-header">
-                      <span class="direct-activity-label">{{ agentNameFor(message) }} activity</span>
-                      <button
-                        v-if="!message.streaming"
-                        type="button"
-                        class="direct-activity-collapse-btn"
-                        @click="collapseActivity(message.id)"
-                        title="Collapse"
-                      >collapse ›</button>
-                      <span v-else class="direct-activity-streaming-dot"></span>
-                    </div>
-                    <div class="direct-activity-body">
                     <div
-                      v-if="message.activityToolTitle"
-                      class="direct-activity-row"
+                      v-if="!isActivityCollapsed(message.id)"
+                      class="direct-activity"
                     >
-                      <span class="direct-activity-label">Tool</span>
-                      <span class="direct-activity-value">
-                        {{ message.activityToolTitle }}
+                      <!-- Header row: name + collapse button -->
+                      <div class="direct-activity-header">
+                        <span class="direct-activity-label"
+                          >{{ agentNameFor(message) }} activity</span
+                        >
+                        <button
+                          v-if="!message.streaming"
+                          type="button"
+                          class="direct-activity-collapse-btn"
+                          @click="collapseActivity(message.id)"
+                          title="Collapse"
+                        >
+                          collapse ›
+                        </button>
+                        <span
+                          v-else
+                          class="direct-activity-streaming-dot"
+                        ></span>
+                      </div>
+                      <div class="direct-activity-body">
+                        <div
+                          v-if="message.activityToolTitle"
+                          class="direct-activity-row"
+                        >
+                          <span class="direct-activity-label">Tool</span>
+                          <span class="direct-activity-value">
+                            {{ message.activityToolTitle }}
+                          </span>
+                        </div>
+                        <div
+                          v-if="shouldShowDirectThought(message)"
+                          class="direct-activity-thought"
+                        >
+                          <span class="direct-activity-label"
+                            >Thought summary</span
+                          >
+                          <div
+                            class="chat-markdown direct-activity-summary"
+                            v-html="
+                              renderMarkdownOrHtml(
+                                message.activityThoughtSummary || '',
+                              )
+                            "
+                          ></div>
+                        </div>
+                      </div>
+                    </div>
+                  </Transition>
+                </div>
+                <div
+                  v-if="hasMemoryContext(message)"
+                  class="direct-activity-wrapper memory-context-wrapper"
+                >
+                  <Transition name="activity-pill">
+                    <button
+                      v-if="!isMemoryContextExpanded(message.id)"
+                      type="button"
+                      class="direct-activity-pill"
+                      :aria-expanded="false"
+                      @click="expandMemoryContext(message.id)"
+                    >
+                      <span class="direct-activity-pill-dot"></span>
+                      <span class="direct-activity-pill-label">
+                        Retrieved memories
+                        <span
+                          v-if="memoryContextPillMeta(message)"
+                          class="memory-context-pill-meta"
+                        >
+                          {{ memoryContextPillMeta(message) }}
+                        </span>
                       </span>
-                    </div>
+                      <span class="direct-activity-pill-chevron">›</span>
+                    </button>
+                  </Transition>
+
+                  <Transition
+                    @before-enter="drawerBeforeEnter"
+                    @enter="drawerEnter"
+                    @after-enter="drawerAfterEnter"
+                    @before-leave="drawerBeforeLeave"
+                    @leave="drawerLeave"
+                  >
                     <div
-                      v-if="shouldShowDirectThought(message)"
-                      class="direct-activity-thought"
+                      v-if="isMemoryContextExpanded(message.id)"
+                      class="direct-activity memory-context-card"
                     >
-                      <span class="direct-activity-label">Thought summary</span>
-                      <div
-                        class="chat-markdown direct-activity-summary"
-                        v-html="renderMarkdownOrHtml(message.activityThoughtSummary || '')"
-                      ></div>
+                      <div class="direct-activity-header">
+                        <span class="direct-activity-label"
+                          >Retrieved memories</span
+                        >
+                        <button
+                          type="button"
+                          class="direct-activity-collapse-btn"
+                          :aria-expanded="true"
+                          @click="collapseMemoryContext(message.id)"
+                          title="Collapse"
+                        >
+                          collapse ›
+                        </button>
+                      </div>
+                      <div class="direct-activity-body memory-context-body">
+                        <div
+                          v-if="memoryContextPillMeta(message)"
+                          class="direct-activity-row"
+                        >
+                          <span class="direct-activity-label">Context</span>
+                          <span class="direct-activity-value">
+                            {{ memoryContextPillMeta(message) }}
+                          </span>
+                        </div>
+                        <div class="direct-activity-thought">
+                          <span class="direct-activity-label"
+                            >Prompt memory</span
+                          >
+                          <div
+                            class="chat-markdown direct-activity-summary"
+                            v-html="
+                              renderMarkdownOrHtml(
+                                message.memoryContext?.text || '',
+                              )
+                            "
+                          ></div>
+                        </div>
+                      </div>
                     </div>
-                    </div>
-                  </div>
                   </Transition>
                 </div>
                 <p v-if="message.title" class="font-semibold text-foreground">
@@ -575,7 +702,10 @@
                     </p>
 
                     <div
-                      v-if="request.choices.length && isInputRequestRespondable(request)"
+                      v-if="
+                        request.choices.length &&
+                        isInputRequestRespondable(request)
+                      "
                       class="input-request-choices"
                     >
                       <label
@@ -586,9 +716,21 @@
                         <input
                           :type="request.multiple ? 'checkbox' : 'radio'"
                           :name="inputRequestFieldName(message, request)"
-                          :checked="inputRequestChoiceSelected(message, request, choice.id)"
+                          :checked="
+                            inputRequestChoiceSelected(
+                              message,
+                              request,
+                              choice.id,
+                            )
+                          "
                           :disabled="isInputRequestSubmitting(message, request)"
-                          @change="toggleInputRequestChoice(message, request, choice.id)"
+                          @change="
+                            toggleInputRequestChoice(
+                              message,
+                              request,
+                              choice.id,
+                            )
+                          "
                         />
                         <span class="min-w-0">
                           <span class="input-request-choice-label">
@@ -605,8 +747,13 @@
                     </div>
 
                     <textarea
-                      v-if="request.allowFreeText && isInputRequestRespondable(request)"
-                      v-model="inputRequestDrafts[inputRequestKey(message, request)]"
+                      v-if="
+                        request.allowFreeText &&
+                        isInputRequestRespondable(request)
+                      "
+                      v-model="
+                        inputRequestDrafts[inputRequestKey(message, request)]
+                      "
                       class="input-request-textarea"
                       rows="3"
                       placeholder="Type your response..."
@@ -614,10 +761,16 @@
                     ></textarea>
 
                     <p
-                      v-if="inputRequestLocalError(message, request) || request.error"
+                      v-if="
+                        inputRequestLocalError(message, request) ||
+                        request.error
+                      "
                       class="input-request-error"
                     >
-                      {{ inputRequestLocalError(message, request) || request.error }}
+                      {{
+                        inputRequestLocalError(message, request) ||
+                        request.error
+                      }}
                     </p>
 
                     <div
@@ -789,9 +942,7 @@
               Select a project to run the agent. If you don't see any projects,
               contact an administrator.
             </p>
-            <div
-              class="halo-surface chat-prompt-input relative p-3"
-            >
+            <div class="halo-surface chat-prompt-input relative p-3">
               <div
                 v-if="mentionMenuOpen"
                 class="absolute bottom-full left-3 mb-2 w-72 overflow-hidden rounded-4 border border-border bg-surface ring-1 ring-border/50 z-20"
@@ -799,7 +950,7 @@
                 <div class="max-h-60 overflow-y-auto py-1">
                   <button
                     v-for="(cand, i) in mentionCandidates"
-                    :key="cand.name"
+                    :key="cand.id"
                     type="button"
                     class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs transition"
                     :class="
@@ -807,11 +958,19 @@
                         ? 'bg-surface-muted/60 text-foreground'
                         : 'text-subtle-foreground hover:bg-surface-muted/40 hover:text-foreground'
                     "
-                    @mousedown.prevent="selectMentionCandidate(cand.name)"
+                    @mousedown.prevent="selectMentionCandidate(cand)"
                   >
-                    <span class="truncate font-medium">@{{ cand.name }}</span>
+                    <span class="truncate font-medium"
+                      >@{{ cand.mentionName }}</span
+                    >
                     <span class="shrink-0 text-[10px] text-faint-foreground">
-                      {{ cand.model ? `Model ${cand.model}` : "" }}
+                      {{
+                        cand.kind === "team_orchestrator"
+                          ? "Team orchestrator"
+                          : cand.model
+                            ? `Model ${cand.model}`
+                            : ""
+                      }}
                     </span>
                   </button>
 
@@ -819,14 +978,12 @@
                     v-if="!mentionCandidates.length"
                     class="px-3 py-2 text-xs text-faint-foreground"
                   >
-                    No matching specialists
+                    No matching participants
                   </div>
                 </div>
               </div>
 
-              <div
-                class="flex items-center gap-3"
-              >
+              <div class="flex items-center gap-3">
                 <textarea
                   ref="composer"
                   v-model="draft"
@@ -836,8 +993,8 @@
                     hasPendingInputRequest
                       ? 'Answer the request above to continue.'
                       : projectSelected
-                      ? 'Message the agent...'
-                      : 'Select a project to enable the chat.'
+                        ? 'Message the agent...'
+                        : 'Select a project to enable the chat.'
                   "
                   :disabled="!projectSelected || hasPendingInputRequest"
                   @keydown="handleComposerKeydown"
@@ -870,7 +1027,11 @@
                         ? 'opacity-50 cursor-not-allowed text-foreground/40'
                         : 'text-foreground/80 hover:text-accent'
                     "
-                    @click="projectSelected && !hasPendingInputRequest ? fileInput?.click() : undefined"
+                    @click="
+                      projectSelected && !hasPendingInputRequest
+                        ? fileInput?.click()
+                        : undefined
+                    "
                   >
                     <SolarPaperclip2Bold class="h-5 w-5" />
                   </button>
@@ -890,7 +1051,12 @@
                         ? 'opacity-50 cursor-not-allowed'
                         : '',
                     ]"
-                    :disabled="isStreaming || !canUseMic || !projectSelected || hasPendingInputRequest"
+                    :disabled="
+                      isStreaming ||
+                      !canUseMic ||
+                      !projectSelected ||
+                      hasPendingInputRequest
+                    "
                     :title="
                       isRecording ? 'Stop recording' : 'Record voice prompt'
                     "
@@ -914,7 +1080,9 @@
                         ? 'opacity-50 cursor-not-allowed'
                         : '',
                     ]"
-                    :disabled="isStreaming || !projectSelected || hasPendingInputRequest"
+                    :disabled="
+                      isStreaming || !projectSelected || hasPendingInputRequest
+                    "
                     title="Generate image response"
                     aria-label="Generate image response"
                     @click="imagePrompt = !imagePrompt"
@@ -932,21 +1100,27 @@
                         : 'bg-accent text-accent-foreground hover:bg-accent/90',
                     ]"
                     :title="
-                      isStreaming && !hasPendingInputRequest && (draft.trim() || pendingAttachments.length)
+                      isStreaming &&
+                      !hasPendingInputRequest &&
+                      (draft.trim() || pendingAttachments.length)
                         ? 'Send message'
                         : isStreaming
                           ? 'Stop generating'
                           : 'Send message'
                     "
                     :aria-label="
-                      isStreaming && !hasPendingInputRequest && (draft.trim() || pendingAttachments.length)
+                      isStreaming &&
+                      !hasPendingInputRequest &&
+                      (draft.trim() || pendingAttachments.length)
                         ? 'Send message'
                         : isStreaming
                           ? 'Stop generating'
                           : 'Send message'
                     "
                     @click="
-                      isStreaming && !hasPendingInputRequest && (draft.trim() || pendingAttachments.length)
+                      isStreaming &&
+                      !hasPendingInputRequest &&
+                      (draft.trim() || pendingAttachments.length)
                         ? sendCurrentPrompt()
                         : isStreaming
                           ? stopStreaming()
@@ -1104,18 +1278,33 @@
         @click.self="closeBulkDeleteDialog"
         @keydown.esc.prevent="closeBulkDeleteDialog"
       >
-        <div class="w-full max-w-md rounded-5 bg-surface p-5 ring-1 ring-border/60">
-          <h2 id="bulk-delete-title" class="text-base font-semibold text-danger">
-            Delete {{ selectedSessionIds.length }} Conversation{{ selectedSessionIds.length === 1 ? '' : 's' }}
+        <div
+          class="w-full max-w-md rounded-5 bg-surface p-5 ring-1 ring-border/60"
+        >
+          <h2
+            id="bulk-delete-title"
+            class="text-base font-semibold text-danger"
+          >
+            Delete {{ selectedSessionIds.length }} Conversation{{
+              selectedSessionIds.length === 1 ? "" : "s"
+            }}
           </h2>
           <p class="mt-2 text-sm text-subtle-foreground">
             This permanently removes the selected
-            {{ selectedSessionIds.length === 1 ? 'conversation' : `${selectedSessionIds.length} conversations` }}
+            {{
+              selectedSessionIds.length === 1
+                ? "conversation"
+                : `${selectedSessionIds.length} conversations`
+            }}
             and all messages in them.
           </p>
           <form class="mt-4 space-y-3" @submit.prevent="confirmBulkDelete">
-            <p class="text-xs text-faint-foreground">This action cannot be undone.</p>
-            <p v-if="bulkDeleteError" class="text-xs text-danger">{{ bulkDeleteError }}</p>
+            <p class="text-xs text-faint-foreground">
+              This action cannot be undone.
+            </p>
+            <p v-if="bulkDeleteError" class="text-xs text-danger">
+              {{ bulkDeleteError }}
+            </p>
             <div class="flex items-center justify-end gap-2">
               <button
                 type="button"
@@ -1130,7 +1319,11 @@
                 class="h-9 rounded-full border border-danger/60 bg-danger/10 px-3 text-sm font-semibold text-danger transition hover:bg-danger/20 disabled:cursor-not-allowed disabled:opacity-60"
                 :disabled="bulkDeletePending"
               >
-                {{ bulkDeletePending ? 'Deleting...' : `Delete ${selectedSessionIds.length === 1 ? 'Conversation' : 'Conversations'}` }}
+                {{
+                  bulkDeletePending
+                    ? "Deleting..."
+                    : `Delete ${selectedSessionIds.length === 1 ? "Conversation" : "Conversations"}`
+                }}
               </button>
             </div>
           </form>
@@ -1172,34 +1365,36 @@
                 <ul v-else class="participant-list">
                   <li
                     v-for="participant in participantList"
-                    :key="participant.name"
+                    :key="participant.id"
                     class="participant-list-item"
                   >
-                      <button
-                        type="button"
-                        class="participant-row"
-                        :class="participantRowClasses(participant.name)"
-                        :aria-label="`Open activity for ${participant.name}`"
-                        @click="openParticipantActivity(participant.name)"
-                      >
-                        <span
-                          class="participant-dot"
-                          :class="participantDotClasses(participant.name)"
-                        ></span>
-                        <span class="participant-body">
-                          <span class="participant-name">{{ participant.name }}</span>
-                          <span class="participant-model">
-                            {{
-                              participant.model
-                                ? `${participant.model}`
-                                : "Model pending"
-                            }}
-                          </span>
+                    <button
+                      type="button"
+                      class="participant-row"
+                      :class="participantRowClasses(participant)"
+                      :aria-label="`Open activity for ${participant.name}`"
+                      @click="openParticipantActivity(participant)"
+                    >
+                      <span
+                        class="participant-dot"
+                        :class="participantDotClasses(participant)"
+                      ></span>
+                      <span class="participant-body">
+                        <span class="participant-name">{{
+                          participant.name
+                        }}</span>
+                        <span class="participant-model">
+                          {{
+                            participant.model
+                              ? `${participant.model}`
+                              : "Model pending"
+                          }}
                         </span>
-                        <span class="participant-status">
-                          {{ participantStatusLabel(participant.name) }}
-                        </span>
-                      </button>
+                      </span>
+                      <span class="participant-status">
+                        {{ participantStatusLabel(participant) }}
+                      </span>
+                    </button>
                   </li>
                 </ul>
               </div>
@@ -1248,9 +1443,7 @@
             class="activity-detail-section"
           >
             <div v-if="item.toolEntries.length">
-              <h3 class="activity-detail-section-title">
-                Tool activity
-              </h3>
+              <h3 class="activity-detail-section-title">Tool activity</h3>
               <ul class="activity-tool-list">
                 <li
                   v-for="entry in item.toolEntries"
@@ -1268,9 +1461,7 @@
               v-if="item.thoughtSummaries.length"
               class="activity-detail-subsection"
             >
-              <h3 class="activity-detail-section-title">
-                Thought summaries
-              </h3>
+              <h3 class="activity-detail-section-title">Thought summaries</h3>
               <ul class="activity-thought-list text-foreground">
                 <li
                   v-for="(summary, idx) in item.thoughtSummaries"
@@ -1285,33 +1476,28 @@
               </ul>
             </div>
 
-            <div
-              v-if="item.response"
-              class="activity-detail-subsection"
-            >
-              <h3 class="activity-detail-section-title">
-                Response stream
-              </h3>
+            <div v-if="item.response" class="activity-detail-subsection">
+              <h3 class="activity-detail-section-title">Response stream</h3>
               <div
                 class="chat-markdown activity-response"
                 v-html="renderMarkdownOrHtml(item.response)"
               ></div>
             </div>
 
-            <div
-              v-if="item.error"
-              class="activity-detail-subsection"
-            >
-              <h3 class="activity-detail-section-title">
-                Error
-              </h3>
+            <div v-if="item.error" class="activity-detail-subsection">
+              <h3 class="activity-detail-section-title">Error</h3>
               <p class="activity-error-text">
                 {{ item.error }}
               </p>
             </div>
 
             <div
-              v-if="!item.toolEntries.length && !item.thoughtSummaries.length && !item.response && !item.error"
+              v-if="
+                !item.toolEntries.length &&
+                !item.thoughtSummaries.length &&
+                !item.response &&
+                !item.error
+              "
               class="activity-detail-empty"
             >
               No activity details yet.
@@ -1351,13 +1537,15 @@ import type {
 } from "@/types/chat";
 import { useQuery } from "@tanstack/vue-query";
 import {
+  fetchAgentdSettings,
   listTeams,
   listSpecialists,
+  type AgentdSettings,
   type Specialist,
   type SpecialistTeam,
 } from "@/api/client";
 import { renderMarkdown } from "@/utils/markdown";
-import { resolveLeadingSpecialistMention } from "@/utils/chatMentions";
+import { resolveLeadingChatMention } from "@/utils/chatMentions";
 import "highlight.js/styles/github-dark-dimmed.css";
 import SolarPaperclip2Bold from "@/components/icons/SolarPaperclip2Bold.vue";
 import SolarMicrophone3Bold from "@/components/icons/SolarMicrophone3Bold.vue";
@@ -1368,10 +1556,16 @@ import SolarTrashIcon from "@/components/icons/SolarTrash.vue";
 import SolarRefreshIcon from "@/components/icons/SolarRefresh.vue";
 import SolarDownloadIcon from "@/components/icons/SolarDownload.vue";
 import Camera from "@/components/icons/Camera.vue";
+import TokenGaugeRail from "@/components/chat/TokenGaugeRail.vue";
 import DropdownSelect from "@/components/DropdownSelect.vue";
 import GlassCard from "@/components/ui/GlassCard.vue";
 import { useChatStore } from "@/stores/chat";
+import {
+  contextMetricsFromSummaryEvent,
+  localContextMetricsForMessages,
+} from "@/stores/chatHelpers";
 import { useProjectsStore } from "@/stores/projects";
+import type { ChatContextMetrics } from "@/types/chat";
 import type { DropdownOption } from "@/types/dropdown";
 
 const router = useRouter();
@@ -1381,6 +1575,12 @@ let previousBodyOverflow: string | null = null;
 
 const chat = useChatStore();
 const proj = useProjectsStore();
+const summarySettingsQuery = useQuery({
+  queryKey: ["agentd-summary-settings"],
+  queryFn: fetchAgentdSettings,
+  staleTime: 60_000,
+  retry: false,
+});
 
 type CurrentUser = { name?: string; email?: string; picture?: string };
 const currentUser = ref<CurrentUser | null>(null);
@@ -1439,7 +1639,10 @@ function projectIdForSession(sessionId: string) {
   ).trim();
 }
 
-function setSelectedProjectOverride(sessionId: string, projectId: string | null) {
+function setSelectedProjectOverride(
+  sessionId: string,
+  projectId: string | null,
+) {
   const next = { ...selectedProjectBySession.value };
   if (projectId === null) delete next[sessionId];
   else next[sessionId] = projectId;
@@ -1594,7 +1797,7 @@ const projectOptions = computed<DropdownOption[]>(() => {
   ) {
     projectEntries.unshift({
       id: lockedProjectID,
-      label: `${lockedProjectID} (missing)`,
+      label: "Temporary project",
       value: lockedProjectID,
       disabled: true,
     });
@@ -1630,7 +1833,7 @@ const teamOptions = computed<DropdownOption[]>(() => {
     .sort((a, b) =>
       a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
     );
-  return [{ id: "", label: "All specialists", value: "" }, ...teams];
+  return [{ id: "", label: "All participants", value: "" }, ...teams];
 });
 
 const selectedSpecialistBySession = ref<Record<string, string>>({});
@@ -1681,7 +1884,7 @@ const selectedTeamMembers = computed(() => {
   );
 });
 
-// --- @mention specialist picker (Slack-like) ---
+// --- @mention participant picker (Slack-like) ---
 const mentionQuery = ref("");
 const mentionTokenStart = ref<number | null>(null);
 const mentionTokenEnd = ref<number | null>(null);
@@ -1689,14 +1892,31 @@ const mentionActiveIndex = ref(0);
 
 const mentionCandidates = computed<Participant[]>(() => {
   const q = (mentionQuery.value || "").trim().toLowerCase();
-  const base = participantList.value;
+  const base = mentionParticipantList.value;
   if (!q) return base;
-  return base.filter((p) => p.name.toLowerCase().includes(q));
+  return base.filter(
+    (p) =>
+      p.name.toLowerCase().includes(q) ||
+      p.mentionName.toLowerCase().includes(q),
+  );
 });
 
 const mentionMenuOpen = computed(() => {
   if (!projectSelected.value) return false;
   return mentionTokenStart.value != null && mentionTokenEnd.value != null;
+});
+
+const chatMentionTargets = computed(() => {
+  const teamTargets = (teamsData?.value || [])
+    .map((team) => (team.name || "").trim())
+    .filter(Boolean)
+    .map((name) => ({ kind: "team" as const, name }));
+  const specialistTargets = (specialistsData?.value || [])
+    .filter((spec: Specialist) => !spec.paused)
+    .map((spec) => (spec.name || "").trim())
+    .filter(Boolean)
+    .map((name) => ({ kind: "specialist" as const, name }));
+  return [...teamTargets, ...specialistTargets];
 });
 
 function closeMentionMenu() {
@@ -1752,7 +1972,7 @@ function updateMentionState() {
   }
 }
 
-function selectMentionCandidate(name: string) {
+function selectMentionCandidate(participant: Participant) {
   const start = mentionTokenStart.value;
   const end = mentionTokenEnd.value;
   if (start == null || end == null) return;
@@ -1760,9 +1980,14 @@ function selectMentionCandidate(name: string) {
   const value = draft.value || "";
   const before = value.slice(0, start);
   const after = value.slice(end);
-  const insert = `@${name} `;
+  const insert = `@${participant.mentionName} `;
 
-  selectedSpecialist.value = name.trim() || "orchestrator";
+  if (participant.kind === "team_orchestrator") {
+    selectedTeam.value = participant.teamName || participant.mentionName;
+    selectedSpecialist.value = "orchestrator";
+  } else {
+    selectedSpecialist.value = participant.routeName || participant.name;
+  }
 
   draft.value = `${before}${insert}${after}`;
   closeMentionMenu();
@@ -1785,6 +2010,11 @@ watch([selectedTeam, teamsData], ([teamName]) => {
   }
 });
 
+watch(selectedTeam, () => {
+  selectedSpecialist.value = "orchestrator";
+  closeParticipantActivity();
+});
+
 watch([selectedTeam, selectedSpecialist, selectedTeamMembers], () => {
   if (!selectedTeam.value) return;
   const selected = (selectedSpecialist.value || "").trim();
@@ -1793,11 +2023,8 @@ watch([selectedTeam, selectedSpecialist, selectedTeamMembers], () => {
     selectedSpecialist.value = "orchestrator";
   }
 });
-const projectSelected = computed(() => {
-  const projectID = selectedProjectId.value;
-  return Boolean(projectID && projects.value.some((p) => p.id === projectID));
-});
-const requiresProjectSelection = computed(() => !projectSelected.value);
+const projectSelected = computed(() => Boolean(activeSessionId.value));
+const requiresProjectSelection = computed(() => false);
 
 function httpStatus(error: unknown): number | null {
   if (axios.isAxiosError(error)) {
@@ -1913,6 +2140,95 @@ function renderMarkdownOrHtml(content: string) {
 const activeSession = computed(() => chat.activeSession);
 const activeMessages = computed(() => chat.activeMessages);
 const chatMessages = computed(() => chat.chatMessages);
+const activeSummaryEvent = computed(() => chat.activeSummaryEvent);
+const configuredSummaryBudget = computed(() =>
+  summaryBudgetFromAgentdSettings(summarySettingsQuery.data.value),
+);
+const sessionContextMetrics = computed(() => {
+  const latestMetrics = findLast(activeMessages.value, (message) =>
+    Boolean(message.contextMetrics),
+  )?.contextMetrics;
+  const streamingMetrics = findLast(activeMessages.value, (message) =>
+    Boolean(message.streaming && message.contextMetrics),
+  )?.contextMetrics;
+  if (streamingMetrics) return streamingMetrics;
+  const serverMetrics = findLast(
+    activeMessages.value,
+    (message) =>
+      !!message.contextMetrics &&
+      message.contextMetrics.phase !== "client_estimate",
+  )?.contextMetrics;
+  if (latestMetrics?.phase === "client_estimate") {
+    return withKnownContextBudget(latestMetrics, serverMetrics);
+  }
+  if (serverMetrics) return serverMetrics;
+  if (activeSummaryEvent.value) {
+    const summaryMetrics = contextMetricsFromSummaryEvent(
+      activeSummaryEvent.value,
+      configuredSummaryBudget.value ?? undefined,
+    );
+    if (summaryMetrics) return summaryMetrics;
+  }
+  return localContextMetricsForMessages(
+    activeMessages.value,
+    configuredSummaryBudget.value ?? undefined,
+  );
+});
+
+function summaryBudgetFromAgentdSettings(
+  settings?: AgentdSettings,
+): Pick<
+  ChatContextMetrics,
+  "contextWindow" | "reserveTokens" | "summaryThreshold"
+> | null {
+  if (!settings) return null;
+  const contextWindow = positiveMetricValue(
+    settings.summaryContextWindowTokens,
+  );
+  const reserveTokens = positiveMetricValue(
+    settings.summaryReserveBufferTokens,
+  );
+  const summaryThreshold =
+    positiveMetricValue(settings.summaryTokenBudget) ??
+    (contextWindow && reserveTokens
+      ? summaryThresholdForBudget(contextWindow, reserveTokens)
+      : null);
+  if (!contextWindow || !summaryThreshold) return null;
+  return {
+    contextWindow,
+    reserveTokens:
+      reserveTokens ?? Math.max(contextWindow - summaryThreshold, 0),
+    summaryThreshold,
+  };
+}
+
+function positiveMetricValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : null;
+}
+
+function summaryThresholdForBudget(
+  contextWindow: number,
+  reserveTokens: number,
+): number {
+  const budget = contextWindow - reserveTokens;
+  return budget > 0 ? budget : Math.floor(contextWindow / 2);
+}
+
+function withKnownContextBudget(
+  metrics: ChatContextMetrics,
+  budgetSource?: ChatContextMetrics,
+): ChatContextMetrics {
+  if (!budgetSource) return metrics;
+  return {
+    ...metrics,
+    contextWindow: budgetSource.contextWindow,
+    summaryThreshold: budgetSource.summaryThreshold,
+    reserveTokens: budgetSource.reserveTokens,
+    willSummarize: metrics.inputTokens >= budgetSource.summaryThreshold,
+  };
+}
 const toolMessages = computed(() => chat.toolMessages);
 const activeThoughtSummaries = computed(() => chat.activeThoughtSummaries);
 const memorySettingsSavingBySession = ref<Record<string, boolean>>({});
@@ -1920,11 +2236,13 @@ const activeMemorySettingsSaving = computed(() => {
   const sessionId = activeSessionId.value;
   return Boolean(sessionId && memorySettingsSavingBySession.value[sessionId]);
 });
-const evolvingMemoryEnabled = computed(
-  () => activeSession.value?.evolvingMemoryEnabled ?? true,
-);
-const beliefMemoryEnabled = computed(
-  () => activeSession.value?.beliefMemoryEnabled ?? true,
+const memoryEnabled = computed(
+  () =>
+    activeSession.value?.memoryEnabled ??
+    Boolean(
+      activeSession.value?.evolvingMemoryEnabled &&
+      activeSession.value?.beliefMemoryEnabled,
+    ),
 );
 const hasPendingInputRequest = computed(() =>
   activeMessages.value.some((message) =>
@@ -1934,7 +2252,6 @@ const hasPendingInputRequest = computed(() =>
   ),
 );
 const toolActivityMsById = ref<Record<string, number>>({});
-const activeSummaryEvent = computed(() => chat.activeSummaryEvent);
 const sessionAgentDefaults = computed(() =>
   parseAgentModelLabel(activeSession.value?.model || ""),
 );
@@ -2062,8 +2379,13 @@ type SpecialistActivityItem = {
   isOrchestrator: boolean;
 };
 type Participant = {
+  id: string;
   name: string;
   model: string;
+  kind: "specialist" | "team_orchestrator";
+  routeName: string;
+  mentionName: string;
+  teamName?: string;
 };
 
 const lastAssistant = computed(() =>
@@ -2113,7 +2435,8 @@ function activityDescriptionForThread(thread: AgentThread) {
   if (latestEntry?.type === "tool") {
     return latestEntry.title ? `Tool: ${latestEntry.title}` : "Using a tool";
   }
-  const latestThought = thread.thoughtSummaries[thread.thoughtSummaries.length - 1];
+  const latestThought =
+    thread.thoughtSummaries[thread.thoughtSummaries.length - 1];
   if (latestThought) return snippet(latestThought, 96);
   if (thread.content) return snippet(thread.content, 96);
   if (thread.prompt) return snippet(thread.prompt, 96);
@@ -2152,6 +2475,7 @@ function activityItemFromThread(thread: AgentThread): SpecialistActivityItem {
 
 function orchestratorActivityItem(): SpecialistActivityItem {
   const { agentName, agentModel } = resolveAgentContext();
+  const teamName = selectedTeamConfig.value?.name?.trim() || undefined;
   const assistant = lastAssistant.value;
   const status: ActivityStatus = assistant?.error
     ? "error"
@@ -2160,10 +2484,12 @@ function orchestratorActivityItem(): SpecialistActivityItem {
       : assistant?.content
         ? "done"
         : "idle";
-  const latestThought = activeThoughtSummaries.value[activeThoughtSummaries.value.length - 1];
+  const latestThought =
+    activeThoughtSummaries.value[activeThoughtSummaries.value.length - 1];
   return {
     id: "orchestrator",
     name: agentName || "orchestrator",
+    team: teamName,
     model: agentModel || "",
     status,
     statusLabel: activityStateLabel(status),
@@ -2181,7 +2507,9 @@ function orchestratorActivityItem(): SpecialistActivityItem {
     error: assistant?.error || "",
     startedAt: assistant?.createdAt || new Date().toISOString(),
     finishedAt: status === "done" ? assistant?.createdAt : undefined,
-    updatedAt: assistant ? safeTimestampMs(assistant.createdAt) || Date.now() : Date.now(),
+    updatedAt: assistant
+      ? safeTimestampMs(assistant.createdAt) || Date.now()
+      : Date.now(),
     depth: 0,
     isOrchestrator: true,
   };
@@ -2204,7 +2532,8 @@ function runActivityItemsForMessage(messageId: string) {
   const shouldShowOrchestrator =
     isLastAssistantMessage &&
     (activeThoughtSummaries.value.length > 0 ||
-      (isStreaming.value && items.length === 0));
+      (isStreaming.value && items.length === 0) ||
+      (Boolean(selectedTeamConfig.value) && Boolean(lastAssistant.value)));
   if (shouldShowOrchestrator) items.unshift(orchestratorActivityItem());
 
   return sortActivityItems(items);
@@ -2232,7 +2561,8 @@ const runActivityCounts = computed(() => {
 
 const runActivityState = computed<ActivityStatus>(() => {
   if (runActivityCounts.value.error > 0) return "error";
-  if (runActivityCounts.value.running > 0 || isStreaming.value) return "running";
+  if (runActivityCounts.value.running > 0 || isStreaming.value)
+    return "running";
   if (runActivityCounts.value.done > 0) return "done";
   return "idle";
 });
@@ -2247,15 +2577,19 @@ const runActivityTitle = computed(() => {
   if (runActivityCounts.value.running > 0) {
     return `${runActivityCounts.value.running} specialist${runActivityCounts.value.running === 1 ? "" : "s"} working`;
   }
-  if (runActivityCounts.value.error > 0) return "Specialist work needs attention";
+  if (runActivityCounts.value.error > 0)
+    return "Specialist work needs attention";
   return `${count} specialist${count === 1 ? "" : "s"} complete`;
 });
 
 const runActivityDetail = computed(() => {
   const parts = [];
-  if (runActivityCounts.value.done) parts.push(`${runActivityCounts.value.done} complete`);
-  if (runActivityCounts.value.running) parts.push(`${runActivityCounts.value.running} running`);
-  if (runActivityCounts.value.error) parts.push(`${runActivityCounts.value.error} error`);
+  if (runActivityCounts.value.done)
+    parts.push(`${runActivityCounts.value.done} complete`);
+  if (runActivityCounts.value.running)
+    parts.push(`${runActivityCounts.value.running} running`);
+  if (runActivityCounts.value.error)
+    parts.push(`${runActivityCounts.value.error} error`);
   return parts.length ? parts.join(" / ") : "Synthesizing output";
 });
 
@@ -2280,7 +2614,9 @@ const runActivityPillClasses = computed(() => ({
 const selectedActivityItem = computed(() => {
   const selected = selectedActivityId.value;
   return (
-    visibleParticipantActivityItems.value.find((item) => item.id === selected) ||
+    visibleParticipantActivityItems.value.find(
+      (item) => item.id === selected,
+    ) ||
     visibleParticipantActivityItems.value[0] ||
     null
   );
@@ -2301,11 +2637,43 @@ function shouldShowDirectThought(message: ChatMessage) {
   return Boolean(message.activityThoughtSummary);
 }
 
+function hasMemoryContext(message: ChatMessage) {
+  return Boolean(message.memoryContext?.text?.trim());
+}
+
+function returnedMemoryLaneCount(message: ChatMessage) {
+  const lanes = message.memoryContext?.lanes;
+  if (!lanes) return 0;
+  return Object.values(lanes).filter(
+    (lane) => lane.returned || (lane.items ?? 0) > 0,
+  ).length;
+}
+
+function memoryContextPillMeta(message: ChatMessage) {
+  const context = message.memoryContext;
+  if (!context) return "";
+  const parts: string[] = [];
+  const laneCount = returnedMemoryLaneCount(message);
+  if (laneCount > 0) {
+    parts.push(`${laneCount} ${laneCount === 1 ? "lane" : "lanes"}`);
+  }
+  if (context.tokenEstimate && context.tokenEstimate > 0) {
+    parts.push(`${context.tokenEstimate.toLocaleString()} tokens`);
+  }
+  if (context.truncated) {
+    parts.push("truncated");
+  }
+  return parts.join(" · ");
+}
+
 function inputRequestKey(message: ChatMessage, request: ChatInputRequest) {
   return `${message.id}:${request.id}`;
 }
 
-function inputRequestFieldName(message: ChatMessage, request: ChatInputRequest) {
+function inputRequestFieldName(
+  message: ChatMessage,
+  request: ChatInputRequest,
+) {
   return `input-request-${inputRequestKey(message, request)}`;
 }
 
@@ -2381,7 +2749,9 @@ function isInputRequestSubmitting(
   message: ChatMessage,
   request: ChatInputRequest,
 ) {
-  return Boolean(inputRequestSubmitting.value[inputRequestKey(message, request)]);
+  return Boolean(
+    inputRequestSubmitting.value[inputRequestKey(message, request)],
+  );
 }
 
 function inputRequestLocalError(
@@ -2406,7 +2776,9 @@ function canSubmitInputRequest(
 
 function inputRequestAnswerSummary(request: ChatInputRequest) {
   const labels = (request.choiceIds || [])
-    .map((id) => request.choices.find((choice) => choice.id === id)?.label || id)
+    .map(
+      (id) => request.choices.find((choice) => choice.id === id)?.label || id,
+    )
     .filter(Boolean);
   const parts = [...labels];
   if (request.answer) parts.push(request.answer);
@@ -2471,36 +2843,55 @@ function expandActivity(id: string) {
   collapsedActivityIds.value = next;
 }
 
+const expandedMemoryContextIds = ref<Set<string>>(new Set());
+
+function isMemoryContextExpanded(id: string): boolean {
+  return expandedMemoryContextIds.value.has(id);
+}
+
+function collapseMemoryContext(id: string) {
+  const next = new Set(expandedMemoryContextIds.value);
+  next.delete(id);
+  expandedMemoryContextIds.value = next;
+}
+
+function expandMemoryContext(id: string) {
+  expandedMemoryContextIds.value = new Set([
+    ...expandedMemoryContextIds.value,
+    id,
+  ]);
+}
+
 // Drawer JS transition hooks
 function drawerBeforeEnter(el: Element) {
   const e = el as HTMLElement;
-  e.style.height = '0';
-  e.style.overflow = 'hidden';
+  e.style.height = "0";
+  e.style.overflow = "hidden";
 }
 function drawerEnter(el: Element, done: () => void) {
   const e = el as HTMLElement;
   const h = e.scrollHeight;
-  e.style.transition = 'height 0.28s cubic-bezier(0.4, 0, 0.2, 1)';
-  e.style.height = h + 'px';
-  e.addEventListener('transitionend', done, { once: true });
+  e.style.transition = "height 0.28s cubic-bezier(0.4, 0, 0.2, 1)";
+  e.style.height = h + "px";
+  e.addEventListener("transitionend", done, { once: true });
 }
 function drawerAfterEnter(el: Element) {
   const e = el as HTMLElement;
-  e.style.height = 'auto';
-  e.style.overflow = '';
-  e.style.transition = '';
+  e.style.height = "auto";
+  e.style.overflow = "";
+  e.style.transition = "";
 }
 function drawerBeforeLeave(el: Element) {
   const e = el as HTMLElement;
-  e.style.height = e.scrollHeight + 'px';
-  e.style.overflow = 'hidden';
+  e.style.height = e.scrollHeight + "px";
+  e.style.overflow = "hidden";
 }
 function drawerLeave(el: Element, done: () => void) {
   const e = el as HTMLElement;
   requestAnimationFrame(() => {
-    e.style.transition = 'height 0.22s cubic-bezier(0.4, 0, 0.2, 1)';
-    e.style.height = '0';
-    e.addEventListener('transitionend', done, { once: true });
+    e.style.transition = "height 0.22s cubic-bezier(0.4, 0, 0.2, 1)";
+    e.style.height = "0";
+    e.addEventListener("transitionend", done, { once: true });
   });
 }
 
@@ -2526,9 +2917,11 @@ watch(
 
 // Auto-scroll parallel activity card bodies on content changes
 watch(
-  () => visibleParticipantActivityItems.value.map(
-    (i) => `${i.id}:${i.description}:${i.thoughtSummaries.length}:${i.response.length}`,
-  ),
+  () =>
+    visibleParticipantActivityItems.value.map(
+      (i) =>
+        `${i.id}:${i.description}:${i.thoughtSummaries.length}:${i.response.length}`,
+    ),
   () => {
     for (const item of visibleParticipantActivityItems.value) {
       if (threadBodyEls.has(item.id)) {
@@ -2536,7 +2929,7 @@ watch(
       }
     }
   },
-  { flush: 'post' },
+  { flush: "post" },
 );
 
 // Auto-collapse parallel activity cards only after all running threads finish
@@ -2561,15 +2954,31 @@ function selectActivity(id: string) {
   scrollActivityPaneToBottom({ force: true });
 }
 
-function participantActivityItems(name: string) {
-  const key = name.trim().toLowerCase();
-  return visibleParticipantActivityItems.value.filter(
-    (item) => item.name.toLowerCase() === key,
-  );
+function participantActivityKey(participant: Participant) {
+  if (participant.kind === "team_orchestrator") {
+    const teamName = (participant.teamName || participant.mentionName)
+      .trim()
+      .toLowerCase();
+    return `team:${teamName}:orchestrator`;
+  }
+  return `specialist:${participant.routeName.trim().toLowerCase()}`;
 }
 
-function participantActivityKey(name: string) {
-  return name.trim().toLowerCase();
+function activityItemKey(item: SpecialistActivityItem) {
+  const team = (item.team || "").trim();
+  const name = item.name.trim();
+  if (team && name.toLowerCase() === "orchestrator") {
+    return `team:${team.toLowerCase()}:orchestrator`;
+  }
+  if (item.isOrchestrator && team) {
+    return `team:${team.toLowerCase()}:orchestrator`;
+  }
+  return `specialist:${name.toLowerCase()}`;
+}
+
+function participantActivityItems(participant: Participant) {
+  const key = participantActivityKey(participant);
+  return runActivityItems.value.filter((item) => activityItemKey(item) === key);
 }
 
 const selectedParticipantActivity = computed(() => {
@@ -2577,18 +2986,18 @@ const selectedParticipantActivity = computed(() => {
   if (!key) return null;
   return (
     participantList.value.find(
-      (participant) => participantActivityKey(participant.name) === key,
+      (participant) => participantActivityKey(participant) === key,
     ) || null
   );
 });
 
 const selectedParticipantActivityItems = computed(() => {
   const participant = selectedParticipantActivity.value;
-  return participant ? participantActivityItems(participant.name) : [];
+  return participant ? participantActivityItems(participant) : [];
 });
 
-function openParticipantActivity(name: string) {
-  selectedParticipantActivityName.value = participantActivityKey(name);
+function openParticipantActivity(participant: Participant) {
+  selectedParticipantActivityName.value = participantActivityKey(participant);
   activityAutoScrollEnabled.value = true;
   activityLastScrollTop.value = 0;
   nextTick(() => {
@@ -2611,30 +3020,75 @@ function activityStatusClasses(item: SpecialistActivityItem) {
 
 function activityMonitorRowClasses(item: SpecialistActivityItem) {
   return {
-    "activity-monitor-row--selected": selectedActivityItem.value?.id === item.id,
+    "activity-monitor-row--selected":
+      selectedActivityItem.value?.id === item.id,
     "activity-monitor-row--running": item.status === "running",
     "activity-monitor-row--error": item.status === "error",
   };
 }
 
-const participantList = computed<Participant[]>(() => {
+function specialistParticipant(
+  name: string,
+  model?: string,
+): Participant | null {
+  const trimmed = (name || "").trim();
+  if (!trimmed) return null;
+  return {
+    id: `specialist:${trimmed.toLowerCase()}`,
+    name: trimmed,
+    model: (model || "").trim(),
+    kind: "specialist",
+    routeName: trimmed,
+    mentionName: trimmed,
+  };
+}
+
+function teamOrchestratorDisplayName(teamName: string) {
+  const trimmed = teamName.trim();
+  return trimmed ? `${trimmed} orchestrator` : "Team orchestrator";
+}
+
+function teamOrchestratorModel(team: SpecialistTeam) {
+  return (
+    (team.orchestrator?.model || "").trim() ||
+    sessionAgentDefaults.value.model ||
+    ""
+  );
+}
+
+function teamOrchestratorParticipant(team: SpecialistTeam): Participant | null {
+  const name = (team.name || "").trim();
+  if (!name) return null;
+  return {
+    id: `team:${name.toLowerCase()}:orchestrator`,
+    name: teamOrchestratorDisplayName(name),
+    model: teamOrchestratorModel(team),
+    kind: "team_orchestrator",
+    routeName: "orchestrator",
+    mentionName: name,
+    teamName: name,
+  };
+}
+
+function dedupeParticipants(participants: Participant[]) {
   const list: Participant[] = [];
   const seen = new Set<string>();
-  const add = (name: string, model?: string) => {
-    const trimmed = (name || "").trim();
-    if (!trimmed) return;
-    const key = trimmed.toLowerCase();
-    if (seen.has(key)) return;
-    seen.add(key);
-    list.push({ name: trimmed, model: (model || "").trim() });
+  for (const participant of participants) {
+    if (seen.has(participant.id)) continue;
+    seen.add(participant.id);
+    list.push(participant);
+  }
+  return list;
+}
+
+const participantList = computed<Participant[]>(() => {
+  const list: Participant[] = [];
+  const add = (participant: Participant | null) => {
+    if (participant) list.push(participant);
   };
   const selectedTeamValue = selectedTeamConfig.value;
   if (selectedTeamValue) {
-    const teamOrchestratorModel =
-      (selectedTeamValue.orchestrator?.model || "").trim() ||
-      sessionAgentDefaults.value.model ||
-      "";
-    add("orchestrator", teamOrchestratorModel);
+    add(teamOrchestratorParticipant(selectedTeamValue));
     const members = (selectedTeamValue.members || [])
       .map((name) => name.trim())
       .filter(Boolean)
@@ -2643,9 +3097,9 @@ const participantList = computed<Participant[]>(() => {
       if (name.toLowerCase() === "orchestrator") continue;
       const spec = specialistsByName.value.get(name.toLowerCase());
       if (spec?.paused) continue;
-      add(spec?.name || name, spec?.model || "");
+      add(specialistParticipant(spec?.name || name, spec?.model || ""));
     }
-    return list;
+    return dedupeParticipants(list);
   }
 
   const orchestratorModel =
@@ -2654,7 +3108,7 @@ const participantList = computed<Participant[]>(() => {
     "";
   const orchestratorSpec = specialistsByName.value.get("orchestrator");
   if (!orchestratorSpec?.paused) {
-    add("orchestrator", orchestratorModel);
+    add(specialistParticipant("orchestrator", orchestratorModel));
   }
   const extras = (specialistsData?.value || [])
     .filter((spec: Specialist) => !spec.paused)
@@ -2666,12 +3120,28 @@ const participantList = computed<Participant[]>(() => {
     .sort((a, b) =>
       a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
     );
-  extras.forEach((spec) => add(spec.name, spec.model));
-  return list;
+  extras.forEach((spec) => add(specialistParticipant(spec.name, spec.model)));
+  return dedupeParticipants(list);
 });
 
-function participantIsActive(name: string) {
-  const key = name.trim().toLowerCase();
+const mentionParticipantList = computed<Participant[]>(() => {
+  const participants = [...participantList.value];
+  if (!selectedTeamConfig.value) {
+    const teams = (teamsData?.value || [])
+      .map((team) => teamOrchestratorParticipant(team))
+      .filter((team): team is Participant => Boolean(team))
+      .sort((a, b) =>
+        a.mentionName.localeCompare(b.mentionName, undefined, {
+          sensitivity: "base",
+        }),
+      );
+    return dedupeParticipants([...teams, ...participants]);
+  }
+  return dedupeParticipants(participants);
+});
+
+function participantIsActive(participant: Participant) {
+  const key = participantActivityKey(participant);
 
   // Find the currently streaming assistant message to determine who is live.
   const streamingMsg = activeMessages.value.find(
@@ -2679,53 +3149,66 @@ function participantIsActive(name: string) {
   );
 
   if (streamingMsg) {
-    // Prefer the agent name embedded in the message; fall back to selectedSpecialist.
-    const liveAgent = (
-      streamingMsg.agentName ||
-      streamingMsg.agent ||
-      selectedSpecialist.value ||
-      "orchestrator"
-    ).trim().toLowerCase();
+    const liveTeam = selectedTeam.value.trim();
+    const liveAgent = (streamingMsg.agentName || streamingMsg.agent || "")
+      .trim()
+      .toLowerCase();
+    const liveKey =
+      liveTeam &&
+      (liveAgent === teamOrchestratorDisplayName(liveTeam).toLowerCase() ||
+        liveAgent === "orchestrator")
+        ? `team:${liveTeam.toLowerCase()}:orchestrator`
+        : `specialist:${(
+            liveAgent ||
+            selectedSpecialist.value ||
+            "orchestrator"
+          ).toLowerCase()}`;
 
     // During streaming, only the agent whose name matches is live.
     // Never mark orchestrator live just because runActivityCounts > 0 here —
     // that count includes the specialist itself and causes false positives.
-    return liveAgent === key;
+    return liveKey === key;
   }
 
   // No active stream: fall back to agent-thread activity counts.
-  if (key === "orchestrator") {
+  if (
+    participant.kind === "specialist" &&
+    participant.routeName.toLowerCase() === "orchestrator"
+  ) {
     return runActivityCounts.value.running > 0;
   }
   return visibleParticipantActivityItems.value.some(
-    (item) => item.status === "running" && item.name.toLowerCase() === key,
+    (item) => item.status === "running" && activityItemKey(item) === key,
   );
 }
 
-function participantStatusLabel(name: string) {
-  const key = name.trim().toLowerCase();
-  const active = participantIsActive(name);
+function participantStatusLabel(participant: Participant) {
+  const active = participantIsActive(participant);
   if (active) return "Live";
-  if (key === "orchestrator") {
+  if (
+    participant.kind === "specialist" &&
+    participant.routeName.toLowerCase() === "orchestrator"
+  ) {
     const label = runActivityStateLabel.value;
-    return (label && label.toLowerCase() !== "completed") ? label : "Idle";
+    return label && label.toLowerCase() !== "completed" ? label : "Idle";
   }
-  const item = visibleParticipantActivityItems.value.find(
-    (activity) => activity.name.toLowerCase() === key,
+  const key = participantActivityKey(participant);
+  const item = runActivityItems.value.find(
+    (activity) => activityItemKey(activity) === key,
   );
   if (!item) return "Idle";
   const lbl = item.statusLabel;
-  return (lbl && lbl.toLowerCase() !== "completed") ? lbl : "Idle";
+  return lbl && lbl.toLowerCase() !== "completed" ? lbl : "Idle";
 }
 
-function participantRowClasses(name: string) {
+function participantRowClasses(participant: Participant) {
   return {
-    "participant-row--active": participantIsActive(name),
+    "participant-row--active": participantIsActive(participant),
   };
 }
 
-function participantDotClasses(name: string) {
-  const active = participantIsActive(name);
+function participantDotClasses(participant: Participant) {
+  const active = participantIsActive(participant);
   return {
     "participant-dot--active": active,
     "participant-dot--idle": !active,
@@ -2824,8 +3307,7 @@ watch(
 );
 
 watch(
-  () =>
-    visibleParticipantActivityItems.value.map((item) => item.id).join(":"),
+  () => visibleParticipantActivityItems.value.map((item) => item.id).join(":"),
   () => {
     if (
       selectedActivityId.value &&
@@ -2835,7 +3317,8 @@ watch(
     ) {
       return;
     }
-    selectedActivityId.value = visibleParticipantActivityItems.value[0]?.id || null;
+    selectedActivityId.value =
+      visibleParticipantActivityItems.value[0]?.id || null;
   },
   { immediate: true },
 );
@@ -2931,11 +3414,6 @@ function selectSession(sessionId: string) {
 async function createSession(name = "New Chat") {
   try {
     await chat.createSession(name);
-    const session = chat.activeSession;
-    if (session) {
-      renamingSessionId.value = session.id;
-      renamingName.value = session.name;
-    }
     autoScrollEnabled.value = true;
     nextTick(() => scrollMessagesToBottom({ force: true, behavior: "auto" }));
   } catch (error) {
@@ -3137,10 +3615,7 @@ function cancelRename() {
   renamingName.value = "";
 }
 
-async function setSessionMemorySetting(
-  target: "evolving" | "belief",
-  event: Event,
-) {
+async function setSessionMemorySetting(event: Event) {
   const sessionId = activeSessionId.value;
   const checked = Boolean((event.target as HTMLInputElement | null)?.checked);
   if (!sessionId || isStreaming.value) return;
@@ -3150,8 +3625,7 @@ async function setSessionMemorySetting(
   };
   try {
     await chat.updateSessionMemorySettings(sessionId, {
-      evolvingMemoryEnabled: target === "evolving" ? checked : undefined,
-      beliefMemoryEnabled: target === "belief" ? checked : undefined,
+      memoryEnabled: checked,
     });
   } catch (error) {
     console.warn("Failed to persist chat memory settings:", error);
@@ -3194,23 +3668,31 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
         (att) => att.kind !== "image",
       );
     }
-    const mentioned = resolveLeadingSpecialistMention(
+    const mentioned = resolveLeadingChatMention(
       content,
-      participantList.value.map((p) => p.name),
+      chatMentionTargets.value,
     );
-    const mentionedSpecialist = (mentioned.specialist || "").trim();
-    if (mentionedSpecialist) {
-      selectedSpecialist.value = mentionedSpecialist;
+    let teamName = (selectedTeam.value || "").trim() || undefined;
+    let routingSpecialist =
+      (selectedSpecialist.value || "orchestrator").trim() || "orchestrator";
+    let routingTargetName = routingSpecialist;
+    if (mentioned.kind === "team" && mentioned.name) {
+      teamName = mentioned.name;
+      selectedTeam.value = teamName;
+      selectedSpecialist.value = "orchestrator";
+      routingSpecialist = "orchestrator";
+      routingTargetName = teamName;
+    } else if (mentioned.kind === "specialist" && mentioned.name) {
+      routingSpecialist = mentioned.name;
+      selectedSpecialist.value = routingSpecialist;
+      routingTargetName = routingSpecialist;
+    } else if (teamName && routingSpecialist.toLowerCase() === "orchestrator") {
+      routingTargetName = teamName;
     }
-    const routingSpecialist =
-      mentionedSpecialist ||
-      (selectedSpecialist.value || "orchestrator").trim() ||
-      "orchestrator";
     const specialist =
       routingSpecialist.toLowerCase() !== "orchestrator"
         ? routingSpecialist
         : undefined;
-    const teamName = selectedTeam.value || undefined;
     const { agentName, agentModel } = resolveAgentContext();
     await chat.sendPrompt(
       content,
@@ -3220,10 +3702,10 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
         ...options,
         specialist,
         routingSpecialist,
+        routingTargetName,
         teamName,
         projectId: projectId || undefined,
-        evolvingMemoryEnabled: evolvingMemoryEnabled.value,
-        beliefMemoryEnabled: beliefMemoryEnabled.value,
+        memoryEnabled: memoryEnabled.value,
         image: imagePrompt.value,
         imageSize: "1K",
         agentName,
@@ -3255,6 +3737,8 @@ async function regenerateAssistant(message: ChatMessage) {
       ? routingSpecialist
       : undefined;
   const teamName = selectedTeam.value || undefined;
+  const routingTargetName =
+    teamName && !specialist ? teamName : routingSpecialist;
   const { agentName, agentModel } = resolveAgentContext();
   const sessionId = activeSessionId.value;
   const projectId = selectedProjectId.value.trim();
@@ -3264,10 +3748,10 @@ async function regenerateAssistant(message: ChatMessage) {
   await chat.regenerateAssistant({
     specialist,
     routingSpecialist,
+    routingTargetName,
     teamName,
     projectId,
-    evolvingMemoryEnabled: evolvingMemoryEnabled.value,
-    beliefMemoryEnabled: beliefMemoryEnabled.value,
+    memoryEnabled: memoryEnabled.value,
     agentName,
     agentModel,
     messageId: message.id,
@@ -3277,10 +3761,14 @@ async function regenerateAssistant(message: ChatMessage) {
 function resolveAgentContext() {
   const selected = (selectedSpecialist.value || "orchestrator").trim();
   const fallback = sessionAgentDefaults.value;
-  const agentName = selected || fallback.agentName || "Agent";
+  const team = selectedTeamConfig.value;
+  const agentName =
+    team && selected.toLowerCase() === "orchestrator"
+      ? teamOrchestratorDisplayName(team.name)
+      : selected || fallback.agentName || "Agent";
   const teamModel =
-    selected.toLowerCase() === "orchestrator"
-      ? (selectedTeamConfig.value?.orchestrator?.model || "").trim()
+    team && selected.toLowerCase() === "orchestrator"
+      ? teamOrchestratorModel(team)
       : "";
   const spec = specialistsByName.value.get(agentName.toLowerCase());
   const agentModel =
@@ -3478,14 +3966,14 @@ function handleComposerKeydown(event: KeyboardEvent) {
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
       const cand = mentionCandidates.value[mentionActiveIndex.value];
-      if (cand) selectMentionCandidate(cand.name);
+      if (cand) selectMentionCandidate(cand);
       return;
     }
     if (event.key === "Tab") {
       const cand = mentionCandidates.value[mentionActiveIndex.value];
       if (cand) {
         event.preventDefault();
-        selectMentionCandidate(cand.name);
+        selectMentionCandidate(cand);
       }
       return;
     }
@@ -3552,7 +4040,11 @@ function scrollMessagesToBottom(options: ScrollToBottomOptions = {}) {
 
 function scrollActivityPaneToBottom(options: ScrollToBottomOptions = {}) {
   nextTick(() => {
-    scrollPaneToBottom(participantActivityPane.value, activityAutoScrollEnabled, options);
+    scrollPaneToBottom(
+      participantActivityPane.value,
+      activityAutoScrollEnabled,
+      options,
+    );
   });
 }
 
@@ -3560,19 +4052,26 @@ function registerThreadBody(el: Element | null, threadId: string) {
   if (el instanceof HTMLElement) {
     if (threadBodyEls.get(threadId) === el) return;
     threadBodyEls.set(threadId, el);
-    if (!threadScrollEnabled.has(threadId)) threadScrollEnabled.set(threadId, true);
-    if (!threadScrollLastTop.has(threadId)) threadScrollLastTop.set(threadId, 0);
+    if (!threadScrollEnabled.has(threadId))
+      threadScrollEnabled.set(threadId, true);
+    if (!threadScrollLastTop.has(threadId))
+      threadScrollLastTop.set(threadId, 0);
   } else {
     threadBodyEls.delete(threadId);
   }
 }
 
-function scrollThreadBodyToBottom(threadId: string, options: ScrollToBottomOptions = {}) {
+function scrollThreadBodyToBottom(
+  threadId: string,
+  options: ScrollToBottomOptions = {},
+) {
   nextTick(() => {
     const el = threadBodyEls.get(threadId);
     if (!el) return;
     const enabledRef = {
-      get value() { return threadScrollEnabled.get(threadId) ?? true; },
+      get value() {
+        return threadScrollEnabled.get(threadId) ?? true;
+      },
       set value(v: boolean) {
         threadScrollEnabled.set(threadId, v);
       },
@@ -3583,13 +4082,17 @@ function scrollThreadBodyToBottom(threadId: string, options: ScrollToBottomOptio
 
 function handleThreadBodyScroll(event: Event, threadId: string) {
   const enabledRef = {
-    get value() { return threadScrollEnabled.get(threadId) ?? true; },
+    get value() {
+      return threadScrollEnabled.get(threadId) ?? true;
+    },
     set value(v: boolean) {
       threadScrollEnabled.set(threadId, v);
     },
   };
   const lastTopRef = {
-    get value() { return threadScrollLastTop.get(threadId) ?? 0; },
+    get value() {
+      return threadScrollLastTop.get(threadId) ?? 0;
+    },
     set value(v: number) {
       threadScrollLastTop.set(threadId, v);
     },
@@ -3914,7 +4417,9 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   font-weight: 600;
   color: rgb(var(--color-subtle-foreground));
   cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
 }
 .direct-activity-pill:hover {
   border-color: rgb(var(--color-accent) / 0.5);
@@ -3932,6 +4437,11 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 }
 .direct-activity-pill-label {
   flex: 1;
+}
+.memory-context-pill-meta {
+  margin-left: 0.35rem;
+  color: rgb(var(--color-faint-foreground));
+  font-weight: 600;
 }
 .direct-activity-pill-chevron {
   font-size: 0.85rem;
@@ -3992,8 +4502,13 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 }
 
 @keyframes activityPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
 }
 
 .direct-activity-row {
@@ -4033,6 +4548,10 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   color: rgb(var(--color-foreground));
   font-size: 0.78rem;
   line-height: 1.5;
+}
+
+.memory-context-body {
+  max-height: 18rem;
 }
 
 .input-request-list {

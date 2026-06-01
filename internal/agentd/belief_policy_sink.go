@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"manifold/internal/agent/belief"
+	"manifold/internal/agent/memory/belief"
 	"manifold/internal/policy"
 	transitdomain "manifold/internal/transit"
 )

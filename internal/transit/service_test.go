@@ -101,6 +101,47 @@ func TestServiceMirrorsTransitRecordsToMagma(t *testing.T) {
 	}
 }
 
+func TestServiceSkipsMagmaMirrorWhenEmbeddingDisabled(t *testing.T) {
+	t.Parallel()
+	store := databases.NewMemoryTransitStore()
+	if err := store.Init(context.Background()); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	sink := &recordingTransitMagmaSink{}
+	service := transit.NewService(transit.ServiceConfig{
+		Store:        store,
+		MagmaSink:    sink,
+		MaxBatchSize: 10,
+	})
+	embed := false
+
+	created, err := service.CreateMemory(context.Background(), 1, 1, []transit.CreateMemoryItem{{
+		KeyName:     "objective/project/demo/objective-1/manifest",
+		Description: "Shared belief objective manifest",
+		Value:       `{"id":"objective-1","status":"active"}`,
+		Embed:       &embed,
+	}})
+	if err != nil {
+		t.Fatalf("CreateMemory() error = %v", err)
+	}
+	if len(sink.records) != 0 {
+		t.Fatalf("expected unembedded create to skip MAGMA mirror, got %#v", sink.records)
+	}
+
+	_, err = service.UpdateMemory(context.Background(), 1, 2, transit.UpdateMemoryRequest{
+		KeyName:   "objective/project/demo/objective-1/manifest",
+		Value:     `{"id":"objective-1","status":"archived"}`,
+		Embed:     &embed,
+		IfVersion: created[0].Version,
+	})
+	if err != nil {
+		t.Fatalf("UpdateMemory() error = %v", err)
+	}
+	if len(sink.records) != 0 {
+		t.Fatalf("expected unembedded update to skip MAGMA mirror, got %#v", sink.records)
+	}
+}
+
 func TestServiceCRUDAndSearch(t *testing.T) {
 	t.Parallel()
 	store := databases.NewMemoryTransitStore()

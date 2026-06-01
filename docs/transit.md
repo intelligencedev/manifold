@@ -124,7 +124,7 @@ When Transit is enabled, Manifold registers these internal tools:
 
 ## Verification
 
-After enabling Transit and restarting `agentd`, verify it in this order:
+After enabling Transit and restarting Manifold, verify it in this order:
 
 1. Confirm the server started with the updated config.
 2. Open the tools catalog and check that the `transit_*` tools are present.

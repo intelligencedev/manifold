@@ -1,10 +1,15 @@
 package agentd
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"manifold/internal/config"
 	persist "manifold/internal/persistence"
+	"manifold/internal/projects"
 )
 
 func TestHydrateChatMessages_ToolMetadata(t *testing.T) {
@@ -139,5 +144,73 @@ func TestRelatedToolMessageIDs(t *testing.T) {
 	}
 	if related[0] != "tool-1" || related[1] != "tool-2" {
 		t.Fatalf("unexpected related tool messages: %#v", related)
+	}
+}
+
+func TestDeleteChatSessionDeletesTemporaryProject(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	chatStore := newPromptHandlerChatStore()
+	projectService := projects.NewService(t.TempDir(), "")
+	project, err := projectService.CreateProjectKind(ctx, systemUserID, "Temporary Chat", projects.ProjectKindTemporary)
+	if err != nil {
+		t.Fatalf("CreateProjectKind: %v", err)
+	}
+	if _, err := chatStore.EnsureSession(ctx, nil, "sess-temp", "Chat"); err != nil {
+		t.Fatalf("EnsureSession: %v", err)
+	}
+	if _, err := chatStore.SetSessionProject(ctx, nil, "sess-temp", project.ID); err != nil {
+		t.Fatalf("SetSessionProject: %v", err)
+	}
+	a := &app{cfg: &config.Config{}, chatStore: chatStore, projectsService: projectService}
+	req := httptest.NewRequest(http.MethodDelete, "/api/chat/sessions/sess-temp", nil)
+	rr := httptest.NewRecorder()
+
+	a.chatSessionDetailHandler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("expected status 204, got %d: %s", rr.Code, rr.Body.String())
+	}
+	temporaryProjects, err := projectService.ListProjectsByKind(ctx, systemUserID, projects.ProjectKindTemporary)
+	if err != nil {
+		t.Fatalf("ListProjectsByKind: %v", err)
+	}
+	if len(temporaryProjects) != 0 {
+		t.Fatalf("expected temporary project to be deleted, got %#v", temporaryProjects)
+	}
+}
+
+func TestDeleteChatSessionPreservesUserProject(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	chatStore := newPromptHandlerChatStore()
+	projectService := projects.NewService(t.TempDir(), "")
+	project, err := projectService.CreateProject(ctx, systemUserID, "Persistent Project")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if _, err := chatStore.EnsureSession(ctx, nil, "sess-user-project", "Chat"); err != nil {
+		t.Fatalf("EnsureSession: %v", err)
+	}
+	if _, err := chatStore.SetSessionProject(ctx, nil, "sess-user-project", project.ID); err != nil {
+		t.Fatalf("SetSessionProject: %v", err)
+	}
+	a := &app{cfg: &config.Config{}, chatStore: chatStore, projectsService: projectService}
+	req := httptest.NewRequest(http.MethodDelete, "/api/chat/sessions/sess-user-project", nil)
+	rr := httptest.NewRecorder()
+
+	a.chatSessionDetailHandler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("expected status 204, got %d: %s", rr.Code, rr.Body.String())
+	}
+	userProjects, err := projectService.ListProjects(ctx, systemUserID)
+	if err != nil {
+		t.Fatalf("ListProjects: %v", err)
+	}
+	if len(userProjects) != 1 || userProjects[0].ID != project.ID {
+		t.Fatalf("expected user project to remain, got %#v", userProjects)
 	}
 }

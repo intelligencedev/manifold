@@ -12,6 +12,7 @@ import (
 
 	"manifold/internal/auth"
 	persist "manifold/internal/persistence"
+	"manifold/internal/projects"
 	"manifold/internal/workspaces"
 )
 
@@ -371,8 +372,27 @@ func (a *app) handleChatSession(
 	case http.MethodPatch:
 		a.patchChatSession(w, r, currentUser, userID, sessionID)
 	case http.MethodDelete:
+		sess, err := a.chatStore.GetSession(r.Context(), userID, sessionID)
+		if err != nil {
+			writeChatDetailStoreError(w, r, err, sessionID, "get_chat_session")
+			return
+		}
+		deleteProject, err := a.shouldDeleteTemporaryChatProject(r.Context(), chatRequestOwner(currentUser, userID), sess)
+		if err != nil {
+			log.Error().Err(err).Str("session", sessionID).Str("project_id", sess.ProjectID).Msg("check_temporary_chat_project")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
 		if err := a.chatStore.DeleteSession(r.Context(), userID, sessionID); err != nil {
 			writeChatDetailStoreError(w, r, err, sessionID, "delete_chat_session")
+			return
+		}
+		if deleteProject {
+			err = a.projectsService.DeleteProject(r.Context(), chatRequestOwner(currentUser, userID), strings.TrimSpace(sess.ProjectID))
+		}
+		if err != nil {
+			log.Error().Err(err).Str("session", sessionID).Str("project_id", sess.ProjectID).Msg("delete_temporary_chat_project")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -381,20 +401,47 @@ func (a *app) handleChatSession(
 	}
 }
 
+func (a *app) shouldDeleteTemporaryChatProject(ctx context.Context, owner int64, sess persist.ChatSession) (bool, error) {
+	projectID := strings.TrimSpace(sess.ProjectID)
+	if projectID == "" || a.projectsService == nil {
+		return false, nil
+	}
+	return a.isTemporaryProject(ctx, owner, projectID)
+}
+
+func (a *app) isTemporaryProject(ctx context.Context, owner int64, projectID string) (bool, error) {
+	temporaryProjects, err := a.projectsService.ListProjectsByKindWithUsage(ctx, owner, projects.ProjectKindTemporary, false)
+	if err != nil {
+		return false, err
+	}
+	for _, project := range temporaryProjects {
+		if project.ID == projectID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 type patchChatSessionRequest struct {
 	Name                        *string `json:"name"`
 	ProjectID                   *string `json:"projectId"`
 	LegacyProjectID             *string `json:"project_id"`
+	MemoryEnabled               *bool   `json:"memoryEnabled"`
+	LegacyMemoryEnabled         *bool   `json:"memory_enabled"`
 	EvolvingMemoryEnabled       *bool   `json:"evolvingMemoryEnabled"`
 	LegacyEvolvingMemoryEnabled *bool   `json:"evolving_memory_enabled"`
 	BeliefMemoryEnabled         *bool   `json:"beliefMemoryEnabled"`
 	LegacyBeliefMemoryEnabled   *bool   `json:"belief_memory_enabled"`
 }
 
-func (b patchChatSessionRequest) normalized() (*string, *bool, *bool) {
+func (b patchChatSessionRequest) normalized() (*string, *bool, *bool, *bool) {
 	projectID := b.ProjectID
 	if projectID == nil {
 		projectID = b.LegacyProjectID
+	}
+	memoryEnabled := b.MemoryEnabled
+	if memoryEnabled == nil {
+		memoryEnabled = b.LegacyMemoryEnabled
 	}
 	evolvingMemoryEnabled := b.EvolvingMemoryEnabled
 	if evolvingMemoryEnabled == nil {
@@ -404,7 +451,7 @@ func (b patchChatSessionRequest) normalized() (*string, *bool, *bool) {
 	if beliefMemoryEnabled == nil {
 		beliefMemoryEnabled = b.LegacyBeliefMemoryEnabled
 	}
-	return projectID, evolvingMemoryEnabled, beliefMemoryEnabled
+	return projectID, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled
 }
 
 func (a *app) patchChatSession(
@@ -420,8 +467,8 @@ func (a *app) patchChatSession(
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	projectID, evolvingMemoryEnabled, beliefMemoryEnabled := body.normalized()
-	if body.Name == nil && projectID == nil && evolvingMemoryEnabled == nil && beliefMemoryEnabled == nil {
+	projectID, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled := body.normalized()
+	if body.Name == nil && projectID == nil && memoryEnabled == nil && evolvingMemoryEnabled == nil && beliefMemoryEnabled == nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -429,9 +476,9 @@ func (a *app) patchChatSession(
 	if !ok {
 		return
 	}
-	if evolvingMemoryEnabled != nil || beliefMemoryEnabled != nil {
+	if memoryEnabled != nil || evolvingMemoryEnabled != nil || beliefMemoryEnabled != nil {
 		var err error
-		sess, err = a.patchChatSessionMemorySettings(r.Context(), userID, sessionID, sess, evolvingMemoryEnabled, beliefMemoryEnabled)
+		sess, err = a.patchChatSessionMemorySettings(r.Context(), userID, sessionID, sess, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled)
 		if err != nil {
 			writeChatDetailStoreError(w, r, err, sessionID, "set_chat_session_memory_settings")
 			return
@@ -479,6 +526,7 @@ func (a *app) patchChatSessionMemorySettings(
 	userID *int64,
 	sessionID string,
 	sess persist.ChatSession,
+	memoryEnabled *bool,
 	evolvingMemoryEnabled *bool,
 	beliefMemoryEnabled *bool,
 ) (persist.ChatSession, error) {
@@ -490,16 +538,24 @@ func (a *app) patchChatSessionMemorySettings(
 		}
 	}
 	nextSettings := chatMemorySettingsFromSession(sess)
-	if evolvingMemoryEnabled != nil {
-		nextSettings.EvolvingMemoryEnabled = *evolvingMemoryEnabled
+	if memoryEnabled != nil {
+		nextSettings.MemoryEnabled = *memoryEnabled
+	} else if evolvingMemoryEnabled != nil || beliefMemoryEnabled != nil {
+		if evolvingMemoryEnabled != nil {
+			nextSettings.EvolvingMemoryEnabled = *evolvingMemoryEnabled
+		}
+		if beliefMemoryEnabled != nil {
+			nextSettings.BeliefMemoryEnabled = *beliefMemoryEnabled
+		}
+		nextSettings.MemoryEnabled = nextSettings.EvolvingMemoryEnabled && nextSettings.BeliefMemoryEnabled
 	}
-	if beliefMemoryEnabled != nil {
-		nextSettings.BeliefMemoryEnabled = *beliefMemoryEnabled
-	}
+	nextSettings.EvolvingMemoryEnabled = nextSettings.MemoryEnabled
+	nextSettings.BeliefMemoryEnabled = nextSettings.MemoryEnabled
 	return a.chatStore.SetSessionMemorySettings(
 		ctx,
 		userID,
 		sessionID,
+		nextSettings.MemoryEnabled,
 		nextSettings.EvolvingMemoryEnabled,
 		nextSettings.BeliefMemoryEnabled,
 	)

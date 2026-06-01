@@ -27,6 +27,7 @@ func (e *Engine) runLoop(ctx context.Context, msgs []llm.Message) (string, error
 		log.Info().Strs("tools_sent_to_llm", toolNames).Msg("engine_tools_before_chat")
 
 		msgs = e.enforceContextBudget(ctx, msgs)
+		e.emitContextMetrics(ctx, msgs, ContextMetricPhasePreModel, nil, 0)
 		msg, err := e.LLM.Chat(ctx, msgs, schemas, e.model())
 		if err != nil {
 			log.Error().Err(err).Int("step", step).Msg("engine_step_error")
@@ -42,6 +43,7 @@ func (e *Engine) runLoop(ctx context.Context, msgs []llm.Message) (string, error
 		if e.OnTurnMessage != nil {
 			e.OnTurnMessage(msg)
 		}
+		e.emitContextMetrics(ctx, msgs, ContextMetricPhaseAssistantAdded, nil, 0)
 
 		if len(msg.ToolCalls) == 0 {
 			log.Info().Int("step", step).Int("final_len", len(msg.Content)).Msg("engine_final")
@@ -51,6 +53,7 @@ func (e *Engine) runLoop(ctx context.Context, msgs []llm.Message) (string, error
 
 		log.Info().Int("step", step).Int("tool_calls", len(msg.ToolCalls)).Msg("engine_tool_calls")
 		msgs = e.dispatchTools(ctx, msgs, msg.ToolCalls)
+		e.emitContextMetrics(ctx, msgs, ContextMetricPhaseToolAdded, nil, 0)
 	}
 
 	if final == "" {
@@ -96,6 +99,7 @@ func (e *Engine) runStreamStep(ctx context.Context, msgs []llm.Message, step int
 	log.Info().Strs("tools_sent_to_llm_stream", toolSchemaNames(schemas)).Msg("engine_tools_before_stream")
 
 	msgs = e.enforceContextBudget(ctx, msgs)
+	e.emitContextMetrics(ctx, msgs, ContextMetricPhasePreModel, nil, 0)
 	if err := e.LLM.ChatStream(ctx, msgs, schemas, e.model(), acc.handler()); err != nil {
 		log.Error().Err(err).Int("step", step).Msg("engine_stream_step_error")
 		return nil, "", false, err
@@ -104,13 +108,16 @@ func (e *Engine) runStreamStep(ctx context.Context, msgs []llm.Message, step int
 	msg := acc.message(e, msgs)
 	msgs = append(msgs, msg)
 	e.emitAssistantMessage(msg)
+	e.emitContextMetrics(ctx, msgs, ContextMetricPhaseAssistantAdded, nil, 0)
 	if len(msg.ToolCalls) == 0 {
 		log.Info().Int("step", step).Int("final_len", len(msg.Content)).Msg("engine_stream_final")
 		return msgs, msg.Content, true, nil
 	}
 
 	log.Info().Int("step", step).Int("tool_calls", len(msg.ToolCalls)).Msg("engine_stream_tool_calls")
-	return e.dispatchTools(ctx, msgs, msg.ToolCalls), "", false, nil
+	msgs = e.dispatchTools(ctx, msgs, msg.ToolCalls)
+	e.emitContextMetrics(ctx, msgs, ContextMetricPhaseToolAdded, nil, 0)
+	return msgs, "", false, nil
 }
 
 func toolSchemaNames(schemas []llm.ToolSchema) []string {

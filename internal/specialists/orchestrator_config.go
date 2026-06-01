@@ -78,6 +78,9 @@ func ApplyOrchestratorConfig(cfg *config.Config, sp persistence.Specialist) stri
 		cfg.OpenAI = llmCfg.OpenAI
 	}
 	cfg.EnableTools = sp.EnableTools
+	if sp.RequestInfoEnabled != nil {
+		cfg.RequestInfoEnabled = sp.RequestInfoEnabled
+	}
 	cfg.ToolAllowList = append([]string(nil), sp.AllowTools...)
 	if sp.AutoDiscover != nil {
 		cfg.AutoDiscover = *sp.AutoDiscover

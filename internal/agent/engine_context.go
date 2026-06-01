@@ -2,8 +2,8 @@ package agent
 
 import (
 	"context"
-	"manifold/internal/agent/belief"
 	"manifold/internal/agent/memory"
+	"manifold/internal/agent/memory/belief"
 	"manifold/internal/llm"
 	"manifold/internal/observability"
 	"manifold/internal/policy"
@@ -13,6 +13,45 @@ import (
 )
 
 const maxEvolvingMemoryContextChars = 12000
+
+func (e *Engine) augmentWithUnifiedMemory(ctx context.Context, userInput string, msgs []llm.Message) []llm.Message {
+	if e == nil || e.DisableMemory || e.Memory == nil {
+		return msgs
+	}
+	log := observability.LoggerWithTrace(ctx)
+	block, diag, err := e.Memory.PrepareContext(ctx, memory.Request{
+		UserInput:   userInput,
+		UserID:      e.UserID,
+		SessionID:   e.SessionID,
+		ProjectID:   e.ProjectID,
+		ObjectiveID: e.ObjectiveID,
+		Role:        e.AgentRole,
+	})
+	if err != nil {
+		log.Warn().Err(err).Msg("unified_memory_prepare_failed")
+		return msgs
+	}
+	if strings.TrimSpace(block.Text) == "" {
+		log.Debug().Bool("enabled", diag.Enabled).Int64("duration_ms", diag.DurationMs).Msg("unified_memory_no_context")
+		return msgs
+	}
+	log.Info().
+		Int("tokens", block.TokenEstimate).
+		Bool("truncated", block.Truncated).
+		Int64("duration_ms", diag.DurationMs).
+		Msg("unified_memory_context_added")
+	e.emitMemoryContext(block, diag)
+	msgs = AddRuntimeContextToCurrentUserMessage(msgs, block.Text)
+	e.emitContextMetrics(ctx, msgs, ContextMetricPhaseMemoryAdded, []ContextMetricSegment{{Kind: ContextMetricKindMemory, Tokens: block.TokenEstimate}}, 0)
+	return msgs
+}
+
+func (e *Engine) emitMemoryContext(block memory.ContextBlock, diag memory.Diagnostics) {
+	if e == nil || e.OnMemoryContext == nil || strings.TrimSpace(block.Text) == "" {
+		return
+	}
+	e.OnMemoryContext(block, diag)
+}
 
 func (e *Engine) augmentWithMemory(ctx context.Context, userInput string, msgs []llm.Message) []llm.Message {
 	if e == nil || e.DisableEvolvingMemory || e.EvolvingMemory == nil {

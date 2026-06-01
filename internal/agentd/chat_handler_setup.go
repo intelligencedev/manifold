@@ -2,10 +2,12 @@ package agentd
 
 import (
 	"net/http"
+	"strings"
 
 	"manifold/internal/auth"
 	"manifold/internal/llm"
 	persist "manifold/internal/persistence"
+	"manifold/internal/projects"
 	"manifold/internal/workspaces"
 
 	"github.com/rs/zerolog/log"
@@ -45,7 +47,7 @@ func (a *app) prepareChatHandlerState(w http.ResponseWriter, r *http.Request, re
 		return nil, false
 	}
 
-	sess, ok := a.prepareChatSession(w, r, req, authState.UserID)
+	sess, ok := a.prepareChatSession(w, r, req, authState.UserID, chatRequestOwner(authState.CurrentUser, authState.UserID))
 	if !ok {
 		return nil, false
 	}
@@ -110,13 +112,36 @@ func validateChatProjectID(w http.ResponseWriter, projectID string) bool {
 	return true
 }
 
-func (a *app) prepareChatSession(w http.ResponseWriter, r *http.Request, req chatRunRequest, userID *int64) (persist.ChatSession, bool) {
+func (a *app) prepareChatSession(w http.ResponseWriter, r *http.Request, req chatRunRequest, userID *int64, owner int64) (persist.ChatSession, bool) {
 	sess, err := ensureChatSession(r.Context(), a.chatStore, userID, req.SessionID)
 	if err != nil {
 		writeChatStoreError(w, err, "ensure_chat_session", req.SessionID)
 		return persist.ChatSession{}, false
 	}
+	if sess.ProjectID == "" && req.ProjectID == "" {
+		sess, err = a.ensureTemporaryChatProject(r, userID, owner, sess)
+		if err != nil {
+			log.Error().Err(err).Str("session", req.SessionID).Msg("ensure_temporary_chat_project")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return persist.ChatSession{}, false
+		}
+	}
 	return sess, true
+}
+
+func (a *app) ensureTemporaryChatProject(r *http.Request, userID *int64, owner int64, sess persist.ChatSession) (persist.ChatSession, error) {
+	if a.projectsService == nil {
+		return sess, nil
+	}
+	name := "Temporary Chat"
+	if trimmed := strings.TrimSpace(sess.Name); trimmed != "" && !isDefaultSessionName(trimmed) {
+		name = "Temporary " + trimmed
+	}
+	project, err := a.projectsService.CreateProjectKind(r.Context(), owner, name, projects.ProjectKindTemporary)
+	if err != nil {
+		return persist.ChatSession{}, err
+	}
+	return a.chatStore.SetSessionProject(r.Context(), userID, sess.ID, project.ID)
 }
 
 func applySessionProject(w http.ResponseWriter, req chatRunRequest, sessionProjectID string) (chatRunRequest, bool) {
@@ -135,13 +160,14 @@ func (a *app) prepareChatMemorySettings(w http.ResponseWriter, r *http.Request, 
 	sessionSettings := chatMemorySettingsFromSession(sess)
 	runSettings, changed := requestedChatMemorySettings(req, sessionSettings)
 	if changed && runSettings != sessionSettings {
-		updated, err := a.chatStore.SetSessionMemorySettings(r.Context(), userID, req.SessionID, runSettings.EvolvingMemoryEnabled, runSettings.BeliefMemoryEnabled)
+		updated, err := a.chatStore.SetSessionMemorySettings(r.Context(), userID, req.SessionID, runSettings.MemoryEnabled, runSettings.EvolvingMemoryEnabled, runSettings.BeliefMemoryEnabled)
 		if err != nil {
 			writeChatStoreError(w, err, "set_chat_session_memory_settings", req.SessionID)
 			return req, false
 		}
 		runSettings = chatMemorySettingsFromSession(updated)
 	}
+	req.MemoryEnabled = boolPtr(runSettings.MemoryEnabled)
 	req.EvolvingMemoryEnabled = boolPtr(runSettings.EvolvingMemoryEnabled)
 	req.BeliefMemoryEnabled = boolPtr(runSettings.BeliefMemoryEnabled)
 	return req, true
@@ -149,14 +175,21 @@ func (a *app) prepareChatMemorySettings(w http.ResponseWriter, r *http.Request, 
 
 func requestedChatMemorySettings(req chatRunRequest, settings chatMemoryRunSettings) (chatMemoryRunSettings, bool) {
 	changed := false
-	if req.EvolvingMemoryEnabled != nil {
-		settings.EvolvingMemoryEnabled = *req.EvolvingMemoryEnabled
+	if req.MemoryEnabled != nil {
+		settings.MemoryEnabled = *req.MemoryEnabled
+		changed = true
+	} else if req.EvolvingMemoryEnabled != nil || req.BeliefMemoryEnabled != nil {
+		if req.EvolvingMemoryEnabled != nil {
+			settings.EvolvingMemoryEnabled = *req.EvolvingMemoryEnabled
+		}
+		if req.BeliefMemoryEnabled != nil {
+			settings.BeliefMemoryEnabled = *req.BeliefMemoryEnabled
+		}
+		settings.MemoryEnabled = settings.EvolvingMemoryEnabled && settings.BeliefMemoryEnabled
 		changed = true
 	}
-	if req.BeliefMemoryEnabled != nil {
-		settings.BeliefMemoryEnabled = *req.BeliefMemoryEnabled
-		changed = true
-	}
+	settings.EvolvingMemoryEnabled = settings.MemoryEnabled
+	settings.BeliefMemoryEnabled = settings.MemoryEnabled
 	return settings, changed
 }
 

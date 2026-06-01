@@ -10,8 +10,11 @@
           >*</span
         >
       </div>
-      <p v-if="schema.description" class="text-[10px] text-faint-foreground">
-        {{ schema.description }}
+      <p
+        v-if="fieldSchema.description"
+        class="text-[10px] text-faint-foreground"
+      >
+        {{ fieldSchema.description }}
       </p>
       <div class="space-y-2 border-l border-border/60 pl-3">
         <ParameterFormField
@@ -36,8 +39,11 @@
           >*</span
         >
       </div>
-      <p v-if="schema.description" class="text-[10px] text-faint-foreground">
-        {{ schema.description }}
+      <p
+        v-if="fieldSchema.description"
+        class="text-[10px] text-faint-foreground"
+      >
+        {{ fieldSchema.description }}
       </p>
       <div class="space-y-2 border-l border-border/60 pl-3">
         <div
@@ -99,7 +105,9 @@
       </div>
     </template>
     <template v-else>
-      <label class="flex min-w-0 flex-col gap-1 text-[11px] text-muted-foreground">
+      <label
+        class="flex min-w-0 flex-col gap-1 text-[11px] text-muted-foreground"
+      >
         <span class="flex items-center gap-1">
           {{ fieldLabel }}
           <span v-if="required" class="text-[10px] text-danger-foreground"
@@ -119,7 +127,10 @@
             ref="fieldInputEl"
             :value="stringValue"
             :rows="multilineRows"
-            :class="[textareaClass, isExpressionValue ? 'border-accent/60 bg-accent/5' : '']"
+            :class="[
+              textareaClass,
+              isExpressionValue ? 'border-accent/60 bg-accent/5' : '',
+            ]"
             @input="onStringInput"
             @wheel.stop
           />
@@ -127,7 +138,11 @@
             v-if="hasNodeContext"
             type="button"
             class="absolute top-1 right-1 inline-flex h-5 items-center gap-0.5 rounded px-1 text-[10px] font-mono transition"
-            :class="pickerOpen ? 'bg-accent text-accent-foreground' : 'bg-muted/80 text-muted-foreground hover:bg-accent/40 hover:text-foreground'"
+            :class="
+              pickerOpen
+                ? 'bg-accent text-accent-foreground'
+                : 'bg-muted/80 text-muted-foreground hover:bg-accent/40 hover:text-foreground'
+            "
             title="Insert reference from upstream node"
             @click.prevent.stop="togglePicker"
           >
@@ -160,7 +175,7 @@
             class="accent-accent"
             @change="onBooleanChange"
           />
-          <span>{{ schema.description ?? "Enabled" }}</span>
+          <span>{{ fieldSchema.description ?? "Enabled" }}</span>
         </label>
         <DropdownSelect
           v-else-if="isProjectId"
@@ -184,14 +199,24 @@
             type="text"
             :value="stringValue"
             class="w-full rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
-            :class="isExpressionValue ? 'border-accent/60 bg-accent/5 pr-8' : hasNodeContext ? 'pr-8' : ''"
+            :class="
+              isExpressionValue
+                ? 'border-accent/60 bg-accent/5 pr-8'
+                : hasNodeContext
+                  ? 'pr-8'
+                  : ''
+            "
             @input="onStringInput"
           />
           <button
             v-if="hasNodeContext"
             type="button"
             class="absolute top-1/2 right-1 -translate-y-1/2 inline-flex h-5 items-center gap-0.5 rounded px-1 text-[10px] font-mono transition"
-            :class="pickerOpen ? 'bg-accent text-accent-foreground' : 'bg-muted/80 text-muted-foreground hover:bg-accent/40 hover:text-foreground'"
+            :class="
+              pickerOpen
+                ? 'bg-accent text-accent-foreground'
+                : 'bg-muted/80 text-muted-foreground hover:bg-accent/40 hover:text-foreground'
+            "
             title="Insert reference from upstream node"
             @click.prevent.stop="togglePicker"
           >
@@ -208,10 +233,10 @@
         </div>
       </label>
       <p
-        v-if="schema.description && !isBoolean"
+        v-if="fieldSchema.description && !isBoolean"
         class="text-[10px] text-faint-foreground"
       >
-        {{ schema.description }}
+        {{ fieldSchema.description }}
       </p>
     </template>
   </div>
@@ -223,6 +248,7 @@ import DropdownSelect from "@/components/DropdownSelect.vue";
 import ExpressionPicker from "@/components/flow/ExpressionPicker.vue";
 import { listProjects } from "@/api/client";
 import { listChatSessions } from "@/api/chat";
+import { normalizeParameterSchema, schemaType } from "@/lib/jsonSchema";
 
 defineOptions({ name: "ParameterFormField" });
 
@@ -257,38 +283,15 @@ function onPickExpression(expression: string) {
 const isExpressionValue = computed(() => {
   if (typeof props.modelValue !== "string") return false;
   const v = props.modelValue.trim();
-  return (
-    v.startsWith("={{") ||
-    v.startsWith("$node.") ||
-    v.startsWith("$run.")
-  );
+  return v.startsWith("={{") || v.startsWith("$node.") || v.startsWith("$run.");
 });
 
-function schemaType(
-  schema: Record<string, any> | undefined,
-): string | undefined {
-  if (!schema) return undefined;
-  if (schema.type) {
-    if (Array.isArray(schema.type)) {
-      return schema.type[0];
-    }
-    return schema.type;
-  }
-  if (schema.properties) {
-    return "object";
-  }
-  if (schema.items) {
-    return "array";
-  }
-  if (schema.enum) {
-    return "string";
-  }
-  return undefined;
-}
+const fieldSchema = computed(() => normalizeParameterSchema(props.schema));
+const type = computed(() => schemaType(fieldSchema.value));
 
-const type = computed(() => schemaType(props.schema));
-
-const fieldLabel = computed(() => props.label ?? props.schema.title ?? "Field");
+const fieldLabel = computed(
+  () => props.label ?? fieldSchema.value.title ?? "Field",
+);
 
 const isObject = computed(() => type.value === "object");
 const isArray = computed(() => type.value === "array");
@@ -307,7 +310,11 @@ const sessionItems = ref<{ id: string; name: string }[]>([]);
 const projectDropdownOptions = computed(() => {
   const opts = [
     { id: "", label: "(unset)", value: "" },
-    ...projectItems.value.map((p) => ({ id: p.id, label: p.name, value: p.id })),
+    ...projectItems.value.map((p) => ({
+      id: p.id,
+      label: p.name,
+      value: p.id,
+    })),
   ];
   // If current value is set but not in the list yet, add it as a fallback
   const cur = typeof props.modelValue === "string" ? props.modelValue : "";
@@ -320,7 +327,11 @@ const projectDropdownOptions = computed(() => {
 const sessionDropdownOptions = computed(() => {
   const opts = [
     { id: "", label: "(unset)", value: "" },
-    ...sessionItems.value.map((s) => ({ id: s.id, label: s.name || s.id, value: s.id })),
+    ...sessionItems.value.map((s) => ({
+      id: s.id,
+      label: s.name || s.id,
+      value: s.id,
+    })),
   ];
   const cur = typeof props.modelValue === "string" ? props.modelValue : "";
   if (cur && !sessionItems.value.some((s) => s.id === cur)) {
@@ -340,7 +351,10 @@ onMounted(async () => {
   if (isSessionId.value) {
     try {
       const sessions = await listChatSessions();
-      sessionItems.value = sessions.map((s) => ({ id: s.id, name: s.name || s.id }));
+      sessionItems.value = sessions.map((s) => ({
+        id: s.id,
+        name: s.name || s.id,
+      }));
     } catch {
       // silently fail
     }
@@ -358,7 +372,7 @@ const isUnsupported = computed(
 );
 
 const enumOptions = computed(() =>
-  Array.isArray(props.schema.enum) ? props.schema.enum : [],
+  Array.isArray(fieldSchema.value.enum) ? fieldSchema.value.enum : [],
 );
 const hasEnum = computed(() => enumOptions.value.length > 0);
 
@@ -380,12 +394,14 @@ const enumDropdownOptions = computed(() => {
 const childRequired = computed(
   () =>
     new Set<string>(
-      Array.isArray(props.schema.required) ? props.schema.required : [],
+      Array.isArray(fieldSchema.value.required)
+        ? fieldSchema.value.required
+        : [],
     ),
 );
 const childEntries = computed<[string, Record<string, any>][]>(
   () =>
-    Object.entries(props.schema.properties ?? {}) as [
+    Object.entries(fieldSchema.value.properties ?? {}) as [
       string,
       Record<string, any>,
     ][],
@@ -523,7 +539,7 @@ function includesWord(hay: string | undefined, re: RegExp): boolean {
 
 const isMultilineString = computed(() => {
   if (!isString.value) return false;
-  const s = props.schema || {};
+  const s = fieldSchema.value || {};
   // Explicit schema hints
   if (
     s.format &&
@@ -555,7 +571,7 @@ const isMultilineString = computed(() => {
 });
 
 const isMonospace = computed(() => {
-  const s = props.schema || {};
+  const s = fieldSchema.value || {};
   if ((s as any)["x-monospace"] === true) return true;
   if (
     typeof (s as any).format === "string" &&
@@ -583,7 +599,7 @@ const textareaClass = computed(() =>
 
 // Array handling
 const itemSchema = computed(() => {
-  const it = (props.schema as any)?.items;
+  const it = fieldSchema.value.items;
   if (Array.isArray(it)) return it[0] ?? { type: "string" };
   return it ?? { type: "string" };
 });
@@ -642,6 +658,6 @@ function moveItem(index: number, delta: number) {
 }
 
 function itemLabel(index: number) {
-  return `${props.schema?.items?.title || "Item"} #${index + 1}`;
+  return `${fieldSchema.value.items?.title || "Item"} #${index + 1}`;
 }
 </script>

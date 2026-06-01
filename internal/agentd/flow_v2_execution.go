@@ -54,6 +54,8 @@ type flowV2RunExecutor struct {
 	remaining      map[string]int
 	nodeOutputs    map[string]map[string]any
 	launched       map[string]bool
+	skipped        map[string]bool
+	failedContinue map[string]bool
 	stateMu        sync.RWMutex
 	fatalErr       error
 	processed      int
@@ -81,6 +83,8 @@ func newFlowV2RunExecutor(opts flowV2RunExecutorOptions) *flowV2RunExecutor {
 		remaining:      flowRemainingNodes(opts.wf, opts.plan),
 		nodeOutputs:    make(map[string]map[string]any, len(opts.wf.Nodes)),
 		launched:       make(map[string]bool, len(opts.wf.Nodes)),
+		skipped:        make(map[string]bool, len(opts.wf.Nodes)),
+		failedContinue: make(map[string]bool, len(opts.wf.Nodes)),
 		resultCh:       make(chan flowNodeResult, len(opts.wf.Nodes)),
 		runCtx:         runCtx,
 		cancelRun:      cancelRun,
@@ -101,7 +105,12 @@ func (e *flowV2RunExecutor) run() {
 		e.processed++
 		e.handleNodeResult(res)
 		if e.fatalErr == nil {
-			e.pushReady(e.downstreamReady(res.nodeID))
+			ready, cascadedSkipped := e.downstreamReady(res.nodeID)
+			for _, skippedNodeID := range cascadedSkipped {
+				e.processed++
+				e.emit(flow.RunEvent{Type: flow.RunEventTypeNodeSkipped, NodeID: skippedNodeID, Status: "skipped", Message: "node skipped"})
+			}
+			e.pushReady(ready)
 			active = e.launchReady(active)
 		}
 	}
@@ -212,6 +221,7 @@ func (e *flowV2RunExecutor) handleNodeResult(res flowNodeResult) {
 	node := e.nodeByID[res.nodeID]
 	switch {
 	case res.skipped:
+		e.markNodeSkipped(res.nodeID)
 		e.emit(flow.RunEvent{Type: flow.RunEventTypeNodeSkipped, NodeID: res.nodeID, Status: "skipped", Message: "node skipped"})
 	case res.err != nil:
 		e.handleNodeError(res, node)
@@ -226,7 +236,11 @@ func (e *flowV2RunExecutor) handleNodeError(res flowNodeResult, node flow.Node) 
 		message = "node input resolution failed"
 	}
 	e.emit(flow.RunEvent{Type: flow.RunEventTypeNodeFailed, NodeID: res.nodeID, Status: "failed", Error: res.err.Error(), Message: message})
-	if effectiveOnError(node, e.defaultExec) != flow.ErrorStrategyContinue && e.fatalErr == nil {
+	if effectiveOnError(node, e.defaultExec) == flow.ErrorStrategyContinue {
+		e.markNodeFailedContinue(res.nodeID)
+		return
+	}
+	if e.fatalErr == nil {
 		e.fail(res.err)
 	}
 }
@@ -239,18 +253,69 @@ func (e *flowV2RunExecutor) recordNodeOutput(res flowNodeResult) {
 	e.emit(flow.RunEvent{Type: flow.RunEventTypeNodeCompleted, NodeID: res.nodeID, Status: "completed", Output: cloneMap(clonedOutput), Message: "node completed"})
 }
 
-func (e *flowV2RunExecutor) downstreamReady(nodeID string) []string {
+func (e *flowV2RunExecutor) downstreamReady(nodeID string) ([]string, []string) {
 	e.stateMu.Lock()
 	defer e.stateMu.Unlock()
 	ready := make([]string, 0, len(e.plan.Outgoing[nodeID]))
+	skipped := make([]string, 0)
+	e.collectDownstreamReadyLocked(nodeID, &ready, &skipped)
+	return ready, skipped
+}
+
+func (e *flowV2RunExecutor) collectDownstreamReadyLocked(nodeID string, ready *[]string, skipped *[]string) {
 	for _, edge := range e.plan.Outgoing[nodeID] {
 		targetID := edge.Target.NodeID
 		e.remaining[targetID]--
-		if e.remaining[targetID] == 0 && !e.launched[targetID] {
-			ready = append(ready, targetID)
+		if e.remaining[targetID] != 0 || e.launched[targetID] || e.nodeTerminalLocked(targetID) {
+			continue
+		}
+		if _, ok := e.nodeByID[targetID]; !ok {
+			*ready = append(*ready, targetID)
+			continue
+		}
+		if e.shouldCascadeSkipLocked(targetID) {
+			e.skipped[targetID] = true
+			e.launched[targetID] = true
+			*skipped = append(*skipped, targetID)
+			e.collectDownstreamReadyLocked(targetID, ready, skipped)
+			continue
+		}
+		*ready = append(*ready, targetID)
+	}
+}
+
+func (e *flowV2RunExecutor) markNodeSkipped(nodeID string) {
+	e.stateMu.Lock()
+	e.skipped[nodeID] = true
+	e.stateMu.Unlock()
+}
+
+func (e *flowV2RunExecutor) markNodeFailedContinue(nodeID string) {
+	e.stateMu.Lock()
+	e.failedContinue[nodeID] = true
+	e.stateMu.Unlock()
+}
+
+func (e *flowV2RunExecutor) nodeTerminalLocked(nodeID string) bool {
+	if e.skipped[nodeID] || e.failedContinue[nodeID] {
+		return true
+	}
+	_, completed := e.nodeOutputs[nodeID]
+	return completed
+}
+
+func (e *flowV2RunExecutor) shouldCascadeSkipLocked(nodeID string) bool {
+	incoming := e.plan.Incoming[nodeID]
+	if len(incoming) == 0 {
+		return false
+	}
+	for _, edge := range incoming {
+		sourceID := edge.Source.NodeID
+		if !e.skipped[sourceID] && !e.failedContinue[sourceID] {
+			return false
 		}
 	}
-	return ready
+	return true
 }
 
 func (e *flowV2RunExecutor) fail(err error) {

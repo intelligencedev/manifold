@@ -104,7 +104,6 @@
               class="rounded border border-border/60 bg-surface-muted px-2 py-1 text-[11px] text-foreground"
               placeholder="Optional heading"
               :disabled="!isDesignMode"
-              @input="markDirty"
             />
           </label>
           <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
@@ -127,7 +126,6 @@
                     { id: 'markdown', label: 'Markdown', value: 'markdown' },
                     { id: 'html', label: 'HTML', value: 'html' },
                   ]"
-                  @update:modelValue="markDirty"
                 />
               </div>
             </div>
@@ -138,17 +136,22 @@
                 rows="4"
                 :class="[
                   'rounded border bg-surface-muted px-2 py-1 text-[11px] text-foreground overflow-auto w-full flex-1 min-h-[92px] resize-none whitespace-pre-wrap break-words',
-                  isExpressionContent ? 'border-accent/60 bg-accent/5' : 'border-border/60',
+                  isExpressionContent
+                    ? 'border-accent/60 bg-accent/5'
+                    : 'border-border/60',
                 ]"
                 placeholder="Enter static text or use ={{$run.input.query}} bindings"
-                @input="markDirty"
                 @wheel.stop
               ></textarea>
               <button
                 v-if="hasUpstream"
                 type="button"
                 class="absolute top-1 right-1 inline-flex h-5 items-center gap-0.5 rounded px-1 text-[10px] font-mono transition"
-                :class="utilPickerOpen ? 'bg-accent text-accent-foreground' : 'bg-muted/80 text-muted-foreground hover:bg-accent/40 hover:text-foreground'"
+                :class="
+                  utilPickerOpen
+                    ? 'bg-accent text-accent-foreground'
+                    : 'bg-muted/80 text-muted-foreground hover:bg-accent/40 hover:text-foreground'
+                "
                 title="Insert reference from upstream node"
                 @click.prevent.stop="toggleUtilPicker"
               >
@@ -263,35 +266,6 @@
             >
           </p>
         </div>
-
-        <div
-          v-if="isDesignMode"
-          class="mt-3 flex items-center justify-end gap-2"
-        >
-          <span
-            v-if="isDirty && !showAppliedFeedback"
-            class="text-[10px] italic text-warning-foreground"
-            >Unsaved</span
-          >
-          <span
-            v-else-if="showAppliedFeedback"
-            class="text-[10px] italic text-emerald-400"
-            >Applied</span
-          >
-          <button
-            class="rounded px-2 py-1 text-[11px] font-medium transition disabled:opacity-40"
-            :class="
-              showAppliedFeedback
-                ? 'bg-emerald-500 text-white'
-                : 'bg-accent text-accent-foreground'
-            "
-            :disabled="(!isDirty && !showAppliedFeedback) || !isDesignMode"
-            @click="applyChanges"
-          >
-            {{ showAppliedFeedback ? 'Applied' : 'Apply' }}
-          </button>
-        </div>
-
         <div
           v-if="!isDesignMode && hasRuntimeDetails"
           class="mt-3 flex items-center justify-end"
@@ -389,7 +363,6 @@ function toggleUtilPicker() {
 function onUtilPickExpression(expression: string) {
   const current = contentText.value;
   contentText.value = current ? `${current}\n${expression}` : expression;
-  markDirty();
 }
 
 function normalizeDisplayText(value: unknown): string {
@@ -421,9 +394,6 @@ const rootClass = computed(() => [
   "transition-colors duration-150 ease-out",
   { "node-executing": isExecuting.value },
 ]);
-const isDirty = ref(false);
-const showAppliedFeedback = ref(false);
-let appliedFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
 const collapsed = ref(false);
 const copied = ref(false);
 const outputReferenceExample = computed(
@@ -454,8 +424,8 @@ const designText = computed(() =>
     ? normalizeDisplayText(contentText.value)
     : contentText.value,
 );
-const displayText = computed(() =>
-  runtimeText.value || (isDesignMode.value ? designText.value : ""),
+const displayText = computed(
+  () => runtimeText.value || (isDesignMode.value ? designText.value : ""),
 );
 const hasDisplayText = computed(() => displayText.value.length > 0);
 const renderedContent = computed(() => {
@@ -504,7 +474,6 @@ watch(
     labelText.value = String(args.label ?? step?.text ?? "");
     contentText.value = String(args.text ?? "");
     renderMode.value = parseRenderMode(args.render_mode);
-    isDirty.value = false;
     suppressCommit = false;
   },
   { immediate: true, deep: true },
@@ -514,42 +483,13 @@ watch(
   [labelText, contentText, renderMode],
   () => {
     if (suppressCommit || hydratingRef.value || !isDesignMode.value) return;
-    isDirty.value = true;
+    commit();
   },
+  { flush: "sync" },
 );
 
-function applyChanges() {
-  if (!isDesignMode.value || !isDirty.value) return;
-  commit();
-  isDirty.value = false;
-  triggerAppliedFeedback();
-}
-
-function triggerAppliedFeedback() {
-  showAppliedFeedback.value = true;
-  if (appliedFeedbackTimer) clearTimeout(appliedFeedbackTimer);
-  appliedFeedbackTimer = setTimeout(() => {
-    showAppliedFeedback.value = false;
-    appliedFeedbackTimer = null;
-  }, 1400);
-}
-
-function clearAppliedFeedback() {
-  showAppliedFeedback.value = false;
-  if (appliedFeedbackTimer) {
-    clearTimeout(appliedFeedbackTimer);
-    appliedFeedbackTimer = null;
-  }
-}
-
-function markDirty() {
-  if (suppressCommit || hydratingRef.value || !isDesignMode.value) return;
-  clearAppliedFeedback();
-  isDirty.value = true;
-}
-
 function commit() {
-  if (hydratingRef.value || !isDesignMode.value) return;
+  if (suppressCommit || hydratingRef.value || !isDesignMode.value) return;
   const args = buildArgs();
   const nextStep: FlowEditorStep = {
     ...(props.data?.step ?? ({} as FlowEditorStep)),
@@ -704,7 +644,6 @@ function onResizeEnd(event: OnResizeEnd) {
       },
     };
   });
-  isDirty.value = true;
 }
 watch(expandAllSeq, (v) => {
   if (typeof v === "number" && v !== lastExpandSeen.value) {

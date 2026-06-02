@@ -1,16 +1,6 @@
 <template>
   <div class="min-w-0 space-y-3 overflow-x-hidden">
-    <div class="flex items-center justify-between">
-      <div class="text-xs text-subtle-foreground">Configure utility</div>
-      <span v-if="isDirty" class="text-[10px] italic text-warning-foreground"
-        >Unsaved</span
-      >
-      <span
-        v-else-if="showAppliedFeedback"
-        class="text-[10px] italic text-emerald-400"
-        >Applied</span
-      >
-    </div>
+    <div class="text-xs text-subtle-foreground">Configure utility</div>
 
     <label class="flex flex-col gap-1 text-[11px] text-muted-foreground">
       Display Label
@@ -40,7 +30,11 @@
           v-if="hasUpstream"
           type="button"
           class="absolute top-1 right-1 inline-flex h-5 items-center gap-0.5 rounded px-1 text-[10px] font-mono transition"
-          :class="contentPickerOpen ? 'bg-accent text-accent-foreground' : 'bg-muted/80 text-muted-foreground hover:bg-accent/40 hover:text-foreground'"
+          :class="
+            contentPickerOpen
+              ? 'bg-accent text-accent-foreground'
+              : 'bg-muted/80 text-muted-foreground hover:bg-accent/40 hover:text-foreground'
+          "
           title="Insert reference from upstream node"
           @click.prevent.stop="toggleContentPicker"
         >
@@ -77,27 +71,11 @@
         Choose how the response should be rendered inside the node.
       </p>
     </label>
-
-    <div class="pt-1 flex items-center justify-end gap-2">
-      <button
-        class="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition active:scale-95"
-        :class="
-          showAppliedFeedback
-            ? 'bg-emerald-500 text-white'
-            : 'bg-accent text-accent-foreground'
-        "
-        :disabled="(!isDirty && !showAppliedFeedback) || !isDesignMode"
-        @click="applyChanges"
-      >
-        <svg v-if="showAppliedFeedback" class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-        {{ showAppliedFeedback ? 'Applied' : 'Apply' }}
-      </button>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, inject, onBeforeUnmount, provide, ref, watch, type Ref } from "vue";
+import { computed, inject, provide, ref, watch, type Ref } from "vue";
 import { useVueFlow } from "@vue-flow/core";
 import type { Edge } from "@vue-flow/core";
 import type { StepNodeData } from "@/types/flow";
@@ -126,9 +104,6 @@ const contentText = ref("");
 const contentTextareaEl = ref<HTMLTextAreaElement | null>(null);
 const contentPickerOpen = ref(false);
 const renderMode = ref<RenderMode>("markdown");
-const isDirty = ref(false);
-const showAppliedFeedback = ref(false);
-let appliedFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
 
 const hasUpstream = computed(() =>
   edgesRef.value.some((e) => e.target === props.nodeId),
@@ -163,7 +138,6 @@ watch(
     labelText.value = String(args.label ?? step?.text ?? "");
     contentText.value = String(args.text ?? "");
     renderMode.value = parseRenderMode(args.render_mode);
-    isDirty.value = false;
     suppress = false;
   },
   { immediate: true, deep: true },
@@ -172,14 +146,13 @@ watch(
 watch(
   [labelText, contentText, renderMode],
   () => {
-    if (suppress || hydratingRef.value || !isDesignMode.value) return;
-    clearAppliedFeedback();
-    isDirty.value = true;
+    syncNodeData();
   },
+  { flush: "sync" },
 );
 
-function applyChanges() {
-  if (!isDesignMode.value || !isDirty.value) return;
+function syncNodeData() {
+  if (suppress || hydratingRef.value || !isDesignMode.value) return;
   const nextStep: FlowEditorStep = {
     ...(props.data?.step ?? ({} as FlowEditorStep)),
     id: props.nodeId,
@@ -194,25 +167,6 @@ function applyChanges() {
     ...(props.data ?? { order: 0, kind: "utility" }),
     step: cloneStep(nextStep),
   });
-  isDirty.value = false;
-  triggerAppliedFeedback();
-}
-
-function triggerAppliedFeedback() {
-  showAppliedFeedback.value = true;
-  if (appliedFeedbackTimer) clearTimeout(appliedFeedbackTimer);
-  appliedFeedbackTimer = setTimeout(() => {
-    showAppliedFeedback.value = false;
-    appliedFeedbackTimer = null;
-  }, 1400);
-}
-
-function clearAppliedFeedback() {
-  showAppliedFeedback.value = false;
-  if (appliedFeedbackTimer) {
-    clearTimeout(appliedFeedbackTimer);
-    appliedFeedbackTimer = null;
-  }
 }
 
 function toggleContentPicker() {
@@ -222,7 +176,6 @@ function toggleContentPicker() {
 function onPickExpression(expression: string) {
   const current = contentText.value;
   contentText.value = current ? `${current}\n${expression}` : expression;
-  isDirty.value = true;
 }
 
 function buildArgs(): Record<string, unknown> {
@@ -251,8 +204,4 @@ function cloneStep(step: FlowEditorStep) {
     return { ...step };
   }
 }
-
-onBeforeUnmount(() => {
-  clearAppliedFeedback();
-});
 </script>

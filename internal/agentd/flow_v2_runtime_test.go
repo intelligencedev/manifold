@@ -196,6 +196,79 @@ func TestExecuteFlowV2RunParallelFanOutAndConverge(t *testing.T) {
 	assertMonotonicSequences(t, events)
 }
 
+func TestResolveNodeInputsPlainEdgesAreControlOnly(t *testing.T) {
+	t.Parallel()
+
+	inputs, err := resolveNodeInputs(
+		flow.Node{
+			ID: "target",
+			Inputs: map[string]flow.InputBinding{
+				"repo_slug": {Literal: "manifold"},
+			},
+		},
+		[]flow.Edge{
+			{
+				Source: flow.PortRef{NodeID: "source", Port: "output"},
+				Target: flow.PortRef{NodeID: "target", Port: "input"},
+			},
+		},
+		map[string]map[string]any{
+			"source": {
+				"text": "manifold",
+				"json": map[string]any{"slug": "manifold"},
+			},
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("resolveNodeInputs returned error: %v", err)
+	}
+	if got := inputs["repo_slug"]; got != "manifold" {
+		t.Fatalf("expected explicit input to be preserved, got %#v", got)
+	}
+	if _, exists := inputs["input"]; exists {
+		t.Fatalf("plain dependency edge should not inject input, got %+v", inputs)
+	}
+}
+
+func TestResolveNodeInputsEdgeMappingsTransferData(t *testing.T) {
+	t.Parallel()
+
+	inputs, err := resolveNodeInputs(
+		flow.Node{ID: "target"},
+		[]flow.Edge{
+			{
+				Source: flow.PortRef{NodeID: "source", Port: "output"},
+				Target: flow.PortRef{NodeID: "target", Port: "input"},
+				Mapping: []flow.FieldMapping{
+					{From: "json.slug", To: "repo_slug"},
+					{From: "text", To: "metadata.source_text"},
+				},
+			},
+		},
+		map[string]map[string]any{
+			"source": {
+				"text": "manifold",
+				"json": map[string]any{"slug": "manifold"},
+			},
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("resolveNodeInputs returned error: %v", err)
+	}
+	if got := inputs["repo_slug"]; got != "manifold" {
+		t.Fatalf("expected mapped repo_slug, got %#v", got)
+	}
+	metadata, ok := inputs["metadata"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected nested metadata map, got %+v", inputs)
+	}
+	if got := metadata["source_text"]; got != "manifold" {
+		t.Fatalf("expected nested mapped source text, got %#v", got)
+	}
+}
+
 func TestExecuteFlowV2RunMaxConcurrencyOneIsSerial(t *testing.T) {
 	t.Parallel()
 

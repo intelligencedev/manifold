@@ -42,35 +42,11 @@
         </button>
       </div>
     </div>
-
-    <div class="pt-1 flex items-center justify-end gap-2">
-      <span v-if="isDirty" class="text-[10px] italic text-warning-foreground"
-        >Unsaved</span
-      >
-      <span
-        v-else-if="showAppliedFeedback"
-        class="text-[10px] italic text-emerald-400"
-        >Applied</span
-      >
-      <button
-        class="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition active:scale-95"
-        :class="
-          showAppliedFeedback
-            ? 'bg-emerald-500 text-white'
-            : 'bg-accent text-accent-foreground'
-        "
-        :disabled="(!isDirty && !showAppliedFeedback) || !isDesignMode"
-        @click="applyChanges"
-      >
-        <svg v-if="showAppliedFeedback" class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-        {{ showAppliedFeedback ? 'Applied' : 'Apply' }}
-      </button>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, inject, onBeforeUnmount, ref, watch, type Ref } from "vue";
+import { computed, inject, ref, watch, type Ref } from "vue";
 import { useVueFlow } from "@vue-flow/core";
 
 import type { GroupNodeData } from "@/types/flow";
@@ -96,9 +72,6 @@ const colorPresets = [
 const isDesignMode = computed(() => modeRef.value === "design");
 const labelText = ref("Group");
 const groupColor = ref("default");
-const isDirty = ref(false);
-const showAppliedFeedback = ref(false);
-let appliedFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
 let suppress = false;
 
 watch(
@@ -107,50 +80,22 @@ watch(
     suppress = true;
     labelText.value = next?.label?.trim() || "Group";
     groupColor.value = next?.color || "default";
-    isDirty.value = false;
     suppress = false;
   },
   { immediate: true, deep: true },
 );
 
-watch([labelText, groupColor], () => {
-  if (suppress || hydratingRef.value || !isDesignMode.value) return;
-  clearAppliedFeedback();
-  isDirty.value = true;
-});
+watch([labelText, groupColor], () => syncNodeData(), { flush: "sync" });
 
-function applyChanges() {
-  if (!isDesignMode.value || !isDirty.value) return;
+function syncNodeData() {
+  if (suppress || hydratingRef.value || !isDesignMode.value) return;
   updateNodeData(props.nodeId, {
     ...(props.data ?? { kind: "group" }),
     kind: "group",
     label: labelText.value.trim() || "Group",
     color: groupColor.value,
   });
-  isDirty.value = false;
-  triggerAppliedFeedback();
 }
-
-function triggerAppliedFeedback() {
-  showAppliedFeedback.value = true;
-  if (appliedFeedbackTimer) clearTimeout(appliedFeedbackTimer);
-  appliedFeedbackTimer = setTimeout(() => {
-    showAppliedFeedback.value = false;
-    appliedFeedbackTimer = null;
-  }, 1400);
-}
-
-function clearAppliedFeedback() {
-  showAppliedFeedback.value = false;
-  if (appliedFeedbackTimer) {
-    clearTimeout(appliedFeedbackTimer);
-    appliedFeedbackTimer = null;
-  }
-}
-
-onBeforeUnmount(() => {
-  clearAppliedFeedback();
-});
 </script>
 
 <style scoped>

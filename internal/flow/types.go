@@ -100,8 +100,8 @@ const (
 	ErrorStrategyContinue ErrorStrategy = "continue"
 )
 
-// Edge connects source output port to target input port.
-// Optional field mappings support edge-level data mapping.
+// Edge connects nodes for execution ordering.
+// Field mappings explicitly opt in to edge-level data mapping.
 type Edge struct {
 	ID      string         `json:"id,omitempty"`
 	Source  PortRef        `json:"source"`

@@ -1,16 +1,6 @@
 <template>
   <div class="min-w-0 space-y-3 overflow-x-hidden">
-    <div class="flex items-center justify-between">
-      <div class="text-xs text-subtle-foreground">Configure workflow step</div>
-      <span v-if="isDirty" class="text-[10px] italic text-warning-foreground"
-        >Unsaved</span
-      >
-      <span
-        v-else-if="showAppliedFeedback"
-        class="text-[10px] italic text-emerald-400"
-        >Applied</span
-      >
-    </div>
+    <div class="text-xs text-subtle-foreground">Configure workflow step</div>
 
     <label
       class="flex min-w-0 flex-col gap-1 text-[11px] text-muted-foreground"
@@ -78,46 +68,11 @@
         @update:model-value="onArgsUpdate"
       />
     </div>
-
-    <div class="pt-1 flex items-center justify-end gap-2">
-      <button
-        class="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium transition active:scale-95"
-        :class="
-          showAppliedFeedback
-            ? 'bg-emerald-500 text-white'
-            : 'bg-accent text-accent-foreground'
-        "
-        :disabled="(!isDirty && !showAppliedFeedback) || !isDesignMode"
-        @click="applyChanges"
-      >
-        <svg
-          v-if="showAppliedFeedback"
-          class="h-3 w-3"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="3"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        >
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
-        {{ showAppliedFeedback ? "Applied" : "Apply" }}
-      </button>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import {
-  computed,
-  inject,
-  onBeforeUnmount,
-  provide,
-  ref,
-  watch,
-  type Ref,
-} from "vue";
+import { computed, inject, provide, ref, watch, type Ref } from "vue";
 import { useVueFlow } from "@vue-flow/core";
 import FlowInputBindingsEditor from "@/components/flow/FlowInputBindingsEditor.vue";
 import DropdownSelect from "@/components/DropdownSelect.vue";
@@ -165,9 +120,6 @@ const guardText = ref("");
 const publishResult = ref(false);
 const toolName = ref("");
 const argsState = ref<Record<string, unknown>>({});
-const isDirty = ref(false);
-const showAppliedFeedback = ref(false);
-let appliedFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
 
 const currentTool = computed(
   () => toolOptions.value.find((t) => t.name === toolName.value) ?? null,
@@ -205,62 +157,33 @@ watch(
     argsState.value = cloneArgs(next?.tool?.args);
     // Strip output keys
     for (const k of OUTPUT_KEYS) delete (argsState.value as any)[k];
-    isDirty.value = false;
     suppress = false;
   },
   { immediate: true, deep: true },
 );
 
-watch([displayLabel, stepText, guardText, publishResult, toolName], () =>
-  markDirty(),
+watch(
+  [displayLabel, stepText, guardText, publishResult, toolName],
+  () => syncNodeData(),
+  { flush: "sync" },
 );
-watch(argsState, () => markDirty(), { deep: true });
+watch(argsState, () => syncNodeData(), { deep: true, flush: "sync" });
 
 function onArgsUpdate(value: unknown) {
   if (value && typeof value === "object" && !Array.isArray(value))
     argsState.value = value as Record<string, unknown>;
   else argsState.value = {};
-  markDirty();
 }
 
-function markDirty() {
+function syncNodeData() {
   if (suppress || hydratingRef.value || !isDesignMode.value) return;
-  clearAppliedFeedback();
-  isDirty.value = true;
-}
-
-function applyChanges() {
-  if (!isDesignMode.value || !isDirty.value) return;
   const payload = buildStep();
   updateNodeData(props.nodeId, {
     ...(props.data ?? { order: 0 }),
     step: payload,
     label: displayLabel.value.trim() || undefined,
   });
-  isDirty.value = false;
-  triggerAppliedFeedback();
 }
-
-function triggerAppliedFeedback() {
-  showAppliedFeedback.value = true;
-  if (appliedFeedbackTimer) clearTimeout(appliedFeedbackTimer);
-  appliedFeedbackTimer = setTimeout(() => {
-    showAppliedFeedback.value = false;
-    appliedFeedbackTimer = null;
-  }, 1400);
-}
-
-function clearAppliedFeedback() {
-  showAppliedFeedback.value = false;
-  if (appliedFeedbackTimer) {
-    clearTimeout(appliedFeedbackTimer);
-    appliedFeedbackTimer = null;
-  }
-}
-
-onBeforeUnmount(() => {
-  clearAppliedFeedback();
-});
 
 function buildStep(): FlowEditorStep {
   const built = buildToolPayload(toolName.value, argsState.value);

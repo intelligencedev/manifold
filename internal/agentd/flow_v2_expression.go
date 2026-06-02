@@ -20,18 +20,6 @@ func resolveNodeInputs(node flow.Node, incoming []flow.Edge, outputs map[string]
 			continue
 		}
 		if len(edge.Mapping) == 0 {
-			targetKey := strings.TrimSpace(edge.Target.Port)
-			if targetKey == "" {
-				targetKey = strings.TrimSpace(edge.Source.Port)
-			}
-			if targetKey == "" {
-				continue
-			}
-			val, ok := selectFlowPath(src, strings.TrimSpace(edge.Source.Port))
-			if !ok {
-				val = src
-			}
-			setFlowPath(resolved, targetKey, val)
 			continue
 		}
 		for _, m := range edge.Mapping {

@@ -1,10 +1,13 @@
 package agentd
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
 	"manifold/internal/llm"
+	"manifold/internal/sandbox"
+	"manifold/internal/workspaces"
 )
 
 func TestDurableChatJSONSafeHandlesEmptyRawToolArgs(t *testing.T) {
@@ -41,5 +44,21 @@ func TestDurableChatPayloadMapHandlesInvalidRawMessage(t *testing.T) {
 	}
 	if _, err := json.Marshal(out); err != nil {
 		t.Fatalf("marshal safe event payload: %v", err)
+	}
+}
+
+func TestWithCheckedOutWorkspaceContextAttachesProjectWorkspace(t *testing.T) {
+	t.Parallel()
+
+	ctx := withCheckedOutWorkspaceContext(context.Background(), chatRunRequest{ProjectID: "project-1"}, &workspaces.Workspace{
+		ProjectID: "project-1",
+		BaseDir:   "/tmp/workdir/users/42/projects/project-1",
+	})
+
+	if got, ok := sandbox.BaseDirFromContext(ctx); !ok || got != "/tmp/workdir/users/42/projects/project-1" {
+		t.Fatalf("base dir = %q ok=%v, want checked-out project workspace", got, ok)
+	}
+	if got, ok := sandbox.ProjectIDFromContext(ctx); !ok || got != "project-1" {
+		t.Fatalf("project id = %q ok=%v, want project-1", got, ok)
 	}
 }

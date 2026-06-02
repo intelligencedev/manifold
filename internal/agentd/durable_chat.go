@@ -697,6 +697,7 @@ func (a *app) prepareDurableChatRun(ctx context.Context, task durable.Task, para
 	if err != nil {
 		return durableChatPreparedRun{}, err
 	}
+	preparedReq.runCtx = withCheckedOutWorkspaceContext(preparedReq.runCtx, preparedReq.req, checkedOutWorkspace)
 	memorySettings := chatMemorySettingsFromRunRequest(preparedReq.req)
 	descriptor := a.durableChatDescriptor(params, preparedReq, memorySettings, checkedOutWorkspace)
 	build, runCtx, err := durableChatBuild(preparedReq, descriptor, memorySettings)
@@ -753,6 +754,17 @@ func (a *app) checkoutDurableChatWorkspace(ctx context.Context, taskUserID int64
 		return nil, err
 	}
 	return &ws, nil
+}
+
+func withCheckedOutWorkspaceContext(ctx context.Context, req chatRunRequest, ws *workspaces.Workspace) context.Context {
+	if ws == nil || strings.TrimSpace(ws.BaseDir) == "" {
+		return ctx
+	}
+	ctx = sandbox.WithBaseDir(ctx, ws.BaseDir)
+	if strings.TrimSpace(req.ProjectID) != "" {
+		ctx = sandbox.WithProjectID(ctx, req.ProjectID)
+	}
+	return ctx
 }
 
 func (a *app) durableChatDescriptor(params durableChatTaskParams, prepared durableChatPreparedRequest, memorySettings chatMemoryRunSettings, workspace *workspaces.Workspace) chatTargetDescriptor {

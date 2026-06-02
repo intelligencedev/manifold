@@ -164,10 +164,14 @@ CREATE TABLE IF NOT EXISTS specialist_groups (
 	user_id BIGINT NOT NULL DEFAULT 0,
 	name TEXT NOT NULL,
 	description TEXT NOT NULL DEFAULT '',
+	orchestrator_name TEXT NOT NULL DEFAULT '',
 	orchestrator JSONB NOT NULL DEFAULT '{}',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE specialist_groups
+	ADD COLUMN IF NOT EXISTS orchestrator_name TEXT NOT NULL DEFAULT '';
 
 CREATE UNIQUE INDEX IF NOT EXISTS specialist_groups_user_name_idx ON specialist_groups(user_id, name);
 
@@ -183,7 +187,7 @@ CREATE TABLE IF NOT EXISTS specialist_group_memberships (
 
 func (s *pgTeamStore) List(ctx context.Context, userID int64) ([]persistence.SpecialistTeam, error) {
 	rows, err := s.pool.Query(ctx, `
-SELECT g.id, g.user_id, g.name, g.description, g.orchestrator, g.created_at, g.updated_at,
+SELECT g.id, g.user_id, g.name, g.description, g.orchestrator_name, g.orchestrator, g.created_at, g.updated_at,
 	COALESCE(array_agg(m.specialist_name) FILTER (WHERE m.specialist_name IS NOT NULL), '{}')
 FROM specialist_groups g
 LEFT JOIN specialist_group_memberships m
@@ -200,7 +204,7 @@ ORDER BY LOWER(g.name);`, userID)
 		var g persistence.SpecialistTeam
 		var orchBytes []byte
 		var members []string
-		if err := rows.Scan(&g.ID, &g.UserID, &g.Name, &g.Description, &orchBytes, &g.CreatedAt, &g.UpdatedAt, &members); err != nil {
+		if err := rows.Scan(&g.ID, &g.UserID, &g.Name, &g.Description, &g.OrchestratorName, &orchBytes, &g.CreatedAt, &g.UpdatedAt, &members); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(orchBytes, &g.Orchestrator)
@@ -213,7 +217,7 @@ ORDER BY LOWER(g.name);`, userID)
 
 func (s *pgTeamStore) GetByName(ctx context.Context, userID int64, name string) (persistence.SpecialistTeam, bool, error) {
 	row := s.pool.QueryRow(ctx, `
-SELECT g.id, g.user_id, g.name, g.description, g.orchestrator, g.created_at, g.updated_at,
+SELECT g.id, g.user_id, g.name, g.description, g.orchestrator_name, g.orchestrator, g.created_at, g.updated_at,
 	COALESCE(array_agg(m.specialist_name) FILTER (WHERE m.specialist_name IS NOT NULL), '{}')
 FROM specialist_groups g
 LEFT JOIN specialist_group_memberships m
@@ -223,7 +227,7 @@ GROUP BY g.id;`, userID, name)
 	var g persistence.SpecialistTeam
 	var orchBytes []byte
 	var members []string
-	if err := row.Scan(&g.ID, &g.UserID, &g.Name, &g.Description, &orchBytes, &g.CreatedAt, &g.UpdatedAt, &members); err != nil {
+	if err := row.Scan(&g.ID, &g.UserID, &g.Name, &g.Description, &g.OrchestratorName, &orchBytes, &g.CreatedAt, &g.UpdatedAt, &members); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return persistence.SpecialistTeam{}, false, nil
 		}
@@ -241,10 +245,10 @@ func (s *pgTeamStore) Upsert(ctx context.Context, userID int64, g persistence.Sp
 	}
 	orch, _ := json.Marshal(g.Orchestrator)
 	row := s.pool.QueryRow(ctx, `
-INSERT INTO specialist_groups(user_id, name, description, orchestrator)
-VALUES($1,$2,$3,$4)
-ON CONFLICT (user_id, name) DO UPDATE SET description=EXCLUDED.description, orchestrator=EXCLUDED.orchestrator, updated_at=NOW()
-RETURNING id, created_at, updated_at;`, userID, g.Name, g.Description, orch)
+INSERT INTO specialist_groups(user_id, name, description, orchestrator_name, orchestrator)
+VALUES($1,$2,$3,$4,$5)
+ON CONFLICT (user_id, name) DO UPDATE SET description=EXCLUDED.description, orchestrator_name=EXCLUDED.orchestrator_name, orchestrator=EXCLUDED.orchestrator, updated_at=NOW()
+RETURNING id, created_at, updated_at;`, userID, g.Name, g.Description, g.OrchestratorName, orch)
 	if err := row.Scan(&g.ID, &g.CreatedAt, &g.UpdatedAt); err != nil {
 		return persistence.SpecialistTeam{}, err
 	}

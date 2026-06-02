@@ -143,6 +143,12 @@ func writeChatTargetBuildError(w http.ResponseWriter, build chatEngineBuildResul
 	switch build.StatusCode {
 	case http.StatusNotFound:
 		http.Error(w, notFoundMessage, http.StatusNotFound)
+	case http.StatusBadRequest:
+		message := internalMessage
+		if build.Err != nil {
+			message = build.Err.Error()
+		}
+		http.Error(w, message, http.StatusBadRequest)
 	default:
 		statusCode := build.StatusCode
 		if statusCode == 0 {

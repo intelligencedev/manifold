@@ -12,7 +12,6 @@ import (
 	"manifold/internal/agent/prompts"
 	"manifold/internal/config"
 	"manifold/internal/llm"
-	llmproviders "manifold/internal/llm/providers"
 	persist "manifold/internal/persistence"
 	"manifold/internal/sandbox"
 	"manifold/internal/specialists"
@@ -190,42 +189,42 @@ func (a *app) buildTeamChatEngine(ctx context.Context, req chatEngineBuildReques
 		return chatEngineBuildResult{StatusCode: http.StatusNotFound, Err: fmt.Errorf("team not found: %s", req.Name)}
 	}
 
-	sp := team.Orchestrator
-	if strings.TrimSpace(sp.Name) == "" {
-		sp.Name = specialists.OrchestratorName
+	orchestratorSpec, statusCode, err := a.resolveTeamOrchestratorSpecialist(ctx, req.Owner, team)
+	if err != nil {
+		return chatEngineBuildResult{StatusCode: statusCode, Err: err}
 	}
+	orchestratorName := strings.TrimSpace(orchestratorSpec.Name)
 
-	teamReg, err := a.buildTeamRegistry(ctx, req.Owner, team)
+	teamReg, err := a.buildTeamRegistry(ctx, req.Owner, team, orchestratorName)
 	if err != nil {
 		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: err}
 	}
 
-	llmCfg, provider := specialists.ApplyLLMClientOverride(a.cfg.LLMClient, sp)
-	userCfg := *a.cfg
-	userCfg.LLMClient = llmCfg
-	if provider == "" || provider == "openai" || provider == "local" {
-		userCfg.OpenAI = llmCfg.OpenAI
-	}
-	userLLM, err := llmproviders.Build(userCfg, a.httpClient)
+	reg, err := a.specialistsRegistryForUser(ctx, req.Owner)
 	if err != nil {
-		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: fmt.Errorf("team orchestrator not configured: %w", err)}
+		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: fmt.Errorf("specialist registry unavailable: %w", err)}
+	}
+	sp, ok := reg.Get(orchestratorName)
+	if !ok || sp == nil {
+		return chatEngineBuildResult{StatusCode: http.StatusBadRequest, Err: fmt.Errorf("team orchestrator specialist not available: %s", orchestratorName)}
+	}
+	userLLM := sp.Provider()
+	if userLLM == nil {
+		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: fmt.Errorf("team orchestrator not configured: %s", orchestratorName)}
 	}
 
-	currentModel := chatTeamModel(provider, llmCfg, sp)
-	toolReg := a.chatToolRegistry(sp.EnableTools, sp.AllowTools, sp.AutoDiscover, sp.RequestInfoEnabled)
-	basePrompt := strings.TrimSpace(sp.System)
-	if basePrompt == "" {
-		basePrompt = specialists.DefaultOrchestratorPrompt
+	currentModel := strings.TrimSpace(sp.Model)
+	toolReg := sp.ToolsRegistry()
+	if toolReg == nil || !sp.EnableTools {
+		toolReg = tools.NewRegistry()
 	}
-	systemPrompt := prompts.DefaultSystemPrompt(a.cfg.Workdir, basePrompt, promptInstructionOverrides(a.cfg))
+	systemPrompt := sp.System
 	systemPrompt = a.ensureChatMemoryInstructions(systemPrompt, req.MemorySettings.EvolvingMemoryEnabled)
-	resolvedAutoDiscover := a.resolveAutoDiscover(sp.AutoDiscover)
-	resolvedRequestInfo := a.resolveRequestInfoEnabled(sp.RequestInfoEnabled)
-	systemPrompt = a.ensureChatDiscoveryInstructions(systemPrompt, sp.EnableTools, resolvedAutoDiscover)
-	systemPrompt = a.ensureChatRequestInfoInstructions(systemPrompt, sp.EnableTools, resolvedRequestInfo)
+	systemPrompt = a.ensureChatDiscoveryInstructions(systemPrompt, sp.EnableTools, sp.AutoDiscover)
+	systemPrompt = a.ensureChatRequestInfoInstructions(systemPrompt, sp.EnableTools, sp.RequestInfoEnabled)
 	var skillsContext string
-	toolReg, systemPrompt, skillsContext = a.applyChatSkillsMode(toolReg, systemPrompt, a.chatProjectDir(ctx, nil), sp.EnableTools, resolvedAutoDiscover)
-	harnessCfg := harnessOverrideConfig(a.cfg.Harness, harnessConfigFromPersist(sp.Harness))
+	toolReg, systemPrompt, skillsContext = a.applyChatSkillsMode(toolReg, systemPrompt, a.chatProjectDir(ctx, nil), sp.EnableTools, sp.AutoDiscover)
+	harnessCfg := harnessOverrideConfig(a.cfg.Harness, sp.Harness)
 	eng := &agent.Engine{
 		LLM:                          userLLM,
 		Tools:                        toolReg,
@@ -241,7 +240,7 @@ func (a *app) buildTeamChatEngine(ctx context.Context, req chatEngineBuildReques
 		HarnessEnabled:               harnessCfg.Enabled,
 		HarnessConfig:                harnessRunConfig(harnessCfg),
 	}
-	a.configureBeliefRunState(eng, req.Owner, req.SessionID, req.ProjectID, req.ObjectiveID, req.Name)
+	a.configureBeliefRunState(eng, req.Owner, req.SessionID, req.ProjectID, req.ObjectiveID, orchestratorName)
 	em := a.attachSessionEvolvingMemory(eng, req.Owner, req.SessionID, req.MemorySettings.EvolvingMemoryEnabled)
 	applyChatMemorySettingsToEngine(eng, req.MemorySettings)
 	if eng.DisableEvolvingMemory {
@@ -253,8 +252,9 @@ func (a *app) buildTeamChatEngine(ctx context.Context, req chatEngineBuildReques
 	eng.TeamDelegator = a
 
 	return chatEngineBuildResult{
-		Engine:     eng,
-		ModelLabel: chatModelLabel(req.Name, currentModel),
+		Engine:          eng,
+		ModelLabel:      chatModelLabel(orchestratorName, currentModel),
+		ImageGeneration: sp.ImageGeneration,
 	}
 }
 
@@ -275,7 +275,7 @@ func (a *app) newTeamRunDelegator(eng *agent.Engine, teamReg *specialists.Regist
 	return delegator
 }
 
-func (a *app) buildTeamRegistry(ctx context.Context, owner int64, team persist.SpecialistTeam) (*specialists.Registry, error) {
+func (a *app) buildTeamRegistry(ctx context.Context, owner int64, team persist.SpecialistTeam, excludeName string) (*specialists.Registry, error) {
 	baseRegCfg := a.cfg.LLMClient
 	if orch, ok, _ := a.specStore.GetByName(ctx, owner, specialists.OrchestratorName); ok {
 		baseRegCfg, _ = specialists.ApplyLLMClientOverride(baseRegCfg, orch)
@@ -284,6 +284,9 @@ func (a *app) buildTeamRegistry(ctx context.Context, owner int64, team persist.S
 	for _, member := range team.Members {
 		key := strings.ToLower(strings.TrimSpace(member))
 		if key == "" {
+			continue
+		}
+		if strings.EqualFold(key, strings.TrimSpace(excludeName)) {
 			continue
 		}
 		memberSet[key] = struct{}{}

@@ -12,7 +12,6 @@ import (
 	"manifold/internal/config"
 	openaillm "manifold/internal/llm/openai"
 	"manifold/internal/persistence"
-	"manifold/internal/specialists"
 )
 
 type stubDebugEvolvingStore struct {
@@ -204,18 +203,18 @@ func TestDebugMemoryTargetSupportsCompactionTeamOverride(t *testing.T) {
 
 	app := newDebugMemoryTestApp(t)
 	ctx := context.Background()
-	_, err := app.specStore.Upsert(ctx, 7, persistence.Specialist{Name: "member-a", Provider: "openai", Model: "gpt-4.1-mini"})
+	_, err := app.specStore.Upsert(ctx, 7, persistence.Specialist{Name: "lead", Provider: "anthropic", Model: "claude-3-7-sonnet"})
+	if err != nil {
+		t.Fatalf("upsert lead: %v", err)
+	}
+	_, err = app.specStore.Upsert(ctx, 7, persistence.Specialist{Name: "member-a", Provider: "openai", Model: "gpt-4.1-mini"})
 	if err != nil {
 		t.Fatalf("upsert specialist: %v", err)
 	}
 	_, err = app.teamStore.Upsert(ctx, 7, persistence.SpecialistTeam{
-		Name: "ops",
-		Orchestrator: persistence.Specialist{
-			Name:     specialists.OrchestratorName,
-			Provider: "anthropic",
-			Model:    "claude-3-7-sonnet",
-		},
-		Members: []string{"member-a"},
+		Name:             "ops",
+		OrchestratorName: "lead",
+		Members:          []string{"lead", "member-a"},
 	})
 	if err != nil {
 		t.Fatalf("upsert team: %v", err)

@@ -411,8 +411,11 @@ func (a *app) resolveTeamVision(ctx context.Context, owner int64, teamName strin
 	if !ok {
 		return visionClientSelection{}, http.StatusNotFound, errors.New("team not found")
 	}
-	llmCfg, provider := specialists.ApplyLLMClientOverride(a.cfg.LLMClient, team.Orchestrator)
-	return a.visionFromConfig(llmCfg, provider, team.Orchestrator.Model, "team orchestrator not configured", unsupportedErr)
+	orchestrator, statusCode, err := a.resolveTeamOrchestratorSpecialist(ctx, owner, team)
+	if err != nil {
+		return visionClientSelection{}, statusCode, err
+	}
+	return a.resolveSpecialistVision(ctx, owner, orchestrator.Name, unsupportedErr)
 }
 
 func (a *app) resolveSpecialistVision(ctx context.Context, owner int64, specialistName string, unsupportedErr error) (visionClientSelection, int, error) {

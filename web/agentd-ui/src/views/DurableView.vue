@@ -339,7 +339,9 @@ const {
 });
 
 const queues = computed(() => queueData.value ?? []);
-const tasks = computed(() => taskData.value ?? []);
+const tasks = computed(() =>
+  [...(taskData.value ?? [])].sort(compareNewestTasks),
+);
 
 const queueNames = computed(() => {
   const names = new Set<string>();
@@ -455,6 +457,26 @@ function statusTone(status: DurableTaskStatus) {
     default:
       return "border-info/50 bg-info/10 text-info";
   }
+}
+
+function compareNewestTasks(a: DurableTask, b: DurableTask) {
+  const diff = taskSortTime(b) - taskSortTime(a);
+  if (diff !== 0) return diff;
+  return b.id.localeCompare(a.id);
+}
+
+function taskSortTime(task: DurableTask) {
+  return (
+    dateMillis(task.created_at) ||
+    dateMillis(task.updated_at) ||
+    dateMillis(task.available_at)
+  );
+}
+
+function dateMillis(value?: string) {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isNaN(time) ? 0 : time;
 }
 
 function formatNumber(value: number) {

@@ -2465,10 +2465,7 @@ function activityItemFromThread(thread: AgentThread): SpecialistActivityItem {
     id: [thread.assistantMessageId, thread.callId].filter(Boolean).join(":"),
     name,
     team,
-    model:
-      team && name.toLowerCase() === "orchestrator"
-        ? [team, (thread.model || "").trim()].filter(Boolean).join(" / ")
-        : (thread.model || "").trim(),
+    model: (thread.model || "").trim(),
     status,
     statusLabel: activityStateLabel(status),
     description: activityDescriptionForThread(thread),
@@ -2979,7 +2976,15 @@ function participantActivityKey(participant: Participant) {
 function activityItemKey(item: SpecialistActivityItem) {
   const team = (item.team || "").trim();
   const name = item.name.trim();
-  if (team && name.toLowerCase() === "orchestrator") {
+  const teamConfig = teamsByName.value.get(team.toLowerCase());
+  const orchestrator = teamConfig
+    ? teamOrchestratorDisplayName(teamConfig).toLowerCase()
+    : "";
+  if (
+    team &&
+    (name.toLowerCase() === "orchestrator" ||
+      name.toLowerCase() === orchestrator)
+  ) {
     return `team:${team.toLowerCase()}:orchestrator`;
   }
   if (item.isOrchestrator && team) {
@@ -3055,14 +3060,26 @@ function specialistParticipant(
   };
 }
 
-function teamOrchestratorDisplayName(teamName: string) {
-  const trimmed = teamName.trim();
+function teamOrchestratorName(team: SpecialistTeam) {
+  return (team.orchestratorName || "").trim();
+}
+
+function teamOrchestratorDisplayName(team: SpecialistTeam) {
+  const orchestrator = teamOrchestratorName(team);
+  if (orchestrator) return orchestrator;
+  const trimmed = (team.name || "").trim();
   return trimmed ? `${trimmed} orchestrator` : "Team orchestrator";
 }
 
 function teamOrchestratorModel(team: SpecialistTeam) {
+  const orchestrator = teamOrchestratorName(team);
+  if (orchestrator) {
+    return (
+      (specialistsByName.value.get(orchestrator.toLowerCase())?.model || "")
+        .trim() || ""
+    );
+  }
   return (
-    (team.orchestrator?.model || "").trim() ||
     sessionAgentDefaults.value.model ||
     ""
   );
@@ -3073,7 +3090,7 @@ function teamOrchestratorParticipant(team: SpecialistTeam): Participant | null {
   if (!name) return null;
   return {
     id: `team:${name.toLowerCase()}:orchestrator`,
-    name: teamOrchestratorDisplayName(name),
+    name: teamOrchestratorDisplayName(team),
     model: teamOrchestratorModel(team),
     kind: "team_orchestrator",
     routeName: "orchestrator",
@@ -3101,12 +3118,14 @@ const participantList = computed<Participant[]>(() => {
   const selectedTeamValue = selectedTeamConfig.value;
   if (selectedTeamValue) {
     add(teamOrchestratorParticipant(selectedTeamValue));
+    const orchestrator = teamOrchestratorName(selectedTeamValue).toLowerCase();
     const members = (selectedTeamValue.members || [])
       .map((name) => name.trim())
       .filter(Boolean)
       .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
     for (const name of members) {
       if (name.toLowerCase() === "orchestrator") continue;
+      if (orchestrator && name.toLowerCase() === orchestrator) continue;
       const spec = specialistsByName.value.get(name.toLowerCase());
       if (spec?.paused) continue;
       add(specialistParticipant(spec?.name || name, spec?.model || ""));
@@ -3165,9 +3184,13 @@ function participantIsActive(participant: Participant) {
     const liveAgent = (streamingMsg.agentName || streamingMsg.agent || "")
       .trim()
       .toLowerCase();
+    const liveTeamConfig = teamsByName.value.get(liveTeam.toLowerCase());
+    const liveTeamOrchestrator = liveTeamConfig
+      ? teamOrchestratorDisplayName(liveTeamConfig).toLowerCase()
+      : "";
     const liveKey =
       liveTeam &&
-      (liveAgent === teamOrchestratorDisplayName(liveTeam).toLowerCase() ||
+      (liveAgent === liveTeamOrchestrator ||
         liveAgent === "orchestrator")
         ? `team:${liveTeam.toLowerCase()}:orchestrator`
         : `specialist:${(
@@ -3797,7 +3820,7 @@ function resolveAgentContext() {
   const team = selectedTeamConfig.value;
   const agentName =
     team && selected.toLowerCase() === "orchestrator"
-      ? teamOrchestratorDisplayName(team.name)
+      ? teamOrchestratorDisplayName(team)
       : selected || fallback.agentName || "Agent";
   const teamModel =
     team && selected.toLowerCase() === "orchestrator"

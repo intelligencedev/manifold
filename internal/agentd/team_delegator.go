@@ -58,6 +58,10 @@ func (a *app) RunTeam(ctx context.Context, req agent.TeamDelegateRequest, tracer
 	eng.AgentDepth = req.Depth
 	eng.TeamDelegator = a
 	model := strings.TrimSpace(eng.Model)
+	orchestratorAgent := strings.TrimSpace(eng.AgentRole)
+	if orchestratorAgent == "" {
+		orchestratorAgent = "orchestrator"
+	}
 	annotatedTracer := teamTraceAnnotator{team: teamName, next: tracer}
 
 	runCtx := ctx
@@ -72,25 +76,25 @@ func (a *app) RunTeam(ctx context.Context, req agent.TeamDelegateRequest, tracer
 	}
 
 	if tracer != nil {
-		annotatedTracer.Trace(agent.AgentTrace{Type: "agent_start", Agent: "orchestrator", Team: teamName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Content: req.Prompt})
+		annotatedTracer.Trace(agent.AgentTrace{Type: "agent_start", Agent: orchestratorAgent, Team: teamName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Content: req.Prompt})
 		eng.AgentTracer = annotatedTracer
 		eng.OnDelta = func(delta string) {
 			if delta == "" {
 				return
 			}
-			annotatedTracer.Trace(agent.AgentTrace{Type: "agent_delta", Agent: "orchestrator", Team: teamName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Content: delta, Role: "assistant"})
+			annotatedTracer.Trace(agent.AgentTrace{Type: "agent_delta", Agent: orchestratorAgent, Team: teamName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Content: delta, Role: "assistant"})
 		}
 		eng.OnToolStart = func(name string, args []byte, toolID string) {
-			annotatedTracer.Trace(agent.AgentTrace{Type: "agent_tool_start", Agent: "orchestrator", Team: teamName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Title: name, Args: string(args), ToolID: toolID})
+			annotatedTracer.Trace(agent.AgentTrace{Type: "agent_tool_start", Agent: orchestratorAgent, Team: teamName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Title: name, Args: string(args), ToolID: toolID})
 		}
 		eng.OnTool = func(name string, args []byte, result []byte, toolID string) {
-			annotatedTracer.Trace(agent.AgentTrace{Type: "agent_tool_result", Agent: "orchestrator", Team: teamName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Title: name, Args: string(args), Data: string(result), ToolID: toolID})
+			annotatedTracer.Trace(agent.AgentTrace{Type: "agent_tool_result", Agent: orchestratorAgent, Team: teamName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Title: name, Args: string(args), Data: string(result), ToolID: toolID})
 		}
 		eng.OnThoughtSummary = func(summary string) {
 			if strings.TrimSpace(summary) == "" {
 				return
 			}
-			annotatedTracer.Trace(agent.AgentTrace{Type: "agent_thought_summary", Agent: "orchestrator", Team: teamName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, ThoughtSummary: summary})
+			annotatedTracer.Trace(agent.AgentTrace{Type: "agent_thought_summary", Agent: orchestratorAgent, Team: teamName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, ThoughtSummary: summary})
 		}
 	}
 
@@ -98,12 +102,12 @@ func (a *app) RunTeam(ctx context.Context, req agent.TeamDelegateRequest, tracer
 	out, err := eng.RunStream(runCtx, req.Prompt, req.History)
 	if err != nil {
 		if tracer != nil {
-			annotatedTracer.Trace(agent.AgentTrace{Type: "agent_error", Agent: "orchestrator", Team: teamName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Error: err.Error()})
+			annotatedTracer.Trace(agent.AgentTrace{Type: "agent_error", Agent: orchestratorAgent, Team: teamName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Error: err.Error()})
 		}
 		return "", err
 	}
 	if tracer != nil {
-		annotatedTracer.Trace(agent.AgentTrace{Type: "agent_final", Agent: "orchestrator", Team: teamName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Content: out})
+		annotatedTracer.Trace(agent.AgentTrace{Type: "agent_final", Agent: orchestratorAgent, Team: teamName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Content: out})
 	}
 	return out, nil
 }

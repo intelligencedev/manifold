@@ -199,16 +199,17 @@ type SpecialistHarnessCompact struct {
 	PhaseThresholds []float64 `json:"phaseThresholds"`
 }
 
-// SpecialistTeam represents a team of specialists with a unique orchestrator config.
+// SpecialistTeam represents a team of specialists with one member selected as orchestrator.
 type SpecialistTeam struct {
-	ID           int64      `json:"id"`
-	UserID       int64      `json:"userId"`
-	Name         string     `json:"name"`
-	Description  string     `json:"description"`
-	Orchestrator Specialist `json:"orchestrator"`
-	Members      []string   `json:"members"`
-	CreatedAt    time.Time  `json:"createdAt"`
-	UpdatedAt    time.Time  `json:"updatedAt"`
+	ID               int64      `json:"id"`
+	UserID           int64      `json:"userId"`
+	Name             string     `json:"name"`
+	Description      string     `json:"description"`
+	OrchestratorName string     `json:"orchestratorName"`
+	Orchestrator     Specialist `json:"orchestrator"`
+	Members          []string   `json:"members"`
+	CreatedAt        time.Time  `json:"createdAt"`
+	UpdatedAt        time.Time  `json:"updatedAt"`
 }
 
 // SpecialistsStore defines CRUD over specialists.

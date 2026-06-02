@@ -107,7 +107,8 @@ export interface SpecialistTeam {
   userId?: number;
   name: string;
   description?: string;
-  orchestrator: Specialist;
+  orchestratorName?: string;
+  orchestrator?: Specialist;
   members: string[];
   createdAt?: string;
   updatedAt?: string;

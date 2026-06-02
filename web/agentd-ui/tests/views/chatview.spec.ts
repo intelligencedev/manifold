@@ -12,8 +12,8 @@ const chatApiMocks = vi.hoisted(() => ({
   teams: [
     {
       name: "ops",
-      orchestrator: { name: "ops-orchestrator", model: "gpt-team" },
-      members: ["orchestrator-max"],
+      orchestratorName: "orchestrator-max",
+      members: ["orchestrator-max", "ops"],
     },
   ],
   streamAgentRun: vi.fn(async (_options: StreamAgentRunOptions) => {}),
@@ -96,6 +96,8 @@ vi.mock("@/api/chat", () => ({
     evolvingMemoryEnabled: true,
     beliefMemoryEnabled: true,
   }),
+  listActiveChatRuns: async () => [],
+  resumeChatRun: vi.fn(async () => {}),
   streamAgentRun: chatApiMocks.streamAgentRun,
   streamAgentVisionRun: vi.fn(async () => {}),
 }));
@@ -109,8 +111,8 @@ beforeEach(() => {
   chatApiMocks.teams = [
     {
       name: "ops",
-      orchestrator: { name: "ops-orchestrator", model: "gpt-team" },
-      members: ["orchestrator-max"],
+      orchestratorName: "orchestrator-max",
+      members: ["orchestrator-max", "ops"],
     },
   ];
   chatApiMocks.streamAgentRun.mockClear();
@@ -137,8 +139,8 @@ describe("ChatView", () => {
     chatApiMocks.teams = [
       {
         name: "ops",
-        orchestrator: { name: "ops-orchestrator", model: "gpt-team" },
-        members: ["orchestrator-max"],
+        orchestratorName: "orchestrator-max",
+        members: ["orchestrator-max", "ops"],
       },
     ];
   }
@@ -305,8 +307,8 @@ describe("ChatView", () => {
       const participantNames = Array.from(
         document.querySelectorAll(".participant-name"),
       ).map((el) => el.textContent?.trim());
-      expect(participantNames).toContain("ops orchestrator");
       expect(participantNames).toContain("orchestrator-max");
+      expect(participantNames).toContain("ops");
       expect(participantNames).not.toContain("orchestrator");
     });
   });

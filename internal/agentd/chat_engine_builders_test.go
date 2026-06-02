@@ -126,19 +126,25 @@ func TestBuildTeamChatEngineBuildsDelegatorAndDefaultPrompt(t *testing.T) {
 	app := newChatEngineBuilderTestApp(t)
 	ctx := context.Background()
 
-	_, err := app.specStore.Upsert(ctx, 9, persistence.Specialist{Name: "member-a", Provider: "openai", Model: "gpt-4.1-mini"})
+	_, err := app.specStore.Upsert(ctx, 9, persistence.Specialist{
+		Name:        "lead",
+		Provider:    "openai",
+		Model:       "gpt-4.1",
+		System:      specialists.DefaultOrchestratorPrompt,
+		EnableTools: true,
+		AllowTools:  []string{"shell"},
+	})
+	if err != nil {
+		t.Fatalf("upsert lead specialist: %v", err)
+	}
+	_, err = app.specStore.Upsert(ctx, 9, persistence.Specialist{Name: "member-a", Provider: "openai", Model: "gpt-4.1-mini", Description: "worker member"})
 	if err != nil {
 		t.Fatalf("upsert specialist: %v", err)
 	}
 	_, err = app.teamStore.Upsert(ctx, 9, persistence.SpecialistTeam{
-		Name: "ops",
-		Orchestrator: persistence.Specialist{
-			Name:        "ops-orchestrator",
-			Provider:    "openai",
-			EnableTools: true,
-			AllowTools:  []string{"shell"},
-		},
-		Members: []string{"member-a"},
+		Name:             "ops",
+		OrchestratorName: "lead",
+		Members:          []string{"lead", "member-a"},
 	})
 	if err != nil {
 		t.Fatalf("upsert team: %v", err)
@@ -151,7 +157,7 @@ func TestBuildTeamChatEngineBuildsDelegatorAndDefaultPrompt(t *testing.T) {
 	if result.Engine == nil || result.Engine.Delegator == nil {
 		t.Fatal("expected team engine delegator to be configured")
 	}
-	if result.ModelLabel != "ops:gpt-4.1" {
+	if result.ModelLabel != "lead:gpt-4.1" {
 		t.Fatalf("unexpected model label: %q", result.ModelLabel)
 	}
 	if !strings.Contains(result.Engine.System, specialists.DefaultOrchestratorPrompt) {
@@ -163,25 +169,36 @@ func TestBuildTeamChatEngineBuildsDelegatorAndDefaultPrompt(t *testing.T) {
 	if result.Engine.ContextWindowTokens <= 0 {
 		t.Fatalf("expected context window tokens, got %d", result.Engine.ContextWindowTokens)
 	}
+	if !strings.Contains(result.Engine.UserPromptContext, "member-a: worker member") {
+		t.Fatalf("expected worker in team prompt context, got %q", result.Engine.UserPromptContext)
+	}
+	if strings.Contains(result.Engine.UserPromptContext, "lead:") {
+		t.Fatalf("did not expect orchestrator in worker prompt context, got %q", result.Engine.UserPromptContext)
+	}
 }
 
-func TestBuildTeamChatEngineUsesTeamOrchestratorConfig(t *testing.T) {
+func TestBuildTeamChatEngineUsesSelectedOrchestratorSpecialistConfig(t *testing.T) {
 	t.Parallel()
 
 	app := newChatEngineBuilderTestApp(t)
 	ctx := context.Background()
 
-	_, err := app.teamStore.Upsert(ctx, 9, persistence.SpecialistTeam{
-		Name: "ops",
-		Orchestrator: persistence.Specialist{
-			Name:                       "ops-orchestrator",
-			Provider:                   "openai",
-			Model:                      "gpt-4.1-mini",
-			System:                     "You are the OPS TEAM ORCHESTRATOR. Always answer with the ops runbook.",
-			EnableTools:                true,
-			AllowTools:                 []string{"shell"},
-			SummaryContextWindowTokens: 12345,
-		},
+	_, err := app.specStore.Upsert(ctx, 9, persistence.Specialist{
+		Name:                       "lead",
+		Provider:                   "openai",
+		Model:                      "gpt-4.1-mini",
+		System:                     "You are the OPS TEAM ORCHESTRATOR. Always answer with the ops runbook.",
+		EnableTools:                true,
+		AllowTools:                 []string{"shell"},
+		SummaryContextWindowTokens: 12345,
+	})
+	if err != nil {
+		t.Fatalf("upsert lead specialist: %v", err)
+	}
+	_, err = app.teamStore.Upsert(ctx, 9, persistence.SpecialistTeam{
+		Name:             "ops",
+		OrchestratorName: "lead",
+		Members:          []string{"lead"},
 	})
 	if err != nil {
 		t.Fatalf("upsert team: %v", err)
@@ -200,7 +217,7 @@ func TestBuildTeamChatEngineUsesTeamOrchestratorConfig(t *testing.T) {
 	if result.Engine.Model != "gpt-4.1-mini" {
 		t.Fatalf("expected team orchestrator model, got %q", result.Engine.Model)
 	}
-	if result.ModelLabel != "ops:gpt-4.1-mini" {
+	if result.ModelLabel != "lead:gpt-4.1-mini" {
 		t.Fatalf("unexpected model label: %q", result.ModelLabel)
 	}
 	if result.Engine.ContextWindowTokens != 12345 {
@@ -275,13 +292,19 @@ func TestBuildChatEnginesCarryHarnessConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upsert specialist: %v", err)
 	}
+	_, err = app.specStore.Upsert(ctx, 9, persistence.Specialist{
+		Name:        "lead",
+		Provider:    "openai",
+		Model:       "gpt-4.1-mini",
+		EnableTools: true,
+	})
+	if err != nil {
+		t.Fatalf("upsert team orchestrator: %v", err)
+	}
 	_, err = app.teamStore.Upsert(ctx, 9, persistence.SpecialistTeam{
-		Name: "ops",
-		Orchestrator: persistence.Specialist{
-			Name:        "ops-orchestrator",
-			Provider:    "openai",
-			EnableTools: true,
-		},
+		Name:             "ops",
+		OrchestratorName: "lead",
+		Members:          []string{"lead"},
 	})
 	if err != nil {
 		t.Fatalf("upsert team: %v", err)
@@ -358,19 +381,18 @@ func TestBuildChatEnginesApplyPerTargetHarnessOverrides(t *testing.T) {
 		t.Fatalf("upsert specialist: %v", err)
 	}
 	app.invalidateSpecialistsCache(ctx, 7)
+	_, err = app.specStore.Upsert(ctx, 9, persistence.Specialist{Name: "lead", Provider: "openai", Model: "gpt-4.1-mini", EnableTools: true, Harness: override})
+	if err != nil {
+		t.Fatalf("upsert team orchestrator: %v", err)
+	}
 	_, err = app.specStore.Upsert(ctx, 9, persistence.Specialist{Name: "member-a", Provider: "openai", Model: "gpt-4.1-mini"})
 	if err != nil {
 		t.Fatalf("upsert team member: %v", err)
 	}
 	_, err = app.teamStore.Upsert(ctx, 9, persistence.SpecialistTeam{
-		Name: "ops",
-		Orchestrator: persistence.Specialist{
-			Name:        "ops-orchestrator",
-			Provider:    "openai",
-			EnableTools: true,
-			Harness:     override,
-		},
-		Members: []string{"member-a"},
+		Name:             "ops",
+		OrchestratorName: "lead",
+		Members:          []string{"lead", "member-a"},
 	})
 	if err != nil {
 		t.Fatalf("upsert team: %v", err)
@@ -526,21 +548,26 @@ func TestBuildTeamChatEngineUsesSkillSearchWhenAutoDiscoverEnabled(t *testing.T)
 	app.toolIndex = tooldiscovery.NewToolIndex(app.baseToolRegistry.Schemas())
 	ctx := sandbox.WithBaseDir(context.Background(), skillProjectDir(t, "release-checklist", "Coordinate a production release checklist."))
 
-	_, err := app.specStore.Upsert(ctx, 9, persistence.Specialist{Name: "member-a", Provider: "openai", Model: "gpt-4.1-mini"})
+	autoDiscover := true
+	_, err := app.specStore.Upsert(ctx, 9, persistence.Specialist{
+		Name:         "lead",
+		Provider:     "openai",
+		Model:        "gpt-4.1-mini",
+		EnableTools:  true,
+		AutoDiscover: &autoDiscover,
+		AllowTools:   []string{"read_file"},
+	})
+	if err != nil {
+		t.Fatalf("upsert team orchestrator: %v", err)
+	}
+	_, err = app.specStore.Upsert(ctx, 9, persistence.Specialist{Name: "member-a", Provider: "openai", Model: "gpt-4.1-mini"})
 	if err != nil {
 		t.Fatalf("upsert specialist: %v", err)
 	}
-	autoDiscover := true
 	_, err = app.teamStore.Upsert(ctx, 9, persistence.SpecialistTeam{
-		Name: "ops",
-		Orchestrator: persistence.Specialist{
-			Name:         "ops-orchestrator",
-			Provider:     "openai",
-			EnableTools:  true,
-			AutoDiscover: &autoDiscover,
-			AllowTools:   []string{"read_file"},
-		},
-		Members: []string{"member-a"},
+		Name:             "ops",
+		OrchestratorName: "lead",
+		Members:          []string{"lead", "member-a"},
 	})
 	if err != nil {
 		t.Fatalf("upsert team: %v", err)
@@ -669,18 +696,18 @@ func TestBuildTeamChatEngineAttachesSessionEvolvingMemory(t *testing.T) {
 	app.evolvingCfg = memory.EvolvingMemoryConfig{LLM: app.llm}
 	ctx := context.Background()
 
-	_, err := app.specStore.Upsert(ctx, 9, persistence.Specialist{Name: "member-a", Provider: "openai", Model: "gpt-4.1-mini"})
+	_, err := app.specStore.Upsert(ctx, 9, persistence.Specialist{Name: "lead", Provider: "openai", Model: "gpt-4.1-mini", EnableTools: true})
+	if err != nil {
+		t.Fatalf("upsert team orchestrator: %v", err)
+	}
+	_, err = app.specStore.Upsert(ctx, 9, persistence.Specialist{Name: "member-a", Provider: "openai", Model: "gpt-4.1-mini"})
 	if err != nil {
 		t.Fatalf("upsert specialist: %v", err)
 	}
 	_, err = app.teamStore.Upsert(ctx, 9, persistence.SpecialistTeam{
-		Name: "ops",
-		Orchestrator: persistence.Specialist{
-			Name:        "ops-orchestrator",
-			Provider:    "openai",
-			EnableTools: true,
-		},
-		Members: []string{"member-a"},
+		Name:             "ops",
+		OrchestratorName: "lead",
+		Members:          []string{"lead", "member-a"},
 	})
 	if err != nil {
 		t.Fatalf("upsert team: %v", err)

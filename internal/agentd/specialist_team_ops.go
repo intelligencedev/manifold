@@ -3,6 +3,7 @@ package agentd
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	persist "manifold/internal/persistence"
@@ -10,6 +11,7 @@ import (
 )
 
 var errOrchestratorDelete = errors.New("cannot delete orchestrator")
+var errTeamOrchestratorInUse = errors.New("cannot remove team orchestrator")
 
 func (a *app) listSpecialistsForUser(ctx context.Context, userID int64) ([]persist.Specialist, error) {
 	list, err := a.specStore.List(ctx, userID)
@@ -89,6 +91,9 @@ func (a *app) deleteSpecialistForUser(ctx context.Context, userID int64, name st
 	if name == specialists.OrchestratorName {
 		return errOrchestratorDelete
 	}
+	if err := a.ensureSpecialistNotTeamOrchestrator(ctx, userID, name); err != nil {
+		return err
+	}
 	if err := a.specStore.Delete(ctx, userID, name); err != nil {
 		return err
 	}
@@ -150,14 +155,20 @@ func (a *app) createTeamForUser(ctx context.Context, userID int64, team persist.
 		return persist.SpecialistTeam{}, errors.New("name required")
 	}
 	team.UserID = userID
-	team.Orchestrator = a.normalizeTeamOrchestrator(team.Name, team.Orchestrator)
+	team.OrchestratorName = strings.TrimSpace(team.OrchestratorName)
+	if _, _, err := a.resolveTeamOrchestratorSpecialist(ctx, userID, team); err != nil {
+		return persist.SpecialistTeam{}, err
+	}
 	return a.teamStore.Upsert(ctx, userID, team)
 }
 
 func (a *app) updateTeamForUser(ctx context.Context, userID int64, name string, team persist.SpecialistTeam) (persist.SpecialistTeam, error) {
 	team.Name = strings.TrimSpace(name)
 	team.UserID = userID
-	team.Orchestrator = a.normalizeTeamOrchestrator(name, team.Orchestrator)
+	team.OrchestratorName = strings.TrimSpace(team.OrchestratorName)
+	if _, _, err := a.resolveTeamOrchestratorSpecialist(ctx, userID, team); err != nil {
+		return persist.SpecialistTeam{}, err
+	}
 	return a.teamStore.Upsert(ctx, userID, team)
 }
 
@@ -170,7 +181,70 @@ func (a *app) addSpecialistToTeamForUser(ctx context.Context, userID int64, team
 }
 
 func (a *app) removeSpecialistFromTeamForUser(ctx context.Context, userID int64, teamName, specialistName string) error {
+	if a.teamStore == nil {
+		return nil
+	}
+	team, ok, err := a.teamStore.GetByName(ctx, userID, teamName)
+	if err != nil {
+		return err
+	}
+	if ok && strings.EqualFold(strings.TrimSpace(team.OrchestratorName), strings.TrimSpace(specialistName)) {
+		return errTeamOrchestratorInUse
+	}
 	return a.teamStore.RemoveMember(ctx, userID, teamName, specialistName)
+}
+
+func (a *app) resolveTeamOrchestratorSpecialist(ctx context.Context, userID int64, team persist.SpecialistTeam) (persist.Specialist, int, error) {
+	name := strings.TrimSpace(team.OrchestratorName)
+	if name == "" {
+		return persist.Specialist{}, httpStatusBadRequest, errors.New("team orchestrator is required")
+	}
+	if strings.EqualFold(name, specialists.OrchestratorName) {
+		return persist.Specialist{}, httpStatusBadRequest, errors.New("team orchestrator must be a persisted specialist, not the reserved orchestrator")
+	}
+	if !teamHasMember(team.Members, name) {
+		return persist.Specialist{}, httpStatusBadRequest, errors.New("team orchestrator must be a team member")
+	}
+	if a.specStore == nil {
+		return persist.Specialist{}, httpStatusInternalServerError, errors.New("specialists unavailable")
+	}
+	sp, ok, err := a.specStore.GetByName(ctx, userID, name)
+	if err != nil {
+		return persist.Specialist{}, httpStatusInternalServerError, fmt.Errorf("failed to load team orchestrator specialist: %w", err)
+	}
+	if !ok {
+		return persist.Specialist{}, httpStatusBadRequest, fmt.Errorf("team orchestrator specialist not found: %s", name)
+	}
+	if sp.Paused {
+		return persist.Specialist{}, httpStatusBadRequest, fmt.Errorf("team orchestrator specialist is paused: %s", name)
+	}
+	return sp, 0, nil
+}
+
+func (a *app) ensureSpecialistNotTeamOrchestrator(ctx context.Context, userID int64, specialistName string) error {
+	if a.teamStore == nil {
+		return nil
+	}
+	teams, err := a.teamStore.List(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for _, team := range teams {
+		if strings.EqualFold(strings.TrimSpace(team.OrchestratorName), strings.TrimSpace(specialistName)) {
+			return errTeamOrchestratorInUse
+		}
+	}
+	return nil
+}
+
+func teamHasMember(members []string, name string) bool {
+	name = strings.TrimSpace(name)
+	for _, member := range members {
+		if strings.EqualFold(strings.TrimSpace(member), name) {
+			return true
+		}
+	}
+	return false
 }
 
 func parseTeamMemberPath(path string) (teamName, specialistName string, ok bool) {
@@ -187,3 +261,5 @@ func parseTeamMemberPath(path string) (teamName, specialistName string, ok bool)
 }
 
 const httpStatusCreated = 201
+const httpStatusBadRequest = 400
+const httpStatusInternalServerError = 500

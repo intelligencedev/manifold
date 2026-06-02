@@ -112,28 +112,83 @@ func TestDeleteSpecialistForUserRemovesMemberships(t *testing.T) {
 	}
 }
 
-func TestCreateTeamForUserNormalizesOrchestrator(t *testing.T) {
+func TestCreateTeamForUserRequiresSelectedMemberOrchestrator(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
 	app := newSpecialistTeamTestApp()
-	app.cfg.SystemPrompt = "system-base"
 
-	team, err := app.createTeamForUser(ctx, 31, persistence.SpecialistTeam{Name: "ops"})
+	_, err := app.specStore.Upsert(ctx, 31, persistence.Specialist{Name: "lead", Provider: "openai", Model: "gpt-4.1"})
+	if err != nil {
+		t.Fatalf("upsert specialist: %v", err)
+	}
+
+	team, err := app.createTeamForUser(ctx, 31, persistence.SpecialistTeam{
+		Name:             "ops",
+		OrchestratorName: "lead",
+		Members:          []string{"lead"},
+	})
 	if err != nil {
 		t.Fatalf("createTeamForUser: %v", err)
 	}
-	if team.Orchestrator.Name != "ops-orchestrator" {
-		t.Fatalf("expected generated orchestrator name, got %q", team.Orchestrator.Name)
+	if team.OrchestratorName != "lead" {
+		t.Fatalf("expected selected orchestrator, got %q", team.OrchestratorName)
 	}
-	if team.Orchestrator.Provider != "openai" {
-		t.Fatalf("expected default provider, got %q", team.Orchestrator.Provider)
+	if len(team.Members) != 1 || team.Members[0] != "lead" {
+		t.Fatalf("expected lead membership, got %#v", team.Members)
 	}
-	if team.Orchestrator.Model != "gpt-4.1" {
-		t.Fatalf("expected provider default model, got %q", team.Orchestrator.Model)
+}
+
+func TestCreateTeamForUserRejectsInvalidOrchestrator(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := newSpecialistTeamTestApp()
+	_, err := app.specStore.Upsert(ctx, 32, persistence.Specialist{Name: "lead", Provider: "openai", Model: "gpt-4.1"})
+	if err != nil {
+		t.Fatalf("upsert lead: %v", err)
 	}
-	if team.Orchestrator.System != "system-base" {
-		t.Fatalf("expected system prompt fallback, got %q", team.Orchestrator.System)
+	_, err = app.specStore.Upsert(ctx, 32, persistence.Specialist{Name: "paused", Provider: "openai", Model: "gpt-4.1", Paused: true})
+	if err != nil {
+		t.Fatalf("upsert paused: %v", err)
+	}
+
+	cases := []persistence.SpecialistTeam{
+		{Name: "missing-name", Members: []string{"lead"}},
+		{Name: "reserved", OrchestratorName: specialists.OrchestratorName, Members: []string{specialists.OrchestratorName}},
+		{Name: "not-member", OrchestratorName: "lead", Members: []string{}},
+		{Name: "unknown", OrchestratorName: "missing", Members: []string{"missing"}},
+		{Name: "paused", OrchestratorName: "paused", Members: []string{"paused"}},
+	}
+	for _, tc := range cases {
+		if _, err := app.createTeamForUser(ctx, 32, tc); err == nil {
+			t.Fatalf("expected create team %q to fail", tc.Name)
+		}
+	}
+}
+
+func TestCannotRemoveOrDeleteTeamOrchestrator(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := newSpecialistTeamTestApp()
+	_, err := app.specStore.Upsert(ctx, 33, persistence.Specialist{Name: "lead", Provider: "openai", Model: "gpt-4.1"})
+	if err != nil {
+		t.Fatalf("upsert lead: %v", err)
+	}
+	_, err = app.createTeamForUser(ctx, 33, persistence.SpecialistTeam{
+		Name:             "ops",
+		OrchestratorName: "lead",
+		Members:          []string{"lead"},
+	})
+	if err != nil {
+		t.Fatalf("create team: %v", err)
+	}
+	if err := app.removeSpecialistFromTeamForUser(ctx, 33, "ops", "lead"); err == nil {
+		t.Fatal("expected removing team orchestrator to fail")
+	}
+	if err := app.deleteSpecialistForUser(ctx, 33, "lead"); err == nil {
+		t.Fatal("expected deleting team orchestrator to fail")
 	}
 }
 

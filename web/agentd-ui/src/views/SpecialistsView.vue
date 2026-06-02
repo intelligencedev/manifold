@@ -125,10 +125,12 @@
                     Orchestrator
                   </p>
                   <p class="text-sm text-muted-foreground">
-                    {{ t.orchestrator?.model || "—" }}
+                    {{ teamOrchestratorLabel(t) }}
                   </p>
                 </div>
-                <Pill tone="accent" size="sm">Team</Pill>
+                <Pill :tone="t.orchestratorName ? 'accent' : 'danger'" size="sm">
+                  {{ t.orchestratorName ? "Team" : "Needs setup" }}
+                </Pill>
               </div>
               <p class="mt-3 text-sm text-subtle-foreground">
                 {{ t.description || "No description provided yet." }}
@@ -386,9 +388,7 @@
             class="h-full"
             :initial="teamEditorInitial!"
             :lockName="teamEditorLockName"
-            :providerDefaults="providerDefaultsMap"
-            :providerOptions="providerOptions"
-            :availableSpecialists="specialistNames"
+            :availableSpecialists="specialists"
             @cancel="closeEditor"
             @saved="onTeamSaved"
           />
@@ -453,15 +453,6 @@ const providerDefaultsMap = computed<
   Record<string, SpecialistProviderDefaults> | undefined
 >(() => providerDefaultsData.value);
 const teams = computed<SpecialistTeam[]>(() => teamsData.value ?? []);
-// Always present specialists sorted by name (case-insensitive)
-// Check if a name is a team orchestrator (e.g., "alpha-orchestrator") but NOT the main "orchestrator"
-function isTeamOrchestratorName(name?: string | null): boolean {
-  if (!name) return false;
-  // Keep the main orchestrator visible; only hide team-specific orchestrators
-  if (name === "orchestrator") return false;
-  return name.endsWith("-orchestrator");
-}
-
 const specialists = computed<Specialist[]>(() => {
   const list = data.value ?? [];
   const unique: Specialist[] = [];
@@ -475,9 +466,8 @@ const specialists = computed<Specialist[]>(() => {
       unique.push(sp);
     }
   }
-  const filtered = unique.filter((sp) => !isTeamOrchestratorName(sp.name));
   // Keep stable ordering from API but present alphabetically for UX.
-  return [...filtered].sort((a, b) =>
+  return [...unique].sort((a, b) =>
     a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
   );
 });
@@ -504,20 +494,19 @@ const providerOptions = computed(() => {
   return ["openai", "anthropic", "google", "local"];
 });
 
-const providerDropdownOptions = computed(() =>
-  providerOptions.value.map((opt) => ({ id: opt, label: opt, value: opt })),
-);
-
 const teamNames = computed(() =>
   teams.value
     .map((team) => team.name)
     .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })),
 );
-const specialistNames = computed(() =>
-  specialists.value
-    .filter((sp) => !isTeamOrchestratorName(sp.name))
-    .map((sp) => sp.name),
-);
+const specialistsByName = computed(() => {
+  const map = new Map<string, Specialist>();
+  for (const sp of specialists.value) {
+    const key = (sp.name || "").trim().toLowerCase();
+    if (key) map.set(key, sp);
+  }
+  return map;
+});
 
 const activeListTab = ref<"specialists" | "teams">("specialists");
 const teamFilter = ref<"all" | "unassigned" | string>("all");
@@ -559,6 +548,14 @@ function toolsBadgeClass(enabled: boolean): string {
   return enabled
     ? "inline-flex items-center rounded-full border border-success/40 bg-success/10 px-2 py-1 font-medium text-success"
     : "inline-flex items-center rounded-full border border-border/50 bg-surface-muted/30 px-2 py-1 font-medium text-subtle-foreground";
+}
+
+function teamOrchestratorLabel(team: SpecialistTeam): string {
+  const name = (team.orchestratorName || "").trim();
+  if (!name) return "Required";
+  const spec = specialistsByName.value.get(name.toLowerCase());
+  const model = (spec?.model || "").trim();
+  return model ? `${name} · ${model}` : name;
 }
 
 function specialistDescription(s: Specialist): string {
@@ -703,26 +700,12 @@ function onSaved(saved: Specialist) {
 
 function startCreateTeam() {
   activeListTab.value = "teams";
-  const defaultProvider = providerOptions.value[0] || "openai";
   teamEditorInitial.value = {
     name: "",
     description: "",
+    orchestratorName: "",
     members: [],
-    orchestrator: {
-      name: "new-team-orchestrator",
-      description: "Team orchestrator",
-      provider: defaultProvider,
-      model: "",
-      baseURL: "",
-      enableTools: true,
-      requestInfoEnabled: true,
-      autoDiscover: false,
-      paused: false,
-      system: "",
-      allowTools: [],
-      extraHeaders: {},
-      extraParams: {},
-    },
+    orchestrator: {} as Specialist,
   };
   teamEditorLockName.value = false;
   editingType.value = "team";
@@ -742,6 +725,7 @@ function editTeam(team: SpecialistTeam) {
   teamEditorInitial.value = {
     ...team,
     description: team.description ?? "",
+    orchestratorName: team.orchestratorName || "",
     members: team.members || [],
     orchestrator: team.orchestrator,
   };
@@ -758,6 +742,7 @@ function onTeamSaved(saved: SpecialistTeam) {
   teamEditorInitial.value = {
     ...saved,
     description: saved.description ?? "",
+    orchestratorName: saved.orchestratorName || "",
     members: saved.members || [],
     orchestrator: saved.orchestrator,
   };

@@ -335,7 +335,7 @@ func (a *app) applyTeamMemberships(ctx context.Context, userID int64, specialist
 	}
 	for t := range currentSet {
 		if _, ok := desiredSet[t]; !ok {
-			if err := a.teamStore.RemoveMember(ctx, userID, t, specialistName); err != nil {
+			if err := a.removeSpecialistFromTeamForUser(ctx, userID, t, specialistName); err != nil {
 				return err
 			}
 		}
@@ -356,7 +356,7 @@ func (a *app) removeSpecialistFromTeams(ctx context.Context, userID int64, speci
 	}
 	current := a.teamMembershipsForUser(ctx, userID)[specialistName]
 	for _, t := range current {
-		if err := a.teamStore.RemoveMember(ctx, userID, t, specialistName); err != nil {
+		if err := a.removeSpecialistFromTeamForUser(ctx, userID, t, specialistName); err != nil {
 			return err
 		}
 	}

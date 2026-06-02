@@ -342,7 +342,17 @@ func (a *app) chatRunDetailHandler() http.HandlerFunc {
 				writeDurableError(w, err)
 				return
 			}
-			writeJSON(w, http.StatusOK, map[string]any{"run_id": runID, "status": task.Status})
+			sequences, err := a.durableChatSequenceSummary(r.Context(), userID, runID)
+			if err != nil {
+				writeDurableError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"run_id":              runID,
+				"status":              task.Status,
+				"last_sequence":       sequences.lastSequence,
+				"last_retry_sequence": sequences.lastRetrySequence,
+			})
 		case "input":
 			if r.Method != http.MethodPost || requestID == "" {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1063,6 +1073,11 @@ func (a *app) handleChatSessionRuns(w http.ResponseWriter, r *http.Request, user
 		if activeOnly && !durableChatRecoverableStatus(task.Status) {
 			continue
 		}
+		sequences, err := a.durableChatSequenceSummary(r.Context(), durableUserID, task.ID)
+		if err != nil {
+			writeDurableError(w, err)
+			return
+		}
 		runs = append(runs, map[string]any{
 			"run_id":               task.ID,
 			"status":               task.Status,
@@ -1072,9 +1087,36 @@ func (a *app) handleChatSessionRuns(w http.ResponseWriter, r *http.Request, user
 			"created_at":           task.CreatedAt,
 			"updated_at":           task.UpdatedAt,
 			"error":                task.Error,
+			"last_sequence":        sequences.lastSequence,
+			"last_retry_sequence":  sequences.lastRetrySequence,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"runs": runs})
+}
+
+type durableChatSequenceSummary struct {
+	lastSequence      int64
+	lastRetrySequence int64
+}
+
+func (a *app) durableChatSequenceSummary(ctx context.Context, userID int64, runID string) (durableChatSequenceSummary, error) {
+	events, _, found, err := a.durableClient.ListEvents(ctx, userID, runID, 0)
+	if err != nil {
+		return durableChatSequenceSummary{}, err
+	}
+	if !found {
+		return durableChatSequenceSummary{}, durable.ErrTaskNotFound
+	}
+	var summary durableChatSequenceSummary
+	for _, event := range events {
+		if event.Sequence > summary.lastSequence {
+			summary.lastSequence = event.Sequence
+		}
+		if event.Name == "task_retried" && event.Sequence > summary.lastRetrySequence {
+			summary.lastRetrySequence = event.Sequence
+		}
+	}
+	return summary, nil
 }
 
 func durableChatRecoverableStatus(status durable.TaskStatus) bool {

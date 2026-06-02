@@ -1,4 +1,5 @@
 import type { ChatMessage } from "@/types/chat";
+import type { ChatStreamEvent } from "@/api/chat";
 import {
   createChatSession as apiCreateChatSession,
   deleteChatSession as apiDeleteChatSession,
@@ -122,9 +123,10 @@ async function recoverActiveChatRun(state: ChatStoreState, sessionId: string) {
   );
   if (!run?.run_id) return;
   const assistantId = run.assistant_message_id || createId();
-  const streamId = createId();
-  const controller = new AbortController();
   const messages = state.messagesBySession.value[sessionId] || [];
+  const running = run.status !== "failed";
+  const lastSequence = numericSequence(run.last_sequence);
+  const lastRetrySequence = numericSequence(run.last_retry_sequence);
   if (!messages.some((m) => m.id === assistantId)) {
     state.appendMessage(sessionId, {
       id: assistantId,
@@ -132,10 +134,22 @@ async function recoverActiveChatRun(state: ChatStoreState, sessionId: string) {
       content: "",
       createdAt: new Date().toISOString(),
       runId: run.run_id,
-      streaming: run.status !== "failed",
-      error: run.status === "failed" ? run.error || "Run failed" : undefined,
+      streaming: running,
+      error: running ? undefined : run.error || "Run failed",
+      lastRunSequence: lastSequence || undefined,
     });
+  } else {
+    state.updateMessage(sessionId, assistantId, (message) => ({
+      ...message,
+      runId: run.run_id,
+      streaming: running,
+      error: running ? undefined : run.error || message.error || "Run failed",
+      lastRunSequence: Math.max(message.lastRunSequence || 0, lastSequence) || undefined,
+    }));
   }
+  if (!running) return;
+  const streamId = createId();
+  const controller = new AbortController();
   state.setStreamingState(sessionId, {
     assistantId,
     abortController: controller,
@@ -148,7 +162,8 @@ async function recoverActiveChatRun(state: ChatStoreState, sessionId: string) {
     await streamChatRunEvents({
       runId: run.run_id,
       signal: controller.signal,
-      onEvent: (event) =>
+      onEvent: (event) => {
+        if (isStaleRetryError(event, lastRetrySequence)) return;
         handleStreamEvent(
           state,
           queryClient,
@@ -156,7 +171,8 @@ async function recoverActiveChatRun(state: ChatStoreState, sessionId: string) {
           sessionId,
           assistantId,
           streamId,
-        ),
+        );
+      },
     });
   } catch (error) {
     if (!(error instanceof DOMException && error.name === "AbortError")) {
@@ -172,6 +188,17 @@ async function recoverActiveChatRun(state: ChatStoreState, sessionId: string) {
       state.clearToolIndex(sessionId, streamId);
     }
   }
+}
+
+function numericSequence(value: unknown) {
+  const sequence = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(sequence) && sequence > 0 ? sequence : 0;
+}
+
+function isStaleRetryError(event: ChatStreamEvent, retrySequence: number) {
+  if (retrySequence <= 0 || event.type !== "error") return false;
+  const sequence = numericSequence(event.sequence);
+  return sequence > 0 && sequence <= retrySequence;
 }
 
 async function normalizedRemoteSessions(initial: boolean) {

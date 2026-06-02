@@ -269,6 +269,91 @@ FROM durable_events WHERE task_id=$1 AND sequence > $2 ORDER BY sequence ASC
 	return events, task.Status, true, rows.Err()
 }
 
+func (s *PostgresStore) ListTaskEventsPage(ctx context.Context, userID int64, taskID string, filter EventListFilter) (EventPage, error) {
+	task, ok, err := s.GetTask(ctx, userID, taskID)
+	if err != nil || !ok {
+		return EventPage{Found: ok}, err
+	}
+	filter.Limit = normalizeEventListLimit(filter.Limit)
+	events, hasExtra, err := s.queryTaskEventPage(ctx, taskID, filter)
+	if err != nil {
+		return EventPage{}, err
+	}
+	page := EventPage{Status: task.Status, Found: true, Limit: filter.Limit}
+	switch {
+	case filter.BeforeSequence > 0:
+		page.HasMoreBefore = hasExtra
+		page.HasMoreAfter, err = s.taskEventExistsAtOrAfter(ctx, taskID, filter.BeforeSequence)
+	case filter.AfterSequence > 0:
+		page.HasMoreBefore, err = s.taskEventExistsAtOrBefore(ctx, taskID, filter.AfterSequence)
+		page.HasMoreAfter = hasExtra
+	default:
+		page.HasMoreBefore = hasExtra
+	}
+	if err != nil {
+		return EventPage{}, err
+	}
+	return withEventPageEvents(page, events), nil
+}
+
+func (s *PostgresStore) queryTaskEventPage(ctx context.Context, taskID string, filter EventListFilter) ([]Event, bool, error) {
+	switch {
+	case filter.BeforeSequence > 0:
+		return s.queryTaskEventsDescending(ctx, `
+	SELECT id, COALESCE(task_id,''), queue, name, sequence, event_key, payload, occurred_at
+	FROM durable_events WHERE task_id=$1 AND sequence < $2 ORDER BY sequence DESC LIMIT $3
+	`, taskID, filter.BeforeSequence, int64(filter.Limit))
+	case filter.AfterSequence > 0:
+		return s.queryTaskEventsAscending(ctx, `
+	SELECT id, COALESCE(task_id,''), queue, name, sequence, event_key, payload, occurred_at
+	FROM durable_events WHERE task_id=$1 AND sequence > $2 ORDER BY sequence ASC LIMIT $3
+	`, taskID, filter.AfterSequence, filter.Limit)
+	default:
+		return s.queryTaskEventsDescending(ctx, `
+	SELECT id, COALESCE(task_id,''), queue, name, sequence, event_key, payload, occurred_at
+	FROM durable_events WHERE task_id=$1 ORDER BY sequence DESC LIMIT $2
+	`, taskID, int64(filter.Limit))
+	}
+}
+
+func (s *PostgresStore) queryTaskEventsAscending(ctx context.Context, query string, taskID string, cursor int64, limit int) ([]Event, bool, error) {
+	rows, err := s.pool.Query(ctx, query, taskID, cursor, limit+1)
+	if err != nil {
+		return nil, false, err
+	}
+	return scanEventPageRows(rows, limit, false)
+}
+
+func (s *PostgresStore) queryTaskEventsDescending(ctx context.Context, query string, taskID string, args ...int64) ([]Event, bool, error) {
+	queryArgs := []any{taskID}
+	limit := int(args[len(args)-1])
+	for _, arg := range args {
+		queryArgs = append(queryArgs, arg)
+	}
+	queryArgs[len(queryArgs)-1] = limit + 1
+	rows, err := s.pool.Query(ctx, query, queryArgs...)
+	if err != nil {
+		return nil, false, err
+	}
+	return scanEventPageRows(rows, limit, true)
+}
+
+func (s *PostgresStore) taskEventExistsAtOrAfter(ctx context.Context, taskID string, sequence int64) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx, `
+	SELECT EXISTS(SELECT 1 FROM durable_events WHERE task_id=$1 AND sequence >= $2)
+	`, taskID, sequence).Scan(&exists)
+	return exists, err
+}
+
+func (s *PostgresStore) taskEventExistsAtOrBefore(ctx context.Context, taskID string, sequence int64) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx, `
+	SELECT EXISTS(SELECT 1 FROM durable_events WHERE task_id=$1 AND sequence <= $2)
+	`, taskID, sequence).Scan(&exists)
+	return exists, err
+}
+
 func (s *PostgresStore) AppendTaskEvent(ctx context.Context, taskID string, name string, payload map[string]any) (Event, error) {
 	return s.appendTaskEvent(ctx, taskID, "", name, payload)
 }

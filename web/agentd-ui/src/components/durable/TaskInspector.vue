@@ -204,16 +204,44 @@
         <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
           <!-- Sticky timeline header -->
           <div
-            class="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-border/60 bg-surface-muted/60 px-4 py-3 "
+            class="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-border/60 bg-surface-muted/60 px-4 py-3"
           >
-            <p
-              class="text-[10px] font-semibold uppercase tracking-[0.22em] text-subtle-foreground"
-            >
-              Event Timeline
-            </p>
-            <span class="text-xs text-faint-foreground tabular-nums">
-              {{ events.length }} events
-            </span>
+            <div class="min-w-0">
+              <p
+                class="text-[10px] font-semibold uppercase tracking-[0.22em] text-subtle-foreground"
+              >
+                Event Timeline
+              </p>
+              <p class="mt-1 text-xs text-faint-foreground tabular-nums">
+                {{ eventRangeLabel }}
+              </p>
+            </div>
+            <div class="flex shrink-0 items-center gap-1.5">
+              <AppButton
+                size="xs"
+                variant="ghost"
+                :disabled="olderEventsDisabled"
+                @click="$emit('eventsOlder')"
+              >
+                Older
+              </AppButton>
+              <AppButton
+                size="xs"
+                variant="ghost"
+                :disabled="newerEventsDisabled"
+                @click="$emit('eventsNewer')"
+              >
+                Newer
+              </AppButton>
+              <AppButton
+                size="xs"
+                variant="ghost"
+                :disabled="latestEventsDisabled"
+                @click="$emit('eventsLatest')"
+              >
+                Latest
+              </AppButton>
+            </div>
           </div>
 
           <!-- Scrollable timeline list -->
@@ -319,6 +347,7 @@ import { computed, ref, watch } from "vue";
 import type {
   DurableEvent,
   DurableTask,
+  DurableTaskEventsResponse,
   DurableTaskStatus,
 } from "@/api/durable";
 import AppButton from "@/components/ui/AppButton.vue";
@@ -328,6 +357,7 @@ const props = withDefaults(
   defineProps<{
     task: DurableTask | null;
     events: DurableEvent[];
+    eventsPage?: DurableTaskEventsResponse | null;
     eventsLoading?: boolean;
     cancelLoading?: boolean;
     retryLoading?: boolean;
@@ -345,6 +375,9 @@ defineEmits<{
   close: [];
   cancel: [taskId: string];
   retry: [taskId: string, resetCheckpoints: boolean];
+  eventsOlder: [];
+  eventsNewer: [];
+  eventsLatest: [];
 }>();
 
 const resetCheckpoints = ref(false);
@@ -360,6 +393,31 @@ const canRetry = computed(() => {
   const status = props.task?.status;
   return status === "failed" || status === "cancelled";
 });
+
+const eventRangeLabel = computed(() => {
+  const firstSequence = props.eventsPage?.first_sequence;
+  const lastSequence = props.eventsPage?.last_sequence;
+  const shown = props.events.length;
+  if (firstSequence && lastSequence) {
+    return `#${firstSequence} - #${lastSequence} · ${shown} shown`;
+  }
+  return `${shown} events`;
+});
+
+const olderEventsDisabled = computed(
+  () => props.eventsLoading || !props.eventsPage?.has_more_before,
+);
+
+const newerEventsDisabled = computed(
+  () =>
+    props.eventsLoading ||
+    !props.eventsPage?.has_more_after ||
+    !props.eventsPage?.last_sequence,
+);
+
+const latestEventsDisabled = computed(
+  () => props.eventsLoading || !props.eventsPage?.has_more_after,
+);
 
 watch(
   () => props.task?.id,

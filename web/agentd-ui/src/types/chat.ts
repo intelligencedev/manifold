@@ -109,6 +109,7 @@ export interface ChatMessage {
   agentModel?: string;
   model?: string;
   runId?: string;
+  lastRunSequence?: number;
   activityToolTitle?: string;
   activityThoughtSummary?: string;
   memoryContext?: ChatMemoryContext;

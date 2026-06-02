@@ -179,6 +179,35 @@ func scanEvent(row pgx.Row) (Event, error) {
 	return ev, nil
 }
 
+func scanEventPageRows(rows pgx.Rows, limit int, reverse bool) ([]Event, bool, error) {
+	defer rows.Close()
+	events := []Event{}
+	for rows.Next() {
+		ev, err := scanEvent(rows)
+		if err != nil {
+			return nil, false, err
+		}
+		events = append(events, ev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	hasExtra := len(events) > limit
+	if hasExtra {
+		events = events[:limit]
+	}
+	if reverse {
+		reverseEvents(events)
+	}
+	return events, hasExtra, nil
+}
+
+func reverseEvents(events []Event) {
+	for i, j := 0, len(events)-1; i < j; i, j = i+1, j-1 {
+		events[i], events[j] = events[j], events[i]
+	}
+}
+
 func scanWait(row pgx.Row) (Wait, error) {
 	var wait Wait
 	var kind string

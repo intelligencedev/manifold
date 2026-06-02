@@ -115,6 +115,46 @@ func durableTaskListFilterFromQuery(values url.Values) (durable.TaskListFilter, 
 	return filter, nil
 }
 
+func durableTaskEventListFilterFromQuery(values url.Values) (durable.EventListFilter, error) {
+	filter := durable.EventListFilter{Limit: durable.DefaultEventListLimit}
+	if rawLimit := strings.TrimSpace(values.Get("limit")); rawLimit != "" {
+		limit, err := strconv.Atoi(rawLimit)
+		if err != nil || limit <= 0 {
+			return durable.EventListFilter{}, errors.New("invalid limit")
+		}
+		if limit > durable.MaxEventListLimit {
+			limit = durable.MaxEventListLimit
+		}
+		filter.Limit = limit
+	}
+	after, hasAfter, err := parseOptionalSequence(values.Get("after"))
+	if err != nil {
+		return durable.EventListFilter{}, err
+	}
+	before, hasBefore, err := parseOptionalSequence(values.Get("before"))
+	if err != nil {
+		return durable.EventListFilter{}, err
+	}
+	if hasAfter && hasBefore {
+		return durable.EventListFilter{}, errors.New("after and before are mutually exclusive")
+	}
+	filter.AfterSequence = after
+	filter.BeforeSequence = before
+	return filter, nil
+}
+
+func parseOptionalSequence(raw string) (int64, bool, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, false, nil
+	}
+	seq, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || seq < 0 {
+		return 0, false, errors.New("invalid sequence")
+	}
+	return seq, true, nil
+}
+
 func (a *app) durableTaskDetailHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if a.durableClient == nil || a.durableStore == nil {
@@ -312,19 +352,29 @@ func (a *app) serveDurableTaskEvents(w http.ResponseWriter, r *http.Request, use
 			}
 		}
 	}
-	events, status, found, err := a.durableClient.ListEvents(r.Context(), userID, taskID, 0)
+	filter, err := durableTaskEventListFilterFromQuery(r.URL.Query())
+	if err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	page, err := a.durableClient.ListEventsPage(r.Context(), userID, taskID, filter)
 	if err != nil {
 		writeDurableError(w, err)
 		return
 	}
-	if !found {
+	if !page.Found {
 		http.Error(w, "task not found", http.StatusNotFound)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"task_id": taskID,
-		"status":  status,
-		"events":  events,
+		"task_id":         taskID,
+		"status":          page.Status,
+		"events":          page.Events,
+		"limit":           page.Limit,
+		"first_sequence":  page.FirstSequence,
+		"last_sequence":   page.LastSequence,
+		"has_more_before": page.HasMoreBefore,
+		"has_more_after":  page.HasMoreAfter,
 	})
 }
 

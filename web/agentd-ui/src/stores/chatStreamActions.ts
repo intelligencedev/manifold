@@ -1,7 +1,9 @@
 import {
   cancelChatRun,
   generateChatSessionTitle,
+  resumeChatRun,
   streamAgentRun,
+  streamChatRunEvents,
   streamAgentVisionRun,
   type ChatStreamEvent,
 } from "@/api/chat";
@@ -317,6 +319,73 @@ export function createChatStreamActions(
     console.warn("chat stopStreaming called", { sessionId: targetSessionId });
   }
 
+  async function resumeDurableRun(
+    sessionId: string,
+    assistantId: string,
+    runId: string,
+  ) {
+    const trimmedRunId = runId.trim();
+    if (!sessionId || !assistantId || !trimmedRunId) return;
+    if (state.isSessionStreaming(sessionId)) return;
+    const message = (state.messagesBySession.value[sessionId] || []).find(
+      (candidate) => candidate.id === assistantId,
+    );
+    if (!message || message.role !== "assistant") return;
+
+    const streamId = createId();
+    const controller = new AbortController();
+    let afterSequence = numericSequence(message.lastRunSequence);
+    state.updateMessage(sessionId, assistantId, (current) => ({
+      ...current,
+      runId: trimmedRunId,
+      streaming: true,
+      error: undefined,
+    }));
+    state.setStreamingState(sessionId, {
+      assistantId,
+      abortController: controller,
+      streamId,
+      runId: trimmedRunId,
+    });
+    state.toolIndexFor(sessionId, streamId);
+
+    try {
+      const resumed = await resumeChatRun(trimmedRunId);
+      afterSequence = Math.max(
+        afterSequence,
+        numericSequence(resumed.last_sequence),
+        numericSequence(resumed.last_retry_sequence),
+      );
+      await streamChatRunEvents({
+        runId: trimmedRunId,
+        after: afterSequence,
+        signal: controller.signal,
+        onEvent: (event) =>
+          handleStreamEvent(
+            state,
+            queryClient,
+            event,
+            sessionId,
+            assistantId,
+            streamId,
+          ),
+      });
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        state.updateMessage(sessionId, assistantId, (current) => ({
+          ...current,
+          streaming: false,
+          error: error instanceof Error ? error.message : "Failed to resume run",
+        }));
+      }
+    } finally {
+      if (state.isStreamCurrent(sessionId, streamId)) {
+        state.clearStreamingState(sessionId);
+        state.clearToolIndex(sessionId, streamId);
+      }
+    }
+  }
+
   async function regenerateAssistant(
     options: SendPromptOptions & { messageId?: string } = {},
   ) {
@@ -353,5 +422,10 @@ export function createChatStreamActions(
     });
   }
 
-  return { sendPrompt, stopStreaming, regenerateAssistant };
+  return { sendPrompt, stopStreaming, regenerateAssistant, resumeDurableRun };
+}
+
+function numericSequence(value: unknown) {
+  const sequence = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(sequence) && sequence > 0 ? sequence : 0;
 }

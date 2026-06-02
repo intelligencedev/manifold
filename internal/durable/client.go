@@ -108,6 +108,13 @@ func (c *Client) ListEvents(ctx context.Context, userID int64, taskID string, af
 	return c.store.ListTaskEvents(ctx, userID, taskID, afterSequence)
 }
 
+func (c *Client) ListEventsPage(ctx context.Context, userID int64, taskID string, filter EventListFilter) (EventPage, error) {
+	if c == nil || c.store == nil {
+		return EventPage{}, ErrNotFound
+	}
+	return c.store.ListTaskEventsPage(ctx, userID, taskID, filter)
+}
+
 func MarshalResult(value map[string]any) json.RawMessage {
 	if value == nil {
 		value = map[string]any{}

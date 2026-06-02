@@ -113,6 +113,15 @@ export interface ChatRunSummary {
   error?: string;
   created_at?: string;
   updated_at?: string;
+  last_sequence?: number;
+  last_retry_sequence?: number;
+}
+
+export interface ChatRunResumeResponse {
+  run_id: string;
+  status: string;
+  last_sequence?: number;
+  last_retry_sequence?: number;
 }
 
 const baseURL = (import.meta.env.VITE_AGENTD_BASE_URL || "").replace(/\/$/, "");
@@ -267,12 +276,22 @@ export async function cancelChatRun(runId: string): Promise<void> {
   });
 }
 
-export async function resumeChatRun(runId: string): Promise<void> {
-  await fetch(`${chatRunsEndpoint}/${encodeURIComponent(runId)}/resume`, {
-    method: "POST",
-    credentials: "include",
-    cache: "no-store",
-  });
+export async function resumeChatRun(
+  runId: string,
+): Promise<ChatRunResumeResponse> {
+  const response = await fetch(
+    `${chatRunsEndpoint}/${encodeURIComponent(runId)}/resume`,
+    {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+    },
+  );
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(text.trim() || `chat run resume failed (${response.status})`);
+  }
+  return (await response.json()) as ChatRunResumeResponse;
 }
 
 export async function listActiveChatRuns(

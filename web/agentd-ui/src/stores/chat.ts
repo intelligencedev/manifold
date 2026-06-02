@@ -59,6 +59,7 @@ export const useChatStore = defineStore("chat", () => {
     sendPrompt: streamActions.sendPrompt,
     stopStreaming: streamActions.stopStreaming,
     regenerateAssistant: streamActions.regenerateAssistant,
+    resumeDurableRun: streamActions.resumeDurableRun,
     clearSummaryEvent: state.clearSummaryEvent,
     clearThoughtSummaries: state.clearThoughtSummaries,
   };

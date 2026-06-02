@@ -12,6 +12,7 @@ type Store interface {
 	GetTask(ctx context.Context, userID int64, taskID string) (Task, bool, error)
 	ListTasks(ctx context.Context, userID int64, filter TaskListFilter) ([]Task, error)
 	ListTaskEvents(ctx context.Context, userID int64, taskID string, afterSequence int64) ([]Event, TaskStatus, bool, error)
+	ListTaskEventsPage(ctx context.Context, userID int64, taskID string, filter EventListFilter) (EventPage, error)
 	AppendTaskEvent(ctx context.Context, taskID string, name string, payload map[string]any) (Event, error)
 	AppendTaskEventOnce(ctx context.Context, taskID string, eventKey string, name string, payload map[string]any) (Event, error)
 	EmitEvent(ctx context.Context, userID int64, queue string, name string, payload map[string]any) (Event, error)

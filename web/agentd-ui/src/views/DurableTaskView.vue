@@ -42,6 +42,7 @@
         class="min-h-0 flex-1"
         :task="task"
         :events="events"
+        :events-page="eventData ?? null"
         :events-loading="eventsLoading"
         :cancel-loading="cancelLoading"
         :retry-loading="retryLoading"
@@ -51,13 +52,16 @@
         "
         @cancel="cancelSelectedTask"
         @retry="retrySelectedTask"
+        @events-older="loadOlderEvents"
+        @events-newer="loadNewerEvents"
+        @events-latest="loadLatestEvents"
       />
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, shallowRef, watch } from "vue";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 import { useRoute, useRouter } from "vue-router";
 import {
@@ -65,6 +69,7 @@ import {
   fetchDurableTask,
   fetchDurableTaskEvents,
   retryDurableTask,
+  type DurableTaskEventsParams,
   type DurableTaskStatus,
 } from "@/api/durable";
 import TaskInspector from "@/components/durable/TaskInspector.vue";
@@ -74,8 +79,14 @@ import Chip from "@/components/ui/Chip.vue";
 const route = useRoute();
 const router = useRouter();
 const queryClient = useQueryClient();
+const eventPageLimit = 200;
 
 const taskId = computed(() => routeParam(route.params.taskId));
+const eventPageCursor = shallowRef<Omit<DurableTaskEventsParams, "limit">>({});
+const eventQueryParams = computed<DurableTaskEventsParams>(() => ({
+  ...eventPageCursor.value,
+  limit: eventPageLimit,
+}));
 
 const {
   data: taskData,
@@ -95,10 +106,19 @@ const {
   error: eventsError,
   refetch: refetchEvents,
 } = useQuery({
-  queryKey: computed(() => ["durable", "task-events", taskId.value]),
-  queryFn: () => fetchDurableTaskEvents(taskId.value),
+  queryKey: computed(() => [
+    "durable",
+    "task-events",
+    taskId.value,
+    eventQueryParams.value,
+  ]),
+  queryFn: () => fetchDurableTaskEvents(taskId.value, eventQueryParams.value),
   enabled: computed(() => Boolean(taskId.value)),
   refetchInterval: 5_000,
+});
+
+watch(taskId, () => {
+  eventPageCursor.value = {};
 });
 
 const cancelMutation = useMutation({
@@ -155,6 +175,22 @@ function cancelSelectedTask(taskId: string) {
 
 function retrySelectedTask(taskId: string, resetCheckpoints: boolean) {
   retryMutation.mutate({ taskId, resetCheckpoints });
+}
+
+function loadOlderEvents() {
+  const firstSequence = eventData.value?.first_sequence;
+  if (!firstSequence) return;
+  eventPageCursor.value = { before: firstSequence };
+}
+
+function loadNewerEvents() {
+  const lastSequence = eventData.value?.last_sequence;
+  if (!lastSequence) return;
+  eventPageCursor.value = { after: lastSequence };
+}
+
+function loadLatestEvents() {
+  eventPageCursor.value = {};
 }
 
 function routeParam(value: unknown) {

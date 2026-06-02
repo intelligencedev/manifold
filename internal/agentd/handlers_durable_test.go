@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -49,6 +51,51 @@ func TestDurableTasksHandlerListsTasks(t *testing.T) {
 	}
 }
 
+func TestDurableTaskEventsHandlerPaginatesEvents(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := durable.NewMemoryStore()
+	client := durable.NewClient(store)
+	spawn, err := client.Spawn(ctx, durable.SpawnRequest{Queue: "ops", Name: "deploy"})
+	if err != nil {
+		t.Fatalf("spawn deploy: %v", err)
+	}
+	for i := 1; i <= 5; i++ {
+		if _, err := store.AppendTaskEvent(ctx, spawn.TaskID, "event."+strconv.Itoa(i), map[string]any{"index": i}); err != nil {
+			t.Fatalf("append event %d: %v", i, err)
+		}
+	}
+	app := &app{
+		cfg:           &config.Config{},
+		durableStore:  store,
+		durableClient: client,
+	}
+
+	latest := requestDurableEventPage(t, app, "/api/durable/tasks/"+spawn.TaskID+"/events?limit=2")
+	if got := eventSequences(latest.Events); !slices.Equal(got, []int64{4, 5}) {
+		t.Fatalf("latest sequences = %+v, want [4 5]", got)
+	}
+	if !latest.HasMoreBefore || latest.HasMoreAfter || latest.FirstSequence != 4 || latest.LastSequence != 5 || latest.Limit != 2 {
+		t.Fatalf("latest page metadata = %+v", latest)
+	}
+
+	older := requestDurableEventPage(t, app, "/api/durable/tasks/"+spawn.TaskID+"/events?before=4&limit=2")
+	if got := eventSequences(older.Events); !slices.Equal(got, []int64{2, 3}) {
+		t.Fatalf("older sequences = %+v, want [2 3]", got)
+	}
+	if !older.HasMoreBefore || !older.HasMoreAfter {
+		t.Fatalf("older page metadata = %+v", older)
+	}
+
+	newer := requestDurableEventPage(t, app, "/api/durable/tasks/"+spawn.TaskID+"/events?after=3&limit=2")
+	if got := eventSequences(newer.Events); !slices.Equal(got, []int64{4, 5}) {
+		t.Fatalf("newer sequences = %+v, want [4 5]", got)
+	}
+	if !newer.HasMoreBefore || newer.HasMoreAfter {
+		t.Fatalf("newer page metadata = %+v", newer)
+	}
+}
+
 func TestDurableTaskRetryHandlerRequeuesFailedTask(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -85,4 +132,38 @@ func TestDurableTaskRetryHandlerRequeuesFailedTask(t *testing.T) {
 	if payload.Task.Status != durable.TaskStatusQueued || payload.Task.Attempt != 0 || payload.Task.Error != "" {
 		t.Fatalf("task after retry = %+v, want queued with cleared failure", payload.Task)
 	}
+}
+
+func requestDurableEventPage(t *testing.T, app *app, path string) durableEventPageResponse {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	rec := httptest.NewRecorder()
+	newRouter(app).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var payload durableEventPageResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	return payload
+}
+
+type durableEventPageResponse struct {
+	TaskID        string             `json:"task_id"`
+	Status        durable.TaskStatus `json:"status"`
+	Events        []durable.Event    `json:"events"`
+	Limit         int                `json:"limit"`
+	FirstSequence int64              `json:"first_sequence"`
+	LastSequence  int64              `json:"last_sequence"`
+	HasMoreBefore bool               `json:"has_more_before"`
+	HasMoreAfter  bool               `json:"has_more_after"`
+}
+
+func eventSequences(events []durable.Event) []int64 {
+	seqs := make([]int64, 0, len(events))
+	for _, event := range events {
+		seqs = append(seqs, event.Sequence)
+	}
+	return seqs
 }

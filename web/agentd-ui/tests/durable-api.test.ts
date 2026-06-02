@@ -51,7 +51,14 @@ describe("durable API client", () => {
     mockedApi.get
       .mockResolvedValueOnce({ data: { task: { id: "dtask_1" } } })
       .mockResolvedValueOnce({
-        data: { task_id: "dtask_1", status: "queued", events: [] },
+        data: {
+          task_id: "dtask_1",
+          status: "queued",
+          events: [],
+          limit: 200,
+          has_more_before: false,
+          has_more_after: false,
+        },
       });
     mockedApi.post.mockResolvedValueOnce({ data: {} });
     mockedApi.post.mockResolvedValueOnce({
@@ -65,6 +72,9 @@ describe("durable API client", () => {
       task_id: "dtask_1",
       status: "queued",
       events: [],
+      limit: 200,
+      has_more_before: false,
+      has_more_after: false,
     });
     await expect(cancelDurableTask("dtask_1")).resolves.toBeUndefined();
     await expect(retryDurableTask("dtask_1", true)).resolves.toEqual({
@@ -76,6 +86,7 @@ describe("durable API client", () => {
     expect(mockedApi.get).toHaveBeenNthCalledWith(
       2,
       "/durable/tasks/dtask_1/events",
+      { params: {} },
     );
     expect(mockedApi.post).toHaveBeenCalledWith(
       "/durable/tasks/dtask_1/cancel",
@@ -84,6 +95,32 @@ describe("durable API client", () => {
       "/durable/tasks/dtask_1/retry",
       {
         reset_checkpoints: true,
+      },
+    );
+  });
+
+  it("fetches paginated task events with compact cursors", async () => {
+    mockedApi.get.mockResolvedValueOnce({
+      data: {
+        task_id: "dtask_1",
+        status: "running",
+        events: [],
+        limit: 50,
+        has_more_before: true,
+        has_more_after: true,
+      },
+    });
+
+    await fetchDurableTaskEvents("dtask_1", {
+      before: 100,
+      after: undefined,
+      limit: 50,
+    });
+
+    expect(mockedApi.get).toHaveBeenCalledWith(
+      "/durable/tasks/dtask_1/events",
+      {
+        params: { before: 100, limit: 50 },
       },
     );
   });

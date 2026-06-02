@@ -869,10 +869,9 @@
                 <SolarRefreshIcon class="h-4 w-4" />
               </button>
               <button
-                v-if="message.role === 'assistant' && message.error && message.runId"
+                v-if="canResumeDurableRun(message)"
                 type="button"
                 class="rounded-4 px-2 py-1 transition hover:text-accent"
-                :disabled="isStreaming || message.streaming"
                 @click="resumeDurableRun(message)"
                 title="Resume run"
                 aria-label="Resume run"
@@ -1555,7 +1554,6 @@ import {
   type Specialist,
   type SpecialistTeam,
 } from "@/api/client";
-import { resumeChatRun } from "@/api/chat";
 import { renderMarkdown } from "@/utils/markdown";
 import { resolveLeadingChatMention } from "@/utils/chatMentions";
 import "highlight.js/styles/github-dark-dimmed.css";
@@ -2322,7 +2320,11 @@ function ensureResponseTimer(message: ChatMessage) {
   if (!id) return;
 
   if (!responseStartMsByMessageId.has(id)) {
-    const start = safeParseIsoMs(message.createdAt) ?? Date.now();
+    const previousElapsed = responseElapsedMsByMessageId.value[id];
+    const start =
+      typeof previousElapsed === "number" && previousElapsed > 0
+        ? Date.now() - previousElapsed
+        : safeParseIsoMs(message.createdAt) ?? Date.now();
     responseStartMsByMessageId.set(id, start);
   }
 
@@ -2341,13 +2343,16 @@ function ensureResponseTimer(message: ChatMessage) {
   }
 }
 
-function stopResponseTimer(messageId: string) {
+function stopResponseTimer(messageId: string, pause = false) {
   const start = responseStartMsByMessageId.get(messageId);
   if (start) {
     responseElapsedMsByMessageId.value[messageId] = Math.max(
       0,
       Date.now() - start,
     );
+  }
+  if (pause) {
+    responseStartMsByMessageId.delete(messageId);
   }
   const handle = responseIntervalByMessageId.get(messageId);
   if (handle != null) {
@@ -3386,7 +3391,7 @@ watch(
       if (msg.role !== "assistant") continue;
       if (msg.streaming) ensureResponseTimer(msg);
       else if (msg.id in responseElapsedMsByMessageId.value)
-        stopResponseTimer(msg.id);
+        stopResponseTimer(msg.id, Boolean(msg.error));
     }
   },
   { flush: "post" },
@@ -3762,6 +3767,16 @@ function stopStreaming() {
   chat.stopStreaming();
 }
 
+function canResumeDurableRun(message: ChatMessage) {
+  return Boolean(
+    message.role === "assistant" &&
+      message.error &&
+      message.runId &&
+      !message.streaming &&
+      !isStreaming.value,
+  );
+}
+
 async function regenerateAssistant(message: ChatMessage) {
   if (!projectSelected.value || message.role !== "assistant" || !message.id)
     return;
@@ -3797,21 +3812,7 @@ async function resumeDurableRun(message: ChatMessage) {
   const runId = message.runId?.trim();
   const sessionId = activeSessionId.value;
   if (!runId || !sessionId || message.role !== "assistant") return;
-  try {
-    chat.updateMessage(sessionId, message.id, (current) => ({
-      ...current,
-      streaming: true,
-      error: undefined,
-    }));
-    await resumeChatRun(runId);
-    await chat.loadMessagesFromServer(sessionId, { force: true });
-  } catch (error) {
-    chat.updateMessage(sessionId, message.id, (current) => ({
-      ...current,
-      streaming: false,
-      error: error instanceof Error ? error.message : "Failed to resume run",
-    }));
-  }
+  await chat.resumeDurableRun(sessionId, message.id, runId);
 }
 
 function resolveAgentContext() {

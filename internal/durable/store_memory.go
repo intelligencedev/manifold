@@ -137,6 +137,28 @@ func (s *MemoryStore) ListTaskEvents(_ context.Context, userID int64, taskID str
 	return out, task.Status, true, nil
 }
 
+func (s *MemoryStore) ListTaskEventsPage(_ context.Context, userID int64, taskID string, filter EventListFilter) (EventPage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	task, ok := s.tasks[taskID]
+	if !ok || task.UserID != userID {
+		return EventPage{}, nil
+	}
+	events := s.collectTaskEvents(taskID)
+	return buildMemoryEventPage(events, task.Status, filter), nil
+}
+
+func (s *MemoryStore) collectTaskEvents(taskID string) []Event {
+	out := []Event{}
+	for _, ev := range s.events {
+		if ev.TaskID == taskID {
+			out = append(out, cloneEvent(ev))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Sequence < out[j].Sequence })
+	return out
+}
+
 func (s *MemoryStore) AppendTaskEvent(_ context.Context, taskID string, name string, payload map[string]any) (Event, error) {
 	return s.appendTaskEvent(taskID, "", name, payload)
 }
@@ -619,6 +641,56 @@ func normalizeTaskListLimit(limit int) int {
 	default:
 		return limit
 	}
+}
+
+func buildMemoryEventPage(events []Event, status TaskStatus, filter EventListFilter) EventPage {
+	limit := normalizeEventListLimit(filter.Limit)
+	page := EventPage{Status: status, Found: true, Limit: limit}
+	switch {
+	case filter.BeforeSequence > 0:
+		return memoryEventPageBefore(page, events, filter.BeforeSequence, limit)
+	case filter.AfterSequence > 0:
+		return memoryEventPageAfter(page, events, filter.AfterSequence, limit)
+	default:
+		return memoryEventPageLatest(page, events, limit)
+	}
+}
+
+func memoryEventPageBefore(page EventPage, events []Event, beforeSequence int64, limit int) EventPage {
+	end := len(events)
+	for end > 0 && events[end-1].Sequence >= beforeSequence {
+		end--
+	}
+	start := end - limit
+	if start < 0 {
+		start = 0
+	}
+	page.HasMoreBefore = start > 0
+	page.HasMoreAfter = end < len(events)
+	return withEventPageEvents(page, events[start:end])
+}
+
+func memoryEventPageAfter(page EventPage, events []Event, afterSequence int64, limit int) EventPage {
+	start := 0
+	for start < len(events) && events[start].Sequence <= afterSequence {
+		start++
+	}
+	end := start + limit
+	if end > len(events) {
+		end = len(events)
+	}
+	page.HasMoreBefore = start > 0
+	page.HasMoreAfter = end < len(events)
+	return withEventPageEvents(page, events[start:end])
+}
+
+func memoryEventPageLatest(page EventPage, events []Event, limit int) EventPage {
+	start := len(events) - limit
+	if start < 0 {
+		start = 0
+	}
+	page.HasMoreBefore = start > 0
+	return withEventPageEvents(page, events[start:])
 }
 
 func cloneTask(task Task) Task {

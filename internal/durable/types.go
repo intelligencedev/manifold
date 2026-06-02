@@ -7,6 +7,9 @@ import (
 
 const (
 	DefaultQueue = "default"
+
+	DefaultEventListLimit = 200
+	MaxEventListLimit     = 1000
 )
 
 type TaskStatus string
@@ -69,6 +72,23 @@ type TaskListFilter struct {
 	Status TaskStatus
 	Name   string
 	Limit  int
+}
+
+type EventListFilter struct {
+	AfterSequence  int64
+	BeforeSequence int64
+	Limit          int
+}
+
+type EventPage struct {
+	Events        []Event
+	Status        TaskStatus
+	Found         bool
+	FirstSequence int64
+	LastSequence  int64
+	HasMoreBefore bool
+	HasMoreAfter  bool
+	Limit         int
 }
 
 type Task struct {

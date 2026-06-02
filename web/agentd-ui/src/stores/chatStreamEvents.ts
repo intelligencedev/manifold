@@ -30,6 +30,13 @@ export function handleStreamEvent(
   streamId: string,
 ) {
   if (!state.isStreamCurrent(sessionId, streamId)) return;
+  const sequence = eventSequence(event);
+  if (sequence > 0) {
+    state.updateMessage(sessionId, assistantId, (message) => ({
+      ...message,
+      lastRunSequence: Math.max(message.lastRunSequence || 0, sequence),
+    }));
+  }
   switch (event.type) {
     case "run_started": {
       if (typeof event.run_id === "string" && event.run_id.trim()) {
@@ -192,6 +199,12 @@ export function handleStreamEvent(
     default:
       break;
   }
+}
+
+function eventSequence(event: ChatStreamEvent) {
+  const raw = event.sequence;
+  const value = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
 function handleImageEvent(

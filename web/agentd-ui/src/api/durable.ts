@@ -68,6 +68,17 @@ export interface DurableTaskEventsResponse {
   task_id: string;
   status: DurableTaskStatus;
   events: DurableEvent[];
+  limit: number;
+  first_sequence?: number;
+  last_sequence?: number;
+  has_more_before: boolean;
+  has_more_after: boolean;
+}
+
+export interface DurableTaskEventsParams {
+  after?: number;
+  before?: number;
+  limit?: number;
 }
 
 export async function fetchDurableQueues(): Promise<DurableQueueStats[]> {
@@ -98,9 +109,13 @@ export async function fetchDurableTask(taskId: string): Promise<DurableTask> {
 
 export async function fetchDurableTaskEvents(
   taskId: string,
+  params: DurableTaskEventsParams = {},
 ): Promise<DurableTaskEventsResponse> {
   const response = await apiClient.get<DurableTaskEventsResponse>(
     `/durable/tasks/${encodeURIComponent(taskId)}/events`,
+    {
+      params: compactParams(params),
+    },
   );
   return response.data;
 }
@@ -122,7 +137,9 @@ export async function retryDurableTask(
   return response.data.task;
 }
 
-function compactParams(params: DurableTaskListParams) {
+function compactParams(
+  params: DurableTaskListParams | DurableTaskEventsParams,
+) {
   return Object.fromEntries(
     Object.entries(params).filter(([, value]) => {
       if (value === undefined || value === null) return false;

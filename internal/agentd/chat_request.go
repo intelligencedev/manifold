@@ -17,6 +17,7 @@ import (
 type chatRunRequest struct {
 	Prompt                string `json:"prompt"`
 	SessionID             string `json:"session_id,omitempty"`
+	UserMessageID         string `json:"user_message_id,omitempty"`
 	AssistantMessageID    string `json:"assistant_message_id,omitempty"`
 	EphemeralSession      bool   `json:"ephemeral_session,omitempty"`
 	ProjectID             string `json:"project_id,omitempty"`
@@ -35,6 +36,7 @@ func (req *chatRunRequest) UnmarshalJSON(data []byte) error {
 	type rawChatRunRequest struct {
 		Prompt                      string `json:"prompt"`
 		SessionID                   string `json:"session_id,omitempty"`
+		UserMessageID               string `json:"user_message_id,omitempty"`
 		AssistantMessageID          string `json:"assistant_message_id,omitempty"`
 		EphemeralSession            bool   `json:"ephemeral_session,omitempty"`
 		ProjectID                   string `json:"project_id,omitempty"`
@@ -58,6 +60,7 @@ func (req *chatRunRequest) UnmarshalJSON(data []byte) error {
 	}
 	req.Prompt = decoded.Prompt
 	req.SessionID = decoded.SessionID
+	req.UserMessageID = decoded.UserMessageID
 	req.AssistantMessageID = decoded.AssistantMessageID
 	req.EphemeralSession = decoded.EphemeralSession
 	req.ProjectID = decoded.ProjectID
@@ -92,6 +95,7 @@ type chatDispatchTarget struct {
 
 func (req *chatRunRequest) normalize() {
 	req.SessionID = normalizeClientChatSessionID(req.SessionID)
+	req.UserMessageID = strings.TrimSpace(req.UserMessageID)
 	req.AssistantMessageID = strings.TrimSpace(req.AssistantMessageID)
 	req.ProjectID = strings.TrimSpace(req.ProjectID)
 	req.ObjectiveID = strings.TrimSpace(req.ObjectiveID)

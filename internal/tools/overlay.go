@@ -3,7 +3,9 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
+	"manifold/internal/durable"
 	"manifold/internal/llm"
 	"manifold/internal/observability"
 )
@@ -66,6 +68,9 @@ func (r *overlayRegistry) Dispatch(ctx context.Context, name string, raw json.Ra
 	if extra := r.extra[name]; extra != nil {
 		val, err := extra.Call(ctx, raw)
 		if err != nil {
+			if errors.Is(err, durable.ErrSuspended) {
+				return nil, err
+			}
 			payload, _ := json.Marshal(map[string]any{"ok": false, "error": err.Error()})
 			observability.LoggerWithTrace(ctx).Error().Str("tool", name).Err(err).Msg("tool_error")
 			return payload, nil

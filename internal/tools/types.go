@@ -3,7 +3,9 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
+	"manifold/internal/durable"
 	"manifold/internal/llm"
 	"manifold/internal/observability"
 )
@@ -232,6 +234,9 @@ func (r *defaultRegistry) Dispatch(ctx context.Context, name string, raw json.Ra
 	}
 	val, err := t.Call(ctx, raw)
 	if err != nil {
+		if errors.Is(err, durable.ErrSuspended) {
+			return nil, err
+		}
 		b, _ := json.Marshal(map[string]any{"ok": false, "error": err.Error()})
 		observability.LoggerWithTrace(ctx).Error().Str("tool", name).Err(err).Msg("tool_error")
 		return b, nil

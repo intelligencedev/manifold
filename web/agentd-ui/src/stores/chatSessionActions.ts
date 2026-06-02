@@ -6,13 +6,17 @@ import {
   deleteChatMessagesAfter as apiDeleteChatMessagesAfter,
   fetchChatActivities,
   fetchChatMessages,
+  listActiveChatRuns,
   listChatSessions,
   renameChatSession as apiRenameChatSession,
+  streamChatRunEvents,
   updateChatSessionMemorySettings as apiUpdateChatSessionMemorySettings,
   updateChatSessionProject as apiUpdateChatSessionProject,
 } from "@/api/chat";
 import { httpStatus, normalizeSessionMeta } from "@/stores/chatHelpers";
+import { handleStreamEvent } from "@/stores/chatStreamEvents";
 import type { ChatStoreState } from "@/stores/chatStoreState";
+import { createId } from "@/utils/uuid";
 
 function createMessageDeletionActions(state: ChatStoreState) {
   async function deleteMessage(sessionId: string, messageId: string) {
@@ -97,6 +101,7 @@ function createSessionLoadActions(state: ChatStoreState) {
       }
       state.setMessages(sessionId, data);
       state.setAgentThreads(sessionId, activities || []);
+      void recoverActiveChatRun(state, sessionId);
     } catch (error) {
       const status = httpStatus(error);
       if (status === 403) {
@@ -107,6 +112,66 @@ function createSessionLoadActions(state: ChatStoreState) {
   }
 
   return { init, refreshSessionsFromServer, loadMessagesFromServer };
+}
+
+async function recoverActiveChatRun(state: ChatStoreState, sessionId: string) {
+  if (state.isSessionStreaming(sessionId)) return;
+  const runs = await listActiveChatRuns(sessionId).catch(() => []);
+  const run = runs.find((candidate) =>
+    ["queued", "running", "waiting", "failed"].includes(candidate.status),
+  );
+  if (!run?.run_id) return;
+  const assistantId = run.assistant_message_id || createId();
+  const streamId = createId();
+  const controller = new AbortController();
+  const messages = state.messagesBySession.value[sessionId] || [];
+  if (!messages.some((m) => m.id === assistantId)) {
+    state.appendMessage(sessionId, {
+      id: assistantId,
+      role: "assistant",
+      content: "",
+      createdAt: new Date().toISOString(),
+      runId: run.run_id,
+      streaming: run.status !== "failed",
+      error: run.status === "failed" ? run.error || "Run failed" : undefined,
+    });
+  }
+  state.setStreamingState(sessionId, {
+    assistantId,
+    abortController: controller,
+    streamId,
+    runId: run.run_id,
+  });
+  state.toolIndexFor(sessionId, streamId);
+  const queryClient = { invalidateQueries: () => undefined };
+  try {
+    await streamChatRunEvents({
+      runId: run.run_id,
+      signal: controller.signal,
+      onEvent: (event) =>
+        handleStreamEvent(
+          state,
+          queryClient,
+          event,
+          sessionId,
+          assistantId,
+          streamId,
+        ),
+    });
+  } catch (error) {
+    if (!(error instanceof DOMException && error.name === "AbortError")) {
+      state.updateMessage(sessionId, assistantId, (message) => ({
+        ...message,
+        streaming: false,
+        error: error instanceof Error ? error.message : "Stream recovery failed",
+      }));
+    }
+  } finally {
+    if (state.isStreamCurrent(sessionId, streamId)) {
+      state.clearStreamingState(sessionId);
+      state.clearToolIndex(sessionId, streamId);
+    }
+  }
 }
 
 async function normalizedRemoteSessions(initial: boolean) {

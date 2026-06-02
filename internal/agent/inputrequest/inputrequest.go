@@ -18,6 +18,7 @@ type RunMetadata struct {
 	Model        string
 	CallID       string
 	ParentCallID string
+	ToolID       string
 	Depth        int
 }
 

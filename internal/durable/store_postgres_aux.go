@@ -159,7 +159,7 @@ func scanTask(row pgx.Row, task *Task) error {
 func scanEvent(row pgx.Row) (Event, error) {
 	var ev Event
 	var payload []byte
-	if err := row.Scan(&ev.ID, &ev.TaskID, &ev.Queue, &ev.Name, &ev.Sequence, &payload, &ev.OccurredAt); err != nil {
+	if err := row.Scan(&ev.ID, &ev.TaskID, &ev.Queue, &ev.Name, &ev.Sequence, &ev.EventKey, &payload, &ev.OccurredAt); err != nil {
 		return Event{}, err
 	}
 	_ = json.Unmarshal(payload, &ev.Payload)

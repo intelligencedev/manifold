@@ -20,6 +20,7 @@ func (a *app) registerDurableHandlers() {
 		return
 	}
 	a.durableRegistry.Register(durableFlowQueue, durableFlowRunTaskName, a.runDurableFlowV2Task)
+	a.durableRegistry.Register(durableChatQueue, durableChatRunTaskName, a.runDurableChatTask)
 }
 
 func (a *app) runDurableFlowV2Task(ctx context.Context, params map[string]any) (map[string]any, error) {

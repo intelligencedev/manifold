@@ -52,6 +52,10 @@ export function handleInputRequestEvent(
   if (!requestId || !question) return;
   const request: ChatInputRequest = {
     id: requestId,
+    runId:
+      typeof event.run_id === "string" && event.run_id.trim()
+        ? event.run_id.trim()
+        : undefined,
     question,
     reason:
       typeof event.reason === "string" && event.reason.trim()
@@ -145,7 +149,17 @@ export async function submitInputRequest(
     .filter((id) => id.length > 0);
   const cleanAnswer = answer.trim();
   try {
-    await apiAnswerChatInputRequest(requestId, cleanAnswer, cleanChoiceIds);
+    const current = (
+      state.messagesBySession.value[sessionId] || []
+    )
+      .find((message) => message.id === messageId)
+      ?.inputRequests?.find((request) => request.id === requestId);
+    await apiAnswerChatInputRequest(
+      requestId,
+      cleanAnswer,
+      cleanChoiceIds,
+      current?.runId,
+    );
     updateInputRequest(state, sessionId, messageId, requestId, (request) => ({
       ...request,
       status: "answered",

@@ -412,37 +412,62 @@ func (s *memChatStore) ListMessages(ctx context.Context, userID *int64, sessionI
 }
 
 func (s *memChatStore) AppendMessages(ctx context.Context, userID *int64, sessionID string, messages []persistence.ChatMessage, preview string, model string) error {
-	log.Info().Str("session_id", sessionID).Int("count", len(messages)).Msg("mem_store_append_messages")
-	if len(messages) == 0 {
+	return s.appendMessages(chatAppendMessagesRequest{ctx: ctx, userID: userID, sessionID: sessionID, messages: messages, preview: preview, model: model})
+}
+
+func (s *memChatStore) AppendMessagesOnce(ctx context.Context, userID *int64, sessionID string, messages []persistence.ChatMessage, preview string, model string) error {
+	return s.appendMessages(chatAppendMessagesRequest{ctx: ctx, userID: userID, sessionID: sessionID, messages: messages, preview: preview, model: model, skipExisting: true})
+}
+
+func (s *memChatStore) appendMessages(req chatAppendMessagesRequest) error {
+	log.Info().Str("session_id", req.sessionID).Int("count", len(req.messages)).Msg("mem_store_append_messages")
+	if len(req.messages) == 0 {
 		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	sess, ok := s.sessions[sessionID]
+	sess, ok := s.sessions[req.sessionID]
 	if !ok {
 		return persistence.ErrNotFound
 	}
-	if !hasAccess(userID, sess.UserID) {
+	if !hasAccess(req.userID, sess.UserID) {
 		return persistence.ErrForbidden
 	}
-	for i := range messages {
-		if messages[i].ID == "" {
-			messages[i].ID = uuid.NewString()
-		}
-		if messages[i].SessionID == "" {
-			messages[i].SessionID = sessionID
-		}
-		if messages[i].CreatedAt.IsZero() {
-			messages[i].CreatedAt = time.Now().UTC()
+	existing := map[string]struct{}{}
+	if req.skipExisting {
+		for _, message := range s.messages[req.sessionID] {
+			if strings.TrimSpace(message.ID) == "" {
+				continue
+			}
+			existing[message.ID] = struct{}{}
 		}
 	}
-	s.messages[sessionID] = append(s.messages[sessionID], messages...)
+	out := make([]persistence.ChatMessage, 0, len(req.messages))
+	for i := range req.messages {
+		if req.messages[i].ID == "" {
+			req.messages[i].ID = uuid.NewString()
+		}
+		if _, ok := existing[req.messages[i].ID]; ok {
+			continue
+		}
+		if req.messages[i].SessionID == "" {
+			req.messages[i].SessionID = req.sessionID
+		}
+		if req.messages[i].CreatedAt.IsZero() {
+			req.messages[i].CreatedAt = time.Now().UTC()
+		}
+		out = append(out, req.messages[i])
+	}
+	if len(out) == 0 && req.skipExisting {
+		return nil
+	}
+	s.messages[req.sessionID] = append(s.messages[req.sessionID], out...)
 	sess.UpdatedAt = time.Now().UTC()
-	sess.LastMessagePreview = preview
-	if strings.TrimSpace(model) != "" {
-		sess.Model = model
+	sess.LastMessagePreview = req.preview
+	if strings.TrimSpace(req.model) != "" {
+		sess.Model = req.model
 	}
-	s.sessions[sessionID] = sess
+	s.sessions[req.sessionID] = sess
 	return nil
 }
 

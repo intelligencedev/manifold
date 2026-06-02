@@ -170,6 +170,27 @@ func (s *promptHandlerChatStore) AppendMessages(_ context.Context, _ *int64, ses
 	return nil
 }
 
+func (s *promptHandlerChatStore) AppendMessagesOnce(_ context.Context, _ *int64, sessionID string, messages []persistence.ChatMessage, _ string, _ string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	existing := make(map[string]struct{}, len(s.messages[sessionID]))
+	for _, message := range s.messages[sessionID] {
+		if id := strings.TrimSpace(message.ID); id != "" {
+			existing[id] = struct{}{}
+		}
+	}
+	for _, message := range messages {
+		if id := strings.TrimSpace(message.ID); id != "" {
+			if _, ok := existing[id]; ok {
+				continue
+			}
+			existing[id] = struct{}{}
+		}
+		s.messages[sessionID] = append(s.messages[sessionID], message)
+	}
+	return nil
+}
+
 func (s *promptHandlerChatStore) UpdateSummary(_ context.Context, _ *int64, sessionID string, summary string, summarizedCount int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

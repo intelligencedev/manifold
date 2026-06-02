@@ -13,6 +13,7 @@ type Store interface {
 	ListTasks(ctx context.Context, userID int64, filter TaskListFilter) ([]Task, error)
 	ListTaskEvents(ctx context.Context, userID int64, taskID string, afterSequence int64) ([]Event, TaskStatus, bool, error)
 	AppendTaskEvent(ctx context.Context, taskID string, name string, payload map[string]any) (Event, error)
+	AppendTaskEventOnce(ctx context.Context, taskID string, eventKey string, name string, payload map[string]any) (Event, error)
 	EmitEvent(ctx context.Context, userID int64, queue string, name string, payload map[string]any) (Event, error)
 	ClaimNext(ctx context.Context, queues []string, workerID string, lease time.Duration) (Task, Run, bool, error)
 	Heartbeat(ctx context.Context, taskID, runID, workerID string, leaseUntil time.Time) error

@@ -178,13 +178,21 @@ ORDER BY created_at ASC, id ASC`
 }
 
 func (s *pgChatStore) AppendMessages(ctx context.Context, userID *int64, sessionID string, messages []persistence.ChatMessage, preview string, model string) error {
-	if len(messages) == 0 {
+	return s.appendMessages(chatAppendMessagesRequest{ctx: ctx, userID: userID, sessionID: sessionID, messages: messages, preview: preview, model: model})
+}
+
+func (s *pgChatStore) AppendMessagesOnce(ctx context.Context, userID *int64, sessionID string, messages []persistence.ChatMessage, preview string, model string) error {
+	return s.appendMessages(chatAppendMessagesRequest{ctx: ctx, userID: userID, sessionID: sessionID, messages: messages, preview: preview, model: model, skipExisting: true})
+}
+
+func (s *pgChatStore) appendMessages(req chatAppendMessagesRequest) error {
+	if len(req.messages) == 0 {
 		return nil
 	}
-	if _, err := s.GetSession(ctx, userID, sessionID); err != nil {
+	if _, err := s.GetSession(req.ctx, req.userID, req.sessionID); err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(req.ctx, 5*time.Second)
 	defer cancel()
 
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -193,7 +201,7 @@ func (s *pgChatStore) AppendMessages(ctx context.Context, userID *int64, session
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	for _, message := range messages {
+	for _, message := range req.messages {
 		id := message.ID
 		if id == "" {
 			id = uuid.NewString()
@@ -202,24 +210,29 @@ func (s *pgChatStore) AppendMessages(ctx context.Context, userID *int64, session
 		if createdAt.IsZero() {
 			createdAt = time.Now().UTC()
 		}
-		if _, err := tx.Exec(ctx, `
-INSERT INTO chat_messages (id, session_id, role, content, created_at)
-VALUES ($1, $2, $3, $4, $5)`, id, sessionID, message.Role, message.Content, createdAt); err != nil {
+		query := `
+	INSERT INTO chat_messages (id, session_id, role, content, created_at)
+	VALUES ($1, $2, $3, $4, $5)`
+		if req.skipExisting {
+			query += `
+	ON CONFLICT (id) DO NOTHING`
+		}
+		if _, err := tx.Exec(ctx, query, id, req.sessionID, message.Role, message.Content, createdAt); err != nil {
 			return err
 		}
 	}
 
-	modelUpdate := strings.TrimSpace(model)
+	modelUpdate := strings.TrimSpace(req.model)
 	query := `
 UPDATE chat_sessions
 SET updated_at = NOW(),
     last_message_preview = $2,
     model = CASE WHEN $3 = '' THEN model ELSE $3 END
 WHERE id = $1`
-	args := []any{sessionID, preview, modelUpdate}
-	if userID != nil {
+	args := []any{req.sessionID, req.preview, modelUpdate}
+	if req.userID != nil {
 		query += ` AND user_id = $4`
-		args = append(args, *userID)
+		args = append(args, *req.userID)
 	}
 	cmd, err := tx.Exec(ctx, query, args...)
 	if err != nil {

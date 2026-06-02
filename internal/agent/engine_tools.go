@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"manifold/internal/agent/inputrequest"
+	"manifold/internal/durable"
 	"manifold/internal/llm"
 	"manifold/internal/observability"
 	"manifold/internal/policy"
@@ -59,90 +62,176 @@ func (e *Engine) nextToolCallID() string {
 // dispatchTools executes a batch of tool calls, appending their tool messages to msgs
 // and invoking the appropriate callbacks/logging. It returns the updated msgs slice.
 func (e *Engine) dispatchTools(ctx context.Context, msgs []llm.Message, toolCalls []llm.ToolCall) []llm.Message {
-	if len(toolCalls) == 0 {
-		return msgs
-	}
+	msgs, _ = e.dispatchToolsAtStep(ctx, msgs, toolCalls, -1)
+	return msgs
+}
 
-	maxParallel := e.MaxToolParallelism
-	if maxParallel <= 0 || maxParallel > len(toolCalls) {
-		maxParallel = len(toolCalls)
-	}
-	if maxParallel <= 0 {
-		maxParallel = 1
+func (e *Engine) dispatchToolsAtStep(ctx context.Context, msgs []llm.Message, toolCalls []llm.ToolCall, step int) ([]llm.Message, error) {
+	if len(toolCalls) == 0 {
+		return msgs, nil
 	}
 
 	results := make([]llm.Message, len(toolCalls))
-	sem := make(chan struct{}, maxParallel)
+	sem := make(chan struct{}, e.toolDispatchParallelism(len(toolCalls)))
 	var wg sync.WaitGroup
+	var errMu sync.Mutex
+	var firstErr error
 
 	for i, tc := range toolCalls {
-
-		dispatchCtx := ctx
-		if e.LLM != nil {
-			dispatchCtx = tools.WithProvider(ctx, e.LLM)
-		}
-		dispatchCtx = tools.WithNestedToolDispatcher(dispatchCtx, func(childCtx context.Context, name string, raw json.RawMessage, toolCallID string) ([]byte, bool) {
-			if !e.canHandleNestedDelegation(name) {
-				return nil, false
-			}
-			id := strings.TrimSpace(toolCallID)
-			if id == "" {
-				id = e.nextToolCallID()
-			}
-			payload := e.runDelegatedTool(childCtx, llm.ToolCall{
-				ID:   id,
-				Name: name,
-				Args: raw,
-			})
-			return payload, true
-		})
-
-		if tc.Name == "text_to_speech" && e.OnTool != nil {
-			var raw map[string]any
-			_ = json.Unmarshal(tc.Args, &raw)
-			if v, ok := raw["stream"].(bool); ok && v {
-				cb := func(chunk []byte) {
-					meta := map[string]any{"event": "chunk", "bytes": len(chunk), "b64": base64.StdEncoding.EncodeToString(chunk)}
-					b, _ := json.Marshal(meta)
-					if e.OnTool != nil {
-						e.OnTool("text_to_speech_chunk", tc.Args, b, tc.ID)
-					}
-				}
-				dispatchCtx = tts.WithStreamChunkCallback(dispatchCtx, cb)
-			}
+		if checkpoint, ok := e.checkpointedToolResult(ctx, step, tc); ok {
+			results[i] = checkpoint
+			continue
 		}
 
 		if e.OnToolStart != nil {
 			e.OnToolStart(tc.Name, tc.Args, tc.ID)
 		}
 
+		dispatchCtx := e.toolDispatchContext(ctx, tc)
 		sem <- struct{}{}
 		wg.Add(1)
 		go func(idx int, tc llm.ToolCall, dctx context.Context) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			results[idx] = e.executeToolCall(dctx, tc)
+			toolMsg, err := e.executeToolCallForStep(dctx, tc, step)
+			if errors.Is(err, durable.ErrSuspended) {
+				recordFirstToolDispatchError(&errMu, &firstErr, err)
+				return
+			}
+			results[idx] = toolMsg
 		}(i, tc, dispatchCtx)
 	}
 
 	wg.Wait()
+	if firstErr != nil {
+		return msgs, firstErr
+	}
 	// Invoke OnTurnMessage for each tool response message
 	if e.OnTurnMessage != nil {
 		for _, toolMsg := range results {
 			e.OnTurnMessage(toolMsg)
 		}
 	}
-	return append(msgs, results...)
+	return append(msgs, results...), nil
+}
+
+func (e *Engine) toolDispatchParallelism(toolCount int) int {
+	maxParallel := e.MaxToolParallelism
+	if maxParallel <= 0 || maxParallel > toolCount {
+		maxParallel = toolCount
+	}
+	if maxParallel <= 0 {
+		return 1
+	}
+	return maxParallel
+}
+
+func (e *Engine) checkpointedToolResult(ctx context.Context, step int, tc llm.ToolCall) (llm.Message, bool) {
+	if step < 0 {
+		return llm.Message{}, false
+	}
+	var checkpoint llm.Message
+	found, err := e.loadCheckpoint(ctx, toolCheckpointKey(step, tc.ID), &checkpoint)
+	if err != nil {
+		observability.LoggerWithTrace(ctx).Warn().Err(err).Str("tool", tc.Name).Str("tool_id", tc.ID).Int("step", step).Msg("engine_tool_checkpoint_load_failed")
+		return llm.Message{}, false
+	}
+	return checkpoint, found
+}
+
+func (e *Engine) toolDispatchContext(ctx context.Context, tc llm.ToolCall) context.Context {
+	dispatchCtx := ctx
+	if e.LLM != nil {
+		dispatchCtx = tools.WithProvider(ctx, e.LLM)
+	}
+	dispatchCtx = tools.WithNestedToolDispatcher(dispatchCtx, e.nestedToolDispatcher())
+	return e.withStreamingTTSCallback(dispatchCtx, tc)
+}
+
+func (e *Engine) nestedToolDispatcher() tools.NestedToolDispatcher {
+	return func(childCtx context.Context, name string, raw json.RawMessage, toolCallID string) ([]byte, bool) {
+		if !e.canHandleNestedDelegation(name) {
+			return nil, false
+		}
+		id := strings.TrimSpace(toolCallID)
+		if id == "" {
+			id = e.nextToolCallID()
+		}
+		payload := e.runDelegatedTool(childCtx, llm.ToolCall{ID: id, Name: name, Args: raw})
+		return payload, true
+	}
+}
+
+func (e *Engine) withStreamingTTSCallback(ctx context.Context, tc llm.ToolCall) context.Context {
+	if tc.Name != "text_to_speech" || e.OnTool == nil {
+		return ctx
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(tc.Args, &raw); err != nil {
+		return ctx
+	}
+	if stream, ok := raw["stream"].(bool); !ok || !stream {
+		return ctx
+	}
+	cb := func(chunk []byte) {
+		meta := map[string]any{"event": "chunk", "bytes": len(chunk), "b64": base64.StdEncoding.EncodeToString(chunk)}
+		b, _ := json.Marshal(meta)
+		if e.OnTool != nil {
+			e.OnTool("text_to_speech_chunk", tc.Args, b, tc.ID)
+		}
+	}
+	return tts.WithStreamChunkCallback(ctx, cb)
+}
+
+func (e *Engine) executeToolCallForStep(ctx context.Context, tc llm.ToolCall, step int) (llm.Message, error) {
+	payload, err := e.executeToolCallPayload(ctx, tc)
+	if err != nil {
+		if errors.Is(err, durable.ErrSuspended) {
+			return llm.Message{}, err
+		}
+		payload = fmt.Appendf(nil, `{"error":%q}`, err.Error())
+	}
+	toolMsg := llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID}
+	if step >= 0 {
+		if err := e.saveCheckpoint(ctx, toolCheckpointKey(step, tc.ID), toolMsg); err != nil {
+			observability.LoggerWithTrace(ctx).Warn().Err(err).Str("tool", tc.Name).Str("tool_id", tc.ID).Int("step", step).Msg("engine_tool_checkpoint_save_failed")
+		}
+	}
+	if e.OnTool != nil {
+		e.OnTool(tc.Name, tc.Args, payload, tc.ID)
+	}
+	return toolMsg, nil
+}
+
+func recordFirstToolDispatchError(mu *sync.Mutex, target *error, err error) {
+	mu.Lock()
+	defer mu.Unlock()
+	if *target == nil {
+		*target = err
+	}
 }
 
 func (e *Engine) executeToolCall(ctx context.Context, tc llm.ToolCall) llm.Message {
+	payload, err := e.executeToolCallPayload(ctx, tc)
+	if err != nil {
+		payload = fmt.Appendf(nil, `{"error":%q}`, err.Error())
+	}
+	if e.OnTool != nil {
+		e.OnTool(tc.Name, tc.Args, payload, tc.ID)
+	}
+	return llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID}
+}
+
+func (e *Engine) executeToolCallPayload(ctx context.Context, tc llm.ToolCall) ([]byte, error) {
+	meta := inputrequest.RunMetadataFromContext(ctx)
+	if strings.TrimSpace(meta.ToolID) == "" && strings.TrimSpace(tc.ID) != "" {
+		meta.ToolID = strings.TrimSpace(tc.ID)
+		ctx = inputrequest.WithRunMetadata(ctx, meta)
+	}
 	decision := e.evaluateToolPolicy(ctx, tc)
 	if !decision.Allowed {
 		payload, _ := json.Marshal(map[string]any{"ok": false, "error": "tool call blocked by policy", "policy_id": decision.RecordID, "message": decision.Message})
-		if e.OnTool != nil {
-			e.OnTool(tc.Name, tc.Args, payload, tc.ID)
-		}
-		return llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID}
+		return payload, nil
 	}
 	if len(decision.Annotations) > 0 {
 		observability.LoggerWithTrace(ctx).Info().Str("tool", tc.Name).Strs("policy_annotations", decision.Annotations).Strs("policy_ids", decision.MatchedIDs).Msg("policy_tool_call_annotated")
@@ -151,10 +240,7 @@ func (e *Engine) executeToolCall(ctx context.Context, tc llm.ToolCall) llm.Messa
 	// Handle delegation as a first-class engine feature (not a tool).
 	if e.canHandleNestedDelegation(tc.Name) {
 		payload := e.runDelegatedTool(ctx, tc)
-		if e.OnTool != nil {
-			e.OnTool(tc.Name, tc.Args, payload, tc.ID)
-		}
-		return llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID}
+		return payload, nil
 	}
 
 	redactedArgs := observability.RedactJSON(tc.Args)
@@ -167,12 +253,9 @@ func (e *Engine) executeToolCall(ctx context.Context, tc llm.ToolCall) llm.Messa
 	event.Msg("engine_tool_call")
 	payload, err := e.Tools.Dispatch(ctx, tc.Name, tc.Args)
 	if err != nil {
-		payload = fmt.Appendf(nil, `{"error":%q}`, err.Error())
+		return nil, err
 	}
-	if e.OnTool != nil {
-		e.OnTool(tc.Name, tc.Args, payload, tc.ID)
-	}
-	return llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID}
+	return payload, nil
 }
 
 func (e *Engine) evaluateToolPolicy(ctx context.Context, tc llm.ToolCall) policy.Decision {

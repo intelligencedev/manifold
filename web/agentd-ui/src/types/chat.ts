@@ -24,6 +24,7 @@ export interface ChatInputRequestChoice {
 
 export interface ChatInputRequest {
   id: string;
+  runId?: string;
   question: string;
   reason?: string;
   choices: ChatInputRequestChoice[];
@@ -107,6 +108,7 @@ export interface ChatMessage {
   agentName?: string;
   agentModel?: string;
   model?: string;
+  runId?: string;
   activityToolTitle?: string;
   activityThoughtSummary?: string;
   memoryContext?: ChatMemoryContext;

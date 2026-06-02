@@ -15,6 +15,11 @@ type BeliefMagmaSink interface {
 	IngestBelief(ctx context.Context, episode belief.Episode, item belief.Belief) (string, error)
 }
 
+type RunCheckpointer interface {
+	Load(ctx context.Context, key string, target any) (bool, error)
+	Save(ctx context.Context, key string, value any) error
+}
+
 type Engine struct {
 	LLM      llm.Provider
 	Tools    tools.Registry
@@ -116,7 +121,9 @@ type Engine struct {
 	Tokenizer llm.Tokenizer
 	// TokenizationFallbackToHeuristic allows falling back to heuristic on tokenization errors.
 	TokenizationFallbackToHeuristic bool
-	toolCallSeq                     uint64
+	// Checkpointer persists completed model/tool boundaries for resumable runs.
+	Checkpointer RunCheckpointer
+	toolCallSeq  uint64
 }
 
 // AttachTokenizer wires an accurate tokenizer into the engine when the provider exposes one.

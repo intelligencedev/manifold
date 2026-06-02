@@ -138,11 +138,26 @@ func (s *MemoryStore) ListTaskEvents(_ context.Context, userID int64, taskID str
 }
 
 func (s *MemoryStore) AppendTaskEvent(_ context.Context, taskID string, name string, payload map[string]any) (Event, error) {
+	return s.appendTaskEvent(taskID, "", name, payload)
+}
+
+func (s *MemoryStore) AppendTaskEventOnce(_ context.Context, taskID string, eventKey string, name string, payload map[string]any) (Event, error) {
+	return s.appendTaskEvent(taskID, strings.TrimSpace(eventKey), name, payload)
+}
+
+func (s *MemoryStore) appendTaskEvent(taskID string, eventKey string, name string, payload map[string]any) (Event, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	task, ok := s.tasks[taskID]
 	if !ok {
 		return Event{}, ErrTaskNotFound
+	}
+	if eventKey != "" {
+		for _, ev := range s.events {
+			if ev.TaskID == taskID && ev.EventKey == eventKey {
+				return cloneEvent(ev), nil
+			}
+		}
 	}
 	seq := int64(1)
 	for _, ev := range s.events {
@@ -151,7 +166,7 @@ func (s *MemoryStore) AppendTaskEvent(_ context.Context, taskID string, name str
 		}
 	}
 	s.nextEventID++
-	ev := Event{ID: s.nextEventID, TaskID: taskID, Queue: task.Queue, Name: name, Sequence: seq, Payload: cloneMap(payload), OccurredAt: time.Now().UTC()}
+	ev := Event{ID: s.nextEventID, TaskID: taskID, Queue: task.Queue, Name: name, Sequence: seq, EventKey: eventKey, Payload: cloneMap(payload), OccurredAt: time.Now().UTC()}
 	s.events = append(s.events, ev)
 	return cloneEvent(ev), nil
 }

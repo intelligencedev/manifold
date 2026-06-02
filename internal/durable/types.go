@@ -111,6 +111,7 @@ type Event struct {
 	Queue      string         `json:"queue,omitempty"`
 	Name       string         `json:"name"`
 	Sequence   int64          `json:"sequence"`
+	EventKey   string         `json:"event_key,omitempty"`
 	Payload    map[string]any `json:"payload,omitempty"`
 	OccurredAt time.Time      `json:"occurred_at"`
 }

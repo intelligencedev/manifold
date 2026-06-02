@@ -295,6 +295,7 @@ type ChatStore interface {
 	DeleteMessage(ctx context.Context, userID *int64, sessionID string, messageID string) error
 	DeleteMessagesAfter(ctx context.Context, userID *int64, sessionID string, messageID string, inclusive bool) error
 	AppendMessages(ctx context.Context, userID *int64, sessionID string, messages []ChatMessage, preview string, model string) error
+	AppendMessagesOnce(ctx context.Context, userID *int64, sessionID string, messages []ChatMessage, preview string, model string) error
 	UpdateSummary(ctx context.Context, userID *int64, sessionID string, summary string, summarizedCount int) error
 }
 

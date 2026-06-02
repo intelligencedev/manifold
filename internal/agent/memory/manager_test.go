@@ -285,6 +285,10 @@ func (s *stubChatStore) AppendMessages(ctx context.Context, userID *int64, sessi
 	return nil
 }
 
+func (s *stubChatStore) AppendMessagesOnce(ctx context.Context, userID *int64, sessionID string, messages []persistence.ChatMessage, preview string, model string) error {
+	return s.AppendMessages(ctx, userID, sessionID, messages, preview, model)
+}
+
 func (s *stubChatStore) UpdateSummary(ctx context.Context, userID *int64, sessionID string, summary string, summarizedCount int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

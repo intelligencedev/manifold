@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
 	"manifold/internal/auth"
@@ -170,6 +171,7 @@ func storeChatTurn(ctx context.Context, store persist.ChatStore, record chatTurn
 type chatTurnHistoryRecord struct {
 	UserID             *int64
 	SessionID          string
+	UserMessageID      string
 	UserContent        string
 	TurnMessages       []llm.Message
 	FinalContent       string
@@ -193,6 +195,7 @@ func storeChatTurnWithHistory(ctx context.Context, store persist.ChatStore, reco
 	// Add user message
 	if strings.TrimSpace(record.UserContent) != "" {
 		messages = append(messages, persist.ChatMessage{
+			ID:        strings.TrimSpace(record.UserMessageID),
 			SessionID: record.SessionID,
 			Role:      "user",
 			Content:   record.UserContent,
@@ -233,6 +236,8 @@ func storeChatTurnWithHistory(ctx context.Context, store persist.ChatStore, reco
 		messageID := ""
 		if msg.Role == "assistant" && i == lastAssistantIndex {
 			messageID = strings.TrimSpace(record.AssistantMessageID)
+		} else if strings.TrimSpace(record.AssistantMessageID) != "" || strings.TrimSpace(record.UserMessageID) != "" {
+			messageID = stableTurnMessageID(record, msg.Role, i)
 		}
 		messages = append(messages, persist.ChatMessage{
 			ID:        messageID,
@@ -254,7 +259,19 @@ func storeChatTurnWithHistory(ctx context.Context, store persist.ChatStore, reco
 	if preview == "" {
 		preview = previewSnippet(record.UserContent)
 	}
-	return store.AppendMessages(ctx, record.UserID, record.SessionID, messages, preview, record.Model)
+	return store.AppendMessagesOnce(ctx, record.UserID, record.SessionID, messages, preview, record.Model)
+}
+
+func stableTurnMessageID(record chatTurnHistoryRecord, role string, index int) string {
+	base := strings.TrimSpace(record.AssistantMessageID)
+	if base == "" {
+		base = strings.TrimSpace(record.UserMessageID)
+	}
+	if base == "" {
+		return ""
+	}
+	seed := fmt.Sprintf("chat:%s:%s:%s:%d", record.SessionID, base, role, index)
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(seed)).String()
 }
 
 func resolveChatAccess(_ context.Context, authStore *auth.Store, user *auth.User) (*int64, bool, error) {

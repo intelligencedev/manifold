@@ -40,6 +40,7 @@ export const useChatStore = defineStore("chat", () => {
     renameSession: sessionActions.renameSession,
     updateSessionProject: sessionActions.updateSessionProject,
     updateSessionMemorySettings: sessionActions.updateSessionMemorySettings,
+    updateMessage: state.updateMessage,
     submitInputRequest: (
       sessionId: string,
       messageId: string,

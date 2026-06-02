@@ -28,14 +28,27 @@ func (e *Engine) runLoop(ctx context.Context, msgs []llm.Message) (string, error
 
 		msgs = e.enforceContextBudget(ctx, msgs)
 		e.emitContextMetrics(ctx, msgs, ContextMetricPhasePreModel, nil, 0)
-		msg, err := e.LLM.Chat(ctx, msgs, schemas, e.model())
-		if err != nil {
-			log.Error().Err(err).Int("step", step).Msg("engine_step_error")
+		var (
+			msg llm.Message
+			err error
+		)
+		if found, err := e.loadCheckpoint(ctx, assistantCheckpointKey(step), &msg); err != nil {
 			return "", err
+		} else if found {
+			log.Info().Int("step", step).Msg("engine_step_replay_assistant_checkpoint")
+		} else {
+			msg, err = e.LLM.Chat(ctx, msgs, schemas, e.model())
+			if err != nil {
+				log.Error().Err(err).Int("step", step).Msg("engine_step_error")
+				return "", err
+			}
+			msg.ToolCalls = llm.NormalizeToolCalls(msg.ToolCalls)
+			msg.ToolCalls = e.ensureToolCallIDs(msgs, msg.ToolCalls)
+			if err := e.saveCheckpoint(ctx, assistantCheckpointKey(step), msg); err != nil {
+				return "", err
+			}
 		}
 
-		msg.ToolCalls = llm.NormalizeToolCalls(msg.ToolCalls)
-		msg.ToolCalls = e.ensureToolCallIDs(msgs, msg.ToolCalls)
 		msgs = append(msgs, msg)
 		if e.OnAssistant != nil {
 			e.OnAssistant(msg)
@@ -52,7 +65,10 @@ func (e *Engine) runLoop(ctx context.Context, msgs []llm.Message) (string, error
 		}
 
 		log.Info().Int("step", step).Int("tool_calls", len(msg.ToolCalls)).Msg("engine_tool_calls")
-		msgs = e.dispatchTools(ctx, msgs, msg.ToolCalls)
+		msgs, err = e.dispatchToolsAtStep(ctx, msgs, msg.ToolCalls, step)
+		if err != nil {
+			return "", err
+		}
 		e.emitContextMetrics(ctx, msgs, ContextMetricPhaseToolAdded, nil, 0)
 	}
 
@@ -100,12 +116,22 @@ func (e *Engine) runStreamStep(ctx context.Context, msgs []llm.Message, step int
 
 	msgs = e.enforceContextBudget(ctx, msgs)
 	e.emitContextMetrics(ctx, msgs, ContextMetricPhasePreModel, nil, 0)
-	if err := e.LLM.ChatStream(ctx, msgs, schemas, e.model(), acc.handler()); err != nil {
-		log.Error().Err(err).Int("step", step).Msg("engine_stream_step_error")
+	var msg llm.Message
+	if found, err := e.loadCheckpoint(ctx, assistantCheckpointKey(step), &msg); err != nil {
 		return nil, "", false, err
+	} else if found {
+		log.Info().Int("step", step).Msg("engine_stream_step_replay_assistant_checkpoint")
+	} else {
+		if err := e.LLM.ChatStream(ctx, msgs, schemas, e.model(), acc.handler()); err != nil {
+			log.Error().Err(err).Int("step", step).Msg("engine_stream_step_error")
+			return nil, "", false, err
+		}
+		msg = acc.message(e, msgs)
+		if err := e.saveCheckpoint(ctx, assistantCheckpointKey(step), msg); err != nil {
+			return nil, "", false, err
+		}
 	}
 
-	msg := acc.message(e, msgs)
 	msgs = append(msgs, msg)
 	e.emitAssistantMessage(msg)
 	e.emitContextMetrics(ctx, msgs, ContextMetricPhaseAssistantAdded, nil, 0)
@@ -115,7 +141,10 @@ func (e *Engine) runStreamStep(ctx context.Context, msgs []llm.Message, step int
 	}
 
 	log.Info().Int("step", step).Int("tool_calls", len(msg.ToolCalls)).Msg("engine_stream_tool_calls")
-	msgs = e.dispatchTools(ctx, msgs, msg.ToolCalls)
+	msgs, err := e.dispatchToolsAtStep(ctx, msgs, msg.ToolCalls, step)
+	if err != nil {
+		return nil, "", false, err
+	}
 	e.emitContextMetrics(ctx, msgs, ContextMetricPhaseToolAdded, nil, 0)
 	return msgs, "", false, nil
 }

@@ -1,4 +1,5 @@
 import {
+  cancelChatRun,
   generateChatSessionTitle,
   streamAgentRun,
   streamAgentVisionRun,
@@ -66,10 +67,11 @@ export function createChatStreamActions(
     if (!wasStreaming) state.resetThoughtSummaries(sessionId);
     if (content) void maybeAutoTitle(sessionId, content);
 
+    const userMessageId = createId();
     if (options.echoUser !== false) {
       const attachmentsCopy = attachments.map((a) => ({ ...a }));
       state.appendMessage(sessionId, {
-        id: createId(),
+        id: userMessageId,
         role: "user",
         content,
         createdAt: now,
@@ -156,6 +158,7 @@ export function createChatStreamActions(
         await streamAgentVisionRun({
           prompt: promptToSend,
           sessionId,
+          userMessageId,
           assistantMessageId: assistantId,
           files: imageFiles,
           signal: controller.signal,
@@ -171,6 +174,7 @@ export function createChatStreamActions(
         await streamAgentRun({
           prompt: promptToSend,
           sessionId,
+          userMessageId,
           assistantMessageId: assistantId,
           signal: controller.signal,
           onEvent,
@@ -302,6 +306,12 @@ export function createChatStreamActions(
   function stopStreaming(sessionId?: string) {
     const targetSessionId = sessionId || state.activeSessionId.value;
     if (!targetSessionId) return;
+    const streamState = state.streamingStateFor(targetSessionId);
+    if (streamState?.runId) {
+      void cancelChatRun(streamState.runId).catch((error) => {
+        console.warn("chat run cancel failed", error);
+      });
+    }
     if (!interruptStreaming(targetSessionId, { reason: "Generation stopped" }))
       return;
     console.warn("chat stopStreaming called", { sessionId: targetSessionId });

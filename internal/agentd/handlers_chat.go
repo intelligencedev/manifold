@@ -244,10 +244,15 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			a.handleDevMockChat(w, r, req.Prompt)
 			return
 		}
+		if a.tryHandleDurableChatCompatibility(w, r, req, state, target, "/agent/run") {
+			return
+		}
 		if handled := a.handleChatTarget(w, r, chatTargetHandleRequest{
 			Target:               target,
 			Prompt:               req.Prompt,
 			SessionID:            req.SessionID,
+			UserMessageID:        req.UserMessageID,
+			AssistantMessageID:   req.AssistantMessageID,
 			ProjectID:            req.ProjectID,
 			ObjectiveID:          req.ObjectiveID,
 			EphemeralSession:     req.EphemeralSession,
@@ -313,10 +318,15 @@ func (a *app) promptHandler() http.HandlerFunc {
 			a.handleDevMockChat(w, r, req.Prompt)
 			return
 		}
+		if a.tryHandleDurableChatCompatibility(w, r, req, state, target, "/api/prompt") {
+			return
+		}
 		if handled := a.handleChatTarget(w, r, chatTargetHandleRequest{
 			Target:               target,
 			Prompt:               req.Prompt,
 			SessionID:            req.SessionID,
+			UserMessageID:        req.UserMessageID,
+			AssistantMessageID:   req.AssistantMessageID,
 			ProjectID:            req.ProjectID,
 			ObjectiveID:          req.ObjectiveID,
 			EphemeralSession:     req.EphemeralSession,

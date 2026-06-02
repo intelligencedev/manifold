@@ -3,6 +3,7 @@ package inputrequest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	agentinput "manifold/internal/agent/inputrequest"
+	"manifold/internal/durable"
 )
 
 // ToolName is the registry name exposed to agents.
@@ -126,6 +128,7 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 		Model:         strings.TrimSpace(meta.Model),
 		CallID:        strings.TrimSpace(meta.CallID),
 		ParentCallID:  strings.TrimSpace(meta.ParentCallID),
+		ToolID:        strings.TrimSpace(meta.ToolID),
 		Depth:         meta.Depth,
 		CreatedAt:     time.Now().UTC(),
 	}
@@ -139,6 +142,9 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 
 	resp, err := requester.RequestInfo(requestCtx, req)
 	if err != nil {
+		if errors.Is(err, durable.ErrSuspended) {
+			return nil, err
+		}
 		return map[string]any{"ok": false, "request_id": req.ID, "error": err.Error()}, nil
 	}
 	return map[string]any{

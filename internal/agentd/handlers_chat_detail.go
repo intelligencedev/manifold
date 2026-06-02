@@ -38,6 +38,8 @@ func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 			a.handleChatActivities(w, r, userID, id)
 		case "messages":
 			a.handleChatMessages(w, r, userID, id, subresourceID)
+		case "runs":
+			a.handleChatSessionRuns(w, r, userID, id)
 		case "title":
 			a.handleChatTitle(w, r, userID, id)
 		default:
@@ -91,6 +93,8 @@ func setChatDetailCORSHeaders(w http.ResponseWriter, r *http.Request, subresourc
 		setChatCORSHeaders(w, r, "GET, OPTIONS")
 	case "title":
 		setChatCORSHeaders(w, r, "POST, OPTIONS")
+	case "runs":
+		setChatCORSHeaders(w, r, "GET, OPTIONS")
 	default:
 		setChatCORSHeaders(w, r, "GET, PATCH, DELETE, OPTIONS")
 	}

@@ -10,10 +10,17 @@ import type {
 
 export {
   extractEventPayload,
+  cancelChatRun,
+  listActiveChatRuns,
+  resumeChatRun,
+  startChatRun,
+  streamChatRunEvents,
   streamAgentRun,
   streamAgentVisionRun,
 } from "./chatStream";
 export type {
+  ChatRunStartResponse,
+  ChatRunSummary,
   ChatStreamEvent,
   ChatStreamEventType,
   StreamAgentRunOptions,
@@ -140,7 +147,18 @@ export async function answerChatInputRequest(
   requestId: string,
   answer: string,
   choiceIds: string[] = [],
+  runId?: string,
 ): Promise<void> {
+  if (runId && runId.trim()) {
+    await apiClient.post(
+      `/chat/runs/${encodeURIComponent(runId.trim())}/input/${encodeURIComponent(requestId)}/answer`,
+      {
+        answer,
+        choice_ids: choiceIds,
+      },
+    );
+    return;
+  }
   await apiClient.post(
     `/chat/input-requests/${encodeURIComponent(requestId)}/answer`,
     {

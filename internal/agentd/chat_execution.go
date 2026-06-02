@@ -51,6 +51,11 @@ type chatSSEWriter struct {
 	mu sync.Mutex
 }
 
+type chatEventWriter interface {
+	write(payload any)
+	writeText(text string)
+}
+
 func newChatSSEWriter(w http.ResponseWriter) (*chatSSEWriter, error) {
 	fl, ok := w.(http.Flusher)
 	if !ok {
@@ -80,12 +85,12 @@ func (s *chatSSEWriter) writeText(text string) {
 type chatTurnCollector struct {
 	baseDir      string
 	projectID    string
-	stream       *chatSSEWriter
+	stream       chatEventWriter
 	savedImages  []savedImage
 	turnMessages []llm.Message
 }
 
-func newChatTurnCollector(baseDir, projectID string, stream *chatSSEWriter) *chatTurnCollector {
+func newChatTurnCollector(baseDir, projectID string, stream chatEventWriter) *chatTurnCollector {
 	return &chatTurnCollector{baseDir: baseDir, projectID: projectID, stream: stream}
 }
 
@@ -160,7 +165,7 @@ func buildChatStreamFinalPayload(result string, ctx context.Context, includeMatr
 	return payload
 }
 
-func configureCommonStreamCallbacks(eng *agent.Engine, stream *chatSSEWriter, emitThoughtSummary bool, emitSummaryEvents bool) {
+func configureCommonStreamCallbacks(eng *agent.Engine, stream chatEventWriter, emitThoughtSummary bool, emitSummaryEvents bool) {
 	eng.OnDelta = func(d string) {
 		stream.write(map[string]string{"type": "delta", "data": d})
 	}
@@ -602,6 +607,7 @@ func (a *app) executeInternalJSONChat(storeCtx context.Context, exec chatExecuti
 	if err := storeChatTurnWithHistory(storeCtx, a.chatStore, chatTurnHistoryRecord{
 		UserID:             userID,
 		SessionID:          req.SessionID,
+		UserMessageID:      req.UserMessageID,
 		UserContent:        req.Prompt,
 		TurnMessages:       collector.turnMessages,
 		FinalContent:       result,

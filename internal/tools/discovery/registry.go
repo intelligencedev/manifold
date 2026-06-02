@@ -3,8 +3,10 @@ package discovery
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 
+	"manifold/internal/durable"
 	"manifold/internal/llm"
 	"manifold/internal/observability"
 	"manifold/internal/tools"
@@ -81,6 +83,9 @@ func (r *DiscoverableRegistry) Dispatch(ctx context.Context, name string, raw js
 	if name == r.searchTool.Name() {
 		result, err := r.searchTool.Call(ctx, raw)
 		if err != nil {
+			if errors.Is(err, durable.ErrSuspended) {
+				return nil, err
+			}
 			payload, _ := json.Marshal(map[string]any{"ok": false, "error": err.Error()})
 			return payload, nil
 		}

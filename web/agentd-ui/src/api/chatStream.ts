@@ -17,6 +17,7 @@ export type ChatStreamEventType =
   | "image"
   | "error"
   | "summary"
+  | "run_started"
   | "input_request"
   | "input_request_cancelled"
   | "agent_start"
@@ -80,6 +81,7 @@ export interface ChatStreamEvent {
 export interface StreamAgentRunOptions {
   prompt: string;
   sessionId?: string;
+  userMessageId?: string;
   assistantMessageId?: string;
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
@@ -94,8 +96,29 @@ export interface StreamAgentRunOptions {
   imageSize?: string;
 }
 
+export interface ChatRunStartResponse {
+  run_id: string;
+  session_id: string;
+  user_message_id: string;
+  assistant_message_id: string;
+  status: string;
+}
+
+export interface ChatRunSummary {
+  run_id: string;
+  session_id: string;
+  user_message_id?: string;
+  assistant_message_id?: string;
+  status: string;
+  error?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 const baseURL = (import.meta.env.VITE_AGENTD_BASE_URL || "").replace(/\/$/, "");
 const runEndpoint = `${baseURL}/agent/run`;
+const chatRunsEndpoint = `${baseURL}/api/chat/runs`;
+const chatSessionsEndpoint = `${baseURL}/api/chat/sessions`;
 const visionEndpoint = `${baseURL}/agent/vision`;
 
 function chatTargetURL(
@@ -132,14 +155,45 @@ function emitFetchError(
 export async function streamAgentRun(
   options: StreamAgentRunOptions,
 ): Promise<void> {
-  const { response, decoder } = await postAgentRun(options);
-  await streamAgentResponse(response, decoder, options.onEvent, "agent run");
+  const run = await startChatRun(options);
+  options.onEvent({
+    type: "run_started" as ChatStreamEventType,
+    run_id: run.run_id,
+    session_id: run.session_id,
+  });
+  await streamChatRunEvents({
+    runId: run.run_id,
+    fetchImpl: options.fetchImpl,
+    signal: options.signal,
+    onEvent: options.onEvent,
+  });
 }
 
-async function postAgentRun(options: StreamAgentRunOptions) {
+export async function startChatRun(
+  options: StreamAgentRunOptions,
+): Promise<ChatRunStartResponse> {
+  const { response } = await postAgentRun(options, chatRunsEndpoint, {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  });
+  if (!response.ok) {
+    throw new Error(`chat run start failed (${response.status})`);
+  }
+  return (await response.json()) as ChatRunStartResponse;
+}
+
+async function postAgentRun(
+  options: StreamAgentRunOptions,
+  endpoint = runEndpoint,
+  headers: Record<string, string> = {
+    Accept: "text/event-stream",
+    "Content-Type": "application/json",
+  },
+) {
   const {
     prompt,
     sessionId,
+    userMessageId,
     assistantMessageId,
     fetchImpl,
     signal,
@@ -152,6 +206,8 @@ async function postAgentRun(options: StreamAgentRunOptions) {
     beliefMemoryEnabled,
   } = options;
   const payload: Record<string, any> = { prompt, session_id: sessionId };
+  if (userMessageId && userMessageId.trim())
+    payload.user_message_id = userMessageId.trim();
   if (assistantMessageId && assistantMessageId.trim())
     payload.assistant_message_id = assistantMessageId.trim();
   if (projectId && projectId.trim()) payload.project_id = projectId.trim();
@@ -172,16 +228,69 @@ async function postAgentRun(options: StreamAgentRunOptions) {
     fetchImpl,
     signal,
     onEvent,
-    url: chatTargetURL(runEndpoint, specialist, teamName),
+    url: chatTargetURL(endpoint, specialist, teamName),
     init: {
       method: "POST",
-      headers: {
-        Accept: "text/event-stream",
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify(payload),
     },
   });
+}
+
+export async function streamChatRunEvents(options: {
+  runId: string;
+  after?: number;
+  fetchImpl?: typeof fetch;
+  signal?: AbortSignal;
+  onEvent: (event: ChatStreamEvent) => void;
+}): Promise<void> {
+  const { runId, after = 0, fetchImpl, signal, onEvent } = options;
+  const params = new URLSearchParams();
+  if (after > 0) params.set("after", String(after));
+  const query = params.toString();
+  const url = `${chatRunsEndpoint}/${encodeURIComponent(runId)}/events${query ? `?${query}` : ""}`;
+  const response = await (fetchImpl ?? fetch)(url, {
+    method: "GET",
+    headers: { Accept: "text/event-stream" },
+    credentials: "include",
+    cache: "no-store",
+    signal,
+  });
+  await streamAgentResponse(response, new TextDecoder(), onEvent, "chat run events");
+}
+
+export async function cancelChatRun(runId: string): Promise<void> {
+  await fetch(`${chatRunsEndpoint}/${encodeURIComponent(runId)}/cancel`, {
+    method: "POST",
+    credentials: "include",
+    cache: "no-store",
+  });
+}
+
+export async function resumeChatRun(runId: string): Promise<void> {
+  await fetch(`${chatRunsEndpoint}/${encodeURIComponent(runId)}/resume`, {
+    method: "POST",
+    credentials: "include",
+    cache: "no-store",
+  });
+}
+
+export async function listActiveChatRuns(
+  sessionId: string,
+): Promise<ChatRunSummary[]> {
+  const response = await fetch(
+    `${chatSessionsEndpoint}/${encodeURIComponent(sessionId)}/runs?active=true`,
+    {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+    },
+  );
+  if (!response.ok) return [];
+  const body = (await response.json().catch(() => ({}))) as {
+    runs?: ChatRunSummary[];
+  };
+  return body.runs || [];
 }
 
 export function extractEventPayload(raw: string): ChatStreamEvent | null {

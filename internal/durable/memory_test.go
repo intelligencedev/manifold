@@ -155,6 +155,45 @@ func TestMemoryStoreRetryTaskRequeuesAndControlsCheckpoints(t *testing.T) {
 	}
 }
 
+func TestMemoryStoreAppendTaskEventOnceDeduplicatesEventKey(t *testing.T) {
+	t.Parallel()
+
+	store := NewMemoryStore()
+	ctx := context.Background()
+	task, _, err := store.SpawnTask(ctx, SpawnRequest{
+		Queue:  "chat",
+		Name:   "chat.run",
+		UserID: 7,
+	})
+	if err != nil {
+		t.Fatalf("SpawnTask() error = %v", err)
+	}
+	first, err := store.AppendTaskEventOnce(ctx, task.ID, "event:1", "chat.delta", map[string]any{"data": "a"})
+	if err != nil {
+		t.Fatalf("AppendTaskEventOnce first error = %v", err)
+	}
+	second, err := store.AppendTaskEventOnce(ctx, task.ID, "event:1", "chat.delta", map[string]any{"data": "b"})
+	if err != nil {
+		t.Fatalf("AppendTaskEventOnce second error = %v", err)
+	}
+	if first.ID != second.ID || first.Sequence != second.Sequence {
+		t.Fatalf("expected same event, first=%#v second=%#v", first, second)
+	}
+	events, _, found, err := store.ListTaskEvents(ctx, 7, task.ID, 0)
+	if err != nil {
+		t.Fatalf("ListTaskEvents() error = %v", err)
+	}
+	if !found {
+		t.Fatal("task events not found")
+	}
+	if len(events) != 1 {
+		t.Fatalf("events len = %d, want 1", len(events))
+	}
+	if got := events[0].Payload["data"]; got != "a" {
+		t.Fatalf("payload data = %v, want a", got)
+	}
+}
+
 func TestWorkerReusesCheckpointAcrossRetry(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

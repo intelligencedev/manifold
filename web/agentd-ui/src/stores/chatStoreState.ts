@@ -16,6 +16,7 @@ export type StreamState = {
   assistantId: string;
   abortController: AbortController;
   streamId: string;
+  runId?: string;
 };
 
 function createChatStoreRefs() {

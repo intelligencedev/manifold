@@ -869,6 +869,17 @@
                 <SolarRefreshIcon class="h-4 w-4" />
               </button>
               <button
+                v-if="message.role === 'assistant' && message.error && message.runId"
+                type="button"
+                class="rounded-4 px-2 py-1 transition hover:text-accent"
+                :disabled="isStreaming || message.streaming"
+                @click="resumeDurableRun(message)"
+                title="Resume run"
+                aria-label="Resume run"
+              >
+                Resume
+              </button>
+              <button
                 v-if="message.role === 'assistant' && message.content"
                 type="button"
                 class="rounded-4 px-2 py-1 transition hover:text-accent"
@@ -1544,6 +1555,7 @@ import {
   type Specialist,
   type SpecialistTeam,
 } from "@/api/client";
+import { resumeChatRun } from "@/api/chat";
 import { renderMarkdown } from "@/utils/markdown";
 import { resolveLeadingChatMention } from "@/utils/chatMentions";
 import "highlight.js/styles/github-dark-dimmed.css";
@@ -3756,6 +3768,27 @@ async function regenerateAssistant(message: ChatMessage) {
     agentModel,
     messageId: message.id,
   });
+}
+
+async function resumeDurableRun(message: ChatMessage) {
+  const runId = message.runId?.trim();
+  const sessionId = activeSessionId.value;
+  if (!runId || !sessionId || message.role !== "assistant") return;
+  try {
+    chat.updateMessage(sessionId, message.id, (current) => ({
+      ...current,
+      streaming: true,
+      error: undefined,
+    }));
+    await resumeChatRun(runId);
+    await chat.loadMessagesFromServer(sessionId, { force: true });
+  } catch (error) {
+    chat.updateMessage(sessionId, message.id, (current) => ({
+      ...current,
+      streaming: false,
+      error: error instanceof Error ? error.message : "Failed to resume run",
+    }));
+  }
 }
 
 function resolveAgentContext() {

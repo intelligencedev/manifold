@@ -72,6 +72,8 @@ func registerCoreAPIRoutes(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("/api/runs/", a.runTimelineHandler())
 	mux.HandleFunc("/api/chat/sessions", a.chatSessionsHandler())
 	mux.HandleFunc("/api/chat/sessions/", a.chatSessionDetailHandler())
+	mux.HandleFunc("/api/chat/runs", a.chatRunsHandler())
+	mux.HandleFunc("/api/chat/runs/", a.chatRunDetailHandler())
 	mux.HandleFunc("/api/chat/input-requests/", a.chatInputRequestHandler())
 	mux.HandleFunc("/api/fleet/state", a.fleetStateHandler())
 	mux.HandleFunc("/api/fleet/events", a.fleetEventsHandler())

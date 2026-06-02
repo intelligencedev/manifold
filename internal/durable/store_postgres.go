@@ -98,12 +98,18 @@ CREATE TABLE IF NOT EXISTS durable_events (
 	queue TEXT NOT NULL DEFAULT '',
 	name TEXT NOT NULL,
 	sequence BIGINT NOT NULL DEFAULT 0,
+	event_key TEXT NOT NULL DEFAULT '',
 	payload JSONB NOT NULL DEFAULT '{}'::jsonb,
 	occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE durable_events
+	ADD COLUMN IF NOT EXISTS event_key TEXT NOT NULL DEFAULT '';
 CREATE UNIQUE INDEX IF NOT EXISTS durable_events_task_sequence_idx
 	ON durable_events(task_id, sequence)
 	WHERE task_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS durable_events_task_event_key_idx
+	ON durable_events(task_id, event_key)
+	WHERE task_id IS NOT NULL AND event_key <> '';
 CREATE INDEX IF NOT EXISTS durable_events_task_idx ON durable_events(task_id, sequence);
 CREATE INDEX IF NOT EXISTS durable_events_queue_name_idx ON durable_events(queue, name, occurred_at DESC);
 
@@ -245,7 +251,7 @@ func (s *PostgresStore) ListTaskEvents(ctx context.Context, userID int64, taskID
 		return nil, "", ok, err
 	}
 	rows, err := s.pool.Query(ctx, `
-SELECT id, COALESCE(task_id,''), queue, name, sequence, payload, occurred_at
+SELECT id, COALESCE(task_id,''), queue, name, sequence, event_key, payload, occurred_at
 FROM durable_events WHERE task_id=$1 AND sequence > $2 ORDER BY sequence ASC
 `, taskID, afterSequence)
 	if err != nil {
@@ -264,6 +270,14 @@ FROM durable_events WHERE task_id=$1 AND sequence > $2 ORDER BY sequence ASC
 }
 
 func (s *PostgresStore) AppendTaskEvent(ctx context.Context, taskID string, name string, payload map[string]any) (Event, error) {
+	return s.appendTaskEvent(ctx, taskID, "", name, payload)
+}
+
+func (s *PostgresStore) AppendTaskEventOnce(ctx context.Context, taskID string, eventKey string, name string, payload map[string]any) (Event, error) {
+	return s.appendTaskEvent(ctx, taskID, strings.TrimSpace(eventKey), name, payload)
+}
+
+func (s *PostgresStore) appendTaskEvent(ctx context.Context, taskID string, eventKey string, name string, payload map[string]any) (Event, error) {
 	payloadBytes, err := json.Marshal(nonNilMap(payload))
 	if err != nil {
 		return Event{}, err
@@ -277,17 +291,46 @@ func (s *PostgresStore) AppendTaskEvent(ctx context.Context, taskID string, name
 	if err := tx.QueryRow(ctx, `SELECT queue FROM durable_tasks WHERE id=$1`, taskID).Scan(&queue); err != nil {
 		return Event{}, err
 	}
+	if eventKey != "" {
+		row := tx.QueryRow(ctx, `
+SELECT id, COALESCE(task_id,''), queue, name, sequence, event_key, payload, occurred_at
+FROM durable_events WHERE task_id=$1 AND event_key=$2
+`, taskID, eventKey)
+		if existing, err := scanEvent(row); err == nil {
+			if commitErr := tx.Commit(ctx); commitErr != nil {
+				return Event{}, commitErr
+			}
+			return existing, nil
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return Event{}, err
+		}
+	}
 	var seq int64
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(sequence),0)+1 FROM durable_events WHERE task_id=$1`, taskID).Scan(&seq); err != nil {
 		return Event{}, err
 	}
 	row := tx.QueryRow(ctx, `
-INSERT INTO durable_events (task_id, queue, name, sequence, payload)
-VALUES ($1,$2,$3,$4,$5::jsonb)
-RETURNING id, COALESCE(task_id,''), queue, name, sequence, payload, occurred_at
-`, taskID, queue, strings.TrimSpace(name), seq, payloadBytes)
+INSERT INTO durable_events (task_id, queue, name, sequence, event_key, payload)
+VALUES ($1,$2,$3,$4,$5,$6::jsonb)
+ON CONFLICT (task_id, event_key) WHERE task_id IS NOT NULL AND event_key <> '' DO NOTHING
+RETURNING id, COALESCE(task_id,''), queue, name, sequence, event_key, payload, occurred_at
+`, taskID, queue, strings.TrimSpace(name), seq, eventKey, payloadBytes)
 	ev, err := scanEvent(row)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) && eventKey != "" {
+			row := tx.QueryRow(ctx, `
+SELECT id, COALESCE(task_id,''), queue, name, sequence, event_key, payload, occurred_at
+FROM durable_events WHERE task_id=$1 AND event_key=$2
+`, taskID, eventKey)
+			existing, scanErr := scanEvent(row)
+			if scanErr != nil {
+				return Event{}, scanErr
+			}
+			if commitErr := tx.Commit(ctx); commitErr != nil {
+				return Event{}, commitErr
+			}
+			return existing, nil
+		}
 		return Event{}, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO durable_outbox (task_id, event_id, topic, payload) VALUES ($1,$2,$3,$4::jsonb)`, taskID, ev.ID, name, payloadBytes); err != nil {
@@ -314,7 +357,7 @@ func (s *PostgresStore) EmitEvent(ctx context.Context, userID int64, queue strin
 	row := tx.QueryRow(ctx, `
 INSERT INTO durable_events (queue, name, payload)
 VALUES ($1,$2,$3::jsonb)
-RETURNING id, COALESCE(task_id,''), queue, name, sequence, payload, occurred_at
+RETURNING id, COALESCE(task_id,''), queue, name, sequence, event_key, payload, occurred_at
 `, queue, name, payloadBytes)
 	ev, err := scanEvent(row)
 	if err != nil {

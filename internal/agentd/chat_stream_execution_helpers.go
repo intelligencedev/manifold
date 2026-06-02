@@ -95,7 +95,7 @@ func (a *app) publishChatRunEvent(kind fleet.EventKind, runID string, req chatRu
 	})
 }
 
-func writeInitialSummaryEvent(stream *chatSSEWriter, summary *agentmemory.SummaryResult) {
+func writeInitialSummaryEvent(stream chatEventWriter, summary *agentmemory.SummaryResult) {
 	if summary == nil || !summary.Triggered {
 		return
 	}
@@ -202,6 +202,7 @@ func (a *app) storeStreamChatTurn(ctx context.Context, collector *chatTurnCollec
 	if err := storeChatTurnWithHistory(ctx, a.chatStore, chatTurnHistoryRecord{
 		UserID:             req.UserID,
 		SessionID:          req.Request.SessionID,
+		UserMessageID:      req.Request.UserMessageID,
 		UserContent:        req.Request.Prompt,
 		TurnMessages:       collector.turnMessages,
 		FinalContent:       result,

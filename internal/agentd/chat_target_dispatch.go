@@ -25,6 +25,8 @@ func workflowLikeTimeout(workflowSeconds, fallbackSeconds int) int {
 type chatTargetDispatchOptions struct {
 	Prompt               string
 	SessionID            string
+	UserMessageID        string
+	AssistantMessageID   string
 	ProjectID            string
 	ObjectiveID          string
 	EphemeralSession     bool
@@ -151,19 +153,23 @@ func writeChatTargetBuildError(w http.ResponseWriter, build chatEngineBuildResul
 }
 
 type chatTargetDispatchRequest struct {
-	Prompt           string
-	SessionID        string
-	ProjectID        string
-	ObjectiveID      string
-	EphemeralSession bool
-	UserID           *int64
-	MemorySettings   chatMemoryRunSettings
+	Prompt             string
+	SessionID          string
+	UserMessageID      string
+	AssistantMessageID string
+	ProjectID          string
+	ObjectiveID        string
+	EphemeralSession   bool
+	UserID             *int64
+	MemorySettings     chatMemoryRunSettings
 }
 
 func dispatchOptionsFromDescriptor(descriptor chatTargetDescriptor, req chatTargetDispatchRequest) chatTargetDispatchOptions {
 	return chatTargetDispatchOptions{
 		Prompt:               req.Prompt,
 		SessionID:            req.SessionID,
+		UserMessageID:        req.UserMessageID,
+		AssistantMessageID:   req.AssistantMessageID,
 		ProjectID:            req.ProjectID,
 		ObjectiveID:          req.ObjectiveID,
 		EphemeralSession:     req.EphemeralSession,
@@ -306,6 +312,8 @@ func chatRunRequestFromDispatchOptions(opts chatTargetDispatchOptions) chatRunRe
 	return chatRunRequest{
 		Prompt:                opts.Prompt,
 		SessionID:             opts.SessionID,
+		UserMessageID:         opts.UserMessageID,
+		AssistantMessageID:    opts.AssistantMessageID,
 		ProjectID:             opts.ProjectID,
 		ObjectiveID:           opts.ObjectiveID,
 		EphemeralSession:      opts.EphemeralSession,
@@ -363,6 +371,8 @@ type chatTargetHandleRequest struct {
 	Target               chatDispatchTarget
 	Prompt               string
 	SessionID            string
+	UserMessageID        string
+	AssistantMessageID   string
 	ProjectID            string
 	ObjectiveID          string
 	EphemeralSession     bool
@@ -394,12 +404,14 @@ func (a *app) handleChatTarget(w http.ResponseWriter, r *http.Request, req chatT
 		descriptor.RunContext = r.Context()
 	}
 	return a.dispatchBuiltChatTarget(w, r, dispatchOptionsFromDescriptor(descriptor, chatTargetDispatchRequest{
-		Prompt:           req.Prompt,
-		SessionID:        req.SessionID,
-		ProjectID:        req.ProjectID,
-		ObjectiveID:      req.ObjectiveID,
-		EphemeralSession: req.EphemeralSession,
-		UserID:           req.UserID,
-		MemorySettings:   req.MemorySettings,
+		Prompt:             req.Prompt,
+		SessionID:          req.SessionID,
+		UserMessageID:      req.UserMessageID,
+		AssistantMessageID: req.AssistantMessageID,
+		ProjectID:          req.ProjectID,
+		ObjectiveID:        req.ObjectiveID,
+		EphemeralSession:   req.EphemeralSession,
+		UserID:             req.UserID,
+		MemorySettings:     req.MemorySettings,
 	}))
 }

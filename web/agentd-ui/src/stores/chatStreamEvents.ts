@@ -31,6 +31,23 @@ export function handleStreamEvent(
 ) {
   if (!state.isStreamCurrent(sessionId, streamId)) return;
   switch (event.type) {
+    case "run_started": {
+      if (typeof event.run_id === "string" && event.run_id.trim()) {
+        const runId = event.run_id.trim();
+        const current = state.streamingStateFor(sessionId);
+        if (current) {
+          state.setStreamingState(sessionId, {
+            ...current,
+            runId,
+          });
+        }
+        state.updateMessage(sessionId, assistantId, (message) => ({
+          ...message,
+          runId,
+        }));
+      }
+      break;
+    }
     case "thought_summary": {
       if (typeof event.data === "string" && event.data.trim()) {
         state.appendThoughtSummary(sessionId, event.data);

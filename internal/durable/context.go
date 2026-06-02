@@ -243,6 +243,14 @@ func RecordEvent(ctx context.Context, name string, payload map[string]any) (Even
 	return tc.Store.AppendTaskEvent(ctx, tc.Task.ID, name, payload)
 }
 
+func RecordEventOnce(ctx context.Context, eventKey string, name string, payload map[string]any) (Event, error) {
+	tc, ok := FromContext(ctx)
+	if !ok || tc.Store == nil {
+		return Event{}, fmt.Errorf("durable event record requires task context")
+	}
+	return tc.Store.AppendTaskEventOnce(ctx, tc.Task.ID, eventKey, name, payload)
+}
+
 func waitID(taskID string, kind WaitKind, key string) string {
 	sum := sha1.Sum([]byte(taskID + "\x00" + string(kind) + "\x00" + key))
 	return taskID + ":" + string(kind) + ":" + hex.EncodeToString(sum[:8])

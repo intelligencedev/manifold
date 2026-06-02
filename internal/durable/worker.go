@@ -18,6 +18,8 @@ type Worker struct {
 	workerID string
 	lease    time.Duration
 	poll     time.Duration
+	activeMu sync.Mutex
+	active   map[string]context.CancelFunc
 	cancel   context.CancelFunc
 	done     chan struct{}
 	once     sync.Once
@@ -42,7 +44,7 @@ func NewWorker(store Store, client *Client, registry *Registry, opts WorkerOptio
 	if poll <= 0 {
 		poll = 500 * time.Millisecond
 	}
-	return &Worker{store: store, client: client, registry: registry, workerID: workerID, lease: lease, poll: poll}
+	return &Worker{store: store, client: client, registry: registry, workerID: workerID, lease: lease, poll: poll, active: map[string]context.CancelFunc{}}
 }
 
 func (w *Worker) Start(ctx context.Context) {
@@ -110,13 +112,23 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 		return w.store.FailTask(ctx, task.ID, run.ID, []byte(`{"error":"handler not found"}`), ErrHandlerNotFound.Error(), time.Time{})
 	}
 	tc := TaskContext{Task: task, Run: run, Store: w.store, Client: w.client}
-	runCtx := WithTaskContext(ctx, tc)
+	taskCtx, cancelTask := context.WithCancel(ctx)
+	unregister := w.registerActive(task.ID, cancelTask)
+	defer unregister()
+	defer cancelTask()
+	stopWatcher := w.watchTaskCancellation(taskCtx, task.UserID, task.ID, cancelTask)
+	defer stopWatcher()
+
+	runCtx := WithTaskContext(taskCtx, tc)
 	result, runErr := spec.Fn(runCtx, cloneMap(task.Params))
 	if runErr != nil {
 		if errors.Is(runErr, ErrSuspended) {
+			if w.taskWasCancelled(ctx, task) {
+				return w.store.CancelTask(ctx, task.UserID, task.ID)
+			}
 			return w.store.MarkTaskWaiting(ctx, task.ID, run.ID)
 		}
-		if errors.Is(runErr, ErrCancelled) {
+		if errors.Is(runErr, ErrCancelled) || w.taskWasCancelled(ctx, task) && errors.Is(runErr, context.Canceled) {
 			return w.store.CancelTask(ctx, task.UserID, task.ID)
 		}
 		next := nextAttemptAt(task.RetryPolicy, run.Attempt)
@@ -134,6 +146,100 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 		return err
 	}
 	return w.store.WakeChildWaits(ctx, task.ID)
+}
+
+func (w *Worker) CancelTask(ctx context.Context, userID int64, taskID string) error {
+	if w == nil {
+		return ErrNotFound
+	}
+	var taskIDs []string
+	var err error
+	if w.client != nil {
+		taskIDs, err = w.client.CancelTree(ctx, userID, taskID)
+	} else if w.store != nil {
+		taskIDs, err = w.store.CancelTaskTree(ctx, userID, taskID)
+	} else {
+		err = ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	w.cancelActive(taskIDs)
+	return nil
+}
+
+func (w *Worker) registerActive(taskID string, cancel context.CancelFunc) func() {
+	if w == nil || cancel == nil {
+		return func() {}
+	}
+	w.activeMu.Lock()
+	w.active[taskID] = cancel
+	w.activeMu.Unlock()
+	return func() {
+		w.activeMu.Lock()
+		delete(w.active, taskID)
+		w.activeMu.Unlock()
+	}
+}
+
+func (w *Worker) cancelActive(taskIDs []string) {
+	if w == nil || len(taskIDs) == 0 {
+		return
+	}
+	w.activeMu.Lock()
+	cancels := make([]context.CancelFunc, 0, len(taskIDs))
+	for _, taskID := range taskIDs {
+		if cancel := w.active[taskID]; cancel != nil {
+			cancels = append(cancels, cancel)
+		}
+	}
+	w.activeMu.Unlock()
+	for _, cancel := range cancels {
+		cancel()
+	}
+}
+
+func (w *Worker) watchTaskCancellation(ctx context.Context, userID int64, taskID string, cancel context.CancelFunc) func() {
+	stop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(w.poll)
+		defer ticker.Stop()
+		defer cancel()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-stop:
+				return
+			case <-ticker.C:
+				if w.taskIDWasCancelled(userID, taskID) {
+					return
+				}
+			}
+		}
+	}()
+	return func() { close(stop) }
+}
+
+func (w *Worker) taskWasCancelled(ctx context.Context, task Task) bool {
+	if task.Status == TaskStatusCancelled {
+		return true
+	}
+	if w == nil || w.store == nil {
+		return false
+	}
+	latest, found, err := w.store.GetTask(ctx, task.UserID, task.ID)
+	return err == nil && found && latest.Status == TaskStatusCancelled
+}
+
+func (w *Worker) taskIDWasCancelled(userID int64, taskID string) bool {
+	if w == nil || w.store == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	task, found, err := w.store.GetTask(ctx, userID, taskID)
+	return err == nil && found && task.Status == TaskStatusCancelled
 }
 
 func nextAttemptAt(policy RetryPolicy, attempt int) time.Time {

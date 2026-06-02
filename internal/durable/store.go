@@ -21,6 +21,7 @@ type Store interface {
 	FailTask(ctx context.Context, taskID, runID string, failure json.RawMessage, errText string, nextAttemptAt time.Time) error
 	MarkTaskWaiting(ctx context.Context, taskID, runID string) error
 	CancelTask(ctx context.Context, userID int64, taskID string) error
+	CancelTaskTree(ctx context.Context, userID int64, taskID string) ([]string, error)
 	RetryTask(ctx context.Context, userID int64, taskID string, resetCheckpoints bool) (Task, error)
 	GetCheckpoint(ctx context.Context, taskID, stepKey string) (json.RawMessage, bool, error)
 	SaveCheckpoint(ctx context.Context, taskID, stepKey string, value json.RawMessage) (json.RawMessage, error)

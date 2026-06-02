@@ -93,7 +93,7 @@ func (durableRunCheckpointer) Save(ctx context.Context, key string, value any) e
 	if !ok || tc.Store == nil {
 		return nil
 	}
-	raw, err := json.Marshal(value)
+	raw, err := json.Marshal(durableChatJSONSafe(value))
 	if err != nil {
 		return err
 	}
@@ -139,7 +139,7 @@ func (w *durableChatEventWriter) write(payload any) {
 	if w == nil {
 		return
 	}
-	eventPayload := durableChatPayloadMap(payload)
+	eventPayload := durableChatPayloadMap(durableChatJSONSafe(payload))
 	if strings.TrimSpace(w.sessionID) != "" {
 		eventPayload["session_id"] = w.sessionID
 	}
@@ -163,7 +163,7 @@ func (w *durableChatEventWriter) write(payload any) {
 	if typ, _ := eventPayload["type"].(string); strings.TrimSpace(typ) != "" {
 		name = "chat." + strings.TrimSpace(typ)
 	}
-	if _, err := durable.RecordEventOnce(w.ctx, eventKey, name, map[string]any{"event": eventPayload}); err != nil {
+	if _, err := durable.RecordEventOnce(w.ctx, eventKey, name, map[string]any{"event": durableChatJSONSafe(eventPayload)}); err != nil {
 		log.Warn().Err(err).Str("task_id", w.taskID).Str("event", name).Msg("durable_chat_record_event_failed")
 	}
 }
@@ -327,7 +327,7 @@ func (a *app) chatRunDetailHandler() http.HandlerFunc {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
 			}
-			if err := a.durableClient.Cancel(r.Context(), userID, runID); err != nil {
+			if err := a.cancelDurableTask(r.Context(), userID, runID); err != nil {
 				writeDurableError(w, err)
 				return
 			}
@@ -942,6 +942,78 @@ func durableChatPayloadMap(payload any) map[string]any {
 		out = map[string]any{"type": "event"}
 	}
 	return out
+}
+
+func durableChatJSONSafe(value any) any {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case json.RawMessage:
+		return durableChatSafeRawMessage(v)
+	case []json.RawMessage:
+		out := make([]any, 0, len(v))
+		for _, item := range v {
+			out = append(out, durableChatSafeRawMessage(item))
+		}
+		return out
+	case []llm.Message:
+		out := make([]any, 0, len(v))
+		for _, item := range v {
+			out = append(out, durableChatJSONSafe(item))
+		}
+		return out
+	case llm.Message:
+		return map[string]any{
+			"role":              v.Role,
+			"content":           v.Content,
+			"tool_id":           v.ToolID,
+			"tool_calls":        durableChatJSONSafe(v.ToolCalls),
+			"images":            v.Images,
+			"compaction":        v.Compaction,
+			"thought_signature": v.ThoughtSignature,
+		}
+	case []llm.ToolCall:
+		out := make([]any, 0, len(v))
+		for _, item := range v {
+			out = append(out, durableChatJSONSafe(item))
+		}
+		return out
+	case llm.ToolCall:
+		return map[string]any{
+			"name":              v.Name,
+			"args":              durableChatSafeRawMessage(v.Args),
+			"id":                v.ID,
+			"thought_signature": v.ThoughtSignature,
+		}
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for key, item := range v {
+			out[key] = durableChatJSONSafe(item)
+		}
+		return out
+	case []any:
+		out := make([]any, 0, len(v))
+		for _, item := range v {
+			out = append(out, durableChatJSONSafe(item))
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func durableChatSafeRawMessage(raw json.RawMessage) any {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" {
+		return map[string]any{}
+	}
+	if json.Valid([]byte(trimmed)) {
+		var out any
+		if err := json.Unmarshal([]byte(trimmed), &out); err == nil {
+			return out
+		}
+	}
+	return trimmed
 }
 
 func durableChatEventFingerprint(payload map[string]any) string {

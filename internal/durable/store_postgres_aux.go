@@ -25,6 +25,18 @@ func (s *PostgresStore) GetCheckpoint(ctx context.Context, taskID, stepKey strin
 	return append(json.RawMessage(nil), raw...), true, nil
 }
 
+func scanStringRows(rows pgx.Rows) ([]string, error) {
+	out := []string{}
+	for rows.Next() {
+		var value string
+		if err := rows.Scan(&value); err != nil {
+			return nil, err
+		}
+		out = append(out, value)
+	}
+	return out, rows.Err()
+}
+
 func (s *PostgresStore) SaveCheckpoint(ctx context.Context, taskID, stepKey string, value json.RawMessage) (json.RawMessage, error) {
 	row := s.pool.QueryRow(ctx, `
 INSERT INTO durable_checkpoints (task_id, step_key, result, updated_at)

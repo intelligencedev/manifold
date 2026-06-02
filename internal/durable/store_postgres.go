@@ -555,15 +555,104 @@ func (s *PostgresStore) MarkTaskWaiting(ctx context.Context, taskID, runID strin
 }
 
 func (s *PostgresStore) CancelTask(ctx context.Context, userID int64, taskID string) error {
-	cmd, err := s.pool.Exec(ctx, `UPDATE durable_tasks SET status='cancelled', updated_at=NOW(), completed_at=NOW() WHERE id=$1 AND user_id=$2`, taskID, userID)
+	_, err := s.CancelTaskTree(ctx, userID, taskID)
+	return err
+}
+
+func (s *PostgresStore) CancelTaskTree(ctx context.Context, userID int64, taskID string) ([]string, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if cmd.RowsAffected() == 0 {
-		return ErrTaskNotFound
+	defer tx.Rollback(ctx)
+
+	taskIDs, err := s.cancelTaskTreeIDs(ctx, tx, userID, strings.TrimSpace(taskID))
+	if err != nil {
+		return nil, err
 	}
-	_, _ = s.AppendTaskEvent(ctx, taskID, "task_cancelled", map[string]any{"status": string(TaskStatusCancelled)})
-	return nil
+	cancelledIDs, err := s.cancelTaskTreeTx(ctx, tx, taskIDs)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	for _, id := range cancelledIDs {
+		_, _ = s.AppendTaskEvent(ctx, id, "task_cancelled", map[string]any{"status": string(TaskStatusCancelled)})
+	}
+	return cancelledIDs, nil
+}
+
+func (s *PostgresStore) cancelTaskTreeIDs(ctx context.Context, tx pgx.Tx, userID int64, taskID string) ([]string, error) {
+	rows, err := tx.Query(ctx, `
+WITH RECURSIVE task_tree AS (
+	SELECT id FROM durable_tasks WHERE id=$1 AND user_id=$2
+	UNION ALL
+	SELECT child.id
+	FROM durable_tasks child
+	JOIN task_tree parent ON child.parent_task_id = parent.id
+	WHERE child.user_id=$2
+)
+SELECT id FROM task_tree
+`, taskID, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	taskIDs, err := scanStringRows(rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(taskIDs) == 0 {
+		return nil, ErrTaskNotFound
+	}
+	return taskIDs, nil
+}
+
+func (s *PostgresStore) cancelTaskTreeTx(ctx context.Context, tx pgx.Tx, taskIDs []string) ([]string, error) {
+	rows, err := tx.Query(ctx, `
+UPDATE durable_tasks
+SET status='cancelled', error='cancelled', updated_at=NOW(), completed_at=NOW()
+WHERE id = ANY($1) AND status <> 'completed'
+RETURNING id
+`, taskIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	cancelledIDs, err := scanStringRows(rows)
+	if err != nil || len(cancelledIDs) == 0 {
+		return cancelledIDs, err
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE durable_runs
+SET status='cancelled', error='cancelled', completed_at=NOW()
+WHERE task_id = ANY($1) AND status NOT IN ('completed','cancelled')
+`, cancelledIDs); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE durable_waits
+SET status='cancelled', fired_at=NOW()
+WHERE task_id = ANY($1) AND status='waiting'
+`, cancelledIDs); err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `
+WITH fired AS (
+	UPDATE durable_waits
+	SET status='fired', fired_at=NOW()
+	WHERE child_task_id = ANY($1) AND status='waiting' AND NOT (task_id = ANY($1))
+	RETURNING task_id
+)
+UPDATE durable_tasks t
+SET status='queued', available_at=NOW(), updated_at=NOW()
+FROM fired
+WHERE t.id=fired.task_id AND t.status='waiting'
+`, cancelledIDs); err != nil {
+		return nil, err
+	}
+	return cancelledIDs, nil
 }
 
 func (s *PostgresStore) RetryTask(ctx context.Context, userID int64, taskID string, resetCheckpoints bool) (Task, error) {

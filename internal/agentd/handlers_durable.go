@@ -1,6 +1,7 @@
 package agentd
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -160,7 +161,7 @@ func (a *app) durableTaskDetailHandler() http.HandlerFunc {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
 			}
-			if err := a.durableClient.Cancel(r.Context(), userID, taskID); err != nil {
+			if err := a.cancelDurableTask(r.Context(), userID, taskID); err != nil {
 				writeDurableError(w, err)
 				return
 			}
@@ -198,6 +199,19 @@ func decodeDurableRetryRequest(w http.ResponseWriter, r *http.Request) (durableR
 		return durableRetryRequest{}, false
 	}
 	return req, true
+}
+
+func (a *app) cancelDurableTask(ctx context.Context, userID int64, taskID string) error {
+	if a == nil {
+		return durable.ErrNotFound
+	}
+	if a.durableWorker != nil {
+		return a.durableWorker.CancelTask(ctx, userID, taskID)
+	}
+	if a.durableClient != nil {
+		return a.durableClient.Cancel(ctx, userID, taskID)
+	}
+	return durable.ErrNotFound
 }
 
 func (a *app) durableEventsHandler() http.HandlerFunc {

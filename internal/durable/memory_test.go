@@ -400,3 +400,98 @@ func TestCancellationPreventsLateCompletion(t *testing.T) {
 		t.Fatalf("status = %s, want cancelled", snapshot.State)
 	}
 }
+
+func TestWorkerCancelTaskCancelsRunningContext(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := NewMemoryStore()
+	client := NewClient(store)
+	registry := NewRegistry()
+	started := make(chan struct{})
+	cancelled := make(chan struct{})
+	registry.Register(DefaultQueue, "slow", func(ctx context.Context, _ map[string]any) (map[string]any, error) {
+		close(started)
+		<-ctx.Done()
+		close(cancelled)
+		return nil, ctx.Err()
+	})
+	spawn, err := client.Spawn(ctx, SpawnRequest{Name: "slow", UserID: 13})
+	if err != nil {
+		t.Fatalf("spawn task: %v", err)
+	}
+	worker := NewWorker(store, client, registry, WorkerOptions{WorkerID: "test", Lease: time.Minute, PollInterval: 10 * time.Millisecond})
+	errCh := make(chan error, 1)
+	go func() { errCh <- worker.RunOnce(ctx) }()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("task did not start")
+	}
+	if err := worker.CancelTask(ctx, 13, spawn.TaskID); err != nil {
+		t.Fatalf("cancel task: %v", err)
+	}
+	select {
+	case <-cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("running task context was not cancelled")
+	}
+	if err := <-errCh; err != nil {
+		t.Fatalf("run once: %v", err)
+	}
+	snapshot, err := client.FetchResult(ctx, 13, spawn.TaskID)
+	if err != nil {
+		t.Fatalf("fetch result: %v", err)
+	}
+	if snapshot.State != TaskStatusCancelled {
+		t.Fatalf("status = %s, want cancelled", snapshot.State)
+	}
+}
+
+func TestCancelTaskTreeCancelsChildrenAndWaits(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := NewMemoryStore()
+	client := NewClient(store)
+	parent, err := client.Spawn(ctx, SpawnRequest{Name: "parent", UserID: 14})
+	if err != nil {
+		t.Fatalf("spawn parent: %v", err)
+	}
+	child, err := client.Spawn(ctx, SpawnRequest{Name: "child", UserID: 14, ParentTaskID: parent.TaskID})
+	if err != nil {
+		t.Fatalf("spawn child: %v", err)
+	}
+	waitID := "wait-parent-input"
+	if _, err := store.CreateWait(ctx, Wait{ID: waitID, TaskID: parent.TaskID, Kind: WaitKindEvent, EventName: "input", Status: "waiting"}); err != nil {
+		t.Fatalf("create wait: %v", err)
+	}
+	cancelledIDs, err := client.CancelTree(ctx, 14, parent.TaskID)
+	if err != nil {
+		t.Fatalf("cancel tree: %v", err)
+	}
+	if !containsString(cancelledIDs, parent.TaskID) || !containsString(cancelledIDs, child.TaskID) {
+		t.Fatalf("cancelled IDs = %v, want parent and child", cancelledIDs)
+	}
+	childSnapshot, err := client.FetchResult(ctx, 14, child.TaskID)
+	if err != nil {
+		t.Fatalf("fetch child: %v", err)
+	}
+	if childSnapshot.State != TaskStatusCancelled {
+		t.Fatalf("child status = %s, want cancelled", childSnapshot.State)
+	}
+	wait, found, err := store.GetWait(ctx, waitID)
+	if err != nil || !found {
+		t.Fatalf("get wait found=%v err=%v", found, err)
+	}
+	if wait.Status != "cancelled" {
+		t.Fatalf("wait status = %s, want cancelled", wait.Status)
+	}
+}
+
+func containsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}

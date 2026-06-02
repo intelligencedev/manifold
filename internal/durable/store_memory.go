@@ -329,18 +329,96 @@ func (s *MemoryStore) MarkTaskWaiting(_ context.Context, taskID, runID string) e
 }
 
 func (s *MemoryStore) CancelTask(_ context.Context, userID int64, taskID string) error {
+	_, err := s.CancelTaskTree(context.Background(), userID, taskID)
+	return err
+}
+
+func (s *MemoryStore) CancelTaskTree(_ context.Context, userID int64, taskID string) ([]string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	task, ok := s.tasks[taskID]
-	if !ok || task.UserID != userID {
-		return ErrTaskNotFound
+	taskIDs, err := s.cancelTaskTreeLocked(userID, taskID)
+	if err != nil {
+		return nil, err
+	}
+	return append([]string(nil), taskIDs...), nil
+}
+
+func (s *MemoryStore) cancelTaskTreeLocked(userID int64, taskID string) ([]string, error) {
+	root, ok := s.tasks[taskID]
+	if !ok || root.UserID != userID {
+		return nil, ErrTaskNotFound
 	}
 	now := time.Now().UTC()
-	task.Status = TaskStatusCancelled
-	task.CompletedAt = &now
-	task.UpdatedAt = now
-	s.tasks[taskID] = task
-	return nil
+	taskIDs := s.descendantTaskIDsLocked(userID, taskID)
+	cancelled := make([]string, 0, len(taskIDs))
+	cancelledSet := map[string]bool{}
+	for _, id := range taskIDs {
+		task := s.tasks[id]
+		if task.Status == TaskStatusCompleted {
+			continue
+		}
+		task.Status = TaskStatusCancelled
+		task.Error = "cancelled"
+		task.CompletedAt = &now
+		task.UpdatedAt = now
+		s.tasks[id] = task
+		cancelled = append(cancelled, id)
+		cancelledSet[id] = true
+		s.cancelRunsForTaskLocked(id, now)
+	}
+	s.cancelWaitsForTasksLocked(cancelledSet, now)
+	return cancelled, nil
+}
+
+func (s *MemoryStore) descendantTaskIDsLocked(userID int64, rootID string) []string {
+	out := []string{rootID}
+	for i := 0; i < len(out); i++ {
+		parentID := out[i]
+		for _, task := range s.tasks {
+			if task.UserID == userID && task.ParentTaskID == parentID {
+				out = append(out, task.ID)
+			}
+		}
+	}
+	return out
+}
+
+func (s *MemoryStore) cancelRunsForTaskLocked(taskID string, now time.Time) {
+	for runID, run := range s.runs {
+		if run.TaskID != taskID || run.Status == RunStatusCompleted || run.Status == RunStatusCancelled {
+			continue
+		}
+		run.Status = RunStatusCancelled
+		run.Error = "cancelled"
+		run.CompletedAt = &now
+		s.runs[runID] = run
+	}
+}
+
+func (s *MemoryStore) cancelWaitsForTasksLocked(cancelledSet map[string]bool, now time.Time) {
+	for id, wait := range s.waits {
+		if wait.Status != "waiting" {
+			continue
+		}
+		if cancelledSet[wait.TaskID] {
+			wait.Status = "cancelled"
+			wait.FiredAt = &now
+			s.waits[id] = wait
+			continue
+		}
+		if cancelledSet[wait.ChildTaskID] {
+			wait.Status = "fired"
+			wait.FiredAt = &now
+			s.waits[id] = wait
+			task := s.tasks[wait.TaskID]
+			if task.Status == TaskStatusWaiting {
+				task.Status = TaskStatusQueued
+				task.AvailableAt = now
+				task.UpdatedAt = now
+				s.tasks[task.ID] = task
+			}
+		}
+	}
 }
 
 func (s *MemoryStore) RetryTask(_ context.Context, userID int64, taskID string, resetCheckpoints bool) (Task, error) {

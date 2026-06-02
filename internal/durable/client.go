@@ -83,10 +83,15 @@ func (c *Client) EmitEvent(ctx context.Context, userID int64, queue, name string
 }
 
 func (c *Client) Cancel(ctx context.Context, userID int64, taskID string) error {
+	_, err := c.CancelTree(ctx, userID, taskID)
+	return err
+}
+
+func (c *Client) CancelTree(ctx context.Context, userID int64, taskID string) ([]string, error) {
 	if c == nil || c.store == nil {
-		return ErrNotFound
+		return nil, ErrNotFound
 	}
-	return c.store.CancelTask(ctx, userID, taskID)
+	return c.store.CancelTaskTree(ctx, userID, taskID)
 }
 
 func (c *Client) Retry(ctx context.Context, userID int64, taskID string, resetCheckpoints bool) (Task, error) {

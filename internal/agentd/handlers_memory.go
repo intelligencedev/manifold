@@ -64,7 +64,13 @@ type debugMemoryExplainResponse struct {
 	Explanations []memory.MemoryScoreExplanation `json:"explanations,omitempty"`
 }
 
-// debugMemoryHandler serves read-only observability for chat and evolving memory.
+type debugMemoryDeleteResponse struct {
+	Deleted   int      `json:"deleted"`
+	IDs       []string `json:"ids"`
+	SessionID string   `json:"sessionID"`
+}
+
+// debugMemoryHandler serves observability and maintenance for chat and evolving memory.
 // All endpoints are nested under /debug/memory and require authentication when
 // auth is enabled.
 func (a *app) debugMemoryHandler() http.HandlerFunc {
@@ -81,13 +87,9 @@ func (a *app) debugMemoryHandler() http.HandlerFunc {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Vary", "Origin")
 		if r.Method == http.MethodOptions {
-			w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept")
 			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
@@ -98,6 +100,11 @@ func (a *app) debugMemoryHandler() http.HandlerFunc {
 
 		path := strings.TrimPrefix(r.URL.Path, basePath)
 		path = strings.Trim(path, "/")
+		isEvolvingDelete := r.Method == http.MethodDelete && strings.HasPrefix(path, "evolving/")
+		if r.Method != http.MethodGet && !isEvolvingDelete {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		if path == "" {
 			writeJSON(w, http.StatusOK, map[string]string{
 				"sessions": "/debug/memory/sessions",
@@ -125,6 +132,12 @@ func (a *app) debugMemoryHandler() http.HandlerFunc {
 		case path == "evolving":
 			// Evolving memory / ReMem introspection
 			a.handleDebugMemoryEvolving(w, r)
+		case strings.HasPrefix(path, "evolving/"):
+			if r.Method != http.MethodDelete {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			a.handleDebugMemoryEvolvingDelete(w, r, strings.TrimPrefix(path, "evolving/"))
 		case path == "explain":
 			// Evolving memory score breakdown for a query
 			a.handleDebugMemoryExplain(w, r)
@@ -475,6 +488,64 @@ func (a *app) handleDebugMemoryEvolving(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, http.StatusOK, resp)
+}
+
+func (a *app) handleDebugMemoryEvolvingDelete(w http.ResponseWriter, r *http.Request, entryID string) {
+	userID := systemUserID
+	if a.cfg.Auth.Enabled {
+		uid, err := a.requireUserID(r)
+		if err != nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		userID = uid
+	}
+
+	entryID = strings.TrimSpace(entryID)
+	if entryID == "" {
+		http.Error(w, "memory id is required", http.StatusBadRequest)
+		return
+	}
+
+	sessionID := strings.TrimSpace(r.URL.Query().Get("session_id"))
+	if sessionID == "" {
+		sessionID = "default"
+	}
+	sessionID = normalizeClientChatSessionID(sessionID)
+
+	em := a.getOrCreateEvolvingMemoryForSession(userID, sessionID)
+	if em == nil {
+		http.Error(w, "evolving memory is disabled", http.StatusNotFound)
+		return
+	}
+
+	found := false
+	for _, entry := range em.ExportMemories() {
+		if entry != nil && entry.ID == entryID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		http.Error(w, "memory not found", http.StatusNotFound)
+		return
+	}
+
+	if err := em.ApplyEdits(r.Context(), []memory.MemoryEditOp{{
+		Type:   "PRUNE",
+		IDs:    []string{entryID},
+		Reason: "manual delete from memory overview",
+	}}); err != nil {
+		log.Error().Err(err).Str("memory_id", entryID).Str("session", sessionID).Msg("debug_memory_delete_evolving")
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, debugMemoryDeleteResponse{
+		Deleted:   1,
+		IDs:       []string{entryID},
+		SessionID: sessionID,
+	})
 }
 
 func (a *app) handleDebugMemoryExplain(w http.ResponseWriter, r *http.Request) {

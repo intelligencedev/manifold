@@ -121,6 +121,60 @@ func TestHandleDebugMemorySessionsIncludesEvolvingOnlySessions(t *testing.T) {
 	}
 }
 
+func TestDebugMemoryHandlerDeletesEvolvingMemory(t *testing.T) {
+	t.Parallel()
+
+	sessionID := normalizeClientChatSessionID("sess-delete")
+	em := memory.NewEvolvingMemory(memory.EvolvingMemoryConfig{})
+	if err := em.EvolveEnhanced(context.Background(), "delete prompt", "delete output", "success", nil, nil, ""); err != nil {
+		t.Fatalf("EvolveEnhanced failed: %v", err)
+	}
+	entries := em.ExportMemories()
+	if len(entries) != 1 {
+		t.Fatalf("expected one memory entry, got %d", len(entries))
+	}
+	entryID := entries[0].ID
+
+	a := &app{
+		cfg: &config.Config{},
+		userEvolving: map[int64]map[string]*memory.EvolvingMemory{
+			systemUserID: {sessionID: em},
+		},
+		evolvingLastUsed: map[int64]map[string]time.Time{
+			systemUserID: {sessionID: time.Now()},
+		},
+	}
+
+	getRec := httptest.NewRecorder()
+	getReq := httptest.NewRequest(http.MethodGet, "/debug/memory/evolving/"+entryID+"?session_id=sess-delete", nil)
+	a.debugMemoryHandler().ServeHTTP(getRec, getReq)
+	if getRec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected GET detail route to return 405, got %d body=%s", getRec.Code, getRec.Body.String())
+	}
+	if entries := em.ExportMemories(); len(entries) != 1 {
+		t.Fatalf("expected GET detail route not to delete memory, got %#v", entries)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/debug/memory/evolving/"+entryID+"?session_id=sess-delete", nil)
+	a.debugMemoryHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	var resp debugMemoryDeleteResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if resp.Deleted != 1 || len(resp.IDs) != 1 || resp.IDs[0] != entryID {
+		t.Fatalf("unexpected delete response: %#v", resp)
+	}
+	if entries := em.ExportMemories(); len(entries) != 0 {
+		t.Fatalf("expected memory entry to be deleted, got %#v", entries)
+	}
+}
+
 func TestHandleDebugMemorySessionDetailReturnsPlainSummary(t *testing.T) {
 	t.Parallel()
 

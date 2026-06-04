@@ -93,6 +93,12 @@ export interface EvolvingMemoryExplainDebug {
   explanations?: MemoryScoreExplanation[];
 }
 
+export interface DeleteEvolvingMemoryResponse {
+  deleted: number;
+  ids: string[];
+  sessionID: string;
+}
+
 // List sessions via the debug API so Overview's Memory panel
 // sees exactly what the memory engine sees.
 export async function fetchMemorySessions(): Promise<ChatSessionMeta[]> {
@@ -138,6 +144,19 @@ export async function fetchEvolvingMemory(
     "/debug/memory/evolving",
     {
       params: Object.keys(params).length ? params : undefined,
+    },
+  );
+  return data;
+}
+
+export async function deleteEvolvingMemory(
+  id: string,
+  sessionId: string,
+): Promise<DeleteEvolvingMemoryResponse> {
+  const { data } = await apiClient.delete<DeleteEvolvingMemoryResponse>(
+    `/debug/memory/evolving/${encodeURIComponent(id)}`,
+    {
+      params: { session_id: sessionId },
     },
   );
   return data;

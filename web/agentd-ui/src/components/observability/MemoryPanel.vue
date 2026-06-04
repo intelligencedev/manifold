@@ -9,7 +9,9 @@
           Introspect chat summaries and evolving experiences.
         </p>
       </div>
-      <div class="grid flex-1 grid-cols-2 gap-2 text-xs sm:flex-none sm:max-w-md">
+      <div
+        class="grid flex-1 grid-cols-2 gap-2 text-xs sm:flex-none sm:max-w-md"
+      >
         <DropdownSelect
           v-model="selectedSessionId"
           size="sm"
@@ -21,7 +23,7 @@
           type="search"
           placeholder="Search evolving memory…"
           class="halo-surface min-w-0 rounded border border-border bg-surface px-2 py-1 text-xs text-foreground"
-          @keyup.enter.prevent="refreshEvolving"
+          @keyup.enter.prevent="refreshEvolving()"
         />
       </div>
     </header>
@@ -139,6 +141,12 @@
             {{ evolvingDebug.windowSize }} · topK
             {{ evolvingDebug.topK }}
           </p>
+          <p
+            v-if="deleteError"
+            class="shrink-0 rounded-4 border border-danger/40 bg-danger/10 px-3 py-2 text-[11px] text-danger"
+          >
+            {{ deleteError }}
+          </p>
           <div class="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
             <div
               v-for="e in evolvingEntries"
@@ -155,25 +163,47 @@
                 >
                   {{ isExpanded(e.id) ? e.input : preview(e.input) }}
                 </p>
-                <button
-                  class="shrink-0 text-subtle-foreground hover:text-foreground transition-colors"
-                  :aria-label="isExpanded(e.id) ? 'Collapse' : 'Expand'"
-                >
-                  <svg
-                    class="h-4 w-4 transition-transform"
-                    :class="{ 'rotate-180': isExpanded(e.id) }"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
+                <div class="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    class="rounded-3 p-1 text-subtle-foreground transition-colors hover:bg-danger/10 hover:text-danger disabled:cursor-not-allowed disabled:opacity-50"
+                    :disabled="isDeleting(e.id)"
+                    title="Delete memory"
+                    aria-label="Delete memory"
+                    @click.stop="deleteMemoryEntry(e)"
                   >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M19 9l-7 7-7-7"
+                    <SolarTrashIcon
+                      v-if="!isDeleting(e.id)"
+                      class="h-3.5 w-3.5"
                     />
-                  </svg>
-                </button>
+                    <span
+                      v-else
+                      class="block h-3.5 w-3.5 animate-spin rounded-full border border-current border-t-transparent"
+                      aria-hidden="true"
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    class="rounded-3 p-1 text-subtle-foreground transition-colors hover:bg-surface-muted hover:text-foreground"
+                    :aria-label="isExpanded(e.id) ? 'Collapse' : 'Expand'"
+                    @click.stop="toggleExpanded(e.id)"
+                  >
+                    <svg
+                      class="h-4 w-4 transition-transform"
+                      :class="{ 'rotate-180': isExpanded(e.id) }"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M19 9l-7 7-7-7"
+                      />
+                    </svg>
+                  </button>
+                </div>
               </div>
               <p
                 :class="[
@@ -191,10 +221,12 @@
                 v-if="e.score != null"
                 class="mt-1 text-[10px] text-faint-foreground"
               >
-                score {{ (explanationFor(e.id)?.finalScore ?? e.score).toFixed(3) }}
+                score
+                {{ (explanationFor(e.id)?.finalScore ?? e.score).toFixed(3) }}
                 <span v-if="explanationFor(e.id)">
-                  · sim {{ explanationFor(e.id)!.similarity.toFixed(3) }} · quality
-                  {{ explanationFor(e.id)!.qualityWeight.toFixed(2) }} · decay
+                  · sim {{ explanationFor(e.id)!.similarity.toFixed(3) }} ·
+                  quality {{ explanationFor(e.id)!.qualityWeight.toFixed(2) }} ·
+                  decay
                   {{ explanationFor(e.id)!.decay.toFixed(2) }}
                 </span>
               </p>
@@ -208,9 +240,11 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { useQuery } from "@tanstack/vue-query";
+import { useMutation, useQuery } from "@tanstack/vue-query";
 import DropdownSelect from "@/components/DropdownSelect.vue";
+import SolarTrashIcon from "@/components/icons/SolarTrash.vue";
 import {
+  deleteEvolvingMemory,
   fetchEvolvingMemory,
   fetchEvolvingMemoryExplain,
   fetchMemorySessionDebug,
@@ -225,6 +259,7 @@ import {
 const selectedSessionId = ref("");
 const evolvingQuery = ref("");
 const expandedEntries = ref<Set<string>>(new Set());
+const deletingMemoryIds = ref<Set<string>>(new Set());
 
 const sessionDebug = ref<MemorySessionDebug | null>(null);
 const sessionLoading = ref(false);
@@ -235,6 +270,7 @@ const evolvingDebug = ref<EvolvingMemoryDebug | null>(null);
 const evolvingExplanations = ref<MemoryScoreExplanation[]>([]);
 const evolvingLoading = ref(false);
 const evolvingError = ref("");
+const deleteError = ref("");
 
 const { data: sessionsData, refetch: refetchSessions } = useQuery({
   queryKey: ["memory-sessions"],
@@ -244,6 +280,11 @@ const { data: sessionsData, refetch: refetchSessions } = useQuery({
 
 // Compute sessions from the query data - Vue Query v5 removed onSuccess callback
 const sessions = computed(() => sessionsData.value ?? []);
+
+const deleteMemoryMutation = useMutation({
+  mutationFn: ({ id, sessionId }: { id: string; sessionId: string }) =>
+    deleteEvolvingMemory(id, sessionId),
+});
 
 const sessionDropdownOptions = computed(() => [
   { id: "", label: "Select session…", value: "" },
@@ -273,7 +314,7 @@ async function refreshSessionDebug() {
   }
 }
 
-async function refreshEvolving() {
+async function refreshEvolving(options: { showLoading?: boolean } = {}) {
   evolvingError.value = "";
   if (!selectedSessionId.value) {
     evolvingDebug.value = null;
@@ -281,13 +322,21 @@ async function refreshEvolving() {
     evolvingLoading.value = false;
     return;
   }
-  evolvingLoading.value = true;
+  if (options.showLoading !== false) {
+    evolvingLoading.value = true;
+  }
   try {
     const query = evolvingQuery.value.trim();
-    const debug = await fetchEvolvingMemory(query || undefined, selectedSessionId.value);
+    const debug = await fetchEvolvingMemory(
+      query || undefined,
+      selectedSessionId.value,
+    );
     evolvingDebug.value = debug;
     if (query) {
-      const explain = await fetchEvolvingMemoryExplain(query, selectedSessionId.value);
+      const explain = await fetchEvolvingMemoryExplain(
+        query,
+        selectedSessionId.value,
+      );
       evolvingExplanations.value = explain.explanations ?? [];
     } else {
       evolvingExplanations.value = [];
@@ -295,7 +344,9 @@ async function refreshEvolving() {
   } catch (err: any) {
     evolvingError.value = err?.message || "Failed to load evolving memory";
   } finally {
-    evolvingLoading.value = false;
+    if (options.showLoading !== false) {
+      evolvingLoading.value = false;
+    }
   }
 }
 
@@ -342,6 +393,63 @@ const toggleExpanded = (id: string) => {
 };
 
 const isExpanded = (id: string) => expandedEntries.value.has(id);
+
+const isDeleting = (id: string) => deletingMemoryIds.value.has(id);
+
+function removeEvolvingEntry(id: string) {
+  const debug = evolvingDebug.value;
+  if (!debug) return;
+
+  const recentWindow = (debug.recentWindow || []).filter(
+    (entry) => entry.id !== id,
+  );
+  const retrieved = debug.retrieved?.filter((item) => item.entry.id !== id);
+  const removedFromRecent =
+    recentWindow.length !== (debug.recentWindow || []).length;
+  const removedFromRetrieved =
+    (retrieved?.length ?? 0) !== (debug.retrieved?.length ?? 0);
+
+  evolvingDebug.value = {
+    ...debug,
+    totalEntries:
+      removedFromRecent || removedFromRetrieved
+        ? Math.max(0, debug.totalEntries - 1)
+        : debug.totalEntries,
+    recentWindow,
+    retrieved,
+  };
+  evolvingExplanations.value = evolvingExplanations.value.filter(
+    (explanation) => explanation.entry.id !== id,
+  );
+}
+
+function deleteErrorMessage(err: any) {
+  const data = err?.response?.data;
+  if (typeof data === "string" && data.trim()) return data.trim();
+  return err?.message || "Failed to delete memory";
+}
+
+async function deleteMemoryEntry(entry: NormalizedEvolvingEntry) {
+  const id = entry.id.trim();
+  if (!id || !selectedSessionId.value || isDeleting(id)) return;
+  if (!window.confirm("Delete this memory? This cannot be undone.")) return;
+
+  deleteError.value = "";
+  deletingMemoryIds.value.add(id);
+  try {
+    await deleteMemoryMutation.mutateAsync({
+      id,
+      sessionId: selectedSessionId.value,
+    });
+    removeEvolvingEntry(id);
+    expandedEntries.value.delete(id);
+    await refreshEvolving({ showLoading: false });
+  } catch (err: any) {
+    deleteError.value = deleteErrorMessage(err);
+  } finally {
+    deletingMemoryIds.value.delete(id);
+  }
+}
 
 const explanationByID = computed(() => {
   const lookup = new Map<string, MemoryScoreExplanation>();

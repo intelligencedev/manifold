@@ -131,13 +131,13 @@ func TestExtensionStampSkip(t *testing.T) {
 	require.NoError(t, os.MkdirAll(binariesPath, 0755))
 
 	// Pre-create stamp file for pgvector.
-	version, ok := extensionVersion("pgvector", 18)
+	version, ok := extensionVersion("pgvector", 17)
 	require.True(t, ok)
 	stamp := filepath.Join(binariesPath, ".ext-pgvector-"+version)
 	require.NoError(t, os.WriteFile(stamp, []byte(version+"\n"), 0644))
 
 	// installExtensions should detect the stamp and skip without any download/copy.
-	installed := installExtensions(binariesPath, cachePath, 18, []string{"pgvector"}, "http://localhost:1/nope")
+	installed := installExtensions(binariesPath, cachePath, 17, []string{"pgvector"}, "http://localhost:1/nope")
 	require.True(t, installed["pgvector"])
 }
 
@@ -146,6 +146,26 @@ func TestPgMajorFromVersion(t *testing.T) {
 	require.Equal(t, 18, pgMajorFromVersion("18.3.0"))
 	require.Equal(t, 17, pgMajorFromVersion("17.5.0"))
 	require.Equal(t, 0, pgMajorFromVersion(""))
+}
+
+func TestResolveVersionDefaultsToPostgres17(t *testing.T) {
+	t.Parallel()
+
+	version, err := resolveVersion("")
+	require.NoError(t, err)
+	require.Equal(t, 17, pgMajorFromVersion(version))
+}
+
+func TestStartEmbeddedRequiresRuntimeAssetOrDevFallback(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	runtime, err := Start(&config.DBConfig{
+		Embedded:        true,
+		EmbeddedDataDir: filepath.Join(tmpDir, "data"),
+	})
+	require.ErrorContains(t, err, "no embedded PostgreSQL runtime is bundled")
+	require.Nil(t, runtime)
 }
 
 func assertFileContains(t *testing.T, path, expected string) {
@@ -167,11 +187,12 @@ func TestStartEmbeddedIntegration(t *testing.T) {
 	tmpDir := t.TempDir()
 	dataDir := filepath.Join(tmpDir, "data")
 	dbCfg := &config.DBConfig{
-		Embedded:           true,
-		EmbeddedPort:       15439,
-		EmbeddedDataDir:    dataDir,
-		EmbeddedVersion:    "18",
-		EmbeddedExtensions: []string{"pgvector"},
+		Embedded:                               true,
+		EmbeddedPort:                           15439,
+		EmbeddedDataDir:                        dataDir,
+		EmbeddedVersion:                        "17",
+		EmbeddedExtensions:                     defaultExtensions,
+		EmbeddedAllowExternalRuntimeResolution: true,
 		Vector: config.VectorConfig{
 			Backend: "postgres",
 		},
@@ -194,15 +215,8 @@ func TestStartEmbeddedIntegration(t *testing.T) {
 	t.Cleanup(pool.Close)
 	require.NoError(t, pool.Ping(ctx))
 
-	// If pgvector was installed, CREATE EXTENSION should succeed.
 	_, err = pool.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS vector`)
-	if err != nil {
-		// Extension not available (no hosted packages yet) — verify fallback.
-		require.Equal(t, "memory", dbCfg.Vector.Backend)
-		t.Log("pgvector not available; vector backend correctly fell back to memory")
-	} else {
-		t.Log("pgvector extension loaded successfully")
-	}
+	require.NoError(t, err)
 
 	_, err = pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS embedded_pg_smoke (id INT PRIMARY KEY)`)
 	require.NoError(t, err)

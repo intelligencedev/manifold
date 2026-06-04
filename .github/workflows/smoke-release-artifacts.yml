@@ -1,0 +1,86 @@
+name: Smoke Release Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        required: true
+      artifact_run_id:
+        required: false
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      artifact_run_id:
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  smoke:
+    name: Smoke ${{ matrix.target_os }}/${{ matrix.target_arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target_os: linux
+            target_arch: amd64
+            runner: ubuntu-22.04
+          - target_os: linux
+            target_arch: arm64
+            runner: ubuntu-22.04-arm
+          - target_os: darwin
+            target_arch: amd64
+            runner: macos-13
+          - target_os: darwin
+            target_arch: arm64
+            runner: macos-14
+          - target_os: windows
+            target_arch: amd64
+            runner: windows-2022
+          - target_os: windows
+            target_arch: arm64
+            runner: windows-2022-arm
+    steps:
+      - name: Checkout scripts
+        uses: actions/checkout@v4
+
+      - name: Download artifact from current run
+        if: ${{ inputs.artifact_run_id == '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: manifold-${{ matrix.target_os }}-${{ matrix.target_arch }}
+          path: dist/release
+
+      - name: Download artifact from run
+        if: ${{ inputs.artifact_run_id != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh run download "${{ inputs.artifact_run_id }}" \
+            --name "manifold-${{ matrix.target_os }}-${{ matrix.target_arch }}" \
+            --dir dist/release
+
+      - name: Smoke final artifact
+        shell: bash
+        run: |
+          artifact="$(find dist/release -type f \( -name '*.tar.gz' -o -name '*.zip' \) | head -1)"
+          scripts/release/smoke-manifold-artifact.sh \
+            --artifact "$artifact" \
+            --json-output "dist/release/doctor-${{ matrix.target_os }}-${{ matrix.target_arch }}.json"
+
+      - name: Upload smoke logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-logs-${{ matrix.target_os }}-${{ matrix.target_arch }}
+          path: |
+            dist/release/doctor-${{ matrix.target_os }}-${{ matrix.target_arch }}.json
+          if-no-files-found: ignore

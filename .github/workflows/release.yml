@@ -1,0 +1,115 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version/tag to build, for example v0.8.0-devtest.1"
+        required: true
+      publish:
+        description: "Create/update a GitHub Release"
+        required: true
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+      prerelease:
+        required: true
+        default: "true"
+        type: choice
+        options: ["true", "false"]
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  validate-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.version.outputs.publish }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            version="${GITHUB_REF_NAME}"
+            publish="true"
+            prerelease="false"
+          else
+            version="${{ inputs.version }}"
+            publish="${{ inputs.publish }}"
+            prerelease="${{ inputs.prerelease }}"
+          fi
+          [[ "$version" == v* ]] || { echo "version must start with v" >&2; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
+  build-postgres-runtimes:
+    needs: validate-version
+    uses: ./.github/workflows/build-postgres-runtime.yml
+    with:
+      pg_version: "17.5"
+      pgvector_version: "0.8.2"
+      postgis_version: "3.6.2"
+      pgrouting_version: "4.0.1"
+    secrets: inherit
+
+  build-manifold-artifacts:
+    needs:
+      - validate-version
+      - build-postgres-runtimes
+    uses: ./.github/workflows/build-manifold-release.yml
+    with:
+      version: ${{ needs.validate-version.outputs.version }}
+      runtime_artifact_run_id: ""
+    secrets: inherit
+
+  smoke-manifold-artifacts:
+    needs:
+      - validate-version
+      - build-manifold-artifacts
+    uses: ./.github/workflows/smoke-release-artifacts.yml
+    with:
+      version: ${{ needs.validate-version.outputs.version }}
+      artifact_run_id: ""
+    secrets: inherit
+
+  create-or-update-github-release:
+    needs:
+      - validate-version
+      - smoke-manifold-artifacts
+    if: ${{ needs.validate-version.outputs.publish == 'true' }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.validate-version.outputs.version }}
+      PRERELEASE: ${{ needs.validate-version.outputs.prerelease }}
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: manifold-*
+          path: dist/release
+          merge-multiple: true
+
+      - name: Create or update GitHub release
+        shell: bash
+        run: |
+          set -euo pipefail
+          flags=(--draft=false)
+          if [[ "$PRERELEASE" == "true" ]]; then
+            flags+=(--prerelease)
+          else
+            flags+=(--latest)
+          fi
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release upload "$VERSION" dist/release/* --clobber
+          else
+            gh release create "$VERSION" dist/release/* --title "$VERSION" --notes "Manifold $VERSION" "${flags[@]}"
+          fi

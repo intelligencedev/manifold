@@ -125,6 +125,8 @@ obs:
     dsn: ""
 ```
 
+Release builds use a bundled PostgreSQL 17 runtime and verify `pgvector`, `postgis`, and `pgrouting` before startup completes. Development builds that do not embed a runtime must set `databases.embeddedAllowExternalRuntimeResolution: true` to use the legacy downloaded/system PostgreSQL fallback.
+
 With that configuration, `manifold` starts a bundled PostgreSQL process for durable state and serves metrics, logs, and traces from bounded process-local telemetry. You still need an LLM provider, which can be a remote API key or a local OpenAI-compatible endpoint.
 
 For the full deployment walkthrough, see:

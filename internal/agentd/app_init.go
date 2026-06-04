@@ -12,6 +12,7 @@ import (
 )
 
 func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
+	cfg.Databases.EmbeddedDiagnosticLogPath = cfg.LogPath
 	embeddedRuntime, err := embeddedpg.Start(&cfg.Databases)
 	if err != nil {
 		return nil, fmt.Errorf("start embedded postgres: %w", err)

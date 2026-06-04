@@ -144,9 +144,9 @@ Run:
 ./dist/manifold
 ```
 
-When `databases.embedded` is true, Manifold starts bundled Postgres before initializing stores, sets the runtime default DSN internally, and stops the embedded process during shutdown. The default data directory is `~/.manifold/embedded-postgres`; set `embeddedDataDir` to choose a different persistent location.
+When `databases.embedded` is true, Manifold starts bundled PostgreSQL 17 before initializing stores, sets the runtime default DSN internally, and stops the embedded process during shutdown. The default data directory is `~/.manifold/embedded-postgres`; set `embeddedDataDir` to choose a different persistent location. Release builds extract the native runtime to the Manifold runtime cache and verify every runtime file checksum before executing PostgreSQL.
 
-The embedded mode installs the configured extensions (`pgvector`, `postgis`, and `pgrouting` by default) when available. If `pgvector` cannot be installed, vector storage falls back to memory while the rest of the Postgres-backed stores continue to use the embedded database.
+The embedded mode requires `pgvector`, `postgis`, and `pgrouting`. Startup fails if any required extension cannot be created or probed with `postgis_full_version()` and `pgr_version()`. Development builds without an embedded runtime can opt into the legacy downloaded/system fallback with `databases.embeddedAllowExternalRuntimeResolution: true`; release builds should leave that setting false.
 
 ## Service Map
 

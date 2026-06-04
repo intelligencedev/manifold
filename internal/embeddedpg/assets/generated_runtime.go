@@ -1,0 +1,4 @@
+package assets
+
+var generatedRuntimeArchivePath string
+var generatedRuntimeManifestPath string

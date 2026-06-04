@@ -4,17 +4,24 @@ type DBConfig struct {
 	// DefaultDSN is an optional shared connection string. If a per-subsystem
 	// DSN is not provided, this value will be used. When set, the factory can
 	// automatically select a Postgres backend if reachable.
-	DefaultDSN           string       `yaml:"defaultDSN" json:"defaultDSN"`
-	Embedded             bool         `yaml:"embedded" json:"embedded"`
-	EmbeddedPort         uint32       `yaml:"embeddedPort" json:"embeddedPort"`
-	EmbeddedDataDir      string       `yaml:"embeddedDataDir" json:"embeddedDataDir"`
-	EmbeddedVersion      string       `yaml:"embeddedVersion" json:"embeddedVersion"`
-	EmbeddedExtensions   []string     `yaml:"embeddedExtensions" json:"embeddedExtensions"`
-	EmbeddedExtensionURL string       `yaml:"embeddedExtensionURL" json:"embeddedExtensionURL"`
-	Search               SearchConfig `yaml:"search" json:"search"`
-	Vector               VectorConfig `yaml:"vector" json:"vector"`
-	Graph                GraphConfig  `yaml:"graph" json:"graph"`
-	Chat                 ChatConfig   `yaml:"chat" json:"chat"`
+	DefaultDSN           string   `yaml:"defaultDSN" json:"defaultDSN"`
+	Embedded             bool     `yaml:"embedded" json:"embedded"`
+	EmbeddedPort         uint32   `yaml:"embeddedPort" json:"embeddedPort"`
+	EmbeddedDataDir      string   `yaml:"embeddedDataDir" json:"embeddedDataDir"`
+	EmbeddedVersion      string   `yaml:"embeddedVersion" json:"embeddedVersion"`
+	EmbeddedExtensions   []string `yaml:"embeddedExtensions" json:"embeddedExtensions"`
+	EmbeddedExtensionURL string   `yaml:"embeddedExtensionURL" json:"embeddedExtensionURL"`
+	// EmbeddedAllowExternalRuntimeResolution enables development-only fallback
+	// to remote PostgreSQL downloads and local system extension discovery when
+	// no release runtime asset is embedded in the binary.
+	EmbeddedAllowExternalRuntimeResolution bool `yaml:"embeddedAllowExternalRuntimeResolution" json:"embeddedAllowExternalRuntimeResolution"`
+	// EmbeddedDiagnosticLogPath is populated from the top-level log path at
+	// runtime so embedded PostgreSQL errors can point users at useful logs.
+	EmbeddedDiagnosticLogPath string       `yaml:"-" json:"-"`
+	Search                    SearchConfig `yaml:"search" json:"search"`
+	Vector                    VectorConfig `yaml:"vector" json:"vector"`
+	Graph                     GraphConfig  `yaml:"graph" json:"graph"`
+	Chat                      ChatConfig   `yaml:"chat" json:"chat"`
 }
 
 // SearchConfig configures the full-text search backend.

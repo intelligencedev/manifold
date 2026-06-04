@@ -1,0 +1,149 @@
+name: Build Manifold Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        required: true
+      runtime_artifact_run_id:
+        required: false
+      publish_release:
+        required: true
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      runtime_artifact_run_id:
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  GO_VERSION: 1.26.3
+
+jobs:
+  build:
+    name: Manifold ${{ matrix.target_os }}/${{ matrix.target_arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target_os: linux
+            target_arch: amd64
+            runner: ubuntu-22.04
+          - target_os: linux
+            target_arch: arm64
+            runner: ubuntu-22.04-arm
+          - target_os: darwin
+            target_arch: amd64
+            runner: macos-13
+          - target_os: darwin
+            target_arch: arm64
+            runner: macos-14
+          - target_os: windows
+            target_arch: amd64
+            runner: windows-2022
+          - target_os: windows
+            target_arch: arm64
+            runner: windows-2022-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable pnpm
+        shell: bash
+        run: corepack enable
+
+      - name: Download runtime artifact from current run
+        if: ${{ inputs.runtime_artifact_run_id == '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: postgres-runtime-${{ matrix.target_os }}-${{ matrix.target_arch }}
+          path: dist/postgres-runtime
+
+      - name: Download runtime artifact from run
+        if: ${{ inputs.runtime_artifact_run_id != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh run download "${{ inputs.runtime_artifact_run_id }}" \
+            --name "postgres-runtime-${{ matrix.target_os }}-${{ matrix.target_arch }}" \
+            --dir dist/postgres-runtime
+
+      - name: Embed runtime asset
+        shell: bash
+        run: |
+          archive="$(find dist/postgres-runtime -type f \( -name '*.tar.zst' -o -name '*.zip' \) | head -1)"
+          manifest="$(find dist/postgres-runtime -type f -name '*.manifest.json' | head -1)"
+          scripts/release/embed-runtime-asset.sh \
+            --runtime-archive "$archive" \
+            --runtime-manifest "$manifest" \
+            --target-os "${{ matrix.target_os }}" \
+            --target-arch "${{ matrix.target_arch }}"
+
+      - name: Build frontend
+        shell: bash
+        run: make frontend
+
+      - name: Build manifold binary
+        shell: bash
+        run: |
+          mkdir -p dist/package
+          ext=""
+          if [[ "${{ matrix.target_os }}" == "windows" ]]; then ext=".exe"; fi
+          GOOS="${{ matrix.target_os }}" GOARCH="${{ matrix.target_arch }}" \
+            go build -tags "forge,embedded_pg_runtime" -ldflags "-s -w" \
+            -o "dist/package/manifold${ext}" ./cmd/agentd
+
+      - name: Add release notes files
+        shell: bash
+        run: |
+          cat > dist/package/README-embedded-postgres.txt <<'EOF'
+          Manifold includes a native PostgreSQL runtime with pgvector, PostGIS, and pgRouting.
+          No system PostgreSQL, Docker, Homebrew, apt, Chocolatey, or internet access is required at runtime.
+          EOF
+          cp dist/postgres-runtime/*.manifest.json dist/package/postgres-runtime.manifest.json
+          touch dist/package/THIRD_PARTY_NOTICES.txt
+
+      - name: Package artifact
+        shell: bash
+        run: |
+          mkdir -p dist/release
+          archive="manifold-${{ inputs.version }}-${{ matrix.target_os }}-${{ matrix.target_arch }}"
+          if [[ "${{ matrix.target_os }}" == "windows" ]]; then
+            (cd dist/package && zip -qr "../release/${archive}.zip" .)
+            shasum -a 256 "dist/release/${archive}.zip" > "dist/release/${archive}.zip.sha256"
+          else
+            tar -czf "dist/release/${archive}.tar.gz" -C dist/package .
+            shasum -a 256 "dist/release/${archive}.tar.gz" > "dist/release/${archive}.tar.gz.sha256"
+          fi
+
+      - name: Upload Manifold artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: manifold-${{ matrix.target_os }}-${{ matrix.target_arch }}
+          path: |
+            dist/release/manifold-${{ inputs.version }}-${{ matrix.target_os }}-${{ matrix.target_arch }}.tar.gz
+            dist/release/manifold-${{ inputs.version }}-${{ matrix.target_os }}-${{ matrix.target_arch }}.zip
+            dist/release/manifold-${{ inputs.version }}-${{ matrix.target_os }}-${{ matrix.target_arch }}.*.sha256
+          if-no-files-found: error

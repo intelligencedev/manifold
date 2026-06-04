@@ -1,11 +1,14 @@
 package embeddedpg
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,12 +18,15 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"manifold/internal/config"
+	pgassets "manifold/internal/embeddedpg/assets"
 )
 
 const (
 	defaultDatabase = "manifold"
 	defaultPort     = 5433
 	defaultUsername = "manifold"
+
+	defaultEmbeddedPostgresVersion = "17"
 )
 
 func defaultEmbeddedPassword() string {
@@ -28,11 +34,14 @@ func defaultEmbeddedPassword() string {
 }
 
 type Runtime struct {
-	database string
-	db       *embeddedpostgres.EmbeddedPostgres
-	dsn      string
-	stopErr  error
-	stopOnce sync.Once
+	database        string
+	db              *embeddedpostgres.EmbeddedPostgres
+	dsn             string
+	pgMajor         int
+	runtimeID       string
+	extensionProbes map[string]ExtensionProbe
+	stopErr         error
+	stopOnce        sync.Once
 }
 
 func Start(dbCfg *config.DBConfig) (*Runtime, error) {
@@ -45,42 +54,45 @@ func Start(dbCfg *config.DBConfig) (*Runtime, error) {
 		return nil, err
 	}
 
-	// Ensure PG binaries are present in the persistent binaries directory.
-	// On the very first run this downloads + extracts via a bootstrap cycle.
-	if err := ensureBinaries(rc); err != nil {
+	if err := resolveRuntimeBinaries(&rc, dbCfg); err != nil {
 		return nil, err
 	}
 
-	// Install extensions (idempotent — uses per-extension stamp files).
-	extensions := dbCfg.EmbeddedExtensions
-	if len(extensions) == 0 {
-		extensions = defaultExtensions
-	}
-	installed := installExtensions(
-		rc.binariesPath, rc.cachePath, rc.pgMajor,
-		extensions, dbCfg.EmbeddedExtensionURL,
-	)
-
 	rt := &Runtime{
-		database: rc.database,
-		db:       embeddedpostgres.NewDatabase(rc.embedded),
-		dsn:      rc.connectionURL(),
+		database:  rc.database,
+		db:        embeddedpostgres.NewDatabase(rc.embedded),
+		dsn:       rc.connectionURL(),
+		pgMajor:   rc.pgMajor,
+		runtimeID: rc.runtimeID,
 	}
 	if err := rt.db.Start(); err != nil {
 		return nil, fmt.Errorf("start embedded postgres: %w", err)
 	}
+	started := true
+	defer func() {
+		if started {
+			return
+		}
+		_ = rt.Stop()
+	}()
 
 	dbCfg.DefaultDSN = rt.DSN()
 
-	// Only fall back to memory vector if pgvector was not installed.
-	if !installed["pgvector"] && needsEmbeddedVectorFallback(dbCfg.Vector.Backend) {
-		log.Warn().Str("backend", dbCfg.Vector.Backend).
-			Msg("pgvector extension not available; forcing vector backend to memory")
-		dbCfg.Vector.Backend = "memory"
-		dbCfg.Vector.DSN = ""
+	probes, err := verifyRequiredExtensions(context.Background(), rt.DSN(), extensionVerificationContext{
+		RuntimeID:         rc.runtimeID,
+		DiagnosticLogPath: dbCfg.EmbeddedDiagnosticLogPath,
+	})
+	if err != nil {
+		started = false
+		return nil, err
 	}
+	rt.extensionProbes = probes
 
-	log.Info().Str("dsn", sanitizeDSN(rt.DSN())).Msg("embedded postgres started")
+	log.Info().
+		Str("dsn", sanitizeDSN(rt.DSN())).
+		Str("runtimeID", rc.runtimeID).
+		Int("pgMajor", rc.pgMajor).
+		Msg("embedded postgres started")
 	return rt, nil
 }
 
@@ -108,11 +120,13 @@ func (r *Runtime) Stop() error {
 
 type runtimeConfig struct {
 	database     string
+	baseDir      string
 	host         string
 	password     string
 	port         uint32
 	username     string
 	pgMajor      int
+	runtimeID    string
 	binariesPath string
 	cachePath    string
 	embedded     embeddedpostgres.Config
@@ -146,14 +160,17 @@ func newRuntimeConfig(dbCfg config.DBConfig) (runtimeConfig, error) {
 
 	binariesPath := filepath.Join(baseDir, fmt.Sprintf("binaries-%s", string(version)))
 	cachePath := filepath.Join(baseDir, "cache")
+	runtimeID := fmt.Sprintf("external-postgres-%d-%s-%s", pgMajorFromVersion(version), runtime.GOOS, runtime.GOARCH)
 
 	return runtimeConfig{
 		database:     database,
+		baseDir:      baseDir,
 		host:         host,
 		password:     password,
 		port:         port,
 		username:     username,
 		pgMajor:      pgMajorFromVersion(version),
+		runtimeID:    runtimeID,
 		binariesPath: binariesPath,
 		cachePath:    cachePath,
 		embedded: embeddedpostgres.DefaultConfig().
@@ -197,25 +214,18 @@ func resolveBaseDir(dataDir string) (string, error) {
 
 func resolveVersion(raw string) (embeddedpostgres.PostgresVersion, error) {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "", "18", "18.3", "18.3.0", "v18":
-		return embeddedpostgres.V18, nil
 	case "17", "17.5", "17.5.0", "v17":
 		return embeddedpostgres.V17, nil
+	case "":
+		return embeddedpostgres.V17, nil
+	case "18", "18.3", "18.3.0", "v18":
+		return embeddedpostgres.V18, nil
 	case "16", "16.9", "16.9.0", "v16":
 		return embeddedpostgres.V16, nil
 	case "15", "15.13", "15.13.0", "v15":
 		return embeddedpostgres.V15, nil
 	default:
 		return "", fmt.Errorf("unsupported embedded postgres version %q", raw)
-	}
-}
-
-func needsEmbeddedVectorFallback(backend string) bool {
-	switch strings.ToLower(strings.TrimSpace(backend)) {
-	case "auto", "postgres", "pg", "pgvector":
-		return true
-	default:
-		return false
 	}
 }
 
@@ -234,7 +244,7 @@ func sanitizeDSN(raw string) string {
 // populated. On the very first run, it triggers a bootstrap Start()/Stop()
 // cycle so the library downloads and extracts the PG tarball.
 func ensureBinaries(rc runtimeConfig) error {
-	pgCtl := filepath.Join(rc.binariesPath, "bin", "pg_ctl")
+	pgCtl := filepath.Join(rc.binariesPath, "bin", executableName("pg_ctl"))
 	if _, err := os.Stat(pgCtl); err == nil {
 		return nil // already prepared
 	}
@@ -263,4 +273,74 @@ func pgMajorFromVersion(v embeddedpostgres.PostgresVersion) int {
 		return n
 	}
 	return 0
+}
+
+func resolveRuntimeBinaries(rc *runtimeConfig, dbCfg *config.DBConfig) error {
+	asset, err := pgassets.Current()
+	if err == nil {
+		prepared, err := prepareRuntimeAsset(asset, runtimeCacheDir(*rc, dbCfg.EmbeddedDataDir))
+		if err != nil {
+			return err
+		}
+		rc.pgMajor = prepared.pgMajor
+		rc.runtimeID = prepared.runtimeID
+		rc.binariesPath = prepared.root
+		rc.embedded = rc.embedded.
+			Version(embeddedpostgres.PostgresVersion(prepared.version)).
+			BinariesPath(prepared.root)
+		log.Info().
+			Str("runtimeID", prepared.runtimeID).
+			Str("path", prepared.root).
+			Msg("embedded postgres runtime asset verified")
+		return nil
+	}
+	if !errors.Is(err, pgassets.ErrNoRuntimeAsset) {
+		return err
+	}
+	if !dbCfg.EmbeddedAllowExternalRuntimeResolution {
+		return fmt.Errorf(
+			"no embedded PostgreSQL runtime is bundled for %s/%s. This release cannot start embedded PostgreSQL without its native runtime payload. Diagnostic log: %s. Please report this issue with a Manifold support bundle",
+			runtime.GOOS,
+			runtime.GOARCH,
+			diagnosticLogPath(dbCfg.EmbeddedDiagnosticLogPath),
+		)
+	}
+
+	log.Warn().
+		Str("runtimeID", rc.runtimeID).
+		Msg("embedded postgres using development external runtime resolution")
+	if err := ensureBinaries(*rc); err != nil {
+		return err
+	}
+
+	extensions := dbCfg.EmbeddedExtensions
+	if len(extensions) == 0 {
+		extensions = defaultExtensions
+	}
+	installExtensions(
+		rc.binariesPath, rc.cachePath, rc.pgMajor,
+		extensions, dbCfg.EmbeddedExtensionURL,
+	)
+	return nil
+}
+
+func runtimeCacheDir(rc runtimeConfig, embeddedDataDir string) string {
+	if strings.TrimSpace(embeddedDataDir) == "" {
+		return filepath.Join(filepath.Dir(rc.baseDir), "runtimes", "postgres")
+	}
+	return filepath.Join(rc.baseDir, "runtimes", "postgres")
+}
+
+func executableName(name string) string {
+	if runtime.GOOS == "windows" {
+		return name + ".exe"
+	}
+	return name
+}
+
+func diagnosticLogPath(path string) string {
+	if strings.TrimSpace(path) == "" {
+		return "not configured"
+	}
+	return path
 }

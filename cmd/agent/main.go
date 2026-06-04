@@ -141,6 +141,7 @@ func initObservability(ctx context.Context, cfg *config.Config) func(context.Con
 }
 
 func startEmbeddedPostgres(cfg *config.Config) (*embeddedpg.Runtime, error) {
+	cfg.Databases.EmbeddedDiagnosticLogPath = cfg.LogPath
 	embeddedRuntime, err := embeddedpg.Start(&cfg.Databases)
 	if err != nil {
 		return nil, fmt.Errorf("start embedded postgres: %w", err)

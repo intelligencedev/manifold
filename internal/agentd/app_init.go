@@ -75,6 +75,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		return nil, fmt.Errorf("start matrix pulse runtime: %w", err)
 	}
 	app.durableWorker.Start(ctx)
+	app.startDurableTaskJanitor(ctx, defaultDurableTaskJanitorInterval, defaultDurableTaskRetention)
 
 	return app, nil
 }

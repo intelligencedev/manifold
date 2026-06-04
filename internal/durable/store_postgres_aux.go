@@ -140,6 +140,29 @@ ORDER BY queue
 	return out, rows.Err()
 }
 
+func (s *PostgresStore) PruneTerminalTasks(ctx context.Context, before time.Time) (int64, error) {
+	var removed int64
+	err := s.pool.QueryRow(ctx, `
+WITH deleted AS (
+	DELETE FROM durable_tasks
+	WHERE status IN ('completed', 'failed', 'cancelled')
+	  AND completed_at IS NOT NULL
+	  AND completed_at < $1
+	RETURNING id
+), deleted_child_waits AS (
+	DELETE FROM durable_waits
+	WHERE child_task_id IN (SELECT id FROM deleted)
+	RETURNING 1
+), deleted_outbox AS (
+	DELETE FROM durable_outbox
+	WHERE task_id IN (SELECT id FROM deleted)
+	RETURNING 1
+)
+SELECT COUNT(*) FROM deleted
+`, before.UTC()).Scan(&removed)
+	return removed, err
+}
+
 func scanTask(row pgx.Row, task *Task) error {
 	var params, headers, retryPolicy, result, failure []byte
 	var completedAt *time.Time

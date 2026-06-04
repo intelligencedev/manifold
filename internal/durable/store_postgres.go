@@ -217,9 +217,30 @@ FROM durable_tasks WHERE id=$1 AND user_id=$2
 }
 
 func (s *PostgresStore) ListTasks(ctx context.Context, userID int64, filter TaskListFilter) ([]Task, error) {
+	page, err := s.ListTasksPage(ctx, userID, filter)
+	if err != nil {
+		return nil, err
+	}
+	return page.Tasks, nil
+}
+
+func (s *PostgresStore) ListTasksPage(ctx context.Context, userID int64, filter TaskListFilter) (TaskListPage, error) {
 	filter.Queue = strings.TrimSpace(filter.Queue)
 	filter.Name = strings.TrimSpace(filter.Name)
 	status := strings.TrimSpace(string(filter.Status))
+	limit := normalizeTaskListLimit(filter.Limit)
+	offset := normalizeTaskListOffset(filter.Offset)
+	var total int64
+	if err := s.pool.QueryRow(ctx, `
+SELECT COUNT(*)
+FROM durable_tasks
+WHERE user_id=$1
+  AND ($2 = '' OR queue=$2)
+  AND ($3 = '' OR status=$3)
+  AND ($4 = '' OR name=$4)
+`, userID, filter.Queue, status, filter.Name).Scan(&total); err != nil {
+		return TaskListPage{}, err
+	}
 	rows, err := s.pool.Query(ctx, `
 SELECT id, queue, name, user_id, params, headers, status, idempotency_key, COALESCE(parent_task_id,''), COALESCE(parent_run_id,''), retry_policy, attempt, available_at, result, failure, error, created_at, updated_at, completed_at
 FROM durable_tasks
@@ -227,22 +248,32 @@ WHERE user_id=$1
   AND ($2 = '' OR queue=$2)
   AND ($3 = '' OR status=$3)
   AND ($4 = '' OR name=$4)
-ORDER BY updated_at DESC, created_at DESC
+ORDER BY updated_at DESC, created_at DESC, id DESC
 LIMIT $5
-`, userID, filter.Queue, status, filter.Name, normalizeTaskListLimit(filter.Limit))
+OFFSET $6
+`, userID, filter.Queue, status, filter.Name, limit, offset)
 	if err != nil {
-		return nil, err
+		return TaskListPage{}, err
 	}
 	defer rows.Close()
 	tasks := []Task{}
 	for rows.Next() {
 		var task Task
 		if err := scanTask(rows, &task); err != nil {
-			return nil, err
+			return TaskListPage{}, err
 		}
 		tasks = append(tasks, task)
 	}
-	return tasks, rows.Err()
+	if err := rows.Err(); err != nil {
+		return TaskListPage{}, err
+	}
+	return TaskListPage{
+		Tasks:   tasks,
+		Limit:   limit,
+		Offset:  offset,
+		Total:   total,
+		HasMore: int64(offset+len(tasks)) < total,
+	}, nil
 }
 
 func (s *PostgresStore) ListTaskEvents(ctx context.Context, userID int64, taskID string, afterSequence int64) ([]Event, TaskStatus, bool, error) {

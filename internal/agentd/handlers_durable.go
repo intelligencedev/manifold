@@ -45,12 +45,12 @@ func (a *app) durableTasksHandler() http.HandlerFunc {
 				http.Error(w, "bad request", http.StatusBadRequest)
 				return
 			}
-			tasks, err := a.durableClient.ListTasks(r.Context(), userID, filter)
+			page, err := a.durableClient.ListTasksPage(r.Context(), userID, filter)
 			if err != nil {
 				writeDurableError(w, err)
 				return
 			}
-			writeJSON(w, http.StatusOK, map[string]any{"tasks": tasks})
+			writeJSON(w, http.StatusOK, page)
 			return
 		case http.MethodPost:
 		default:
@@ -111,6 +111,13 @@ func durableTaskListFilterFromQuery(values url.Values) (durable.TaskListFilter, 
 			return durable.TaskListFilter{}, errors.New("invalid limit")
 		}
 		filter.Limit = limit
+	}
+	if rawOffset := strings.TrimSpace(values.Get("offset")); rawOffset != "" {
+		offset, err := strconv.Atoi(rawOffset)
+		if err != nil || offset < 0 {
+			return durable.TaskListFilter{}, errors.New("invalid offset")
+		}
+		filter.Offset = offset
 	}
 	return filter, nil
 }

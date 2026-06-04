@@ -5,6 +5,7 @@ import {
   fetchDurableTask,
   fetchDurableTaskEvents,
   listDurableTasks,
+  listDurableTasksPage,
   retryDurableTask,
 } from "@/api/durable";
 import { apiClient } from "@/api/client";
@@ -36,7 +37,13 @@ describe("durable API client", () => {
 
   it("lists tasks with compact filters", async () => {
     mockedApi.get.mockResolvedValueOnce({
-      data: { tasks: [{ id: "dtask_1", queue: "ops", name: "deploy" }] },
+      data: {
+        tasks: [{ id: "dtask_1", queue: "ops", name: "deploy" }],
+        limit: 50,
+        offset: 0,
+        total: 1,
+        has_more: false,
+      },
     });
 
     await expect(
@@ -44,6 +51,31 @@ describe("durable API client", () => {
     ).resolves.toEqual([{ id: "dtask_1", queue: "ops", name: "deploy" }]);
     expect(mockedApi.get).toHaveBeenCalledWith("/durable/tasks", {
       params: { queue: "ops", limit: 50 },
+    });
+  });
+
+  it("lists task pages with offset metadata", async () => {
+    mockedApi.get.mockResolvedValueOnce({
+      data: {
+        tasks: [{ id: "dtask_2", queue: "ops", name: "deploy" }],
+        limit: 1,
+        offset: 1,
+        total: 3,
+        has_more: true,
+      },
+    });
+
+    await expect(
+      listDurableTasksPage({ queue: "ops", limit: 1, offset: 1 }),
+    ).resolves.toEqual({
+      tasks: [{ id: "dtask_2", queue: "ops", name: "deploy" }],
+      limit: 1,
+      offset: 1,
+      total: 3,
+      has_more: true,
+    });
+    expect(mockedApi.get).toHaveBeenCalledWith("/durable/tasks", {
+      params: { queue: "ops", limit: 1, offset: 1 },
     });
   });
 

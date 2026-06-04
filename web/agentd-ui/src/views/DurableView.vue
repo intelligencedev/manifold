@@ -148,7 +148,7 @@
               Task Listing
             </p>
             <p class="mt-1 text-sm text-faint-foreground">
-              {{ tasks.length }} visible from the latest query
+              {{ taskListingSummary }}
             </p>
           </div>
           <div class="flex flex-wrap items-end gap-2">
@@ -189,6 +189,29 @@
                 class="min-h-9 w-56 rounded-3 border border-border/70 bg-surface-muted/55 px-3 text-sm text-foreground outline-none transition placeholder:text-faint-foreground focus:border-accent"
               />
             </label>
+            <div class="flex items-center gap-2 pb-0.5">
+              <AppButton
+                size="xs"
+                variant="ghost"
+                :disabled="!hasPreviousTaskPage"
+                @click="previousTaskPage"
+              >
+                Previous
+              </AppButton>
+              <span
+                class="min-w-[5rem] text-center text-xs text-subtle-foreground"
+              >
+                Page {{ taskPageDisplay }}
+              </span>
+              <AppButton
+                size="xs"
+                variant="ghost"
+                :disabled="!hasNextTaskPage"
+                @click="nextTaskPage"
+              >
+                Next
+              </AppButton>
+            </div>
           </div>
         </div>
 
@@ -261,12 +284,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { useQuery } from "@tanstack/vue-query";
 import { useRoute, useRouter } from "vue-router";
 import {
   fetchDurableQueues,
-  listDurableTasks,
+  listDurableTasksPage,
   type DurableTask,
   type DurableTaskStatus,
 } from "@/api/durable";
@@ -284,6 +307,7 @@ const props = withDefaults(
 
 const route = useRoute();
 const router = useRouter();
+const TASK_PAGE_SIZE = 50;
 
 const taskStatuses: DurableTaskStatus[] = [
   "queued",
@@ -301,12 +325,14 @@ const selectedStatus = ref<DurableTaskStatus | "">(
     : "",
 );
 const taskNameFilter = ref(queryString(route.query.name));
+const taskPageIndex = ref(Math.max(0, queryNumber(route.query.page) - 1));
 
 const taskFilters = computed(() => ({
   queue: selectedQueue.value,
   status: selectedStatus.value,
   name: taskNameFilter.value.trim(),
-  limit: 75,
+  limit: TASK_PAGE_SIZE,
+  offset: taskPageIndex.value * TASK_PAGE_SIZE,
 }));
 
 const listingQuery = computed(() => {
@@ -315,7 +341,12 @@ const listingQuery = computed(() => {
   if (selectedQueue.value) query.queue = selectedQueue.value;
   if (selectedStatus.value) query.status = selectedStatus.value;
   if (taskNameFilter.value.trim()) query.name = taskNameFilter.value.trim();
+  if (taskPageIndex.value > 0) query.page = String(taskPageIndex.value + 1);
   return query;
+});
+
+watch([selectedQueue, selectedStatus, taskNameFilter], () => {
+  taskPageIndex.value = 0;
 });
 
 const {
@@ -334,14 +365,41 @@ const {
   refetch: refetchTasks,
 } = useQuery({
   queryKey: computed(() => ["durable", "tasks", taskFilters.value]),
-  queryFn: () => listDurableTasks(taskFilters.value),
+  queryFn: () => listDurableTasksPage(taskFilters.value),
   refetchInterval: 5_000,
 });
 
 const queues = computed(() => queueData.value ?? []);
-const tasks = computed(() =>
-  [...(taskData.value ?? [])].sort(compareNewestTasks),
+const taskPage = computed(
+  () =>
+    taskData.value ?? {
+      tasks: [],
+      limit: TASK_PAGE_SIZE,
+      offset: taskPageIndex.value * TASK_PAGE_SIZE,
+      total: 0,
+      has_more: false,
+    },
 );
+const tasks = computed(() =>
+  [...taskPage.value.tasks].sort(compareNewestTasks),
+);
+
+const taskListingSummary = computed(() => {
+  const total = taskPage.value.total;
+  if (total <= 0) return "No visible tasks";
+  const start = taskPage.value.offset + 1;
+  const end = taskPage.value.offset + tasks.value.length;
+  return `Showing ${formatNumber(start)}-${formatNumber(end)} of ${formatNumber(total)} tasks`;
+});
+
+const hasPreviousTaskPage = computed(() => taskPageIndex.value > 0);
+const hasNextTaskPage = computed(() => taskPage.value.has_more);
+const taskPageDisplay = computed(() => formatNumber(taskPageIndex.value + 1));
+
+watch(taskPage, (page) => {
+  if (page.total <= 0 || page.offset < page.total) return;
+  taskPageIndex.value = Math.max(0, Math.ceil(page.total / TASK_PAGE_SIZE) - 1);
+});
 
 const queueNames = computed(() => {
   const names = new Set<string>();
@@ -434,6 +492,14 @@ async function refreshAll() {
   await Promise.all([refetchQueues(), refetchTasks()]);
 }
 
+function previousTaskPage() {
+  if (taskPageIndex.value > 0) taskPageIndex.value -= 1;
+}
+
+function nextTaskPage() {
+  if (taskPage.value.has_more) taskPageIndex.value += 1;
+}
+
 function openTask(task: DurableTask) {
   void router.push({
     name: "durable-task",
@@ -501,5 +567,12 @@ function queryString(value: unknown) {
     return typeof value[0] === "string" ? value[0] : "";
   }
   return typeof value === "string" ? value : "";
+}
+
+function queryNumber(value: unknown) {
+  const raw = queryString(value);
+  if (!raw.trim()) return 0;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 </script>

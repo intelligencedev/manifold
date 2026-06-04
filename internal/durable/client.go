@@ -53,6 +53,20 @@ func (c *Client) ListTasks(ctx context.Context, userID int64, filter TaskListFil
 	return c.store.ListTasks(ctx, userID, filter)
 }
 
+func (c *Client) ListTasksPage(ctx context.Context, userID int64, filter TaskListFilter) (TaskListPage, error) {
+	if c == nil || c.store == nil {
+		return TaskListPage{}, ErrNotFound
+	}
+	return c.store.ListTasksPage(ctx, userID, filter)
+}
+
+func (c *Client) PruneTerminalTasks(ctx context.Context, before time.Time) (int64, error) {
+	if c == nil || c.store == nil {
+		return 0, ErrNotFound
+	}
+	return c.store.PruneTerminalTasks(ctx, before)
+}
+
 func (c *Client) AwaitResult(ctx context.Context, userID int64, taskID string, poll time.Duration) (*ResultSnapshot, error) {
 	if poll <= 0 {
 		poll = 250 * time.Millisecond

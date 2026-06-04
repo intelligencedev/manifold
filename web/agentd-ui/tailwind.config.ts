@@ -44,9 +44,15 @@ export default {
           "rgb(var(--color-danger-foreground) / <alpha-value>)",
       },
       fontFamily: {
-        display: ['"Space Grotesk"', "system-ui", "sans-serif"],
-        sans: ['"Hanken Grotesk"', "system-ui", "sans-serif"],
-        mono: ['"JetBrains Mono"', "ui-monospace", "monospace"],
+        display: ['"Inter"', "system-ui", "-apple-system", "sans-serif"],
+        sans: ['"Inter"', "system-ui", "-apple-system", "sans-serif"],
+        mono: [
+          '"Inter"',
+          '"Inter var"',
+          "ui-monospace",
+          "SFMono-Regular",
+          "monospace",
+        ],
       },
       borderColor: {
         DEFAULT: "rgb(var(--color-border) / <alpha-value>)",

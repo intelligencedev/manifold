@@ -3,6 +3,7 @@ package durable
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -100,6 +101,125 @@ func TestMemoryStoreListTasksFiltersByUserQueueStatusAndName(t *testing.T) {
 	if len(named) != 1 || named[0].Name != "digest" || named[0].Queue != "mail" {
 		t.Fatalf("name filter = %+v, want mail digest", named)
 	}
+}
+
+func TestMemoryStoreListTasksPagePaginates(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := NewMemoryStore()
+	client := NewClient(store)
+	for i := 0; i < 3; i++ {
+		if _, err := client.Spawn(ctx, SpawnRequest{Queue: "ops", Name: "deploy", UserID: 7}); err != nil {
+			t.Fatalf("spawn task %d: %v", i, err)
+		}
+	}
+
+	first, err := client.ListTasksPage(ctx, 7, TaskListFilter{Queue: "ops", Limit: 2})
+	if err != nil {
+		t.Fatalf("first page: %v", err)
+	}
+	if len(first.Tasks) != 2 || first.Total != 3 || !first.HasMore || first.Offset != 0 || first.Limit != 2 {
+		t.Fatalf("first page = %+v, want 2 of 3 with has_more", first)
+	}
+
+	second, err := client.ListTasksPage(ctx, 7, TaskListFilter{Queue: "ops", Limit: 2, Offset: 2})
+	if err != nil {
+		t.Fatalf("second page: %v", err)
+	}
+	if len(second.Tasks) != 1 || second.Total != 3 || second.HasMore || second.Offset != 2 || second.Limit != 2 {
+		t.Fatalf("second page = %+v, want final task", second)
+	}
+}
+
+func TestMemoryStorePruneTerminalTasks(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := NewMemoryStore()
+	client := NewClient(store)
+	oldCompleted, err := client.Spawn(ctx, SpawnRequest{Queue: "ops", Name: "old-completed", UserID: 7})
+	if err != nil {
+		t.Fatalf("spawn old completed: %v", err)
+	}
+	oldFailed, err := client.Spawn(ctx, SpawnRequest{Queue: "ops", Name: "old-failed", UserID: 7})
+	if err != nil {
+		t.Fatalf("spawn old failed: %v", err)
+	}
+	oldCancelled, err := client.Spawn(ctx, SpawnRequest{Queue: "ops", Name: "old-cancelled", UserID: 7})
+	if err != nil {
+		t.Fatalf("spawn old cancelled: %v", err)
+	}
+	activeQueued, err := client.Spawn(ctx, SpawnRequest{Queue: "ops", Name: "active", UserID: 7})
+	if err != nil {
+		t.Fatalf("spawn active: %v", err)
+	}
+	recentCompleted, err := client.Spawn(ctx, SpawnRequest{Queue: "ops", Name: "recent", UserID: 7})
+	if err != nil {
+		t.Fatalf("spawn recent: %v", err)
+	}
+	now := time.Now().UTC()
+	old := now.Add(-8 * 24 * time.Hour)
+	recent := now.Add(-time.Hour)
+	store.mu.Lock()
+	markTaskTerminalForTest(store, oldCompleted.TaskID, TaskStatusCompleted, old)
+	markTaskTerminalForTest(store, oldFailed.TaskID, TaskStatusFailed, old)
+	markTaskTerminalForTest(store, oldCancelled.TaskID, TaskStatusCancelled, old)
+	markTaskTerminalForTest(store, recentCompleted.TaskID, TaskStatusCompleted, recent)
+	store.runs["run-old"] = Run{ID: "run-old", TaskID: oldCompleted.TaskID, Status: RunStatusCompleted}
+	store.waits["wait-old"] = Wait{ID: "wait-old", TaskID: oldCompleted.TaskID, Status: "waiting"}
+	store.mu.Unlock()
+	if _, err := store.AppendTaskEvent(ctx, oldCompleted.TaskID, "old.event", nil); err != nil {
+		t.Fatalf("append old event: %v", err)
+	}
+	if _, err := store.SaveCheckpoint(ctx, oldCompleted.TaskID, "step", []byte(`{"ok":true}`)); err != nil {
+		t.Fatalf("save old checkpoint: %v", err)
+	}
+
+	removed, err := client.PruneTerminalTasks(ctx, now.Add(-7*24*time.Hour))
+	if err != nil {
+		t.Fatalf("prune terminal tasks: %v", err)
+	}
+	if removed != 3 {
+		t.Fatalf("removed = %d, want 3", removed)
+	}
+	remaining, err := client.ListTasks(ctx, 7, TaskListFilter{Queue: "ops"})
+	if err != nil {
+		t.Fatalf("list remaining: %v", err)
+	}
+	if len(remaining) != 2 {
+		t.Fatalf("remaining = %+v, want active and recent", remaining)
+	}
+	if _, found, err := store.GetTask(ctx, 7, activeQueued.TaskID); err != nil || !found {
+		t.Fatalf("active queued task found=%v err=%v", found, err)
+	}
+	if _, found, err := store.GetTask(ctx, 7, recentCompleted.TaskID); err != nil || !found {
+		t.Fatalf("recent completed task found=%v err=%v", found, err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if _, ok := store.runs["run-old"]; ok {
+		t.Fatal("old run was not pruned")
+	}
+	if _, ok := store.waits["wait-old"]; ok {
+		t.Fatal("old wait was not pruned")
+	}
+	for key := range store.checkpoints {
+		if strings.HasPrefix(key, oldCompleted.TaskID+"\x00") {
+			t.Fatal("old checkpoint was not pruned")
+		}
+	}
+	for _, event := range store.events {
+		if event.TaskID == oldCompleted.TaskID {
+			t.Fatal("old task event was not pruned")
+		}
+	}
+}
+
+func markTaskTerminalForTest(store *MemoryStore, taskID string, status TaskStatus, completedAt time.Time) {
+	task := store.tasks[taskID]
+	task.Status = status
+	task.CompletedAt = &completedAt
+	task.UpdatedAt = completedAt
+	store.tasks[taskID] = task
 }
 
 func TestMemoryStoreRetryTaskRequeuesAndControlsCheckpoints(t *testing.T) {

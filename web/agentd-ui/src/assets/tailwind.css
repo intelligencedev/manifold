@@ -1,15 +1,17 @@
+@import url("https://rsms.me/inter/inter.css");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    font-family: "Hanken Grotesk", system-ui, -apple-system, sans-serif;
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
     --radius: 9px;
     --radius-lg: 13px;
-    --font-display: "Space Grotesk", system-ui, sans-serif;
-    --font-text: "Hanken Grotesk", system-ui, sans-serif;
-    --font-mono: "JetBrains Mono", ui-monospace, monospace;
+    --font-display: "Inter", system-ui, -apple-system, sans-serif;
+    --font-text: "Inter", system-ui, -apple-system, sans-serif;
+    --font-mono: "Inter", "Inter var", ui-monospace, SFMono-Regular, monospace;
     --r-sm: 6px;
     --r-md: 9px;
     --r-lg: 13px;
@@ -70,11 +72,7 @@
 
   code,
   pre {
-    font-family:
-      "JetBrains Mono",
-      ui-monospace,
-      SFMono-Regular,
-      monospace;
+    font-family: var(--font-mono);
   }
 
   h1,

@@ -83,6 +83,7 @@ vi.mock("@/api/chat", () => ({
     messageCount: 1,
     projectId,
   }),
+  listActiveChatRuns: async () => [],
   deleteChatMessage: async () => {},
   deleteChatMessagesAfter: async () => {},
   generateChatSessionTitle: async () => ({

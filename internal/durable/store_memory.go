@@ -89,9 +89,21 @@ func (s *MemoryStore) GetTask(_ context.Context, userID int64, taskID string) (T
 func (s *MemoryStore) ListTasks(_ context.Context, userID int64, filter TaskListFilter) ([]Task, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	page := s.listTasksPageLocked(userID, filter)
+	return page.Tasks, nil
+}
+
+func (s *MemoryStore) ListTasksPage(_ context.Context, userID int64, filter TaskListFilter) (TaskListPage, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.listTasksPageLocked(userID, filter), nil
+}
+
+func (s *MemoryStore) listTasksPageLocked(userID int64, filter TaskListFilter) TaskListPage {
 	filter.Queue = strings.TrimSpace(filter.Queue)
 	filter.Name = strings.TrimSpace(filter.Name)
 	limit := normalizeTaskListLimit(filter.Limit)
+	offset := normalizeTaskListOffset(filter.Offset)
 	out := make([]Task, 0, len(s.tasks))
 	for _, task := range s.tasks {
 		if task.UserID != userID {
@@ -109,15 +121,29 @@ func (s *MemoryStore) ListTasks(_ context.Context, userID int64, filter TaskList
 		out = append(out, cloneTask(task))
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
+		if !out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
+			return out[i].UpdatedAt.After(out[j].UpdatedAt)
+		}
+		if !out[i].CreatedAt.Equal(out[j].CreatedAt) {
 			return out[i].CreatedAt.After(out[j].CreatedAt)
 		}
-		return out[i].UpdatedAt.After(out[j].UpdatedAt)
+		return out[i].ID > out[j].ID
 	})
-	if len(out) > limit {
-		out = out[:limit]
+	total := int64(len(out))
+	if offset > len(out) {
+		offset = len(out)
 	}
-	return out, nil
+	end := offset + limit
+	if end > len(out) {
+		end = len(out)
+	}
+	return TaskListPage{
+		Tasks:   out[offset:end],
+		Limit:   limit,
+		Offset:  offset,
+		Total:   total,
+		HasMore: end < len(out),
+	}
 }
 
 func (s *MemoryStore) ListTaskEvents(_ context.Context, userID int64, taskID string, afterSequence int64) ([]Event, TaskStatus, bool, error) {
@@ -621,6 +647,48 @@ func (s *MemoryStore) QueueStats(_ context.Context) ([]QueueStats, error) {
 	return out, nil
 }
 
+func (s *MemoryStore) PruneTerminalTasks(_ context.Context, before time.Time) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	before = before.UTC()
+	deleted := map[string]bool{}
+	for id, task := range s.tasks {
+		if !isTerminalTaskStatus(task.Status) || task.CompletedAt == nil || !task.CompletedAt.Before(before) {
+			continue
+		}
+		deleted[id] = true
+		delete(s.tasks, id)
+	}
+	if len(deleted) == 0 {
+		return 0, nil
+	}
+	for runID, run := range s.runs {
+		if deleted[run.TaskID] {
+			delete(s.runs, runID)
+		}
+	}
+	for waitID, wait := range s.waits {
+		if deleted[wait.TaskID] || deleted[wait.ChildTaskID] {
+			delete(s.waits, waitID)
+		}
+	}
+	for key := range s.checkpoints {
+		taskID, _, ok := strings.Cut(key, "\x00")
+		if ok && deleted[taskID] {
+			delete(s.checkpoints, key)
+		}
+	}
+	events := s.events[:0]
+	for _, event := range s.events {
+		if event.TaskID != "" && deleted[event.TaskID] {
+			continue
+		}
+		events = append(events, event)
+	}
+	s.events = events
+	return int64(len(deleted)), nil
+}
+
 func checkpointKey(taskID, stepKey string) string {
 	return taskID + "\x00" + stepKey
 }
@@ -635,12 +703,23 @@ func normalizeRetryPolicy(policy RetryPolicy) RetryPolicy {
 func normalizeTaskListLimit(limit int) int {
 	switch {
 	case limit <= 0:
-		return 50
-	case limit > 200:
-		return 200
+		return DefaultTaskListLimit
+	case limit > MaxTaskListLimit:
+		return MaxTaskListLimit
 	default:
 		return limit
 	}
+}
+
+func normalizeTaskListOffset(offset int) int {
+	if offset < 0 {
+		return 0
+	}
+	return offset
+}
+
+func isTerminalTaskStatus(status TaskStatus) bool {
+	return status == TaskStatusCompleted || status == TaskStatusFailed || status == TaskStatusCancelled
 }
 
 func buildMemoryEventPage(events []Event, status TaskStatus, filter EventListFilter) EventPage {

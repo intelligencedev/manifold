@@ -512,15 +512,41 @@ func (a *app) applyChatSessionPatch(
 	if projectID == nil {
 		return sess, true
 	}
+	currentSess := sess
+	if currentSess.ID == "" {
+		currentSess, err = a.chatStore.GetSession(r.Context(), userID, sessionID)
+		if err != nil {
+			writeChatDetailStoreError(w, r, err, sessionID, "get_chat_session")
+			return persist.ChatSession{}, false
+		}
+	}
 	cleanProjectID, err := a.validateChatSessionProject(r.Context(), chatRequestOwner(currentUser, userID), *projectID)
 	if err != nil {
 		writeChatProjectError(w, err, sessionID, *projectID)
+		return persist.ChatSession{}, false
+	}
+	previousProjectID := strings.TrimSpace(currentSess.ProjectID)
+	if previousProjectID == cleanProjectID {
+		return currentSess, true
+	}
+	deletePreviousProject, err := a.shouldDeleteTemporaryChatProject(r.Context(), chatRequestOwner(currentUser, userID), currentSess)
+	if err != nil {
+		log.Error().Err(err).Str("session", sessionID).Str("project_id", previousProjectID).Msg("check_previous_temporary_chat_project")
+		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return persist.ChatSession{}, false
 	}
 	sess, err = a.chatStore.SetSessionProject(r.Context(), userID, sessionID, cleanProjectID)
 	if err != nil {
 		writeChatDetailStoreError(w, r, err, sessionID, "set_chat_session_project")
 		return persist.ChatSession{}, false
+	}
+	if deletePreviousProject {
+		err = a.projectsService.DeleteProject(r.Context(), chatRequestOwner(currentUser, userID), previousProjectID)
+		if err != nil {
+			log.Error().Err(err).Str("session", sessionID).Str("project_id", previousProjectID).Msg("delete_previous_temporary_chat_project")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return persist.ChatSession{}, false
+		}
 	}
 	return sess, true
 }

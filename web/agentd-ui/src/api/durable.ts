@@ -62,6 +62,15 @@ export interface DurableTaskListParams {
   status?: DurableTaskStatus | "";
   name?: string;
   limit?: number;
+  offset?: number;
+}
+
+export interface DurableTaskListResponse {
+  tasks: DurableTask[];
+  limit: number;
+  offset: number;
+  total: number;
+  has_more: boolean;
 }
 
 export interface DurableTaskEventsResponse {
@@ -91,13 +100,27 @@ export async function fetchDurableQueues(): Promise<DurableQueueStats[]> {
 export async function listDurableTasks(
   params: DurableTaskListParams = {},
 ): Promise<DurableTask[]> {
-  const response = await apiClient.get<{ tasks?: DurableTask[] }>(
+  const page = await listDurableTasksPage(params);
+  return page.tasks;
+}
+
+export async function listDurableTasksPage(
+  params: DurableTaskListParams = {},
+): Promise<DurableTaskListResponse> {
+  const response = await apiClient.get<Partial<DurableTaskListResponse>>(
     "/durable/tasks",
     {
       params: compactParams(params),
     },
   );
-  return response.data.tasks ?? [];
+  const tasks = response.data.tasks ?? [];
+  return {
+    tasks,
+    limit: response.data.limit ?? params.limit ?? tasks.length,
+    offset: response.data.offset ?? params.offset ?? 0,
+    total: response.data.total ?? tasks.length,
+    has_more: response.data.has_more ?? false,
+  };
 }
 
 export async function fetchDurableTask(taskId: string): Promise<DurableTask> {

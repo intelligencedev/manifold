@@ -38,7 +38,11 @@ func TestDurableTasksHandlerListsTasks(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
 	}
 	var payload struct {
-		Tasks []durable.Task `json:"tasks"`
+		Tasks   []durable.Task `json:"tasks"`
+		Limit   int            `json:"limit"`
+		Offset  int            `json:"offset"`
+		Total   int64          `json:"total"`
+		HasMore bool           `json:"has_more"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("decode response: %v", err)
@@ -46,8 +50,47 @@ func TestDurableTasksHandlerListsTasks(t *testing.T) {
 	if len(payload.Tasks) != 1 {
 		t.Fatalf("tasks count = %d, want 1: %+v", len(payload.Tasks), payload.Tasks)
 	}
+	if payload.Limit != 10 || payload.Offset != 0 || payload.Total != 1 || payload.HasMore {
+		t.Fatalf("page metadata = limit:%d offset:%d total:%d has_more:%v", payload.Limit, payload.Offset, payload.Total, payload.HasMore)
+	}
 	if payload.Tasks[0].Queue != "ops" || payload.Tasks[0].Name != "deploy" {
 		t.Fatalf("task = %+v, want ops deploy", payload.Tasks[0])
+	}
+}
+
+func TestDurableTasksHandlerPaginatesTasks(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := durable.NewMemoryStore()
+	client := durable.NewClient(store)
+	for i := 0; i < 3; i++ {
+		if _, err := client.Spawn(ctx, durable.SpawnRequest{Queue: "ops", Name: "deploy"}); err != nil {
+			t.Fatalf("spawn deploy %d: %v", i, err)
+		}
+	}
+	app := &app{
+		cfg:           &config.Config{},
+		durableStore:  store,
+		durableClient: client,
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/durable/tasks?queue=ops&limit=2&offset=1", nil)
+	rec := httptest.NewRecorder()
+	newRouter(app).ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Tasks   []durable.Task `json:"tasks"`
+		Limit   int            `json:"limit"`
+		Offset  int            `json:"offset"`
+		Total   int64          `json:"total"`
+		HasMore bool           `json:"has_more"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(payload.Tasks) != 2 || payload.Limit != 2 || payload.Offset != 1 || payload.Total != 3 || payload.HasMore {
+		t.Fatalf("page payload = %+v, want final 2 tasks from total 3", payload)
 	}
 }
 

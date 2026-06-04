@@ -11,6 +11,7 @@ type Store interface {
 	SpawnTask(ctx context.Context, req SpawnRequest) (Task, bool, error)
 	GetTask(ctx context.Context, userID int64, taskID string) (Task, bool, error)
 	ListTasks(ctx context.Context, userID int64, filter TaskListFilter) ([]Task, error)
+	ListTasksPage(ctx context.Context, userID int64, filter TaskListFilter) (TaskListPage, error)
 	ListTaskEvents(ctx context.Context, userID int64, taskID string, afterSequence int64) ([]Event, TaskStatus, bool, error)
 	ListTaskEventsPage(ctx context.Context, userID int64, taskID string, filter EventListFilter) (EventPage, error)
 	AppendTaskEvent(ctx context.Context, taskID string, name string, payload map[string]any) (Event, error)
@@ -31,5 +32,6 @@ type Store interface {
 	FireDueTimers(ctx context.Context, now time.Time, limit int) (int, error)
 	WakeChildWaits(ctx context.Context, childTaskID string) error
 	QueueStats(ctx context.Context) ([]QueueStats, error)
+	PruneTerminalTasks(ctx context.Context, before time.Time) (int64, error)
 	Close()
 }

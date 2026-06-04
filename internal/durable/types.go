@@ -8,6 +8,9 @@ import (
 const (
 	DefaultQueue = "default"
 
+	DefaultTaskListLimit = 50
+	MaxTaskListLimit     = 200
+
 	DefaultEventListLimit = 200
 	MaxEventListLimit     = 1000
 )
@@ -72,6 +75,15 @@ type TaskListFilter struct {
 	Status TaskStatus
 	Name   string
 	Limit  int
+	Offset int
+}
+
+type TaskListPage struct {
+	Tasks   []Task `json:"tasks"`
+	Limit   int    `json:"limit"`
+	Offset  int    `json:"offset"`
+	Total   int64  `json:"total"`
+	HasMore bool   `json:"has_more"`
 }
 
 type EventListFilter struct {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -212,5 +213,107 @@ func TestDeleteChatSessionPreservesUserProject(t *testing.T) {
 	}
 	if len(userProjects) != 1 || userProjects[0].ID != project.ID {
 		t.Fatalf("expected user project to remain, got %#v", userProjects)
+	}
+}
+
+func TestPatchChatSessionProjectDeletesPreviousTemporaryProject(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	chatStore := newPromptHandlerChatStore()
+	projectService := projects.NewService(t.TempDir(), "")
+	temporaryProject, err := projectService.CreateProjectKind(ctx, systemUserID, "Temporary Chat", projects.ProjectKindTemporary)
+	if err != nil {
+		t.Fatalf("CreateProjectKind: %v", err)
+	}
+	persistentProject, err := projectService.CreateProject(ctx, systemUserID, "Persistent Project")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	if _, err := chatStore.EnsureSession(ctx, nil, "sess-switch-temp", "Chat"); err != nil {
+		t.Fatalf("EnsureSession: %v", err)
+	}
+	if _, err := chatStore.SetSessionProject(ctx, nil, "sess-switch-temp", temporaryProject.ID); err != nil {
+		t.Fatalf("SetSessionProject: %v", err)
+	}
+	a := &app{cfg: &config.Config{}, chatStore: chatStore, projectsService: projectService}
+	req := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/chat/sessions/sess-switch-temp",
+		strings.NewReader(`{"projectId":"`+persistentProject.ID+`"}`),
+	)
+	rr := httptest.NewRecorder()
+
+	a.chatSessionDetailHandler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	session, err := chatStore.GetSession(ctx, nil, "sess-switch-temp")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if session.ProjectID != persistentProject.ID {
+		t.Fatalf("expected session project %q, got %q", persistentProject.ID, session.ProjectID)
+	}
+	temporaryProjects, err := projectService.ListProjectsByKind(ctx, systemUserID, projects.ProjectKindTemporary)
+	if err != nil {
+		t.Fatalf("ListProjectsByKind: %v", err)
+	}
+	if len(temporaryProjects) != 0 {
+		t.Fatalf("expected temporary project to be deleted, got %#v", temporaryProjects)
+	}
+	userProjects, err := projectService.ListProjects(ctx, systemUserID)
+	if err != nil {
+		t.Fatalf("ListProjects: %v", err)
+	}
+	if len(userProjects) != 1 || userProjects[0].ID != persistentProject.ID {
+		t.Fatalf("expected persistent project to remain, got %#v", userProjects)
+	}
+}
+
+func TestPatchChatSessionProjectPreservesPreviousUserProject(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	chatStore := newPromptHandlerChatStore()
+	projectService := projects.NewService(t.TempDir(), "")
+	previousProject, err := projectService.CreateProject(ctx, systemUserID, "Previous Project")
+	if err != nil {
+		t.Fatalf("CreateProject previous: %v", err)
+	}
+	nextProject, err := projectService.CreateProject(ctx, systemUserID, "Next Project")
+	if err != nil {
+		t.Fatalf("CreateProject next: %v", err)
+	}
+	if _, err := chatStore.EnsureSession(ctx, nil, "sess-switch-user", "Chat"); err != nil {
+		t.Fatalf("EnsureSession: %v", err)
+	}
+	if _, err := chatStore.SetSessionProject(ctx, nil, "sess-switch-user", previousProject.ID); err != nil {
+		t.Fatalf("SetSessionProject: %v", err)
+	}
+	a := &app{cfg: &config.Config{}, chatStore: chatStore, projectsService: projectService}
+	req := httptest.NewRequest(
+		http.MethodPatch,
+		"/api/chat/sessions/sess-switch-user",
+		strings.NewReader(`{"projectId":"`+nextProject.ID+`"}`),
+	)
+	rr := httptest.NewRecorder()
+
+	a.chatSessionDetailHandler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	userProjects, err := projectService.ListProjects(ctx, systemUserID)
+	if err != nil {
+		t.Fatalf("ListProjects: %v", err)
+	}
+	seen := make(map[string]bool, len(userProjects))
+	for _, project := range userProjects {
+		seen[project.ID] = true
+	}
+	if !seen[previousProject.ID] || !seen[nextProject.ID] {
+		t.Fatalf("expected both user projects to remain, got %#v", userProjects)
 	}
 }

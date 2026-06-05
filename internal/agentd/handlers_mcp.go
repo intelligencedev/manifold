@@ -95,17 +95,20 @@ func (a *app) prepareMCPOAuthRedirect(w http.ResponseWriter, r *http.Request, us
 	if err != nil {
 		return "", status, err
 	}
+	resourceParam := mcpOAuthResourceParam(prm, target.url)
 	verifier, challenge, err := generatePKCE()
 	if err != nil {
 		return "", http.StatusInternalServerError, fmt.Errorf("failed to generate PKCE")
 	}
 	state := uuid.New().String()
-	a.setMCPOAuthRedirectCookies(w, r, state, target.url, userID, req.ServerID, verifier)
-	authURL := client.configFor(a.cfg.Auth.RedirectURL, asm).AuthCodeURL(state, oauth2.AccessTypeOffline,
-		oauth2.SetAuthURLParam("resource", target.url),
+	a.setMCPOAuthRedirectCookies(w, r, state, target.url, resourceParam, userID, req.ServerID, verifier)
+	authOpts := []oauth2.AuthCodeOption{
+		oauth2.AccessTypeOffline,
+		oauth2.SetAuthURLParam("resource", resourceParam),
 		oauth2.SetAuthURLParam("code_challenge", challenge),
 		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
-	)
+	}
+	authURL := client.configFor(a.cfg.Auth.RedirectURL, asm).AuthCodeURL(state, authOpts...)
 	return authURL, http.StatusOK, nil
 }
 
@@ -126,8 +129,9 @@ func (c mcpOAuthRedirectClient) configFor(redirectURL string, asm *authServerMet
 		ClientID:     c.id,
 		ClientSecret: c.secret,
 		Endpoint: oauth2.Endpoint{
-			AuthURL:  asm.AuthorizationEndpoint,
-			TokenURL: asm.TokenEndpoint,
+			AuthURL:   asm.AuthorizationEndpoint,
+			TokenURL:  asm.TokenEndpoint,
+			AuthStyle: mcpOAuthTokenAuthStyle(asm, c.secret),
 		},
 		RedirectURL: redirectBase + "/api/mcp/oauth/callback",
 		Scopes:      c.scopes,
@@ -202,10 +206,10 @@ func (a *app) resolveMCPOAuthRedirectClient(
 		client.id = strings.TrimSpace(os.Getenv("MCP_OAUTH_CLIENT_ID"))
 		client.secret = strings.TrimSpace(os.Getenv("MCP_OAUTH_CLIENT_SECRET"))
 	}
-	if client.id == "" && server != nil && asm.RegistrationEndpoint != "" {
+	if a.shouldRegisterMCPOAuthRedirectClient(server, asm, client.id) {
 		var status int
 		var err error
-		client, status, err = a.registerMCPOAuthRedirectClient(ctx, userID, server, client.scopes, asm.RegistrationEndpoint)
+		client, status, err = a.registerMCPOAuthRedirectClient(ctx, userID, server, client.scopes, asm)
 		if err != nil {
 			return mcpOAuthRedirectClient{}, status, err
 		}
@@ -214,6 +218,31 @@ func (a *app) resolveMCPOAuthRedirectClient(
 		return mcpOAuthRedirectClient{}, http.StatusBadRequest, fmt.Errorf("mcp oauth client id not configured for this server")
 	}
 	return client, http.StatusOK, nil
+}
+
+func (a *app) shouldRegisterMCPOAuthRedirectClient(server *persistence.MCPServer, asm *authServerMeta, resolvedClientID string) bool {
+	if server == nil || asm == nil || strings.TrimSpace(asm.RegistrationEndpoint) == "" {
+		return false
+	}
+	if strings.TrimSpace(server.OAuthClientID) == "" {
+		return strings.TrimSpace(resolvedClientID) == ""
+	}
+	if strings.EqualFold(strings.TrimSpace(server.OAuthProvider), "dynamic") && server.OAuthAccessToken == "" {
+		return true
+	}
+	if a.isConfigMCPServer(server.Name) && server.OAuthAccessToken == "" && server.OAuthClientSecret == "" && server.OAuthProvider == "" {
+		return true
+	}
+	return false
+}
+
+func (a *app) isConfigMCPServer(name string) bool {
+	for _, server := range a.cfg.MCP.Servers {
+		if server.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func mcpOAuthScopes(scopes []string, server *persistence.MCPServer) []string {
@@ -231,14 +260,15 @@ func (a *app) registerMCPOAuthRedirectClient(
 	userID int64,
 	server *persistence.MCPServer,
 	scopes []string,
-	registrationEndpoint string,
+	asm *authServerMeta,
 ) (mcpOAuthRedirectClient, int, error) {
 	redirectBase := computeBaseOrigin(a.cfg.Auth.RedirectURL)
 	redirectURI := redirectBase + "/api/mcp/oauth/callback"
-	clientID, clientSecret, err := a.registerOAuthClient(ctx, registrationEndpoint, server.Name, redirectURI, scopes)
+	clientID, clientSecret, err := a.registerOAuthClient(ctx, asm.RegistrationEndpoint, server.Name, redirectURI, scopes, mcpOAuthRegistrationGrantTypes(asm))
 	if err != nil {
 		return mcpOAuthRedirectClient{}, http.StatusBadGateway, fmt.Errorf("dynamic registration failed: %v", err)
 	}
+	server.OAuthProvider = "dynamic"
 	server.OAuthClientID = clientID
 	server.OAuthClientSecret = clientSecret
 	if saved, upErr := a.mcpStore.Upsert(ctx, userID, *server); upErr == nil {
@@ -252,6 +282,7 @@ func (a *app) setMCPOAuthRedirectCookies(
 	r *http.Request,
 	state string,
 	targetURL string,
+	resourceParam string,
 	userID int64,
 	serverID int64,
 	verifier string,
@@ -261,7 +292,7 @@ func (a *app) setMCPOAuthRedirectCookies(
 	setMCPOAuthTempCookie(
 		w,
 		mcpOAuthCookieName(mcpOAuthStateCookiePrefix, state),
-		fmt.Sprintf("%s|%s|%d|%d", state, targetURL, userID, serverID),
+		fmt.Sprintf("%s|%s|%d|%d|%s", state, targetURL, userID, serverID, resourceParam),
 		expiresAt,
 		secureCookies,
 	)

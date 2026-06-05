@@ -69,6 +69,15 @@ func cookiesByName(rec *httptest.ResponseRecorder) map[string]*http.Cookie {
 	return out
 }
 
+func jsonArrayContainsString(values []any, want string) bool {
+	for _, value := range values {
+		if got, ok := value.(string); ok && got == want {
+			return true
+		}
+	}
+	return false
+}
+
 // TestMCPCreateAndList verifies basic create + list behaviour.
 func TestMCPCreateAndList(t *testing.T) {
 	store := databases.NewMCPStore(nil) // in-memory
@@ -123,19 +132,24 @@ func TestMCPOAuthStartDynamicRegistration(t *testing.T) {
 		t.Fatalf("upsert: %v", err)
 	}
 
+	var registrationBody map[string]any
+
 	// Transport script: respond to resource metadata, auth metadata, registration endpoint.
 	transport := func(r *http.Request) *http.Response {
 		switch {
 		case strings.Contains(r.URL.Path, "/.well-known/oauth-protected-resource"):
-			meta := oauthex.ProtectedResourceMetadata{Resource: "https://resource.example", AuthorizationServers: []string{"https://auth.example"}, ScopesSupported: []string{"openid", "profile"}}
+			meta := oauthex.ProtectedResourceMetadata{Resource: "https://resource.example/data", AuthorizationServers: []string{"https://auth.example"}, ScopesSupported: []string{"openid", "profile"}}
 			b, _ := json.Marshal(meta)
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(b)))}
 		case strings.Contains(r.URL.Host, "auth.example") && strings.Contains(r.URL.Path, "/.well-known/oauth-authorization-server"):
 			// Authorization server metadata including registration endpoint
-			b := `{"issuer":"https://auth.example","authorization_endpoint":"https://auth.example/authorize","token_endpoint":"https://auth.example/token","registration_endpoint":"https://auth.example/register"}`
+			b := `{"issuer":"https://auth.example","authorization_endpoint":"https://auth.example/authorize","token_endpoint":"https://auth.example/token","registration_endpoint":"https://auth.example/register","grant_types_supported":["authorization_code","refresh_token"],"token_endpoint_auth_methods_supported":["none"]}`
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(b))}
 		case r.Method == http.MethodPost && r.URL.String() == "https://auth.example/register":
-			b := `{"client_id":"cid123","client_secret":"sec123"}`
+			if err := json.NewDecoder(r.Body).Decode(&registrationBody); err != nil {
+				t.Fatalf("decode registration body: %v", err)
+			}
+			b := `{"client_id":"cid123","token_endpoint_auth_method":"none"}`
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(b))}
 		default:
 			return &http.Response{StatusCode: 404, Body: io.NopCloser(strings.NewReader(""))}
@@ -165,10 +179,72 @@ func TestMCPOAuthStartDynamicRegistration(t *testing.T) {
 	if !strings.Contains(redirect, url.QueryEscape("/api/mcp/oauth/callback")) {
 		t.Fatalf("redirect URL missing callback path: %s", redirect)
 	}
+	if got := registrationBody["client_uri"]; got != "https://github.com/intelligencedev/manifold" {
+		t.Fatalf("registration client_uri = %v", got)
+	}
+	if got := registrationBody["application_type"]; got != "native" {
+		t.Fatalf("registration application_type = %v, want native", got)
+	}
+	grantTypes, ok := registrationBody["grant_types"].([]any)
+	if !ok {
+		t.Fatalf("registration grant_types has unexpected type %T", registrationBody["grant_types"])
+	}
+	if !jsonArrayContainsString(grantTypes, "authorization_code") || !jsonArrayContainsString(grantTypes, "refresh_token") {
+		t.Fatalf("registration grant_types = %v, want authorization_code and refresh_token", grantTypes)
+	}
 	// Verify store updated
 	updated, ok, _ := store.GetByName(context.Background(), 0, "dyn")
-	if !ok || updated.OAuthClientID != "cid123" {
+	if !ok || updated.OAuthClientID != "cid123" || updated.OAuthProvider != "dynamic" {
 		t.Fatalf("dynamic registration not persisted")
+	}
+}
+
+func TestMCPOAuthStartReregistersConfigDynamicClient(t *testing.T) {
+	store := databases.NewMCPStore(nil)
+	srv, err := store.Upsert(context.Background(), 0, persist.MCPServer{Name: "recfut", URL: "https://resource.example/data", OAuthClientID: "old-client"})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	registrationCalls := 0
+	transport := func(r *http.Request) *http.Response {
+		switch {
+		case strings.Contains(r.URL.Path, "/.well-known/oauth-protected-resource"):
+			b := `{"resource":"https://resource.example/data","authorization_servers":["https://auth.example"],"scopes_supported":["openid","offline_access"]}`
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(b))}
+		case strings.Contains(r.URL.Host, "auth.example") && strings.Contains(r.URL.Path, "/.well-known/oauth-authorization-server"):
+			b := `{"issuer":"https://auth.example","authorization_endpoint":"https://auth.example/authorize","token_endpoint":"https://auth.example/token","registration_endpoint":"https://auth.example/register","grant_types_supported":["authorization_code","refresh_token"],"token_endpoint_auth_methods_supported":["none"]}`
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(b))}
+		case r.Method == http.MethodPost && r.URL.String() == "https://auth.example/register":
+			registrationCalls++
+			b := `{"client_id":"new-client","token_endpoint_auth_method":"none"}`
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(b))}
+		default:
+			return &http.Response{StatusCode: 404, Body: io.NopCloser(strings.NewReader(""))}
+		}
+	}
+
+	a := buildTestApp(t, newTestHTTPClient(transport), store)
+	a.cfg.MCP.Servers = []config.MCPServerConfig{{Name: "recfut", URL: "https://resource.example/data"}}
+	req := httptest.NewRequest(http.MethodPost, "/api/mcp/oauth/start", strings.NewReader(fmt.Sprintf(`{"serverId":%d}`, srv.ID)))
+	rec := httptest.NewRecorder()
+	a.mcpOAuthStartHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	if registrationCalls != 1 {
+		t.Fatalf("registration calls = %d, want 1", registrationCalls)
+	}
+	var resp map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal start response: %v", err)
+	}
+	if !strings.Contains(resp["redirectUrl"], "client_id=new-client") {
+		t.Fatalf("redirect URL reused old client: %s", resp["redirectUrl"])
+	}
+	updated, ok, _ := store.GetByName(context.Background(), 0, "recfut")
+	if !ok || updated.OAuthClientID != "new-client" || updated.OAuthProvider != "dynamic" {
+		t.Fatalf("updated server = %+v, want new dynamic client", updated)
 	}
 }
 
@@ -182,11 +258,11 @@ func TestMCPOAuthBootstrapRedirectsForStartup(t *testing.T) {
 	transport := func(r *http.Request) *http.Response {
 		switch {
 		case strings.Contains(r.URL.Path, "/.well-known/oauth-protected-resource"):
-			meta := oauthex.ProtectedResourceMetadata{Resource: "https://resource.example", AuthorizationServers: []string{"https://auth.example"}, ScopesSupported: []string{"openid"}}
+			meta := oauthex.ProtectedResourceMetadata{Resource: "https://resource.example/data", AuthorizationServers: []string{"https://auth.example"}, ScopesSupported: []string{"openid"}}
 			b, _ := json.Marshal(meta)
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(b)))}
 		case strings.Contains(r.URL.Host, "auth.example") && strings.Contains(r.URL.Path, "/.well-known/oauth-authorization-server"):
-			b := `{"issuer":"https://auth.example","authorization_endpoint":"https://auth.example/authorize","token_endpoint":"https://auth.example/token"}`
+			b := `{"issuer":"https://auth.example","authorization_endpoint":"https://auth.example/authorize","token_endpoint":"https://auth.example/token","token_endpoint_auth_methods_supported":["none"]}`
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(b))}
 		default:
 			return &http.Response{StatusCode: 404, Body: io.NopCloser(strings.NewReader(""))}
@@ -209,6 +285,49 @@ func TestMCPOAuthBootstrapRedirectsForStartup(t *testing.T) {
 	}
 }
 
+func TestMCPOAuthStartIgnoresResourceServerIdentifierAudience(t *testing.T) {
+	store := databases.NewMCPStore(nil)
+	srv, err := store.Upsert(context.Background(), 0, persist.MCPServer{Name: "auth0", URL: "https://resource.example/data/", OAuthClientID: "cid123"})
+	if err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	transport := func(r *http.Request) *http.Response {
+		switch {
+		case strings.Contains(r.URL.Path, "/.well-known/oauth-protected-resource"):
+			b := `{"resource":"https://resource.example/data","resource_server_identifier":"service:example-mcp","authorization_servers":["https://auth.example"],"scopes_supported":["openid"]}`
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(b))}
+		case strings.Contains(r.URL.Host, "auth.example") && strings.Contains(r.URL.Path, "/.well-known/oauth-authorization-server"):
+			b := `{"issuer":"https://auth.example","authorization_endpoint":"https://auth.example/authorize","token_endpoint":"https://auth.example/token","token_endpoint_auth_methods_supported":["none"]}`
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(b))}
+		default:
+			return &http.Response{StatusCode: 404, Body: io.NopCloser(strings.NewReader(""))}
+		}
+	}
+
+	a := buildTestApp(t, newTestHTTPClient(transport), store)
+	req := httptest.NewRequest(http.MethodPost, "/api/mcp/oauth/start", strings.NewReader(fmt.Sprintf(`{"serverId":%d}`, srv.ID)))
+	rec := httptest.NewRecorder()
+	a.mcpOAuthStartHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 start, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal start response: %v", err)
+	}
+	redirectURL, err := url.Parse(resp["redirectUrl"])
+	if err != nil {
+		t.Fatalf("parse redirect URL: %v", err)
+	}
+	if got := redirectURL.Query().Get("resource"); got != "https://resource.example/data" {
+		t.Fatalf("redirect resource = %q, want canonical resource", got)
+	}
+	if got := redirectURL.Query().Get("audience"); got != "" {
+		t.Fatalf("redirect audience = %q, want empty", got)
+	}
+}
+
 // TestMCPOAuthCallbackTokenExchange simulates completing OAuth code flow.
 func TestMCPOAuthCallbackTokenExchange(t *testing.T) {
 	store := databases.NewMCPStore(nil)
@@ -219,13 +338,28 @@ func TestMCPOAuthCallbackTokenExchange(t *testing.T) {
 	transport := func(r *http.Request) *http.Response {
 		switch {
 		case strings.Contains(r.URL.Path, "/.well-known/oauth-protected-resource"):
-			meta := oauthex.ProtectedResourceMetadata{Resource: "https://resource.example", AuthorizationServers: []string{"https://auth.example"}, ScopesSupported: []string{"openid"}}
+			meta := oauthex.ProtectedResourceMetadata{Resource: "https://resource.example/data", AuthorizationServers: []string{"https://auth.example"}, ScopesSupported: []string{"openid"}}
 			b, _ := json.Marshal(meta)
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(b)))}
 		case strings.Contains(r.URL.Host, "auth.example") && strings.Contains(r.URL.Path, "/.well-known/oauth-authorization-server"):
-			b := `{"issuer":"https://auth.example","authorization_endpoint":"https://auth.example/authorize","token_endpoint":"https://auth.example/token"}`
+			b := `{"issuer":"https://auth.example","authorization_endpoint":"https://auth.example/authorize","token_endpoint":"https://auth.example/token","token_endpoint_auth_methods_supported":["none"]}`
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(b))}
 		case r.Method == http.MethodPost && r.URL.String() == "https://auth.example/token":
+			if got := r.Header.Get("Authorization"); got != "" {
+				t.Fatalf("token exchange should not use authorization header for public client, got %q", got)
+			}
+			if err := r.ParseForm(); err != nil {
+				t.Fatalf("parse token exchange form: %v", err)
+			}
+			if got := r.Form.Get("client_id"); got != "cid123" {
+				t.Fatalf("token exchange client_id = %q, want cid123", got)
+			}
+			if got := r.Form.Get("resource"); got != "https://resource.example/data" {
+				t.Fatalf("token exchange resource = %q, want target URL", got)
+			}
+			if got := r.Form.Get("audience"); got != "" {
+				t.Fatalf("token exchange audience = %q, want empty", got)
+			}
 			b := `{"access_token":"atk123","refresh_token":"rtk456","expires_in": 3600,"token_type":"Bearer"}`
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(b))}
 		default:
@@ -258,6 +392,55 @@ func TestMCPOAuthCallbackTokenExchange(t *testing.T) {
 	}
 }
 
+func TestMCPOAuthCallbackUsesResourceFromStateCookie(t *testing.T) {
+	store := databases.NewMCPStore(nil)
+	t.Setenv("MCP_OAUTH_CLIENT_ID", "cid123")
+
+	transport := func(r *http.Request) *http.Response {
+		switch {
+		case strings.Contains(r.URL.Path, "/.well-known/oauth-protected-resource"):
+			b := `{"resource":"https://resource.example/data","resource_server_identifier":"service:example-mcp","authorization_servers":["https://auth.example"],"scopes_supported":["openid"]}`
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(b))}
+		case strings.Contains(r.URL.Host, "auth.example") && strings.Contains(r.URL.Path, "/.well-known/oauth-authorization-server"):
+			b := `{"issuer":"https://auth.example","authorization_endpoint":"https://auth.example/authorize","token_endpoint":"https://auth.example/token","token_endpoint_auth_methods_supported":["none"]}`
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(b))}
+		case r.Method == http.MethodPost && r.URL.String() == "https://auth.example/token":
+			if got := r.Header.Get("Authorization"); got != "" {
+				t.Fatalf("token exchange should not use authorization header for public client, got %q", got)
+			}
+			if err := r.ParseForm(); err != nil {
+				t.Fatalf("parse token exchange form: %v", err)
+			}
+			if got := r.Form.Get("client_id"); got != "cid123" {
+				t.Fatalf("token exchange client_id = %q, want cid123", got)
+			}
+			if got := r.Form.Get("resource"); got != "https://resource.example/data" {
+				t.Fatalf("token exchange resource = %q, want canonical resource", got)
+			}
+			if got := r.Form.Get("audience"); got != "" {
+				t.Fatalf("token exchange audience = %q, want empty", got)
+			}
+			b := `{"access_token":"atk123","refresh_token":"rtk456","expires_in":3600,"token_type":"Bearer"}`
+			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(b))}
+		default:
+			return &http.Response{StatusCode: 404, Body: io.NopCloser(strings.NewReader(""))}
+		}
+	}
+	a := buildTestApp(t, newTestHTTPClient(transport), store)
+
+	state := "state-auth0"
+	stateVal := strings.Join([]string{state, "https://resource.example/data/", "0", "0", "https://resource.example/data"}, "|")
+	callbackURL := "http://localhost/api/mcp/oauth/callback?state=" + url.QueryEscape(state) + "&code=authcode123"
+	req := httptest.NewRequest(http.MethodGet, callbackURL, nil)
+	req.AddCookie(&http.Cookie{Name: mcpOAuthCookieName(mcpOAuthStateCookiePrefix, state), Value: stateVal})
+	req.AddCookie(&http.Cookie{Name: mcpOAuthCookieName(mcpOAuthPKCECookiePrefix, state), Value: "verifier123"})
+	rec := httptest.NewRecorder()
+	a.mcpOAuthCallbackHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 callback, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestMCPOAuthOverlappingStartsDoNotOverwriteState(t *testing.T) {
 	store := databases.NewMCPStore(nil)
 	srv, _ := store.Upsert(context.Background(), 0, persist.MCPServer{Name: "cb", URL: "https://resource.example/data", OAuthClientID: "cid123"})
@@ -265,11 +448,11 @@ func TestMCPOAuthOverlappingStartsDoNotOverwriteState(t *testing.T) {
 	transport := func(r *http.Request) *http.Response {
 		switch {
 		case strings.Contains(r.URL.Path, "/.well-known/oauth-protected-resource"):
-			meta := oauthex.ProtectedResourceMetadata{Resource: "https://resource.example", AuthorizationServers: []string{"https://auth.example"}, ScopesSupported: []string{"openid"}}
+			meta := oauthex.ProtectedResourceMetadata{Resource: "https://resource.example/data", AuthorizationServers: []string{"https://auth.example"}, ScopesSupported: []string{"openid"}}
 			b, _ := json.Marshal(meta)
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(b)))}
 		case strings.Contains(r.URL.Host, "auth.example") && strings.Contains(r.URL.Path, "/.well-known/oauth-authorization-server"):
-			b := `{"issuer":"https://auth.example","authorization_endpoint":"https://auth.example/authorize","token_endpoint":"https://auth.example/token"}`
+			b := `{"issuer":"https://auth.example","authorization_endpoint":"https://auth.example/authorize","token_endpoint":"https://auth.example/token","token_endpoint_auth_methods_supported":["none"]}`
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(b))}
 		case r.Method == http.MethodPost && r.URL.String() == "https://auth.example/token":
 			b := `{"access_token":"atk123","refresh_token":"rtk456","expires_in":3600,"token_type":"Bearer"}`
@@ -340,16 +523,25 @@ func TestMCPOAuthTokenRefresh(t *testing.T) {
 		switch {
 		case strings.Contains(r.URL.Path, "/.well-known/oauth-protected-resource"):
 			meta := oauthex.ProtectedResourceMetadata{
-				Resource:             "https://resource.example",
+				Resource:             "https://resource.example/data",
 				AuthorizationServers: []string{"https://auth.example"},
 				ScopesSupported:      []string{"openid"},
 			}
 			b, _ := json.Marshal(meta)
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(b)))}
 		case strings.Contains(r.URL.Host, "auth.example") && strings.Contains(r.URL.Path, "/.well-known/oauth-authorization-server"):
-			b := `{"issuer":"https://auth.example","authorization_endpoint":"https://auth.example/authorize","token_endpoint":"https://auth.example/token"}`
+			b := `{"issuer":"https://auth.example","authorization_endpoint":"https://auth.example/authorize","token_endpoint":"https://auth.example/token","token_endpoint_auth_methods_supported":["none"]}`
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(b))}
 		case r.Method == http.MethodPost && r.URL.String() == "https://auth.example/token":
+			if err := r.ParseForm(); err != nil {
+				t.Fatalf("parse refresh form: %v", err)
+			}
+			if got := r.Form.Get("resource"); got != "" {
+				t.Fatalf("refresh resource = %q, want empty", got)
+			}
+			if got := r.Form.Get("audience"); got != "" {
+				t.Fatalf("refresh audience = %q, want empty", got)
+			}
 			// Token refresh endpoint - return new tokens
 			b := `{"access_token":"new-access-token","refresh_token":"new-refresh-token","expires_in":3600,"token_type":"Bearer"}`
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(b))}
@@ -471,14 +663,14 @@ func TestMCPOAuthTokenRefreshFails(t *testing.T) {
 		switch {
 		case strings.Contains(r.URL.Path, "/.well-known/oauth-protected-resource"):
 			meta := oauthex.ProtectedResourceMetadata{
-				Resource:             "https://resource.example",
+				Resource:             "https://resource.example/data",
 				AuthorizationServers: []string{"https://auth.example"},
 				ScopesSupported:      []string{"openid"},
 			}
 			b, _ := json.Marshal(meta)
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(b)))}
 		case strings.Contains(r.URL.Host, "auth.example") && strings.Contains(r.URL.Path, "/.well-known/oauth-authorization-server"):
-			b := `{"issuer":"https://auth.example","authorization_endpoint":"https://auth.example/authorize","token_endpoint":"https://auth.example/token"}`
+			b := `{"issuer":"https://auth.example","authorization_endpoint":"https://auth.example/authorize","token_endpoint":"https://auth.example/token","token_endpoint_auth_methods_supported":["none"]}`
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(b))}
 		case r.Method == http.MethodPost && r.URL.String() == "https://auth.example/token":
 			// Simulate refresh token revoked/invalid

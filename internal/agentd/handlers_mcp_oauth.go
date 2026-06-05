@@ -112,6 +112,7 @@ type mcpOAuthCallbackState struct {
 	pkceCookieName  string
 	pkceVerifier    string
 	targetURL       string
+	resource        string
 	userID          int64
 	serverID        int64
 }
@@ -142,7 +143,7 @@ func populateMCPOAuthStateCookie(w http.ResponseWriter, r *http.Request, callbac
 		http.Error(w, "state cookie missing", http.StatusBadRequest)
 		return false
 	}
-	parts := strings.SplitN(cookie.Value, "|", 4)
+	parts := strings.SplitN(cookie.Value, "|", 5)
 	if len(parts) < 4 || parts[0] != callbackState.state {
 		http.Error(w, "invalid state cookie", http.StatusBadRequest)
 		return false
@@ -150,6 +151,10 @@ func populateMCPOAuthStateCookie(w http.ResponseWriter, r *http.Request, callbac
 	userID, _ := strconv.ParseInt(parts[2], 10, 64)
 	serverID, _ := strconv.ParseInt(parts[3], 10, 64)
 	callbackState.targetURL = parts[1]
+	callbackState.resource = parts[1]
+	if len(parts) >= 5 && strings.TrimSpace(parts[4]) != "" {
+		callbackState.resource = strings.TrimSpace(parts[4])
+	}
 	callbackState.userID = userID
 	callbackState.serverID = serverID
 	return true
@@ -185,7 +190,7 @@ func (a *app) exchangeMCPOAuthCallbackCode(
 	ctx := context.WithValue(r.Context(), oauth2.HTTPClient, a.httpClient)
 	token, err := conf.Exchange(ctx, code,
 		oauth2.SetAuthURLParam("code_verifier", callbackState.pkceVerifier),
-		oauth2.SetAuthURLParam("resource", callbackState.targetURL),
+		oauth2.SetAuthURLParam("resource", callbackState.resource),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("token exchange failed: %v", err)
@@ -207,8 +212,9 @@ func (a *app) mcpOAuthCallbackConfig(
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		Endpoint: oauth2.Endpoint{
-			AuthURL:  asm.AuthorizationEndpoint,
-			TokenURL: asm.TokenEndpoint,
+			AuthURL:   asm.AuthorizationEndpoint,
+			TokenURL:  asm.TokenEndpoint,
+			AuthStyle: mcpOAuthTokenAuthStyle(asm, clientSecret),
 		},
 		RedirectURL: redirectBase + "/api/mcp/oauth/callback",
 	}, nil
@@ -281,10 +287,59 @@ window.close();
 // Discovery Helpers
 
 type authServerMeta struct {
-	Issuer                string `json:"issuer"`
-	AuthorizationEndpoint string `json:"authorization_endpoint"`
-	TokenEndpoint         string `json:"token_endpoint"`
-	RegistrationEndpoint  string `json:"registration_endpoint"`
+	Issuer                            string   `json:"issuer"`
+	AuthorizationEndpoint             string   `json:"authorization_endpoint"`
+	TokenEndpoint                     string   `json:"token_endpoint"`
+	RegistrationEndpoint              string   `json:"registration_endpoint"`
+	GrantTypesSupported               []string `json:"grant_types_supported"`
+	TokenEndpointAuthMethodsSupported []string `json:"token_endpoint_auth_methods_supported"`
+}
+
+func mcpOAuthTokenAuthStyle(asm *authServerMeta, clientSecret string) oauth2.AuthStyle {
+	if asm == nil || len(asm.TokenEndpointAuthMethodsSupported) == 0 {
+		return oauth2.AuthStyleAutoDetect
+	}
+	supports := func(method string) bool {
+		for _, supported := range asm.TokenEndpointAuthMethodsSupported {
+			if strings.EqualFold(strings.TrimSpace(supported), method) {
+				return true
+			}
+		}
+		return false
+	}
+	if clientSecret != "" {
+		if supports("client_secret_post") {
+			return oauth2.AuthStyleInParams
+		}
+		if supports("client_secret_basic") {
+			return oauth2.AuthStyleInHeader
+		}
+		return oauth2.AuthStyleAutoDetect
+	}
+	if supports("none") || supports("client_secret_post") {
+		return oauth2.AuthStyleInParams
+	}
+	return oauth2.AuthStyleAutoDetect
+}
+
+func mcpOAuthResourceParam(prm *oauthex.ProtectedResourceMetadata, fallback string) string {
+	if prm != nil && strings.TrimSpace(prm.Resource) != "" {
+		return strings.TrimSpace(prm.Resource)
+	}
+	return fallback
+}
+
+func mcpOAuthRegistrationGrantTypes(asm *authServerMeta) []string {
+	grantTypes := []string{"authorization_code"}
+	if asm == nil {
+		return grantTypes
+	}
+	for _, grantType := range asm.GrantTypesSupported {
+		if strings.EqualFold(strings.TrimSpace(grantType), "refresh_token") {
+			return append(grantTypes, "refresh_token")
+		}
+	}
+	return grantTypes
 }
 
 // resourceMetadataRE extracts the resource_metadata URL value from a Bearer WWW-Authenticate challenge.
@@ -457,13 +512,15 @@ func generatePKCE() (verifier string, challenge string, err error) {
 // registerOAuthClient performs OAuth 2.0 Dynamic Client Registration (RFC 7591)
 // against the authorization server registration endpoint. Returns client_id
 // and optional client_secret.
-func (a *app) registerOAuthClient(ctx context.Context, registrationEndpoint, clientName, redirectURI string, scopes []string) (clientID, clientSecret string, err error) {
+func (a *app) registerOAuthClient(ctx context.Context, registrationEndpoint, clientName, redirectURI string, scopes []string, grantTypes []string) (clientID, clientSecret string, err error) {
 	body := map[string]any{
 		"client_name":                clientName,
-		"grant_types":                []string{"authorization_code"},
+		"client_uri":                 "https://github.com/intelligencedev/manifold",
+		"grant_types":                grantTypes,
 		"response_types":             []string{"code"},
 		"redirect_uris":              []string{redirectURI},
 		"token_endpoint_auth_method": "none",
+		"application_type":           "native",
 	}
 	if len(scopes) > 0 {
 		body["scope"] = strings.Join(scopes, " ")

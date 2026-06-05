@@ -756,7 +756,7 @@
                       "
                       class="input-request-textarea"
                       rows="3"
-                      placeholder="Type your response..."
+                      placeholder="Tell the model what to do..."
                       :disabled="isInputRequestSubmitting(message, request)"
                     ></textarea>
 

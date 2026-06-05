@@ -128,6 +128,3 @@ func formatExperience(entry *MemoryEntry) string {
 	}
 	return s
 }
-
-// EvolveEnhanced is the full-featured Evolve that accepts structured feedback,
-// reasoning trace, and strategy card. This implements the paper's complete

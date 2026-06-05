@@ -238,6 +238,7 @@ describe("MemoryPanel", () => {
 
     expect(deleteEvolvingMemory).toHaveBeenCalledWith("mem-delete", "sess-1");
     expect(wrapper.text()).not.toContain("delete this memory");
+    expect(wrapper.text()).toContain("Deleted memory.");
     expect(wrapper.text()).toContain("0 entries");
   });
 });

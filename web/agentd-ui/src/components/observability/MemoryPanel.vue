@@ -147,6 +147,14 @@
           >
             {{ deleteError }}
           </p>
+          <p
+            v-else-if="deleteStatus"
+            class="shrink-0 rounded-4 border border-success/40 bg-success/10 px-3 py-2 text-[11px] text-success"
+            role="status"
+            aria-live="polite"
+          >
+            {{ deleteStatus }}
+          </p>
           <div class="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
             <div
               v-for="e in evolvingEntries"
@@ -271,6 +279,7 @@ const evolvingExplanations = ref<MemoryScoreExplanation[]>([]);
 const evolvingLoading = ref(false);
 const evolvingError = ref("");
 const deleteError = ref("");
+const deleteStatus = ref("");
 
 const { data: sessionsData, refetch: refetchSessions } = useQuery({
   queryKey: ["memory-sessions"],
@@ -320,6 +329,7 @@ async function refreshEvolving(options: { showLoading?: boolean } = {}) {
     evolvingDebug.value = null;
     evolvingExplanations.value = [];
     evolvingLoading.value = false;
+    deleteStatus.value = "";
     return;
   }
   if (options.showLoading !== false) {
@@ -435,6 +445,7 @@ async function deleteMemoryEntry(entry: NormalizedEvolvingEntry) {
   if (!window.confirm("Delete this memory? This cannot be undone.")) return;
 
   deleteError.value = "";
+  deleteStatus.value = "Deleting memory…";
   deletingMemoryIds.value.add(id);
   try {
     await deleteMemoryMutation.mutateAsync({
@@ -443,8 +454,10 @@ async function deleteMemoryEntry(entry: NormalizedEvolvingEntry) {
     });
     removeEvolvingEntry(id);
     expandedEntries.value.delete(id);
+    deleteStatus.value = "Deleted memory.";
     await refreshEvolving({ showLoading: false });
   } catch (err: any) {
+    deleteStatus.value = "";
     deleteError.value = deleteErrorMessage(err);
   } finally {
     deletingMemoryIds.value.delete(id);

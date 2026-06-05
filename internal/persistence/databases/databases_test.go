@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"manifold/internal/config"
@@ -171,6 +172,22 @@ func TestPostgresGraphFloatProp(t *testing.T) {
 				t.Fatalf("floatProp() = %v, want %v", *got, tt.want)
 			}
 		})
+	}
+}
+
+func TestPostgresMagmaEventDeleteStatementsArePreparedSafe(t *testing.T) {
+	t.Parallel()
+
+	if len(postgresMagmaEventDeleteStatements) != 4 {
+		t.Fatalf("expected 4 delete statements, got %d", len(postgresMagmaEventDeleteStatements))
+	}
+	for _, stmt := range postgresMagmaEventDeleteStatements {
+		if strings.Count(stmt, "DELETE FROM") != 1 {
+			t.Fatalf("delete statement must contain one command, got %q", stmt)
+		}
+		if strings.Contains(stmt, ";") {
+			t.Fatalf("delete statement must not contain semicolons, got %q", stmt)
+		}
 	}
 }
 

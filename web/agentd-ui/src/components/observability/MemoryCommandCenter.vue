@@ -77,9 +77,7 @@
           class="flex shrink-0 flex-col gap-3 border-b border-border/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
         >
           <div>
-            <h3 class="text-sm font-semibold text-foreground">
-              Graph Memory
-            </h3>
+            <h3 class="text-sm font-semibold text-foreground">Graph Memory</h3>
             <p class="text-xs text-faint-foreground">
               {{ graphData?.nodes?.length ?? 0 }} nodes ·
               {{ graphData?.edges?.length ?? 0 }} edges
@@ -141,6 +139,14 @@
             <h3 class="shrink-0 text-sm font-semibold text-foreground">
               Inspector
             </h3>
+            <p
+              v-if="actionMessage"
+              class="mt-2 shrink-0 rounded-md border border-border bg-surface-muted/50 px-3 py-2 text-xs text-subtle-foreground"
+              role="status"
+              aria-live="polite"
+            >
+              {{ actionMessage }}
+            </p>
             <div
               v-if="selectedNode"
               class="memory-inspector-body mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto text-xs"
@@ -167,6 +173,18 @@
                 />
                 <InfoItem label="ID" :value="selectedNode.id" />
               </dl>
+              <div v-if="canDeleteSelectedNode" class="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  class="toolbar-btn toolbar-btn-danger"
+                  :disabled="actionBusy"
+                  aria-label="Delete selected graph memory node"
+                  @click.stop="deleteSelectedNode"
+                >
+                  <SolarTrashIcon class="h-3.5 w-3.5" />
+                  Delete
+                </button>
+              </div>
             </div>
             <div
               v-else-if="selectedEdge"
@@ -404,9 +422,11 @@ import { MarkerType, VueFlow, type Edge, type Node } from "@vue-flow/core";
 import { Background } from "@vue-flow/background";
 import { MiniMap } from "@vue-flow/minimap";
 import DropdownSelect from "@/components/DropdownSelect.vue";
+import SolarTrashIcon from "@/components/icons/SolarTrash.vue";
 import type { MetricsTimeRangeValue } from "@/composables/observability/useTokenMetrics";
 import {
   approveMagmaEdge,
+  deleteMagmaNode,
   drainMagmaConsolidation,
   fetchMemoryObservabilityExplain,
   fetchMemoryObservabilityGraph,
@@ -521,6 +541,9 @@ const reviewEdges = computed(() => {
   const edges = reviewQuery.data.value?.edges;
   return Array.isArray(edges) ? edges : [];
 });
+const canDeleteSelectedNode = computed(
+  () => selectedNode.value?.type === "event",
+);
 
 const flowNodes = computed<Node[]>(() =>
   layoutNodes(graphData.value?.nodes ?? [], graphData.value?.edges ?? []),
@@ -685,19 +708,28 @@ async function runExplain() {
 async function runAction(
   label: string,
   fn: () => Promise<{ message: string }>,
-) {
+): Promise<boolean> {
   actionBusy.value = true;
   actionMessage.value = `${label}…`;
   try {
     const result = await fn();
     actionMessage.value = result.message || `${label} complete.`;
     await refreshAll();
+    return true;
   } catch (err: any) {
-    actionMessage.value =
-      err?.response?.data?.error || err?.message || `${label} failed.`;
+    actionMessage.value = actionErrorMessage(err, label);
+    return false;
   } finally {
     actionBusy.value = false;
   }
+}
+
+function actionErrorMessage(err: any, label: string) {
+  const data = err?.response?.data;
+  if (typeof data === "string" && data.trim()) return data.trim();
+  if (data && typeof data.error === "string") return data.error;
+  if (data && typeof data.message === "string") return data.message;
+  return err?.message || `${label} failed.`;
 }
 
 async function dryRunPrune() {
@@ -758,6 +790,18 @@ async function retractSelectedEdge() {
   if (!reason.trim()) return;
   await runAction("Retract edge", () => retractMagmaEdge({ selector, reason }));
   selectedEdge.value = null;
+}
+
+async function deleteSelectedNode() {
+  const node = selectedNode.value;
+  if (!node || node.type !== "event") return;
+  if (!window.confirm(`Delete graph memory node ${node.label}?`)) return;
+  const deleted = await runAction("Delete node", () =>
+    deleteMagmaNode({ nodeId: node.id }),
+  );
+  if (deleted) {
+    selectedNode.value = null;
+  }
 }
 
 function formatNumber(value: number) {

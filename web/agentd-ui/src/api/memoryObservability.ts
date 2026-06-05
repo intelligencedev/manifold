@@ -227,6 +227,16 @@ export async function retractMagmaEdge(payload: {
   return response.data;
 }
 
+export async function deleteMagmaNode(payload: {
+  nodeId: string;
+}): Promise<MemoryObservabilityActionResponse> {
+  const response = await apiClient.post<MemoryObservabilityActionResponse>(
+    "/observability/memory/actions/delete-node",
+    payload,
+  );
+  return response.data;
+}
+
 export async function drainMagmaConsolidation(
   limit = 25,
 ): Promise<MemoryObservabilityActionResponse> {

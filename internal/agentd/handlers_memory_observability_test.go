@@ -1,6 +1,7 @@
 package agentd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -73,5 +74,84 @@ func TestHandleMemoryObservabilityExplainDefaultsTenantWhenAuthDisabled(t *testi
 		if got.Events[0].Tenant != "user:0" {
 			t.Fatalf("%s: expected user:0 event, got %#v", path, got.Events[0])
 		}
+	}
+}
+
+func TestHandleMemoryObservabilityDeleteNodeDeletesEventNode(t *testing.T) {
+	t.Parallel()
+
+	mgr := databases.Manager{
+		Search: databases.NewMemorySearch(),
+		Vector: databases.NewMemoryVector(),
+		Graph:  databases.NewMemoryGraph(),
+	}
+	magmaSvc := magma.NewService(mgr.Graph, mgr.Vector, embedder.NewDeterministic(32, true, 0))
+	ragSvc := ragservice.New(mgr, ragservice.WithMagmaService(magmaSvc))
+	t.Cleanup(ragSvc.Close)
+
+	resp, err := magmaSvc.Ingest(context.Background(), magma.IngestRequest{
+		ID:     "delete-node",
+		Tenant: "user:0",
+		Text:   "Delete this graph memory node.",
+	})
+	if err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+	if resp.EventID == "" {
+		t.Fatalf("expected event id")
+	}
+
+	a := &app{
+		cfg:        &config.Config{},
+		ragService: ragSvc,
+	}
+
+	body, err := json.Marshal(map[string]string{"nodeId": resp.EventID})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/observability/memory/actions/delete-node", bytes.NewReader(body))
+	a.memoryObservabilityHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rec.Code, rec.Body.String())
+	}
+	var action memoryObservabilityActionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &action); err != nil {
+		t.Fatalf("unmarshal action response: %v", err)
+	}
+	if !action.OK {
+		t.Fatalf("expected ok action response, got %#v", action)
+	}
+
+	graphRec := httptest.NewRecorder()
+	graphReq := httptest.NewRequest(http.MethodGet, "/api/observability/memory/graph", nil)
+	a.handleMemoryObservabilityGraph(graphRec, graphReq)
+	if graphRec.Code != http.StatusOK {
+		t.Fatalf("expected graph 200, got %d body=%s", graphRec.Code, graphRec.Body.String())
+	}
+	var graph memoryObservabilityGraphResponse
+	if err := json.Unmarshal(graphRec.Body.Bytes(), &graph); err != nil {
+		t.Fatalf("unmarshal graph response: %v", err)
+	}
+	for _, node := range graph.Nodes {
+		if node.ID == resp.EventID {
+			t.Fatalf("expected node %q to be deleted, got %#v", resp.EventID, graph.Nodes)
+		}
+	}
+}
+
+func TestMemoryObservabilityHandlerUnknownActionReturnsNotFound(t *testing.T) {
+	t.Parallel()
+
+	a := &app{cfg: &config.Config{}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/observability/memory/actions/missing", nil)
+
+	a.memoryObservabilityHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d body=%s", rec.Code, rec.Body.String())
 	}
 }

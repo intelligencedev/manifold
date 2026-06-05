@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
 	"manifold/internal/agent/memory/magma"
 	"manifold/internal/auth"
 )
@@ -163,11 +165,17 @@ func (a *app) memoryObservabilityHandler() http.HandlerFunc {
 			a.handleMemoryObservabilityApproveEdge(w, r)
 		case "actions/retract-edge":
 			a.handleMemoryObservabilityRetractEdge(w, r)
+		case "actions/delete-node":
+			a.handleMemoryObservabilityDeleteNode(w, r)
 		case "actions/drain-consolidation":
 			a.handleMemoryObservabilityDrainConsolidation(w, r)
 		case "actions/rebuild-embeddings":
 			a.handleMemoryObservabilityRebuildEmbeddings(w, r)
 		default:
+			if strings.HasPrefix(path, "actions/") {
+				http.NotFound(w, r)
+				return
+			}
 			writeJSON(w, http.StatusOK, map[string]string{
 				"overview":         "/api/observability/memory/overview",
 				"graph":            "/api/observability/memory/graph",
@@ -465,6 +473,44 @@ func (a *app) handleMemoryObservabilityRetractEdge(w http.ResponseWriter, r *htt
 		return
 	}
 	writeJSON(w, http.StatusOK, memoryObservabilityActionResponse{OK: true, Message: "Edge retracted."})
+}
+
+func (a *app) handleMemoryObservabilityDeleteNode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		NodeID string `json:"nodeId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	nodeID := strings.TrimSpace(req.NodeID)
+	if nodeID == "" {
+		http.Error(w, "nodeId is required", http.StatusBadRequest)
+		return
+	}
+	ms := a.ragServiceMagma()
+	if ms == nil {
+		http.Error(w, "magma service is not configured", http.StatusNotFound)
+		return
+	}
+	log.Info().Str("node_id", nodeID).Msg("memory_observability_delete_node_requested")
+	deleted, err := ms.DeleteEvent(r.Context(), nodeID)
+	if err != nil {
+		log.Error().Err(err).Str("node_id", nodeID).Msg("memory_observability_delete_node_failed")
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if !deleted {
+		log.Warn().Str("node_id", nodeID).Msg("memory_observability_delete_node_not_found")
+		http.Error(w, "MAGMA event node not found", http.StatusNotFound)
+		return
+	}
+	log.Info().Str("node_id", nodeID).Msg("memory_observability_delete_node_completed")
+	writeJSON(w, http.StatusOK, memoryObservabilityActionResponse{OK: true, Message: "Graph memory node deleted."})
 }
 
 func (a *app) handleMemoryObservabilityDrainConsolidation(w http.ResponseWriter, r *http.Request) {

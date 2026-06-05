@@ -1197,6 +1197,76 @@ func TestService_ReviewWorkflowFlagsApprovesAndRetractsEdges(t *testing.T) {
 	}
 }
 
+func TestService_DeleteEventRemovesEventEdgesAndVectorEntry(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	vector := databases.NewMemoryVector()
+	emb := embedder.NewDeterministic(32, true, 0)
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), vector, emb, ServiceConfig{
+		Graphs: GraphConfig{Causal: true},
+	})
+	text := "Melanie stayed inside because rain started."
+	resp, err := svc.Ingest(ctx, IngestRequest{
+		ID:     "delete-node",
+		Tenant: "t1",
+		Text:   text,
+	})
+	if err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+	if _, err := svc.DrainConsolidation(ctx, 1); err != nil {
+		t.Fatalf("DrainConsolidation() error = %v", err)
+	}
+
+	deleted, err := svc.DeleteEvent(ctx, resp.EventID)
+	if err != nil {
+		t.Fatalf("DeleteEvent() error = %v", err)
+	}
+	if !deleted {
+		t.Fatal("expected event to be deleted")
+	}
+
+	events, err := svc.Events(ctx)
+	if err != nil {
+		t.Fatalf("Events() error = %v", err)
+	}
+	for _, event := range events {
+		if event.ID == resp.EventID {
+			t.Fatalf("expected event %q to be removed, got %#v", resp.EventID, events)
+		}
+	}
+
+	neighbors, err := svc.store.Neighbors(ctx, resp.EventID, GraphCausal, "CAUSES")
+	if err != nil {
+		t.Fatalf("Neighbors() error = %v", err)
+	}
+	if len(neighbors) != 0 {
+		t.Fatalf("expected incident graph edges to be removed, got %#v", neighbors)
+	}
+
+	queryVecs, err := emb.EmbedBatch(ctx, []string{text})
+	if err != nil {
+		t.Fatalf("EmbedBatch() error = %v", err)
+	}
+	results, err := vector.SimilaritySearch(ctx, queryVecs[0], 10, map[string]string{"tenant": "t1"})
+	if err != nil {
+		t.Fatalf("SimilaritySearch() error = %v", err)
+	}
+	for _, result := range results {
+		if result.ID == resp.EventID {
+			t.Fatalf("expected vector entry %q to be removed, got %#v", resp.EventID, results)
+		}
+	}
+
+	deleted, err = svc.DeleteEvent(ctx, resp.EventID)
+	if err != nil {
+		t.Fatalf("second DeleteEvent() error = %v", err)
+	}
+	if deleted {
+		t.Fatal("expected second delete to report not found")
+	}
+}
+
 func TestService_EmitsMagmaTraceSpans(t *testing.T) {
 	ctx := context.Background()
 	recorder := tracetest.NewSpanRecorder()

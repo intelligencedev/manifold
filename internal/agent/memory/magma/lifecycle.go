@@ -107,6 +107,38 @@ func (s *Service) RetractEdge(ctx context.Context, selector EdgeSelector, reason
 	return nil
 }
 
+// DeleteEvent removes one MAGMA event plus its incident graph edges and vector entry.
+func (s *Service) DeleteEvent(ctx context.Context, id string) (bool, error) {
+	id = strings.TrimSpace(id)
+	var err error
+	ctx, span := startSpan(ctx, "magma.delete_event",
+		attribute.String("magma.event_id", id),
+	)
+	defer endSpan(span, &err)
+
+	if s == nil || s.store == nil {
+		err = errors.New("magma service is not configured")
+		return false, err
+	}
+	if id == "" {
+		err = errors.New("magma event id is required")
+		return false, err
+	}
+	if _, ok := s.store.GetEvent(ctx, id); !ok {
+		return false, nil
+	}
+	if err = s.store.DeleteEvent(ctx, id); err != nil {
+		return true, err
+	}
+	if s.vector != nil {
+		if err = s.vector.Delete(ctx, id); err != nil {
+			return true, err
+		}
+	}
+	s.observeHistogram("magma_lifecycle_events_deleted", 1, map[string]string{"reason": "manual_deletion"})
+	return true, nil
+}
+
 func (s *Service) pruneExpiredEvents(ctx context.Context, policy LifecyclePolicy, stats *LifecycleStats) error {
 	if policy.EventTTL <= 0 {
 		return nil

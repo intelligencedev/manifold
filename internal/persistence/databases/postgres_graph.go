@@ -211,13 +211,25 @@ DELETE FROM magma_edges WHERE source=$1 AND graph_type=$2 AND rel=$3 AND target=
 }
 
 func (g *pgGraph) DeleteMagmaEvent(ctx context.Context, id string) error {
-	_, err := g.pool.Exec(ctx, `
-DELETE FROM magma_edges WHERE source=$1 OR target=$1;
-DELETE FROM edges WHERE source=$1 OR target=$1;
-DELETE FROM magma_events WHERE id=$1;
-DELETE FROM nodes WHERE id=$1;
-`, id)
-	return err
+	tx, err := g.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	for _, stmt := range postgresMagmaEventDeleteStatements {
+		if _, err := tx.Exec(ctx, stmt, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+var postgresMagmaEventDeleteStatements = []string{
+	`DELETE FROM magma_edges WHERE source=$1 OR target=$1`,
+	`DELETE FROM edges WHERE source=$1 OR target=$1`,
+	`DELETE FROM magma_events WHERE id=$1`,
+	`DELETE FROM nodes WHERE id=$1`,
 }
 
 func (g *pgGraph) upsertMagmaNode(ctx context.Context, id string, labels []string, props map[string]any) error {

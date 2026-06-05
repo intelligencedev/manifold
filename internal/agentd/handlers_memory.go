@@ -527,20 +527,23 @@ func (a *app) handleDebugMemoryEvolvingDelete(w http.ResponseWriter, r *http.Req
 		}
 	}
 	if !found {
+		log.Warn().Str("memory_id", entryID).Str("session", sessionID).Int64("user_id", userID).Msg("debug_memory_delete_evolving_not_found")
 		http.Error(w, "memory not found", http.StatusNotFound)
 		return
 	}
 
+	log.Info().Str("memory_id", entryID).Str("session", sessionID).Int64("user_id", userID).Msg("debug_memory_delete_evolving_requested")
 	if err := em.ApplyEdits(r.Context(), []memory.MemoryEditOp{{
 		Type:   "PRUNE",
 		IDs:    []string{entryID},
 		Reason: "manual delete from memory overview",
 	}}); err != nil {
-		log.Error().Err(err).Str("memory_id", entryID).Str("session", sessionID).Msg("debug_memory_delete_evolving")
+		log.Error().Err(err).Str("memory_id", entryID).Str("session", sessionID).Int64("user_id", userID).Msg("debug_memory_delete_evolving")
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 
+	log.Info().Str("memory_id", entryID).Str("session", sessionID).Int64("user_id", userID).Msg("debug_memory_delete_evolving_completed")
 	writeJSON(w, http.StatusOK, debugMemoryDeleteResponse{
 		Deleted:   1,
 		IDs:       []string{entryID},

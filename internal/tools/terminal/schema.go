@@ -7,7 +7,7 @@ func startSchema(manager *Manager) map[string]any {
 	}
 	return map[string]any{
 		"name":        "terminal_start",
-		"description": "Start a long-running or interactive PTY-backed terminal in the current project workspace. Use run_cli for short foreground commands.",
+		"description": "Start a policy-controlled and sandboxed PTY-backed terminal in the current project workspace. Use run_cli for short foreground commands.",
 		"parameters": map[string]any{
 			"type": "object",
 			"properties": map[string]any{

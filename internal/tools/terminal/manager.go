@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"manifold/internal/commandexec"
 	"manifold/internal/config"
 	"manifold/internal/sandbox"
 )
@@ -52,20 +53,23 @@ type StopRequest struct {
 }
 
 type StartResult struct {
-	OK         bool          `json:"ok"`
-	Error      string        `json:"error,omitempty"`
-	TerminalID string        `json:"terminal_id,omitempty"`
-	Name       string        `json:"name,omitempty"`
-	PID        int           `json:"pid,omitempty"`
-	CWD        string        `json:"cwd,omitempty"`
-	Command    string        `json:"command,omitempty"`
-	Args       []string      `json:"args,omitempty"`
-	StartedAt  time.Time     `json:"started_at,omitempty"`
-	Running    bool          `json:"running"`
-	Output     string        `json:"output,omitempty"`
-	Chunks     []outputChunk `json:"chunks,omitempty"`
-	NextSeq    int64         `json:"next_seq,omitempty"`
-	Truncated  bool          `json:"truncated,omitempty"`
+	OK               bool          `json:"ok"`
+	Error            string        `json:"error,omitempty"`
+	Decision         string        `json:"decision,omitempty"`
+	PolicyID         string        `json:"policy_id,omitempty"`
+	RequiresApproval bool          `json:"requires_approval,omitempty"`
+	TerminalID       string        `json:"terminal_id,omitempty"`
+	Name             string        `json:"name,omitempty"`
+	PID              int           `json:"pid,omitempty"`
+	CWD              string        `json:"cwd,omitempty"`
+	Command          string        `json:"command,omitempty"`
+	Args             []string      `json:"args,omitempty"`
+	StartedAt        time.Time     `json:"started_at,omitempty"`
+	Running          bool          `json:"running"`
+	Output           string        `json:"output,omitempty"`
+	Chunks           []outputChunk `json:"chunks,omitempty"`
+	NextSeq          int64         `json:"next_seq,omitempty"`
+	Truncated        bool          `json:"truncated,omitempty"`
 }
 
 type ReadResult struct {
@@ -127,6 +131,9 @@ type session struct {
 	cwd       string
 	command   string
 	args      []string
+	decision  string
+	policyID  string
+	sandboxed bool
 	cmd       *exec.Cmd
 	pty       *os.File
 	pid       int
@@ -145,7 +152,6 @@ type Manager struct {
 	mu      sync.Mutex
 	cfg     config.ExecConfig
 	workdir string
-	blocked map[string]struct{}
 
 	maxSessions int
 	maxRuntime  time.Duration
@@ -159,14 +165,9 @@ type Manager struct {
 
 func NewManager(cfg config.ExecConfig, workdir string) *Manager {
 	cfg = withDefaults(cfg)
-	blocked := make(map[string]struct{}, len(cfg.BlockBinaries))
-	for _, binary := range cfg.BlockBinaries {
-		blocked[binary] = struct{}{}
-	}
 	m := &Manager{
 		cfg:         cfg,
 		workdir:     workdir,
-		blocked:     blocked,
 		maxSessions: cfg.MaxTerminalSessions,
 		maxRuntime:  time.Duration(cfg.MaxTerminalRuntimeSeconds) * time.Second,
 		idleTTL:     time.Duration(cfg.TerminalIdleTTLSeconds) * time.Second,
@@ -179,36 +180,16 @@ func NewManager(cfg config.ExecConfig, workdir string) *Manager {
 }
 
 func withDefaults(cfg config.ExecConfig) config.ExecConfig {
-	if cfg.MaxCommandSeconds <= 0 {
-		cfg.MaxCommandSeconds = defaultTerminalRuntimeSeconds
-	}
-	if cfg.MaxTerminalSessions <= 0 {
-		cfg.MaxTerminalSessions = defaultMaxTerminalSessions
-	}
-	if cfg.MaxTerminalRuntimeSeconds <= 0 {
-		cfg.MaxTerminalRuntimeSeconds = cfg.MaxCommandSeconds
-	}
-	if cfg.TerminalIdleTTLSeconds <= 0 {
-		cfg.TerminalIdleTTLSeconds = defaultTerminalIdleTTLSeconds
-	}
-	if cfg.TerminalOutputBufferBytes <= 0 {
-		cfg.TerminalOutputBufferBytes = defaultTerminalOutputBufferBytes
-	}
+	config.ApplyExecDefaults(&cfg)
 	return cfg
 }
 
 func normalizeCommandArgs(command string, args []string) (string, []string) {
-	parts := strings.Fields(command)
-	if len(parts) == 0 {
+	cmd, normalizedArgs, err := commandexec.NormalizeCommandArgs(command, args)
+	if err != nil {
 		return "", args
 	}
-	if len(parts) == 1 {
-		return parts[0], args
-	}
-	merged := make([]string, 0, len(parts)-1+len(args))
-	merged = append(merged, parts[1:]...)
-	merged = append(merged, args...)
-	return parts[0], merged
+	return cmd, normalizedArgs
 }
 
 func (m *Manager) Start(ctx context.Context, req StartRequest) (StartResult, error) {

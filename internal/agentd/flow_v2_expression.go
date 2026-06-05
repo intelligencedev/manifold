@@ -275,9 +275,10 @@ func parseFlowDuration(s string) time.Duration {
 }
 
 func (a *app) flowV2ExecutionRegistry() tools.Registry {
-	// Flow v2 should execute against the same full catalog surfaced by /api/flows/v2/tools.
-	if a.baseToolRegistry != nil {
-		return a.baseToolRegistry
+	// Flow v2 executes through the effective policy-aware registry. The base
+	// registry is only a fallback for tests or partially initialized apps.
+	if a.toolRegistry != nil {
+		return a.toolRegistry
 	}
-	return a.toolRegistry
+	return a.baseToolRegistry
 }

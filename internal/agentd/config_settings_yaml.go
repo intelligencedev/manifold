@@ -150,6 +150,21 @@ func applyExecSettingsYAML(root map[string]any, settings agentdSettings) {
 			setNestedMapValue(root, []string{"exec", "blockBinaries"}, parts)
 		}
 	}
+	if settings.CommandRules != nil {
+		setNestedMapValue(root, []string{"exec", "commandRules"}, settings.CommandRules)
+	}
+	if settings.SandboxEnabled != nil {
+		setNestedMapValue(root, []string{"exec", "sandbox", "enabled"}, *settings.SandboxEnabled)
+	}
+	if settings.SandboxFailIfUnavailable != nil {
+		setNestedMapValue(root, []string{"exec", "sandbox", "failIfUnavailable"}, *settings.SandboxFailIfUnavailable)
+	}
+	if settings.SandboxNetworkEnabled != nil {
+		setNestedMapValue(root, []string{"exec", "sandbox", "network", "enabled"}, *settings.SandboxNetworkEnabled)
+	}
+	if settings.SandboxNetworkAllowedDomains != nil {
+		setNestedMapValue(root, []string{"exec", "sandbox", "network", "allowedDomains"}, settings.SandboxNetworkAllowedDomains)
+	}
 	if settings.MaxCommandSeconds != 0 {
 		setNestedMapValue(root, []string{"exec", "maxCommandSeconds"}, settings.MaxCommandSeconds)
 	}

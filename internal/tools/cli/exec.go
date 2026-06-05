@@ -6,11 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
-	"strings"
 	"time"
 
+	"manifold/internal/commandexec"
 	"manifold/internal/config"
 	"manifold/internal/sandbox"
 
@@ -27,12 +26,16 @@ type ExecRequest struct {
 }
 
 type ExecResult struct {
-	OK        bool   `json:"ok"`
-	ExitCode  int    `json:"exit_code"`
-	Stdout    string `json:"stdout"`
-	Stderr    string `json:"stderr"`
-	Duration  int64  `json:"duration_ms"`
-	Truncated bool   `json:"truncated"`
+	OK               bool   `json:"ok"`
+	ExitCode         int    `json:"exit_code"`
+	Stdout           string `json:"stdout"`
+	Stderr           string `json:"stderr"`
+	Duration         int64  `json:"duration_ms"`
+	Truncated        bool   `json:"truncated"`
+	Error            string `json:"error,omitempty"`
+	Decision         string `json:"decision,omitempty"`
+	PolicyID         string `json:"policy_id,omitempty"`
+	RequiresApproval bool   `json:"requires_approval,omitempty"`
 }
 
 type Executor interface {
@@ -42,36 +45,25 @@ type Executor interface {
 type ExecutorImpl struct {
 	cfg     config.ExecConfig
 	workdir string
-	// derived block set
-	blocked map[string]struct{}
 	// output limit in bytes
 	outLimit int
 }
 
 func NewExecutor(cfg config.ExecConfig, workdir string, outLimit int) *ExecutorImpl {
-	blocked := make(map[string]struct{}, len(cfg.BlockBinaries))
-	for _, b := range cfg.BlockBinaries {
-		blocked[b] = struct{}{}
-	}
+	config.ApplyExecDefaults(&cfg)
 	// If caller didn't provide an explicit outLimit, fall back to 64KB.
 	if outLimit <= 0 {
 		outLimit = 64 * 1024
 	}
-	return &ExecutorImpl{cfg: cfg, workdir: workdir, blocked: blocked, outLimit: outLimit}
+	return &ExecutorImpl{cfg: cfg, workdir: workdir, outLimit: outLimit}
 }
 
 func normalizeCommandArgs(command string, args []string) (string, []string) {
-	parts := strings.Fields(command)
-	if len(parts) == 0 {
+	cmd, normalizedArgs, err := commandexec.NormalizeCommandArgs(command, args)
+	if err != nil {
 		return "", args
 	}
-	if len(parts) == 1 {
-		return parts[0], args
-	}
-	merged := make([]string, 0, len(parts)-1+len(args))
-	merged = append(merged, parts[1:]...)
-	merged = append(merged, args...)
-	return parts[0], merged
+	return cmd, normalizedArgs
 }
 
 func (e *ExecutorImpl) Run(ctx context.Context, req ExecRequest) (ExecResult, error) {
@@ -86,24 +78,17 @@ func (e *ExecutorImpl) Run(ctx context.Context, req ExecRequest) (ExecResult, er
 	if req.Command == "" {
 		return ExecResult{}, errors.New("command is required")
 	}
-	req.Command, req.Args = normalizeCommandArgs(req.Command, req.Args)
-	if req.Command == "" {
-		return ExecResult{}, errors.New("command is required")
-	}
-	if sandbox.IsBinaryBlocked(req.Command, e.blocked) {
-		return ExecResult{}, fmt.Errorf("binary is blocked or invalid: %q", req.Command)
-	}
 
 	// Resolve dynamic base directory from context, defaulting to configured workdir
 	base := sandbox.ResolveBaseDir(ctx, e.workdir)
-
-	safeArgs := make([]string, 0, len(req.Args))
-	for _, a := range req.Args {
-		s, err := sandbox.SanitizeArg(base, a)
-		if err != nil {
-			return ExecResult{}, err
-		}
-		safeArgs = append(safeArgs, s)
+	prepared, err := commandexec.Prepare(ctx, e.cfg, commandexec.PrepareRequest{
+		Command: req.Command,
+		Args:    req.Args,
+		Workdir: base,
+		Context: commandexec.ContextCLI,
+	})
+	if err != nil {
+		return ExecResult{}, err
 	}
 
 	tout := req.Timeout
@@ -113,9 +98,9 @@ func (e *ExecutorImpl) Run(ctx context.Context, req ExecRequest) (ExecResult, er
 	ctx, cancel := context.WithTimeout(ctx, tout)
 	defer cancel()
 
-	c := exec.CommandContext(ctx, req.Command, safeArgs...)
-	c.Dir = base
-	c.Env = os.Environ()
+	c := exec.CommandContext(ctx, prepared.ExecCommand, prepared.ExecArgs...)
+	c.Dir = prepared.Dir
+	c.Env = prepared.Env
 	var stdout, stderr bytes.Buffer
 	c.Stdout = &stdout
 	c.Stderr = &stderr
@@ -124,10 +109,10 @@ func (e *ExecutorImpl) Run(ctx context.Context, req ExecRequest) (ExecResult, er
 	}
 
 	start := time.Now()
-	err := c.Run()
+	err = c.Run()
 	dur := time.Since(start)
-	cmdCounter.Add(ctx, 1, otelmetric.WithAttributes(attribute.String("command", req.Command)))
-	durHist.Record(ctx, dur.Milliseconds(), otelmetric.WithAttributes(attribute.String("command", req.Command)))
+	cmdCounter.Add(ctx, 1, otelmetric.WithAttributes(attribute.String("command", prepared.Command), attribute.String("decision", prepared.Decision), attribute.Bool("sandboxed", prepared.Sandboxed)))
+	durHist.Record(ctx, dur.Milliseconds(), otelmetric.WithAttributes(attribute.String("command", prepared.Command)))
 
 	exit := 0
 	if err != nil {
@@ -140,7 +125,7 @@ func (e *ExecutorImpl) Run(ctx context.Context, req ExecRequest) (ExecResult, er
 			exit = 1
 		}
 	}
-	span.SetAttributes(attribute.String("cli.command", req.Command), attribute.Int("cli.exit_code", exit), attribute.Int64("cli.duration_ms", dur.Milliseconds()))
+	span.SetAttributes(attribute.String("cli.command", prepared.Command), attribute.Int("cli.exit_code", exit), attribute.Int64("cli.duration_ms", dur.Milliseconds()), attribute.String("cli.policy_id", prepared.PolicyID), attribute.Bool("cli.sandboxed", prepared.Sandboxed))
 
 	outS := stdout.String()
 	errS := stderr.String()
@@ -156,7 +141,7 @@ func (e *ExecutorImpl) Run(ctx context.Context, req ExecRequest) (ExecResult, er
 		}
 	}
 
-	return ExecResult{OK: err == nil, ExitCode: exit, Stdout: outS, Stderr: errS, Duration: dur.Milliseconds(), Truncated: trunc}, nil
+	return ExecResult{OK: err == nil, ExitCode: exit, Stdout: outS, Stderr: errS, Duration: dur.Milliseconds(), Truncated: trunc, Decision: prepared.Decision, PolicyID: prepared.PolicyID}, nil
 }
 
 // Tool adapter ---------------------------------------------------------------
@@ -190,6 +175,18 @@ func (t *tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 		Stdin:   args.Stdin,
 	})
 	if err != nil {
+		var policyErr *commandexec.PolicyError
+		if errors.As(err, &policyErr) {
+			return ExecResult{
+				OK:               false,
+				ExitCode:         1,
+				Stderr:           policyErr.Error(),
+				Error:            policyErr.Error(),
+				Decision:         policyErr.Decision,
+				PolicyID:         policyErr.PolicyID,
+				RequiresApproval: policyErr.RequiresApproval,
+			}, nil
+		}
 		return nil, err
 	}
 	return res, nil

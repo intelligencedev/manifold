@@ -10,7 +10,7 @@ func buildSchema(t *tool) map[string]any {
 	}
 	return map[string]any{
 		"name":        "run_cli",
-		"description": "Execute a CLI command in a restricted working directory (no shell, no absolute paths).",
+		"description": "Execute a policy-controlled and sandboxed CLI command in the current project workspace. No shell is inserted automatically.",
 		"parameters": map[string]any{
 			"type": "object",
 			"properties": map[string]any{

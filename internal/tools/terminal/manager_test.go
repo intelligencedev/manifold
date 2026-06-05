@@ -2,6 +2,7 @@ package terminal
 
 import (
 	"context"
+	"encoding/json"
 	"os/exec"
 	"strings"
 	"testing"
@@ -10,6 +11,30 @@ import (
 	"manifold/internal/config"
 	"manifold/internal/sandbox"
 )
+
+func testBool(v bool) *bool {
+	return &v
+}
+
+func managerTestConfig(base config.ExecConfig, commands ...string) config.ExecConfig {
+	if base.MaxCommandSeconds <= 0 {
+		base.MaxCommandSeconds = 5
+	}
+	base.Sandbox = config.ExecSandboxConfig{
+		Enabled:           testBool(false),
+		FailIfUnavailable: testBool(true),
+		Network:           config.ExecSandboxNetworkConfig{Enabled: testBool(false)},
+	}
+	base.CommandRules = nil
+	for _, command := range commands {
+		base.CommandRules = append(base.CommandRules, config.ExecCommandRule{
+			ID:       "allow-" + command,
+			Decision: "allow",
+			Pattern:  []string{command},
+		})
+	}
+	return base
+}
 
 func testContext(t *testing.T, sessionID string) context.Context {
 	t.Helper()
@@ -42,13 +67,14 @@ func waitUntil(t *testing.T, condition func() bool) {
 func TestStartRejectsInvalidCommands(t *testing.T) {
 	requireCommand(t, "echo")
 	ctx := testContext(t, "sess")
-	manager := NewManager(config.ExecConfig{MaxCommandSeconds: 5, BlockBinaries: []string{"echo"}}, t.TempDir())
+	cfg := managerTestConfig(config.ExecConfig{BlockBinaries: []string{"echo"}}, "echo")
+	manager := NewManager(cfg, t.TempDir())
 	defer manager.Close()
 
 	if _, err := manager.Start(ctx, StartRequest{}); err == nil {
 		t.Fatal("expected missing command error")
 	}
-	if _, err := manager.Start(ctx, StartRequest{Command: "echo hi"}); err == nil || !strings.Contains(err.Error(), "blocked") {
+	if _, err := manager.Start(ctx, StartRequest{Command: "echo hi"}); err == nil || !strings.Contains(err.Error(), "denied by policy") {
 		t.Fatalf("expected blocked binary error, got %v", err)
 	}
 }
@@ -56,7 +82,7 @@ func TestStartRejectsInvalidCommands(t *testing.T) {
 func TestStartRejectsPathTraversalArgs(t *testing.T) {
 	requireCommand(t, "echo")
 	ctx := testContext(t, "sess")
-	manager := NewManager(config.ExecConfig{MaxCommandSeconds: 5}, t.TempDir())
+	manager := NewManager(managerTestConfig(config.ExecConfig{}, "echo"), t.TempDir())
 	defer manager.Close()
 
 	_, err := manager.Start(ctx, StartRequest{Command: "echo", Args: []string{"../escape"}})
@@ -68,7 +94,7 @@ func TestStartRejectsPathTraversalArgs(t *testing.T) {
 func TestTerminalLifecycleReadWriteStop(t *testing.T) {
 	requireCommand(t, "cat")
 	ctx := testContext(t, "sess")
-	manager := NewManager(config.ExecConfig{MaxCommandSeconds: 5}, t.TempDir())
+	manager := NewManager(managerTestConfig(config.ExecConfig{}, "cat"), t.TempDir())
 	defer manager.Close()
 
 	start, err := manager.Start(ctx, StartRequest{Command: "cat", Name: "interactive"})
@@ -100,7 +126,7 @@ func TestTerminalLifecycleReadWriteStop(t *testing.T) {
 func TestMultipleConcurrentTerminalsAndSessionLimit(t *testing.T) {
 	requireCommand(t, "cat")
 	ctx := testContext(t, "sess")
-	manager := NewManager(config.ExecConfig{MaxCommandSeconds: 5, MaxTerminalSessions: 2}, t.TempDir())
+	manager := NewManager(managerTestConfig(config.ExecConfig{MaxTerminalSessions: 2}, "cat"), t.TempDir())
 	defer manager.Close()
 
 	first, err := manager.Start(ctx, StartRequest{Command: "cat", Name: "one"})
@@ -129,11 +155,10 @@ func TestMultipleConcurrentTerminalsAndSessionLimit(t *testing.T) {
 func TestFinishedSessionRemainsReadableAndExpires(t *testing.T) {
 	requireCommand(t, "echo")
 	ctx := testContext(t, "sess")
-	manager := NewManager(config.ExecConfig{
-		MaxCommandSeconds:         5,
+	manager := NewManager(managerTestConfig(config.ExecConfig{
 		TerminalIdleTTLSeconds:    1,
 		TerminalOutputBufferBytes: 1024,
-	}, t.TempDir())
+	}, "echo"), t.TempDir())
 	defer manager.Close()
 
 	start, err := manager.Start(ctx, StartRequest{Command: "echo", Args: []string{"done"}})
@@ -142,7 +167,7 @@ func TestFinishedSessionRemainsReadableAndExpires(t *testing.T) {
 	}
 	waitUntil(t, func() bool {
 		read, err := manager.Read(ctx, ReadRequest{TerminalID: start.TerminalID})
-		return err == nil && !read.Running
+		return err == nil && !read.Running && strings.Contains(read.Output, "done")
 	})
 	read, err := manager.Read(ctx, ReadRequest{TerminalID: start.TerminalID})
 	if err != nil {
@@ -170,7 +195,7 @@ func TestTerminalScopeIsolation(t *testing.T) {
 	base := t.TempDir()
 	ctxA := sandbox.WithSessionID(sandbox.WithBaseDir(context.Background(), base), "a")
 	ctxB := sandbox.WithSessionID(sandbox.WithBaseDir(context.Background(), base), "b")
-	manager := NewManager(config.ExecConfig{MaxCommandSeconds: 5}, base)
+	manager := NewManager(managerTestConfig(config.ExecConfig{}, "cat"), base)
 	defer manager.Close()
 
 	start, err := manager.Start(ctxA, StartRequest{Command: "cat"})
@@ -186,7 +211,7 @@ func TestTerminalScopeIsolation(t *testing.T) {
 func TestRuntimeTimeoutStopsTerminal(t *testing.T) {
 	requireCommand(t, "sleep")
 	ctx := testContext(t, "sess")
-	manager := NewManager(config.ExecConfig{MaxCommandSeconds: 5, MaxTerminalRuntimeSeconds: 1}, t.TempDir())
+	manager := NewManager(managerTestConfig(config.ExecConfig{MaxTerminalRuntimeSeconds: 1}, "sleep"), t.TempDir())
 	defer manager.Close()
 
 	start, err := manager.Start(ctx, StartRequest{Command: "sleep", Args: []string{"10"}, TimeoutSeconds: 1})
@@ -202,7 +227,7 @@ func TestRuntimeTimeoutStopsTerminal(t *testing.T) {
 func TestOutputBufferTruncates(t *testing.T) {
 	requireCommand(t, "echo")
 	ctx := testContext(t, "sess")
-	manager := NewManager(config.ExecConfig{MaxCommandSeconds: 5, TerminalOutputBufferBytes: 32}, t.TempDir())
+	manager := NewManager(managerTestConfig(config.ExecConfig{TerminalOutputBufferBytes: 32}, "echo"), t.TempDir())
 	defer manager.Close()
 
 	start, err := manager.Start(ctx, StartRequest{Command: "echo", Args: []string{strings.Repeat("x", 80)}})
@@ -222,5 +247,24 @@ func TestOutputBufferTruncates(t *testing.T) {
 	}
 	if len(read.Output) > 32 {
 		t.Fatalf("expected output to be capped, len=%d output=%q", len(read.Output), read.Output)
+	}
+}
+
+func TestTerminalStartToolReturnsStablePolicyPayload(t *testing.T) {
+	t.Parallel()
+
+	manager := NewManager(managerTestConfig(config.ExecConfig{}, "echo"), t.TempDir())
+	defer manager.Close()
+
+	payload, err := NewStartTool(manager).Call(testContext(t, "sess"), json.RawMessage(`{"command":"python --version"}`))
+	if err != nil {
+		t.Fatalf("Call returned error: %v", err)
+	}
+	res, ok := payload.(StartResult)
+	if !ok {
+		t.Fatalf("payload type = %T, want StartResult", payload)
+	}
+	if res.OK || res.Decision != "deny" || res.Error == "" {
+		t.Fatalf("unexpected policy payload: %#v", res)
 	}
 }

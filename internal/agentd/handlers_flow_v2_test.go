@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -286,7 +287,7 @@ func TestFlowV2RunLifecycle(t *testing.T) {
 	}
 }
 
-func TestFlowV2RunUsesBaseToolRegistry(t *testing.T) {
+func TestFlowV2RunUsesFilteredToolRegistry(t *testing.T) {
 	t.Parallel()
 
 	baseReg := tools.NewRegistry()
@@ -359,31 +360,19 @@ func TestFlowV2RunUsesBaseToolRegistry(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if eventsResp.Status != "completed" {
-		t.Fatalf("expected completed status, got %s with events=%+v", eventsResp.Status, eventsResp.Events)
+	if eventsResp.Status != "failed" {
+		t.Fatalf("expected failed status, got %s with events=%+v", eventsResp.Status, eventsResp.Events)
 	}
 
-	var completed *flow.RunEvent
-	for i := range eventsResp.Events {
-		event := &eventsResp.Events[i]
-		if event.Type == flow.RunEventTypeNodeCompleted && event.NodeID == "textbox" {
-			completed = event
-			break
+	if !hasRunEvent(eventsResp.Events, flow.RunEventTypeRunFailed) {
+		t.Fatalf("missing run_failed event: %+v", eventsResp.Events)
+	}
+	for _, event := range eventsResp.Events {
+		if strings.Contains(event.Error, "tool not found: utility_textbox") {
+			return
 		}
 	}
-	if completed == nil {
-		t.Fatalf("expected node_completed event for textbox, got %+v", eventsResp.Events)
-	}
-	inputs, ok := completed.Output["inputs"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected completed event inputs map, got %+v", completed.Output)
-	}
-	if got := inputs["text"]; got != "hello" {
-		t.Fatalf("expected rendered text input hello, got %#v", got)
-	}
-	if _, exists := inputs["render_mode"]; exists {
-		t.Fatalf("did not expect render_mode input for textbox workflow, got %+v", inputs)
-	}
+	t.Fatalf("expected filtered registry tool-not-found error, got %+v", eventsResp.Events)
 }
 
 func TestFlowV2RunAgentResponseTool(t *testing.T) {

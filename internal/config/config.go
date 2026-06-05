@@ -331,12 +331,33 @@ type STTConfig struct {
 }
 
 type ExecConfig struct {
-	BlockBinaries             []string `yaml:"blockBinaries" json:"blockBinaries"`
-	MaxCommandSeconds         int      `yaml:"maxCommandSeconds" json:"maxCommandSeconds"`
-	MaxTerminalSessions       int      `yaml:"maxTerminalSessions" json:"maxTerminalSessions"`
-	MaxTerminalRuntimeSeconds int      `yaml:"maxTerminalRuntimeSeconds" json:"maxTerminalRuntimeSeconds"`
-	TerminalIdleTTLSeconds    int      `yaml:"terminalIdleTTLSeconds" json:"terminalIdleTTLSeconds"`
-	TerminalOutputBufferBytes int      `yaml:"terminalOutputBufferBytes" json:"terminalOutputBufferBytes"`
+	BlockBinaries             []string          `yaml:"blockBinaries" json:"blockBinaries"`
+	CommandRules              []ExecCommandRule `yaml:"commandRules" json:"commandRules"`
+	Sandbox                   ExecSandboxConfig `yaml:"sandbox" json:"sandbox"`
+	MaxCommandSeconds         int               `yaml:"maxCommandSeconds" json:"maxCommandSeconds"`
+	MaxTerminalSessions       int               `yaml:"maxTerminalSessions" json:"maxTerminalSessions"`
+	MaxTerminalRuntimeSeconds int               `yaml:"maxTerminalRuntimeSeconds" json:"maxTerminalRuntimeSeconds"`
+	TerminalIdleTTLSeconds    int               `yaml:"terminalIdleTTLSeconds" json:"terminalIdleTTLSeconds"`
+	TerminalOutputBufferBytes int               `yaml:"terminalOutputBufferBytes" json:"terminalOutputBufferBytes"`
+}
+
+type ExecCommandRule struct {
+	ID            string   `yaml:"id,omitempty" json:"id,omitempty"`
+	Decision      string   `yaml:"decision" json:"decision"`
+	Pattern       []string `yaml:"pattern" json:"pattern"`
+	Contexts      []string `yaml:"contexts,omitempty" json:"contexts,omitempty"`
+	Justification string   `yaml:"justification,omitempty" json:"justification,omitempty"`
+}
+
+type ExecSandboxConfig struct {
+	Enabled           *bool                    `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	FailIfUnavailable *bool                    `yaml:"failIfUnavailable,omitempty" json:"failIfUnavailable,omitempty"`
+	Network           ExecSandboxNetworkConfig `yaml:"network" json:"network"`
+}
+
+type ExecSandboxNetworkConfig struct {
+	Enabled        *bool    `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	AllowedDomains []string `yaml:"allowedDomains,omitempty" json:"allowedDomains,omitempty"`
 }
 
 // SummaryConfig controls rolling chat summaries and their dedicated LLM client.

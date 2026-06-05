@@ -349,6 +349,29 @@ func validateConfigExec(cfg *Config) error {
 			return fmt.Errorf("exec.blockBinaries must contain bare binary names only (no paths): %q", binary)
 		}
 	}
+	for i, rule := range cfg.Exec.CommandRules {
+		decision := strings.ToLower(strings.TrimSpace(rule.Decision))
+		switch decision {
+		case "allow", "ask", "deny":
+		default:
+			return fmt.Errorf("exec.commandRules[%d].decision must be allow, ask, or deny (got %q)", i, rule.Decision)
+		}
+		if len(rule.Pattern) == 0 {
+			return fmt.Errorf("exec.commandRules[%d].pattern must contain at least one argv token", i)
+		}
+		binary := strings.TrimSpace(rule.Pattern[0])
+		if binary == "" {
+			return fmt.Errorf("exec.commandRules[%d].pattern[0] must not be empty", i)
+		}
+		if strings.Contains(binary, "/") || strings.Contains(binary, "\\") || binary == "." || binary == ".." {
+			return fmt.Errorf("exec.commandRules[%d].pattern[0] must be a bare binary name (got %q)", i, rule.Pattern[0])
+		}
+		for j, token := range rule.Pattern {
+			if strings.TrimSpace(token) == "" {
+				return fmt.Errorf("exec.commandRules[%d].pattern[%d] must not be empty", i, j)
+			}
+		}
+	}
 	return nil
 }
 

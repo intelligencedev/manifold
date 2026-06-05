@@ -3,7 +3,10 @@ package terminal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+
+	"manifold/internal/commandexec"
 )
 
 type startTool struct{ manager *Manager }
@@ -40,6 +43,16 @@ func (t *startTool) Call(ctx context.Context, raw json.RawMessage) (any, error) 
 	}
 	res, err := t.manager.Start(ctx, args)
 	if err != nil {
+		var policyErr *commandexec.PolicyError
+		if errors.As(err, &policyErr) {
+			return StartResult{
+				OK:               false,
+				Error:            policyErr.Error(),
+				Decision:         policyErr.Decision,
+				PolicyID:         policyErr.PolicyID,
+				RequiresApproval: policyErr.RequiresApproval,
+			}, nil
+		}
 		return StartResult{OK: false, Error: err.Error()}, nil
 	}
 	return res, nil

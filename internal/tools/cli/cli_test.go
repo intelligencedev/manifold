@@ -2,11 +2,28 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"manifold/internal/config"
 )
+
+func testBool(v bool) *bool {
+	return &v
+}
+
+func testExecConfig(rules ...config.ExecCommandRule) config.ExecConfig {
+	return config.ExecConfig{
+		MaxCommandSeconds: 5,
+		CommandRules:      rules,
+		Sandbox: config.ExecSandboxConfig{
+			Enabled:           testBool(false),
+			FailIfUnavailable: testBool(true),
+			Network:           config.ExecSandboxNetworkConfig{Enabled: testBool(false)},
+		},
+	}
+}
 
 func TestNormalizeCommandArgs(t *testing.T) {
 	t.Parallel()
@@ -35,7 +52,7 @@ func TestNormalizeCommandArgsAppendsExplicitArgs(t *testing.T) {
 func TestExecutorRunAllowsInlineCommandArgs(t *testing.T) {
 	t.Parallel()
 
-	exec := NewExecutor(config.ExecConfig{MaxCommandSeconds: 5}, t.TempDir(), 0)
+	exec := NewExecutor(testExecConfig(config.ExecCommandRule{ID: "allow-go", Decision: "allow", Pattern: []string{"go"}}), t.TempDir(), 0)
 	res, err := exec.Run(context.Background(), ExecRequest{Command: "go version"})
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
@@ -51,12 +68,31 @@ func TestExecutorRunAllowsInlineCommandArgs(t *testing.T) {
 func TestExecutorRunBlocksInlineBlockedBinary(t *testing.T) {
 	t.Parallel()
 
-	exec := NewExecutor(config.ExecConfig{MaxCommandSeconds: 5, BlockBinaries: []string{"rm"}}, t.TempDir(), 0)
+	cfg := testExecConfig(config.ExecCommandRule{ID: "allow-rm", Decision: "allow", Pattern: []string{"rm"}})
+	cfg.BlockBinaries = []string{"rm"}
+	exec := NewExecutor(cfg, t.TempDir(), 0)
 	_, err := exec.Run(context.Background(), ExecRequest{Command: "rm -rf tmp"})
 	if err == nil {
 		t.Fatal("expected blocked binary error")
 	}
-	if !strings.Contains(err.Error(), "binary is blocked or invalid: \"rm\"") {
+	if !strings.Contains(err.Error(), "command is denied by policy") {
 		t.Fatalf("error = %q, want blocked rm error", err.Error())
+	}
+}
+
+func TestRunCLIToolReturnsStablePolicyPayload(t *testing.T) {
+	t.Parallel()
+
+	exec := NewExecutor(testExecConfig(config.ExecCommandRule{ID: "allow-go", Decision: "allow", Pattern: []string{"go"}}), t.TempDir(), 0)
+	payload, err := NewTool(exec).Call(context.Background(), json.RawMessage(`{"command":"python --version"}`))
+	if err != nil {
+		t.Fatalf("Call returned error: %v", err)
+	}
+	res, ok := payload.(ExecResult)
+	if !ok {
+		t.Fatalf("payload type = %T, want ExecResult", payload)
+	}
+	if res.OK || res.Decision != "deny" || res.Error == "" {
+		t.Fatalf("unexpected policy payload: %#v", res)
 	}
 }

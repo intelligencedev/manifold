@@ -79,6 +79,11 @@ func projectRuntimeAgentdSettings(settings *agentdSettings, cfg *config.Config) 
 	settings.StreamRunTimeoutSeconds = cfg.StreamRunTimeoutSeconds
 	settings.WorkflowTimeoutSeconds = cfg.WorkflowTimeoutSeconds
 	settings.BlockBinaries = strings.Join(cfg.Exec.BlockBinaries, ",")
+	settings.CommandRules = append([]config.ExecCommandRule(nil), cfg.Exec.CommandRules...)
+	settings.SandboxEnabled = cfg.Exec.Sandbox.Enabled
+	settings.SandboxFailIfUnavailable = cfg.Exec.Sandbox.FailIfUnavailable
+	settings.SandboxNetworkEnabled = cfg.Exec.Sandbox.Network.Enabled
+	settings.SandboxNetworkAllowedDomains = append([]string(nil), cfg.Exec.Sandbox.Network.AllowedDomains...)
 	settings.MaxCommandSeconds = cfg.Exec.MaxCommandSeconds
 	settings.OutputTruncateBytes = cfg.OutputTruncateByte
 	settings.MaxTerminalSessions = cfg.Exec.MaxTerminalSessions
@@ -327,6 +332,24 @@ func applyExecSettings(cfg *config.Config, settings agentdSettings) error {
 		}
 		cfg.Exec.BlockBinaries = binaries
 	}
+	if settings.CommandRules != nil {
+		if err := validateCommandRulesSettings(settings.CommandRules); err != nil {
+			return err
+		}
+		cfg.Exec.CommandRules = append([]config.ExecCommandRule(nil), settings.CommandRules...)
+	}
+	if settings.SandboxEnabled != nil {
+		cfg.Exec.Sandbox.Enabled = boolPtr(*settings.SandboxEnabled)
+	}
+	if settings.SandboxFailIfUnavailable != nil {
+		cfg.Exec.Sandbox.FailIfUnavailable = boolPtr(*settings.SandboxFailIfUnavailable)
+	}
+	if settings.SandboxNetworkEnabled != nil {
+		cfg.Exec.Sandbox.Network.Enabled = boolPtr(*settings.SandboxNetworkEnabled)
+	}
+	if settings.SandboxNetworkAllowedDomains != nil {
+		cfg.Exec.Sandbox.Network.AllowedDomains = append([]string(nil), settings.SandboxNetworkAllowedDomains...)
+	}
 	if settings.MaxCommandSeconds != 0 {
 		cfg.Exec.MaxCommandSeconds = settings.MaxCommandSeconds
 	}
@@ -444,6 +467,28 @@ func parseBlockBinaries(raw string) ([]string, error) {
 		out = append(out, part)
 	}
 	return out, nil
+}
+
+func validateCommandRulesSettings(rules []config.ExecCommandRule) error {
+	for i, rule := range rules {
+		switch strings.ToLower(strings.TrimSpace(rule.Decision)) {
+		case "allow", "ask", "deny":
+		default:
+			return fmt.Errorf("commandRules[%d].decision must be allow, ask, or deny", i)
+		}
+		if len(rule.Pattern) == 0 {
+			return fmt.Errorf("commandRules[%d].pattern must contain at least one token", i)
+		}
+		if strings.TrimSpace(rule.Pattern[0]) == "" || strings.Contains(rule.Pattern[0], "/") || strings.Contains(rule.Pattern[0], "\\") {
+			return fmt.Errorf("commandRules[%d].pattern[0] must be a bare binary name", i)
+		}
+		for j, token := range rule.Pattern {
+			if strings.TrimSpace(token) == "" {
+				return fmt.Errorf("commandRules[%d].pattern[%d] must not be empty", i, j)
+			}
+		}
+	}
+	return nil
 }
 
 func setNestedMapValue(root map[string]any, path []string, value any) {

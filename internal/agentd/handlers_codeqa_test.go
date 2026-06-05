@@ -110,7 +110,7 @@ func TestCodeQARunsLifecycle(t *testing.T) {
 		t.Fatalf("expected completed status, got %s (%s)", detail.Status, detail.Error)
 	}
 	if detail.Aggregate.Action != codeqa.ActionAccept {
-		t.Fatalf("expected accept action, got %s", detail.Aggregate.Action)
+		t.Fatalf("expected accept action, got %s aggregate=%+v gates=%+v judges=%+v", detail.Aggregate.Action, detail.Aggregate, detail.Gates, detail.Judges)
 	}
 
 	eventsRec := httptest.NewRecorder()

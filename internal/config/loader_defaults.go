@@ -160,21 +160,7 @@ func applyRuntimeDefaults(cfg *Config) {
 	if cfg.Web.SearXNGURL == "" {
 		cfg.Web.SearXNGURL = "http://localhost:8080"
 	}
-	if cfg.Exec.MaxCommandSeconds <= 0 {
-		cfg.Exec.MaxCommandSeconds = 30
-	}
-	if cfg.Exec.MaxTerminalSessions <= 0 {
-		cfg.Exec.MaxTerminalSessions = 8
-	}
-	if cfg.Exec.MaxTerminalRuntimeSeconds <= 0 {
-		cfg.Exec.MaxTerminalRuntimeSeconds = cfg.Exec.MaxCommandSeconds
-	}
-	if cfg.Exec.TerminalIdleTTLSeconds <= 0 {
-		cfg.Exec.TerminalIdleTTLSeconds = 1800
-	}
-	if cfg.Exec.TerminalOutputBufferBytes <= 0 {
-		cfg.Exec.TerminalOutputBufferBytes = 256 * 1024
-	}
+	ApplyExecDefaults(&cfg.Exec)
 	if cfg.OutputTruncateByte <= 0 {
 		cfg.OutputTruncateByte = 64 * 1024
 	}
@@ -185,6 +171,58 @@ func applyRuntimeDefaults(cfg *Config) {
 	if cfg.MaxDiscoveredTools <= 0 {
 		cfg.MaxDiscoveredTools = 20
 	}
+}
+
+func ApplyExecDefaults(execCfg *ExecConfig) {
+	if execCfg == nil {
+		return
+	}
+	if execCfg.MaxCommandSeconds <= 0 {
+		execCfg.MaxCommandSeconds = 30
+	}
+	if execCfg.MaxTerminalSessions <= 0 {
+		execCfg.MaxTerminalSessions = 8
+	}
+	if execCfg.MaxTerminalRuntimeSeconds <= 0 {
+		execCfg.MaxTerminalRuntimeSeconds = execCfg.MaxCommandSeconds
+	}
+	if execCfg.TerminalIdleTTLSeconds <= 0 {
+		execCfg.TerminalIdleTTLSeconds = 1800
+	}
+	if execCfg.TerminalOutputBufferBytes <= 0 {
+		execCfg.TerminalOutputBufferBytes = 256 * 1024
+	}
+	if execCfg.Sandbox.Enabled == nil {
+		execCfg.Sandbox.Enabled = boolPtr(true)
+	}
+	if execCfg.Sandbox.FailIfUnavailable == nil {
+		execCfg.Sandbox.FailIfUnavailable = boolPtr(true)
+	}
+	if execCfg.Sandbox.Network.Enabled == nil {
+		execCfg.Sandbox.Network.Enabled = boolPtr(false)
+	}
+	if len(execCfg.CommandRules) == 0 {
+		execCfg.CommandRules = DefaultExecCommandRules()
+	}
+}
+
+func DefaultExecCommandRules() []ExecCommandRule {
+	commands := []string{"go", "gofmt", "git", "rg", "grep", "ls", "cat", "pwd", "echo", "head", "tail", "wc", "find", "sleep"}
+	rules := make([]ExecCommandRule, 0, len(commands))
+	for _, command := range commands {
+		rules = append(rules, ExecCommandRule{
+			ID:            "default:" + command,
+			Decision:      "allow",
+			Pattern:       []string{command},
+			Contexts:      []string{"cli", "terminal"},
+			Justification: "default safe command allowlist; execution is still sandboxed and path constrained",
+		})
+	}
+	return rules
+}
+
+func boolPtr(v bool) *bool {
+	return &v
 }
 
 func applyCodeQADefaults(cfg *Config) {

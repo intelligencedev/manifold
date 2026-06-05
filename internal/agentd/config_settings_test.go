@@ -53,6 +53,16 @@ func TestApplyAgentdSettings_UsesNormalizedAliases(t *testing.T) {
 		RerankBaseURL:                       "http://localhost:8203",
 		RerankModel:                         "qwen3-reranker-0.6b",
 		RerankInstruction:                   "Classify whether the document matches the query topic",
+		CommandRules: []config.ExecCommandRule{{
+			ID:       "allow-go-test",
+			Decision: "allow",
+			Pattern:  []string{"go", "test"},
+			Contexts: []string{"cli"},
+		}},
+		SandboxEnabled:               boolPtr(false),
+		SandboxFailIfUnavailable:     boolPtr(true),
+		SandboxNetworkEnabled:        boolPtr(false),
+		SandboxNetworkAllowedDomains: []string{"example.com"},
 	}
 
 	if err := applyAgentdSettings(cfg, settings); err != nil {
@@ -98,6 +108,18 @@ func TestApplyAgentdSettings_UsesNormalizedAliases(t *testing.T) {
 	if currentAgentdSettings(cfg).RerankInstruction != "Classify whether the document matches the query topic" {
 		t.Fatalf("expected GET projection to include reranking instruction")
 	}
+	if len(cfg.Exec.CommandRules) != 1 || cfg.Exec.CommandRules[0].ID != "allow-go-test" {
+		t.Fatalf("expected command rules to apply, got %+v", cfg.Exec.CommandRules)
+	}
+	if cfg.Exec.Sandbox.Enabled == nil || *cfg.Exec.Sandbox.Enabled {
+		t.Fatalf("expected sandbox enabled=false, got %+v", cfg.Exec.Sandbox.Enabled)
+	}
+	if cfg.Exec.Sandbox.Network.Enabled == nil || *cfg.Exec.Sandbox.Network.Enabled || len(cfg.Exec.Sandbox.Network.AllowedDomains) != 1 {
+		t.Fatalf("expected sandbox network settings, got %+v", cfg.Exec.Sandbox.Network)
+	}
+	if got := currentAgentdSettings(cfg); len(got.CommandRules) != 1 || got.CommandRules[0].ID != "allow-go-test" || got.SandboxEnabled == nil || *got.SandboxEnabled {
+		t.Fatalf("expected GET projection to include exec security settings, got %+v", got)
+	}
 }
 
 func TestApplyAgentdSettings_RejectsPathLikeBlockBinaries(t *testing.T) {
@@ -139,6 +161,16 @@ func TestApplyAgentdSettingsYAML_UsesNormalizedAliases(t *testing.T) {
 		RerankBaseURL:                       "http://localhost:8203",
 		RerankModel:                         "qwen3-reranker-0.6b",
 		RerankInstruction:                   "Classify whether the document matches the query topic",
+		CommandRules: []config.ExecCommandRule{{
+			ID:       "allow-go-test",
+			Decision: "allow",
+			Pattern:  []string{"go", "test"},
+			Contexts: []string{"cli"},
+		}},
+		SandboxEnabled:               boolPtr(false),
+		SandboxFailIfUnavailable:     boolPtr(true),
+		SandboxNetworkEnabled:        boolPtr(false),
+		SandboxNetworkAllowedDomains: []string{"example.com"},
 	})
 
 	web, ok := root["web"].(map[string]any)
@@ -163,6 +195,18 @@ func TestApplyAgentdSettingsYAML_UsesNormalizedAliases(t *testing.T) {
 	binaries, ok := execCfg["blockBinaries"].([]string)
 	if !ok || len(binaries) != 2 || binaries[0] != "git" || binaries[1] != "rg" {
 		t.Fatalf("expected split block binaries, got %#v", execCfg["blockBinaries"])
+	}
+	rules, ok := execCfg["commandRules"].([]config.ExecCommandRule)
+	if !ok || len(rules) != 1 || rules[0].ID != "allow-go-test" {
+		t.Fatalf("expected command rules in YAML map, got %#v", execCfg["commandRules"])
+	}
+	sandboxCfg, ok := execCfg["sandbox"].(map[string]any)
+	if !ok || sandboxCfg["enabled"] != false || sandboxCfg["failIfUnavailable"] != true {
+		t.Fatalf("expected sandbox config in YAML map, got %#v", execCfg["sandbox"])
+	}
+	networkCfg, ok := sandboxCfg["network"].(map[string]any)
+	if !ok || networkCfg["enabled"] != false {
+		t.Fatalf("expected sandbox network config in YAML map, got %#v", sandboxCfg["network"])
 	}
 	embeddingCfg, ok := root["embedding"].(map[string]any)
 	if !ok {

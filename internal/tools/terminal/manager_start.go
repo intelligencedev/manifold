@@ -3,65 +3,64 @@ package terminal
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
-	"manifold/internal/sandbox"
+	"manifold/internal/commandexec"
 )
 
 type preparedStart struct {
-	command  string
-	args     []string
-	base     string
-	scopeKey string
-	timeout  time.Duration
-	rows     int
-	cols     int
+	command     string
+	args        []string
+	execCommand string
+	execArgs    []string
+	env         []string
+	base        string
+	scopeKey    string
+	timeout     time.Duration
+	rows        int
+	cols        int
+	decision    string
+	policyID    string
+	sandboxed   bool
 }
 
 func (m *Manager) prepareStart(ctx context.Context, req StartRequest) (preparedStart, error) {
-	command, args := normalizeCommandArgs(req.Command, req.Args)
-	if command == "" {
+	if strings.TrimSpace(req.Command) == "" {
 		return preparedStart{}, errors.New("command is required")
-	}
-	if sandbox.IsBinaryBlocked(command, m.blocked) {
-		return preparedStart{}, fmt.Errorf("binary is blocked or invalid: %q", command)
 	}
 	base, scopeKey, err := m.scope(ctx)
 	if err != nil {
 		return preparedStart{}, err
 	}
-	safeArgs, err := sanitizeTerminalArgs(base, args)
+	prepared, err := commandexec.Prepare(ctx, m.cfg, commandexec.PrepareRequest{
+		Command: req.Command,
+		Args:    req.Args,
+		Workdir: base,
+		Context: commandexec.ContextTerminal,
+	})
 	if err != nil {
 		return preparedStart{}, err
 	}
 	rows, cols := terminalSize(req.Rows, req.Cols)
 	return preparedStart{
-		command:  command,
-		args:     safeArgs,
-		base:     base,
-		scopeKey: scopeKey,
-		timeout:  m.startTimeout(req.TimeoutSeconds),
-		rows:     rows,
-		cols:     cols,
+		command:     prepared.Command,
+		args:        prepared.Args,
+		execCommand: prepared.ExecCommand,
+		execArgs:    prepared.ExecArgs,
+		env:         prepared.Env,
+		base:        prepared.Dir,
+		scopeKey:    scopeKey,
+		timeout:     m.startTimeout(req.TimeoutSeconds),
+		rows:        rows,
+		cols:        cols,
+		decision:    prepared.Decision,
+		policyID:    prepared.PolicyID,
+		sandboxed:   prepared.Sandboxed,
 	}, nil
-}
-
-func sanitizeTerminalArgs(base string, args []string) ([]string, error) {
-	safeArgs := make([]string, 0, len(args))
-	for _, arg := range args {
-		safeArg, err := sandbox.SanitizeArg(base, arg)
-		if err != nil {
-			return nil, err
-		}
-		safeArgs = append(safeArgs, safeArg)
-	}
-	return safeArgs, nil
 }
 
 func terminalSize(rows, cols int) (int, int) {
@@ -83,9 +82,9 @@ func (m *Manager) startTimeout(seconds int) time.Duration {
 }
 
 func (m *Manager) startSessionLocked(prepared preparedStart, req StartRequest, now time.Time) (*session, error) {
-	cmd := exec.Command(prepared.command, prepared.args...)
+	cmd := exec.Command(prepared.execCommand, prepared.execArgs...)
 	cmd.Dir = prepared.base
-	cmd.Env = os.Environ()
+	cmd.Env = prepared.env
 	tty, err := startProcessPTY(cmd, prepared.rows, prepared.cols)
 	if err != nil {
 		return nil, err
@@ -98,6 +97,9 @@ func (m *Manager) startSessionLocked(prepared preparedStart, req StartRequest, n
 		cwd:       prepared.base,
 		command:   prepared.command,
 		args:      append([]string(nil), prepared.args...),
+		decision:  prepared.decision,
+		policyID:  prepared.policyID,
+		sandboxed: prepared.sandboxed,
 		cmd:       cmd,
 		pty:       tty,
 		pid:       cmd.Process.Pid,
@@ -112,6 +114,8 @@ func (m *Manager) startResult(s *session) StartResult {
 	snap := s.snapshot(0, m.bufferBytes)
 	return StartResult{
 		OK:         true,
+		Decision:   s.decision,
+		PolicyID:   s.policyID,
 		TerminalID: s.id,
 		Name:       s.name,
 		PID:        s.pid,

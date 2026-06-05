@@ -70,6 +70,23 @@ exec:
   maxTerminalRuntimeSeconds: 1200
   terminalIdleTTLSeconds: 1800
   terminalOutputBufferBytes: 262144
+  sandbox:
+    enabled: true
+    failIfUnavailable: true
+    network:
+      enabled: false
+      allowedDomains: []
+  commandRules:
+    - id: allow-go
+      decision: allow
+      pattern: ["go"]
+      contexts: ["cli", "terminal"]
+      justification: "Go tooling is allowed inside the workspace sandbox."
+    - id: allow-git
+      decision: allow
+      pattern: ["git"]
+      contexts: ["cli", "terminal"]
+      justification: "Git inspection is allowed inside the workspace sandbox."
   blockBinaries:
     - rm
     - sudo

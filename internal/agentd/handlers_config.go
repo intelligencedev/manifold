@@ -57,13 +57,18 @@ type agentdSettings struct {
 	StreamRunTimeoutSeconds int `json:"streamRunTimeoutSeconds"`
 	WorkflowTimeoutSeconds  int `json:"workflowTimeoutSeconds"`
 
-	BlockBinaries             string `json:"blockBinaries"`
-	MaxCommandSeconds         int    `json:"maxCommandSeconds"`
-	OutputTruncateBytes       int    `json:"outputTruncateBytes"`
-	MaxTerminalSessions       int    `json:"maxTerminalSessions"`
-	MaxTerminalRuntimeSeconds int    `json:"maxTerminalRuntimeSeconds"`
-	TerminalIdleTTLSeconds    int    `json:"terminalIdleTTLSeconds"`
-	TerminalOutputBufferBytes int    `json:"terminalOutputBufferBytes"`
+	BlockBinaries                string                   `json:"blockBinaries"`
+	CommandRules                 []config.ExecCommandRule `json:"commandRules"`
+	SandboxEnabled               *bool                    `json:"sandboxEnabled,omitempty"`
+	SandboxFailIfUnavailable     *bool                    `json:"sandboxFailIfUnavailable,omitempty"`
+	SandboxNetworkEnabled        *bool                    `json:"sandboxNetworkEnabled,omitempty"`
+	SandboxNetworkAllowedDomains []string                 `json:"sandboxNetworkAllowedDomains,omitempty"`
+	MaxCommandSeconds            int                      `json:"maxCommandSeconds"`
+	OutputTruncateBytes          int                      `json:"outputTruncateBytes"`
+	MaxTerminalSessions          int                      `json:"maxTerminalSessions"`
+	MaxTerminalRuntimeSeconds    int                      `json:"maxTerminalRuntimeSeconds"`
+	TerminalIdleTTLSeconds       int                      `json:"terminalIdleTTLSeconds"`
+	TerminalOutputBufferBytes    int                      `json:"terminalOutputBufferBytes"`
 
 	OTELServiceName string `json:"otelServiceName"`
 	ServiceVersion  string `json:"serviceVersion"`

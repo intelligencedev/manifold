@@ -13,6 +13,7 @@ import (
 	"manifold/internal/agent"
 	"manifold/internal/agent/inputrequest"
 	agentmemory "manifold/internal/agent/memory"
+	"manifold/internal/commandexec"
 	"manifold/internal/fleet"
 	"manifold/internal/workspaces"
 )
@@ -118,6 +119,7 @@ func (a *app) streamExecutionContext(req streamExecutionContextRequest) (context
 		Model: req.Engine.Model,
 		Depth: req.Engine.AgentDepth,
 	})
+	ctx = commandexec.WithApprovalController(ctx, commandPolicyApprovalController{app: a})
 	return ctx, cancel, dur
 }
 

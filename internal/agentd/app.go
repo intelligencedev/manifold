@@ -26,6 +26,7 @@ import (
 	ragservice "manifold/internal/rag/service"
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
+	clitool "manifold/internal/tools/cli"
 	tooldiscovery "manifold/internal/tools/discovery"
 	terminaltool "manifold/internal/tools/terminal"
 	transitdomain "manifold/internal/transit"
@@ -60,7 +61,9 @@ type app struct {
 	flowV2             *flowV2Runtime
 	codeQARuntime      *codeQARuntime
 	codeQAService      *codeqaservice.Service
+	cliExecutor        *clitool.ExecutorImpl
 	terminalManager    *terminaltool.Manager
+	commandPolicyMu    sync.Mutex
 	evolvingMu         sync.RWMutex
 	userEvolving       map[int64]map[string]*memory.EvolvingMemory
 	evolvingLastUsed   map[int64]map[string]time.Time

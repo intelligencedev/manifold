@@ -2813,8 +2813,10 @@ async function submitInputRequest(
   };
   inputRequestErrors.value = { ...inputRequestErrors.value, [key]: "" };
   try {
+    const sessionId = activeSessionId.value;
+    const runId = request.runId?.trim() || "";
     await chat.submitInputRequest(
-      activeSessionId.value,
+      sessionId,
       message.id,
       request.id,
       inputRequestDraft(message, request),
@@ -2826,6 +2828,10 @@ async function submitInputRequest(
     delete selections[key];
     inputRequestDrafts.value = drafts;
     inputRequestSelections.value = selections;
+    await nextTick();
+    if (runId && !chat.isSessionStreaming(sessionId)) {
+      await chat.resumeDurableRun(sessionId, message.id, runId);
+    }
   } catch (error) {
     inputRequestErrors.value = {
       ...inputRequestErrors.value,

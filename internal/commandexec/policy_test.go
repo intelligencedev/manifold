@@ -9,6 +9,7 @@ import (
 
 	"manifold/internal/agent/inputrequest"
 	"manifold/internal/config"
+	"manifold/internal/durable"
 )
 
 func testBool(v bool) *bool {
@@ -130,12 +131,32 @@ func TestPrepareRejectsPathLikeAndUnknownBinaries(t *testing.T) {
 
 type approvalRequester struct {
 	choiceIDs []string
+	answer    string
+	request   inputrequest.Request
 	called    bool
 }
 
 func (r *approvalRequester) RequestInfo(ctx context.Context, req inputrequest.Request) (inputrequest.Response, error) {
 	r.called = true
-	return inputrequest.Response{RequestID: req.ID, ChoiceIDs: r.choiceIDs, RespondedAt: time.Now().UTC()}, nil
+	r.request = req
+	return inputrequest.Response{RequestID: req.ID, Answer: r.answer, ChoiceIDs: r.choiceIDs, RespondedAt: time.Now().UTC()}, nil
+}
+
+type approvalController struct {
+	called bool
+	rule   config.ExecCommandRule
+}
+
+func (c *approvalController) PersistCommandAllowRule(ctx context.Context, rule config.ExecCommandRule) (config.ExecCommandRule, error) {
+	c.called = true
+	c.rule = rule
+	return rule, nil
+}
+
+type suspendingApprovalRequester struct{}
+
+func (r suspendingApprovalRequester) RequestInfo(ctx context.Context, req inputrequest.Request) (inputrequest.Response, error) {
+	return inputrequest.Response{}, durable.ErrSuspended
 }
 
 func TestPrepareAskPromptsOnlyInteractiveContext(t *testing.T) {
@@ -156,13 +177,79 @@ func TestPrepareAskPromptsOnlyInteractiveContext(t *testing.T) {
 		t.Fatalf("unexpected noninteractive ask error: %#v", policyErr)
 	}
 
-	requester := &approvalRequester{choiceIDs: []string{"approve"}}
+	requester := &approvalRequester{choiceIDs: []string{"approve_once"}}
+	controller := &approvalController{}
 	ctx := inputrequest.WithRequester(context.Background(), requester)
+	ctx = WithApprovalController(ctx, controller)
 	prepared, err := Prepare(ctx, cfg, PrepareRequest{Command: "echo hi", Workdir: t.TempDir(), Context: ContextCLI})
 	if err != nil {
 		t.Fatalf("interactive Prepare error: %v", err)
 	}
 	if !requester.called || prepared.Decision != DecisionAsk || prepared.PolicyID != "ask-echo" {
 		t.Fatalf("approval not reflected in prepared command: called=%v prepared=%#v", requester.called, prepared)
+	}
+	if !requester.request.AllowFreeText || len(requester.request.Choices) != 3 {
+		t.Fatalf("approval request did not expose expected frontend controls: %#v", requester.request)
+	}
+}
+
+func TestPrepareUnmatchedInteractiveCanApproveOnceWithInstructions(t *testing.T) {
+	t.Parallel()
+
+	cfg := testExecConfig(config.ExecCommandRule{ID: "allow-go", Decision: DecisionAllow, Pattern: []string{"go"}})
+	requester := &approvalRequester{choiceIDs: []string{"approve_once"}, answer: "Run this and then summarize the version."}
+	controller := &approvalController{}
+	ctx := inputrequest.WithRequester(context.Background(), requester)
+	ctx = WithApprovalController(ctx, controller)
+
+	prepared, err := Prepare(ctx, cfg, PrepareRequest{Command: "echo hi", Workdir: t.TempDir(), Context: ContextCLI})
+	if err != nil {
+		t.Fatalf("Prepare error: %v", err)
+	}
+	if prepared.PolicyID != "unmatched" || prepared.UserInstructions != requester.answer {
+		t.Fatalf("unexpected prepared command: %#v", prepared)
+	}
+	if controller.called {
+		t.Fatalf("approve once should not persist a policy rule")
+	}
+}
+
+func TestPrepareUnmatchedInteractiveCanPersistAlwaysAllow(t *testing.T) {
+	t.Parallel()
+
+	cfg := testExecConfig(config.ExecCommandRule{ID: "allow-go", Decision: DecisionAllow, Pattern: []string{"go"}})
+	requester := &approvalRequester{choiceIDs: []string{"always_allow"}}
+	controller := &approvalController{}
+	ctx := inputrequest.WithRequester(context.Background(), requester)
+	ctx = WithApprovalController(ctx, controller)
+
+	prepared, err := Prepare(ctx, cfg, PrepareRequest{Command: "echo hi", Workdir: t.TempDir(), Context: ContextCLI})
+	if err != nil {
+		t.Fatalf("Prepare error: %v", err)
+	}
+	if !controller.called {
+		t.Fatal("expected always_allow to persist a policy rule")
+	}
+	if controller.rule.Decision != DecisionAllow || len(controller.rule.Pattern) != 2 || controller.rule.Pattern[0] != "echo" || controller.rule.Pattern[1] != "hi" {
+		t.Fatalf("unexpected persisted rule: %#v", controller.rule)
+	}
+	if len(controller.rule.Contexts) != 1 || controller.rule.Contexts[0] != ContextCLI {
+		t.Fatalf("unexpected persisted contexts: %#v", controller.rule.Contexts)
+	}
+	if prepared.PolicyID != controller.rule.ID {
+		t.Fatalf("prepared policy id = %q, want persisted rule id %q", prepared.PolicyID, controller.rule.ID)
+	}
+}
+
+func TestPrepareApprovalPropagatesDurableSuspension(t *testing.T) {
+	t.Parallel()
+
+	cfg := testExecConfig(config.ExecCommandRule{ID: "allow-go", Decision: DecisionAllow, Pattern: []string{"go"}})
+	ctx := inputrequest.WithRequester(context.Background(), suspendingApprovalRequester{})
+	ctx = WithApprovalController(ctx, &approvalController{})
+
+	_, err := Prepare(ctx, cfg, PrepareRequest{Command: "echo hi", Workdir: t.TempDir(), Context: ContextCLI})
+	if !errors.Is(err, durable.ErrSuspended) {
+		t.Fatalf("expected durable suspension to propagate, got %v", err)
 	}
 }

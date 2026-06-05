@@ -18,6 +18,7 @@ import (
 	"manifold/internal/agent"
 	"manifold/internal/agent/inputrequest"
 	agentmemory "manifold/internal/agent/memory"
+	"manifold/internal/commandexec"
 	"manifold/internal/durable"
 	"manifold/internal/fleet"
 	"manifold/internal/llm"
@@ -85,7 +86,7 @@ func (durableRunCheckpointer) Load(ctx context.Context, key string, target any) 
 	if len(raw) == 0 {
 		return true, nil
 	}
-	return true, json.Unmarshal(raw, target)
+	return true, unmarshalDurableCheckpoint(raw, target)
 }
 
 func (durableRunCheckpointer) Save(ctx context.Context, key string, value any) error {
@@ -93,12 +94,105 @@ func (durableRunCheckpointer) Save(ctx context.Context, key string, value any) e
 	if !ok || tc.Store == nil {
 		return nil
 	}
-	raw, err := json.Marshal(durableChatJSONSafe(value))
+	raw, err := json.Marshal(durableCheckpointJSONSafe(value))
 	if err != nil {
 		return err
 	}
 	_, err = tc.Store.SaveCheckpoint(ctx, tc.Task.ID, key, raw)
 	return err
+}
+
+type durableCheckpointMessageCompat struct {
+	Role             string                        `json:"role"`
+	Content          string                        `json:"content"`
+	ToolID           string                        `json:"tool_id"`
+	ToolCalls        []durableCheckpointToolCompat `json:"tool_calls"`
+	Images           []llm.GeneratedImage          `json:"images"`
+	Compaction       *llm.CompactionItem           `json:"compaction"`
+	ThoughtSignature string                        `json:"thought_signature"`
+}
+
+type durableCheckpointToolCompat struct {
+	Name             string          `json:"name"`
+	Args             json.RawMessage `json:"args"`
+	ID               string          `json:"id"`
+	ThoughtSignature string          `json:"thought_signature"`
+}
+
+func unmarshalDurableCheckpoint(raw []byte, target any) error {
+	if err := json.Unmarshal(raw, target); err != nil {
+		return err
+	}
+	switch out := target.(type) {
+	case *llm.Message:
+		applyDurableCheckpointCompatMessage(raw, out)
+	case *[]llm.Message:
+		applyDurableCheckpointCompatMessages(raw, out)
+	}
+	return nil
+}
+
+func applyDurableCheckpointCompatMessages(raw []byte, target *[]llm.Message) {
+	if target == nil {
+		return
+	}
+	var compat []durableCheckpointMessageCompat
+	if err := json.Unmarshal(raw, &compat); err != nil || len(compat) != len(*target) {
+		return
+	}
+	for i := range compat {
+		applyDurableCheckpointCompat(&(*target)[i], compat[i])
+	}
+}
+
+func applyDurableCheckpointCompatMessage(raw []byte, target *llm.Message) {
+	if target == nil {
+		return
+	}
+	var compat durableCheckpointMessageCompat
+	if err := json.Unmarshal(raw, &compat); err != nil {
+		return
+	}
+	applyDurableCheckpointCompat(target, compat)
+}
+
+func applyDurableCheckpointCompat(target *llm.Message, compat durableCheckpointMessageCompat) {
+	if target.Role == "" {
+		target.Role = compat.Role
+	}
+	if target.Content == "" {
+		target.Content = compat.Content
+	}
+	if target.ToolID == "" {
+		target.ToolID = compat.ToolID
+	}
+	if len(target.ToolCalls) == 0 && len(compat.ToolCalls) > 0 {
+		target.ToolCalls = make([]llm.ToolCall, 0, len(compat.ToolCalls))
+		for _, call := range compat.ToolCalls {
+			target.ToolCalls = append(target.ToolCalls, llm.ToolCall{
+				Name:             call.Name,
+				Args:             normalizeDurableCheckpointRawMessage(call.Args),
+				ID:               call.ID,
+				ThoughtSignature: call.ThoughtSignature,
+			})
+		}
+	}
+	if len(target.Images) == 0 && len(compat.Images) > 0 {
+		target.Images = compat.Images
+	}
+	if target.Compaction == nil {
+		target.Compaction = compat.Compaction
+	}
+	if target.ThoughtSignature == "" {
+		target.ThoughtSignature = compat.ThoughtSignature
+	}
+}
+
+func normalizeDurableCheckpointRawMessage(raw json.RawMessage) json.RawMessage {
+	if json.Valid(raw) {
+		return raw
+	}
+	return json.RawMessage(`{}`)
 }
 
 type durableChatEventWriter struct {
@@ -337,7 +431,7 @@ func (a *app) chatRunDetailHandler() http.HandlerFunc {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
 			}
-			task, err := a.durableClient.Retry(r.Context(), userID, runID, false)
+			task, retried, err := a.resumeOrAttachDurableChatRun(r.Context(), userID, runID)
 			if err != nil {
 				writeDurableError(w, err)
 				return
@@ -350,6 +444,7 @@ func (a *app) chatRunDetailHandler() http.HandlerFunc {
 			writeJSON(w, http.StatusOK, map[string]any{
 				"run_id":              runID,
 				"status":              task.Status,
+				"retried":             retried,
 				"last_sequence":       sequences.lastSequence,
 				"last_retry_sequence": sequences.lastRetrySequence,
 			})
@@ -608,7 +703,7 @@ func (a *app) configureDurableChatEngine(task durable.Task, prepared durableChat
 func (a *app) durableChatRunContext(runID string, prepared durableChatPreparedRun, writer *durableChatEventWriter) context.Context {
 	runCtx := prepared.exec.RunContext
 	runCtx = applyChatImagePrompt(runCtx, runCtx, prepared.exec.RunRequest, prepared.streamOpts.InheritImagePrompt)
-	return inputRequestContext(runCtx, durableInputRequester{
+	runCtx = inputRequestContext(runCtx, durableInputRequester{
 		writer:  writer,
 		session: prepared.exec.RunRequest.SessionID,
 		runID:   runID,
@@ -619,6 +714,7 @@ func (a *app) durableChatRunContext(runID string, prepared durableChatPreparedRu
 		Model: prepared.exec.Engine.Model,
 		Depth: prepared.exec.Engine.AgentDepth,
 	})
+	return commandexec.WithApprovalController(runCtx, commandPolicyApprovalController{app: a})
 }
 
 func (a *app) startDurableChatExecution(exec durableChatExecution) {
@@ -1024,6 +1120,64 @@ func durableChatJSONSafe(value any) any {
 	}
 }
 
+func durableCheckpointJSONSafe(value any) any {
+	switch v := value.(type) {
+	case nil:
+		return nil
+	case json.RawMessage:
+		return durableChatSafeRawMessage(v)
+	case []json.RawMessage:
+		out := make([]any, 0, len(v))
+		for _, item := range v {
+			out = append(out, durableChatSafeRawMessage(item))
+		}
+		return out
+	case []llm.Message:
+		out := make([]any, 0, len(v))
+		for _, item := range v {
+			out = append(out, durableCheckpointJSONSafe(item))
+		}
+		return out
+	case llm.Message:
+		return map[string]any{
+			"Role":             v.Role,
+			"Content":          v.Content,
+			"ToolID":           v.ToolID,
+			"ToolCalls":        durableCheckpointJSONSafe(v.ToolCalls),
+			"Images":           v.Images,
+			"Compaction":       v.Compaction,
+			"ThoughtSignature": v.ThoughtSignature,
+		}
+	case []llm.ToolCall:
+		out := make([]any, 0, len(v))
+		for _, item := range v {
+			out = append(out, durableCheckpointJSONSafe(item))
+		}
+		return out
+	case llm.ToolCall:
+		return map[string]any{
+			"Name":             v.Name,
+			"Args":             durableChatSafeRawMessage(v.Args),
+			"ID":               v.ID,
+			"ThoughtSignature": v.ThoughtSignature,
+		}
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for key, item := range v {
+			out[key] = durableCheckpointJSONSafe(item)
+		}
+		return out
+	case []any:
+		out := make([]any, 0, len(v))
+		for _, item := range v {
+			out = append(out, durableCheckpointJSONSafe(item))
+		}
+		return out
+	default:
+		return value
+	}
+}
+
 func durableChatSafeRawMessage(raw json.RawMessage) any {
 	trimmed := strings.TrimSpace(string(raw))
 	if trimmed == "" {
@@ -1129,6 +1283,26 @@ func (a *app) durableChatSequenceSummary(ctx context.Context, userID int64, runI
 		}
 	}
 	return summary, nil
+}
+
+func (a *app) resumeOrAttachDurableChatRun(ctx context.Context, userID int64, runID string) (durable.Task, bool, error) {
+	if a == nil || a.durableStore == nil || a.durableClient == nil {
+		return durable.Task{}, false, durable.ErrNotFound
+	}
+	task, found, err := a.durableStore.GetTask(ctx, userID, runID)
+	if err != nil {
+		return durable.Task{}, false, err
+	}
+	if !found {
+		return durable.Task{}, false, durable.ErrTaskNotFound
+	}
+	switch task.Status {
+	case durable.TaskStatusFailed, durable.TaskStatusCancelled:
+		retried, err := a.durableClient.Retry(ctx, userID, runID, false)
+		return retried, true, err
+	default:
+		return task, false, nil
+	}
 }
 
 func durableChatRecoverableStatus(status durable.TaskStatus) bool {

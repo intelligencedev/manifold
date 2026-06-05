@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"sync"
 	"time"
 
 	"manifold/internal/commandexec"
@@ -36,6 +37,7 @@ type ExecResult struct {
 	Decision         string `json:"decision,omitempty"`
 	PolicyID         string `json:"policy_id,omitempty"`
 	RequiresApproval bool   `json:"requires_approval,omitempty"`
+	UserInstructions string `json:"user_instructions,omitempty"`
 }
 
 type Executor interface {
@@ -43,6 +45,7 @@ type Executor interface {
 }
 
 type ExecutorImpl struct {
+	mu      sync.RWMutex
 	cfg     config.ExecConfig
 	workdir string
 	// output limit in bytes
@@ -56,6 +59,18 @@ func NewExecutor(cfg config.ExecConfig, workdir string, outLimit int) *ExecutorI
 		outLimit = 64 * 1024
 	}
 	return &ExecutorImpl{cfg: cfg, workdir: workdir, outLimit: outLimit}
+}
+
+func (e *ExecutorImpl) AddCommandRule(rule config.ExecCommandRule) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.cfg.CommandRules = append(e.cfg.CommandRules, cloneCommandRule(rule))
+}
+
+func (e *ExecutorImpl) configSnapshot() config.ExecConfig {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return cloneExecConfig(e.cfg)
 }
 
 func normalizeCommandArgs(command string, args []string) (string, []string) {
@@ -79,9 +94,10 @@ func (e *ExecutorImpl) Run(ctx context.Context, req ExecRequest) (ExecResult, er
 		return ExecResult{}, errors.New("command is required")
 	}
 
+	cfg := e.configSnapshot()
 	// Resolve dynamic base directory from context, defaulting to configured workdir
 	base := sandbox.ResolveBaseDir(ctx, e.workdir)
-	prepared, err := commandexec.Prepare(ctx, e.cfg, commandexec.PrepareRequest{
+	prepared, err := commandexec.Prepare(ctx, cfg, commandexec.PrepareRequest{
 		Command: req.Command,
 		Args:    req.Args,
 		Workdir: base,
@@ -92,8 +108,8 @@ func (e *ExecutorImpl) Run(ctx context.Context, req ExecRequest) (ExecResult, er
 	}
 
 	tout := req.Timeout
-	if tout <= 0 || tout > time.Duration(e.cfg.MaxCommandSeconds)*time.Second {
-		tout = time.Duration(e.cfg.MaxCommandSeconds) * time.Second
+	if tout <= 0 || tout > time.Duration(cfg.MaxCommandSeconds)*time.Second {
+		tout = time.Duration(cfg.MaxCommandSeconds) * time.Second
 	}
 	ctx, cancel := context.WithTimeout(ctx, tout)
 	defer cancel()
@@ -141,7 +157,7 @@ func (e *ExecutorImpl) Run(ctx context.Context, req ExecRequest) (ExecResult, er
 		}
 	}
 
-	return ExecResult{OK: err == nil, ExitCode: exit, Stdout: outS, Stderr: errS, Duration: dur.Milliseconds(), Truncated: trunc, Decision: prepared.Decision, PolicyID: prepared.PolicyID}, nil
+	return ExecResult{OK: err == nil, ExitCode: exit, Stdout: outS, Stderr: errS, Duration: dur.Milliseconds(), Truncated: trunc, Decision: prepared.Decision, PolicyID: prepared.PolicyID, UserInstructions: prepared.UserInstructions}, nil
 }
 
 // Tool adapter ---------------------------------------------------------------
@@ -185,9 +201,28 @@ func (t *tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 				Decision:         policyErr.Decision,
 				PolicyID:         policyErr.PolicyID,
 				RequiresApproval: policyErr.RequiresApproval,
+				UserInstructions: policyErr.UserInstructions,
 			}, nil
 		}
 		return nil, err
 	}
 	return res, nil
+}
+
+func cloneExecConfig(cfg config.ExecConfig) config.ExecConfig {
+	out := cfg
+	out.BlockBinaries = append([]string(nil), cfg.BlockBinaries...)
+	out.CommandRules = make([]config.ExecCommandRule, 0, len(cfg.CommandRules))
+	for _, rule := range cfg.CommandRules {
+		out.CommandRules = append(out.CommandRules, cloneCommandRule(rule))
+	}
+	out.Sandbox.Network.AllowedDomains = append([]string(nil), cfg.Sandbox.Network.AllowedDomains...)
+	return out
+}
+
+func cloneCommandRule(rule config.ExecCommandRule) config.ExecCommandRule {
+	out := rule
+	out.Pattern = append([]string(nil), rule.Pattern...)
+	out.Contexts = append([]string(nil), rule.Contexts...)
+	return out
 }

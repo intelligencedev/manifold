@@ -168,6 +168,7 @@ func newAppShell(deps appShellDeps) *app {
 		flowV2:             newFlowV2Runtime(deps.mgr.FlowV2, deps.durableClient),
 		codeQARuntime:      newCodeQARuntime(),
 		codeQAService:      deps.tooling.codeQAService,
+		cliExecutor:        deps.tooling.cliExecutor,
 		terminalManager:    deps.tooling.terminalManager,
 		evolvingSessionTTL: defaultEvolvingSessionTTL,
 		mcpStore:           deps.mgr.MCP,

@@ -351,11 +351,12 @@ export function createChatStreamActions(
 
     try {
       const resumed = await resumeChatRun(trimmedRunId);
-      afterSequence = Math.max(
-        afterSequence,
-        numericSequence(resumed.last_sequence),
-        numericSequence(resumed.last_retry_sequence),
-      );
+      if (resumed.retried) {
+        afterSequence = Math.max(
+          afterSequence,
+          numericSequence(resumed.last_retry_sequence),
+        );
+      }
       await streamChatRunEvents({
         runId: trimmedRunId,
         after: afterSequence,

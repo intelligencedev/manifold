@@ -42,6 +42,7 @@ import (
 type appTooling struct {
 	registry        tools.Registry
 	baseRegistry    tools.Registry
+	cliExecutor     *cli.ExecutorImpl
 	terminalManager *terminaltool.Manager
 	codeQAService   *codeqaservice.Service
 	transitService  *transitdomain.Service
@@ -84,6 +85,7 @@ func initAppTooling(ctx context.Context, cfg *config.Config, httpClient *http.Cl
 	return appTooling{
 		registry:        toolRegistry,
 		baseRegistry:    baseToolRegistry,
+		cliExecutor:     exec,
 		terminalManager: terminalManager,
 		codeQAService:   codeQAService,
 		transitService:  transitSvc,

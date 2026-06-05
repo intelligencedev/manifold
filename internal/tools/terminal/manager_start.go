@@ -13,19 +13,20 @@ import (
 )
 
 type preparedStart struct {
-	command     string
-	args        []string
-	execCommand string
-	execArgs    []string
-	env         []string
-	base        string
-	scopeKey    string
-	timeout     time.Duration
-	rows        int
-	cols        int
-	decision    string
-	policyID    string
-	sandboxed   bool
+	command          string
+	args             []string
+	execCommand      string
+	execArgs         []string
+	env              []string
+	base             string
+	scopeKey         string
+	timeout          time.Duration
+	rows             int
+	cols             int
+	decision         string
+	policyID         string
+	userInstructions string
+	sandboxed        bool
 }
 
 func (m *Manager) prepareStart(ctx context.Context, req StartRequest) (preparedStart, error) {
@@ -36,7 +37,8 @@ func (m *Manager) prepareStart(ctx context.Context, req StartRequest) (preparedS
 	if err != nil {
 		return preparedStart{}, err
 	}
-	prepared, err := commandexec.Prepare(ctx, m.cfg, commandexec.PrepareRequest{
+	cfg := m.configSnapshot()
+	prepared, err := commandexec.Prepare(ctx, cfg, commandexec.PrepareRequest{
 		Command: req.Command,
 		Args:    req.Args,
 		Workdir: base,
@@ -47,19 +49,20 @@ func (m *Manager) prepareStart(ctx context.Context, req StartRequest) (preparedS
 	}
 	rows, cols := terminalSize(req.Rows, req.Cols)
 	return preparedStart{
-		command:     prepared.Command,
-		args:        prepared.Args,
-		execCommand: prepared.ExecCommand,
-		execArgs:    prepared.ExecArgs,
-		env:         prepared.Env,
-		base:        prepared.Dir,
-		scopeKey:    scopeKey,
-		timeout:     m.startTimeout(req.TimeoutSeconds),
-		rows:        rows,
-		cols:        cols,
-		decision:    prepared.Decision,
-		policyID:    prepared.PolicyID,
-		sandboxed:   prepared.Sandboxed,
+		command:          prepared.Command,
+		args:             prepared.Args,
+		execCommand:      prepared.ExecCommand,
+		execArgs:         prepared.ExecArgs,
+		env:              prepared.Env,
+		base:             prepared.Dir,
+		scopeKey:         scopeKey,
+		timeout:          m.startTimeout(req.TimeoutSeconds),
+		rows:             rows,
+		cols:             cols,
+		decision:         prepared.Decision,
+		policyID:         prepared.PolicyID,
+		userInstructions: prepared.UserInstructions,
+		sandboxed:        prepared.Sandboxed,
 	}, nil
 }
 
@@ -91,42 +94,44 @@ func (m *Manager) startSessionLocked(prepared preparedStart, req StartRequest, n
 	}
 	id := uuid.NewString()
 	return &session{
-		id:        id,
-		name:      strings.TrimSpace(req.Name),
-		scopeKey:  prepared.scopeKey,
-		cwd:       prepared.base,
-		command:   prepared.command,
-		args:      append([]string(nil), prepared.args...),
-		decision:  prepared.decision,
-		policyID:  prepared.policyID,
-		sandboxed: prepared.sandboxed,
-		cmd:       cmd,
-		pty:       tty,
-		pid:       cmd.Process.Pid,
-		startedAt: now,
-		lastUsed:  now,
-		buffer:    newOutputBuffer(m.bufferBytes),
-		done:      make(chan struct{}),
+		id:               id,
+		name:             strings.TrimSpace(req.Name),
+		scopeKey:         prepared.scopeKey,
+		cwd:              prepared.base,
+		command:          prepared.command,
+		args:             append([]string(nil), prepared.args...),
+		decision:         prepared.decision,
+		policyID:         prepared.policyID,
+		userInstructions: prepared.userInstructions,
+		sandboxed:        prepared.sandboxed,
+		cmd:              cmd,
+		pty:              tty,
+		pid:              cmd.Process.Pid,
+		startedAt:        now,
+		lastUsed:         now,
+		buffer:           newOutputBuffer(m.bufferBytes),
+		done:             make(chan struct{}),
 	}, nil
 }
 
 func (m *Manager) startResult(s *session) StartResult {
 	snap := s.snapshot(0, m.bufferBytes)
 	return StartResult{
-		OK:         true,
-		Decision:   s.decision,
-		PolicyID:   s.policyID,
-		TerminalID: s.id,
-		Name:       s.name,
-		PID:        s.pid,
-		CWD:        s.cwd,
-		Command:    s.command,
-		Args:       append([]string(nil), s.args...),
-		StartedAt:  s.startedAt,
-		Running:    s.isRunning(),
-		Output:     snap.Output,
-		Chunks:     snap.Chunks,
-		NextSeq:    snap.NextSeq,
-		Truncated:  snap.Truncated,
+		OK:               true,
+		Decision:         s.decision,
+		PolicyID:         s.policyID,
+		UserInstructions: s.userInstructions,
+		TerminalID:       s.id,
+		Name:             s.name,
+		PID:              s.pid,
+		CWD:              s.cwd,
+		Command:          s.command,
+		Args:             append([]string(nil), s.args...),
+		StartedAt:        s.startedAt,
+		Running:          s.isRunning(),
+		Output:           snap.Output,
+		Chunks:           snap.Chunks,
+		NextSeq:          snap.NextSeq,
+		Truncated:        snap.Truncated,
 	}
 }

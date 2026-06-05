@@ -58,6 +58,7 @@ type StartResult struct {
 	Decision         string        `json:"decision,omitempty"`
 	PolicyID         string        `json:"policy_id,omitempty"`
 	RequiresApproval bool          `json:"requires_approval,omitempty"`
+	UserInstructions string        `json:"user_instructions,omitempty"`
 	TerminalID       string        `json:"terminal_id,omitempty"`
 	Name             string        `json:"name,omitempty"`
 	PID              int           `json:"pid,omitempty"`
@@ -124,32 +125,34 @@ type SessionInfo struct {
 }
 
 type session struct {
-	mu        sync.Mutex
-	id        string
-	name      string
-	scopeKey  string
-	cwd       string
-	command   string
-	args      []string
-	decision  string
-	policyID  string
-	sandboxed bool
-	cmd       *exec.Cmd
-	pty       *os.File
-	pid       int
-	startedAt time.Time
-	endedAt   *time.Time
-	lastUsed  time.Time
-	exitCode  *int
-	exitError string
-	buffer    *outputBuffer
-	done      chan struct{}
-	stopOnce  sync.Once
-	timer     *time.Timer
+	mu               sync.Mutex
+	id               string
+	name             string
+	scopeKey         string
+	cwd              string
+	command          string
+	args             []string
+	decision         string
+	policyID         string
+	userInstructions string
+	sandboxed        bool
+	cmd              *exec.Cmd
+	pty              *os.File
+	pid              int
+	startedAt        time.Time
+	endedAt          *time.Time
+	lastUsed         time.Time
+	exitCode         *int
+	exitError        string
+	buffer           *outputBuffer
+	done             chan struct{}
+	stopOnce         sync.Once
+	timer            *time.Timer
 }
 
 type Manager struct {
 	mu      sync.Mutex
+	cfgMu   sync.RWMutex
 	cfg     config.ExecConfig
 	workdir string
 
@@ -179,9 +182,39 @@ func NewManager(cfg config.ExecConfig, workdir string) *Manager {
 	return m
 }
 
+func (m *Manager) AddCommandRule(rule config.ExecCommandRule) {
+	m.cfgMu.Lock()
+	defer m.cfgMu.Unlock()
+	m.cfg.CommandRules = append(m.cfg.CommandRules, cloneCommandRule(rule))
+}
+
+func (m *Manager) configSnapshot() config.ExecConfig {
+	m.cfgMu.RLock()
+	defer m.cfgMu.RUnlock()
+	return cloneExecConfig(m.cfg)
+}
+
 func withDefaults(cfg config.ExecConfig) config.ExecConfig {
 	config.ApplyExecDefaults(&cfg)
 	return cfg
+}
+
+func cloneExecConfig(cfg config.ExecConfig) config.ExecConfig {
+	out := cfg
+	out.BlockBinaries = append([]string(nil), cfg.BlockBinaries...)
+	out.CommandRules = make([]config.ExecCommandRule, 0, len(cfg.CommandRules))
+	for _, rule := range cfg.CommandRules {
+		out.CommandRules = append(out.CommandRules, cloneCommandRule(rule))
+	}
+	out.Sandbox.Network.AllowedDomains = append([]string(nil), cfg.Sandbox.Network.AllowedDomains...)
+	return out
+}
+
+func cloneCommandRule(rule config.ExecCommandRule) config.ExecCommandRule {
+	out := rule
+	out.Pattern = append([]string(nil), rule.Pattern...)
+	out.Contexts = append([]string(nil), rule.Contexts...)
+	return out
 }
 
 func normalizeCommandArgs(command string, args []string) (string, []string) {

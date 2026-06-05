@@ -1,14 +1,17 @@
 package agentd
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"manifold/internal/agent"
 	"manifold/internal/agent/memory"
@@ -16,6 +19,7 @@ import (
 	"manifold/internal/llm"
 	"manifold/internal/testhelpers"
 	"manifold/internal/tools"
+	"manifold/internal/tools/cli"
 )
 
 type agentRunScriptedProvider struct {
@@ -303,6 +307,142 @@ func TestAgentRunHandlerHarnessWorkflowSSEEventsRemainCompatible(t *testing.T) {
 	if messages := chatStore.messages[sessionID]; len(messages) != 5 {
 		t.Fatalf("expected persisted streaming turn messages, got %d: %+v", len(messages), messages)
 	}
+}
+
+func TestAgentRunHandlerSSEPromptsForUnmatchedCommandApproval(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	cfg := config.ExecConfig{
+		MaxCommandSeconds: 5,
+		CommandRules: []config.ExecCommandRule{{
+			ID:       "allow-go",
+			Decision: "allow",
+			Pattern:  []string{"go"},
+			Contexts: []string{"cli"},
+		}},
+		Sandbox: config.ExecSandboxConfig{
+			Enabled:           commandPolicyTestBool(false),
+			FailIfUnavailable: commandPolicyTestBool(true),
+			Network:           config.ExecSandboxNetworkConfig{Enabled: commandPolicyTestBool(false)},
+		},
+	}
+	executor := cli.NewExecutor(cfg, dir, 0)
+	baseTools := tools.NewRegistry()
+	baseTools.Register(cli.NewTool(executor))
+	provider := &agentRunScriptedProvider{streamResponses: []agentRunStreamResponse{
+		{ToolCalls: []llm.ToolCall{{ID: "call-date", Name: "run_cli", Args: json.RawMessage(`{"command":"date"}`)}}},
+		{Deltas: []string{"done"}},
+	}}
+	chatStore := newPromptHandlerChatStore()
+	a := newHarnessAgentRunTestApp(provider, baseTools, chatStore)
+	a.cfg.Workdir = dir
+	a.cfg.Exec = cfg
+	a.cfg.Harness.Enabled = false
+	a.cfg.MaxSteps = 2
+	a.engine.HarnessEnabled = false
+	a.engine.MaxSteps = 2
+	a.cliExecutor = executor
+	a.inputRequests = newInputRequestBroker()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/agent/run", a.agentRunHandler())
+	mux.HandleFunc("/api/chat/input-requests/", a.chatInputRequestHandler())
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	body := bytes.NewBufferString(`{"prompt":"what time is it?","session_id":"approval-stream"}`)
+	req, err := http.NewRequest(http.MethodPost, server.URL+"/agent/run", body)
+	if err != nil {
+		t.Fatalf("NewRequest error: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	resp, err := server.Client().Do(req)
+	if err != nil {
+		t.Fatalf("stream request error: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected status 200, got %d: %s", resp.StatusCode, string(b))
+	}
+
+	dataCh := make(chan map[string]any, 16)
+	errCh := make(chan error, 1)
+	go readSSEData(resp.Body, dataCh, errCh)
+
+	var sawInputRequest bool
+	var sawFinal bool
+	deadline := time.After(5 * time.Second)
+	for !sawFinal {
+		select {
+		case event, ok := <-dataCh:
+			if !ok {
+				dataCh = nil
+				continue
+			}
+			switch event["type"] {
+			case "input_request":
+				sawInputRequest = true
+				if event["allow_free_text"] != true {
+					t.Fatalf("expected command approval to allow free text, got %#v", event)
+				}
+				choices, _ := event["choices"].([]any)
+				if len(choices) != 3 {
+					t.Fatalf("expected three approval choices, got %#v", event["choices"])
+				}
+				requestID, _ := event["request_id"].(string)
+				if requestID == "" {
+					t.Fatalf("input request missing request_id: %#v", event)
+				}
+				answerBody := bytes.NewBufferString(`{"choice_ids":["approve_once"],"answer":"Use this once."}`)
+				answerResp, err := server.Client().Post(server.URL+"/api/chat/input-requests/"+requestID+"/answer", "application/json", answerBody)
+				if err != nil {
+					t.Fatalf("answer request error: %v", err)
+				}
+				_ = answerResp.Body.Close()
+				if answerResp.StatusCode != http.StatusOK {
+					t.Fatalf("expected answer status 200, got %d", answerResp.StatusCode)
+				}
+			case "final":
+				sawFinal = true
+				if event["data"] != "done" {
+					t.Fatalf("unexpected final event: %#v", event)
+				}
+			}
+		case err := <-errCh:
+			if err != nil {
+				t.Fatalf("SSE read error: %v", err)
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for command approval prompt and final event")
+		}
+	}
+	if !sawInputRequest {
+		t.Fatal("expected unmatched command to emit an input_request approval prompt")
+	}
+}
+
+func readSSEData(r io.Reader, out chan<- map[string]any, errCh chan<- error) {
+	defer close(out)
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		raw := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
+		if raw == "" || raw == "[DONE]" || strings.HasPrefix(raw, ":") {
+			continue
+		}
+		var event map[string]any
+		if err := json.Unmarshal([]byte(raw), &event); err != nil {
+			continue
+		}
+		out <- event
+	}
+	errCh <- scanner.Err()
 }
 
 type agentRunFunctionalTool struct {

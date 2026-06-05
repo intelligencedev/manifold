@@ -120,6 +120,7 @@ export interface ChatRunSummary {
 export interface ChatRunResumeResponse {
   run_id: string;
   status: string;
+  retried?: boolean;
   last_sequence?: number;
   last_retry_sequence?: number;
 }

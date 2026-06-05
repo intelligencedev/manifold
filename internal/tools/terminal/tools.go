@@ -51,6 +51,7 @@ func (t *startTool) Call(ctx context.Context, raw json.RawMessage) (any, error) 
 				Decision:         policyErr.Decision,
 				PolicyID:         policyErr.PolicyID,
 				RequiresApproval: policyErr.RequiresApproval,
+				UserInstructions: policyErr.UserInstructions,
 			}, nil
 		}
 		return StartResult{OK: false, Error: err.Error()}, nil

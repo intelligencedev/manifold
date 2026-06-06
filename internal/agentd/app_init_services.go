@@ -185,6 +185,9 @@ func newAppShell(deps appShellDeps) *app {
 		WorkerID:     fmt.Sprintf("agentd-%d", os.Getpid()),
 		Lease:        5 * time.Minute,
 		PollInterval: 500 * time.Millisecond,
+		QueueConcurrency: map[string]int{
+			durableChatQueue: durableChatWorkerConcurrency,
+		},
 	})
 	return a
 }

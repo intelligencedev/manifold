@@ -12,23 +12,30 @@ import (
 )
 
 type Worker struct {
-	store    Store
-	client   *Client
-	registry *Registry
-	workerID string
-	lease    time.Duration
-	poll     time.Duration
-	activeMu sync.Mutex
-	active   map[string]context.CancelFunc
-	cancel   context.CancelFunc
-	done     chan struct{}
-	once     sync.Once
+	store            Store
+	client           *Client
+	registry         *Registry
+	workerID         string
+	lease            time.Duration
+	poll             time.Duration
+	queueConcurrency map[string]int
+	activeMu         sync.Mutex
+	active           map[string]context.CancelFunc
+	cancel           context.CancelFunc
+	done             chan struct{}
+	once             sync.Once
 }
 
 type WorkerOptions struct {
-	WorkerID     string
-	Lease        time.Duration
-	PollInterval time.Duration
+	WorkerID         string
+	Lease            time.Duration
+	PollInterval     time.Duration
+	QueueConcurrency map[string]int
+}
+
+type workerQueueGroup struct {
+	queues      []string
+	concurrency int
 }
 
 func NewWorker(store Store, client *Client, registry *Registry, opts WorkerOptions) *Worker {
@@ -44,7 +51,7 @@ func NewWorker(store Store, client *Client, registry *Registry, opts WorkerOptio
 	if poll <= 0 {
 		poll = 500 * time.Millisecond
 	}
-	return &Worker{store: store, client: client, registry: registry, workerID: workerID, lease: lease, poll: poll, active: map[string]context.CancelFunc{}}
+	return &Worker{store: store, client: client, registry: registry, workerID: workerID, lease: lease, poll: poll, queueConcurrency: normalizeQueueConcurrency(opts.QueueConcurrency), active: map[string]context.CancelFunc{}}
 }
 
 func (w *Worker) Start(ctx context.Context) {
@@ -57,9 +64,21 @@ func (w *Worker) Start(ctx context.Context) {
 	runCtx, cancel := context.WithCancel(ctx)
 	w.cancel = cancel
 	w.done = make(chan struct{})
+	groups := w.workerQueueGroups()
+	var wg sync.WaitGroup
+	for _, group := range groups {
+		group := group
+		for range group.concurrency {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				w.loop(runCtx, group.queues)
+			}()
+		}
+	}
 	go func() {
-		defer close(w.done)
-		w.loop(runCtx)
+		wg.Wait()
+		close(w.done)
 	}()
 }
 
@@ -78,11 +97,15 @@ func (w *Worker) Close() error {
 	return nil
 }
 
-func (w *Worker) loop(ctx context.Context) {
+func (w *Worker) loop(ctx context.Context, queues []string) {
 	ticker := time.NewTicker(w.poll)
 	defer ticker.Stop()
 	for {
-		_ = w.RunOnce(ctx)
+		activeQueues := queues
+		if activeQueues == nil {
+			activeQueues = w.registry.Queues()
+		}
+		_ = w.runOnce(ctx, activeQueues)
 		select {
 		case <-ctx.Done():
 			return
@@ -95,8 +118,14 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 	if w == nil || w.store == nil || w.registry == nil {
 		return nil
 	}
+	return w.runOnce(ctx, w.registry.Queues())
+}
+
+func (w *Worker) runOnce(ctx context.Context, queues []string) error {
+	if w == nil || w.store == nil || w.registry == nil {
+		return nil
+	}
 	_, _ = w.store.FireDueTimers(ctx, time.Now().UTC(), 100)
-	queues := w.registry.Queues()
 	if len(queues) == 0 {
 		return nil
 	}
@@ -146,6 +175,58 @@ func (w *Worker) RunOnce(ctx context.Context) error {
 		return err
 	}
 	return w.store.WakeChildWaits(ctx, task.ID)
+}
+
+func normalizeQueueConcurrency(in map[string]int) map[string]int {
+	if len(in) == 0 {
+		return nil
+	}
+	out := map[string]int{}
+	for queue, concurrency := range in {
+		if concurrency <= 0 {
+			continue
+		}
+		out[normalizeQueue(queue)] = concurrency
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func (w *Worker) workerQueueGroups() []workerQueueGroup {
+	if w == nil || w.registry == nil || len(w.queueConcurrency) == 0 {
+		return []workerQueueGroup{{concurrency: 1}}
+	}
+	queues := w.registry.Queues()
+	if len(queues) == 0 {
+		return []workerQueueGroup{{concurrency: 1}}
+	}
+	groups := make([]workerQueueGroup, 0, len(queues)+1)
+	configured := map[string]bool{}
+	for _, queue := range queues {
+		queue = normalizeQueue(queue)
+		concurrency := w.queueConcurrency[queue]
+		if concurrency <= 0 {
+			continue
+		}
+		groups = append(groups, workerQueueGroup{queues: []string{queue}, concurrency: concurrency})
+		configured[queue] = true
+	}
+	remaining := make([]string, 0, len(queues))
+	for _, queue := range queues {
+		queue = normalizeQueue(queue)
+		if !configured[queue] {
+			remaining = append(remaining, queue)
+		}
+	}
+	if len(remaining) > 0 {
+		groups = append(groups, workerQueueGroup{queues: remaining, concurrency: 1})
+	}
+	if len(groups) == 0 {
+		return []workerQueueGroup{{concurrency: 1}}
+	}
+	return groups
 }
 
 func (w *Worker) CancelTask(ctx context.Context, userID int64, taskID string) error {

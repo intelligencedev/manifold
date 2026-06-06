@@ -28,8 +28,9 @@ import (
 )
 
 const (
-	durableChatQueue       = "chat"
-	durableChatRunTaskName = "chat.run"
+	durableChatQueue             = "chat"
+	durableChatRunTaskName       = "chat.run"
+	durableChatWorkerConcurrency = 4
 )
 
 type durableChatTaskParams struct {

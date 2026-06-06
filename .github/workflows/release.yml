@@ -1,82 +1,71 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*"
-  workflow_dispatch:
-    inputs:
-      version:
-        description: "Version/tag to build, for example v0.8.0-devtest.1"
-        required: true
-      publish:
-        description: "Create/update a GitHub Release"
-        required: true
-        default: "false"
-        type: choice
-        options: ["false", "true"]
-      prerelease:
-        required: true
-        default: "true"
-        type: choice
-        options: ["true", "false"]
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
 
 permissions:
   contents: write
   actions: read
 
 jobs:
-  validate-version:
+  validate-release:
+    name: Validate main release
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' }}
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
-      publish: ${{ steps.version.outputs.publish }}
-      prerelease: ${{ steps.version.outputs.prerelease }}
+      head_sha: ${{ steps.version.outputs.head_sha }}
     steps:
       - id: version
         shell: bash
+        env:
+          CI_RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            version="${GITHUB_REF_NAME}"
-            publish="true"
-            prerelease="false"
-          else
-            version="${{ inputs.version }}"
-            publish="${{ inputs.publish }}"
-            prerelease="${{ inputs.prerelease }}"
-          fi
-          [[ "$version" == v* ]] || { echo "version must start with v" >&2; exit 1; }
+          set -euo pipefail
+
+          short_sha="${HEAD_SHA:0:12}"
+          version="v0.0.0-main.${CI_RUN_NUMBER}.${short_sha}"
+
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "publish=$publish" >> "$GITHUB_OUTPUT"
-          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "Release version: $version"
+          echo "Release commit: $HEAD_SHA"
 
   build-manifold-artifacts:
-    needs: validate-version
+    needs: validate-release
     uses: ./.github/workflows/build-manifold-release.yml
     with:
-      version: ${{ needs.validate-version.outputs.version }}
+      version: ${{ needs.validate-release.outputs.version }}
+      target: all
+      ref: ${{ needs.validate-release.outputs.head_sha }}
     secrets: inherit
 
   smoke-manifold-artifacts:
     needs:
-      - validate-version
+      - validate-release
       - build-manifold-artifacts
     uses: ./.github/workflows/smoke-release-artifacts.yml
     with:
-      version: ${{ needs.validate-version.outputs.version }}
+      version: ${{ needs.validate-release.outputs.version }}
+      target: all
       artifact_run_id: ""
+      ref: ${{ needs.validate-release.outputs.head_sha }}
     secrets: inherit
 
-  create-or-update-github-release:
+  create-github-release:
     needs:
-      - validate-version
+      - validate-release
       - smoke-manifold-artifacts
-    if: ${{ needs.validate-version.outputs.publish == 'true' }}
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      VERSION: ${{ needs.validate-version.outputs.version }}
-      PRERELEASE: ${{ needs.validate-version.outputs.prerelease }}
+      VERSION: ${{ needs.validate-release.outputs.version }}
+      HEAD_SHA: ${{ needs.validate-release.outputs.head_sha }}
+      CI_RUN_URL: ${{ github.event.workflow_run.html_url }}
     steps:
       - name: Download release artifacts
         uses: actions/download-artifact@v4
@@ -85,18 +74,22 @@ jobs:
           path: dist/release
           merge-multiple: true
 
-      - name: Create or update GitHub release
+      - name: Create GitHub release
         shell: bash
         run: |
           set -euo pipefail
-          flags=(--draft=false)
-          if [[ "$PRERELEASE" == "true" ]]; then
-            flags+=(--prerelease)
-          else
-            flags+=(--latest)
-          fi
+
+          notes="Automated Manifold main build.
+
+          Commit: ${HEAD_SHA}
+          CI: ${CI_RUN_URL}"
+
           if gh release view "$VERSION" >/dev/null 2>&1; then
             gh release upload "$VERSION" dist/release/* --clobber
           else
-            gh release create "$VERSION" dist/release/* --title "$VERSION" --notes "Manifold $VERSION" "${flags[@]}"
+            gh release create "$VERSION" dist/release/* \
+              --target "$HEAD_SHA" \
+              --title "$VERSION" \
+              --notes "$notes" \
+              --prerelease
           fi

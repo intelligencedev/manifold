@@ -12,6 +12,9 @@ specialists:
     summaryContextWindowTokens: 64000
     api: responses
     enableTools: true
+    # Optional override for whether this specialist can ask the user for
+    # missing information. Omit to inherit the global requestInfoEnabled value.
+    requestInfoEnabled: true
     imageGeneration: false
     # Optional override for the global autoDiscover setting.
     # When enabled, this specialist starts with allowTools and can discover more.
@@ -62,6 +65,7 @@ specialists:
     summaryContextWindowTokens: 32000
     api: completions
     enableTools: false
+    requestInfoEnabled: false
     # Omit autoDiscover to inherit the global config value.
     paused: true
     allowTools: []

@@ -5,11 +5,16 @@
 # reference them via ${VAR}. Use example.env for the full set of variables that
 # this example references.
 #
-# Separate files:
-# - specialists.yaml / specialists.yml: specialist agents and routing rules
-# - mcp.yaml / mcp.yml: MCP server definitions
+# Config loading notes:
+# - Manifold reads config.yaml or config.yml from the working directory.
+# - ${VAR} references are expanded from the shell environment and .env.
 
-workdir: .
+# Workspace root used by the agent and by relative project paths. In Docker,
+# docker-compose.yml normally sets WORKDIR in .env and mounts it into the app.
+# This path is where all Projects will be created under. Recommend to create a new
+# folder in your user home directory `~/manifold-projects`
+workdir: "${WORKDIR}"
+
 promptOverrides:
   # Empty fields use Manifold's built-in defaults from internal/agent/prompts.
   # These fields replace shared built-in prompt blocks used by orchestrators
@@ -20,6 +25,8 @@ promptOverrides:
   skillDiscoveryInstructions: ""
 
 # Agent runtime limits.
+# maxSteps caps reasoning/tool loop iterations. The timeout values are wall-clock
+# bounds in seconds; set them to 0 to disable global runtime timeouts.
 maxSteps: 1000
 maxToolParallelism: 0 # 0=unbounded, 1=sequential, >1=capped
 outputTruncateBytes: 131072
@@ -27,32 +34,18 @@ agentRunTimeoutSeconds: 0
 streamRunTimeoutSeconds: 0
 workflowTimeoutSeconds: 0
 
-# Optional Forge-style guarded agent loop. Disabled by default so Manifold uses
-# the current legacy loop unless this is explicitly enabled.
-harness:
-  enabled: false
-  # legacy | guarded_chat | workflow
-  mode: guarded_chat
-  rescueEnabled: true
-  maxRetriesPerStep: 3
-  maxToolErrors: 2
-  terminalTools:
-    - agent_response
-  requiredSteps: []
-  toolPrerequisites: {}
-  compact:
-    enabled: true
-    keepRecentSteps: 4
-    phaseThresholds: [0.60, 0.75, 0.90]
-
 # Logging.
 logPath: manifold.log
+# logLevel is passed to zerolog/slog integrations. Common values: debug, info,
+# warn, error. Payload logging can include sensitive prompt/tool content.
 logLevel: info
 logPayloads: false
 logRawPrompts: false
 
 # Tool execution policy.
+# enableTools globally controls whether the orchestrator receives tool schemas.
 enableTools: true
+# requestInfoEnabled lets interactive runs ask the user for missing inputs.
 requestInfoEnabled: true
 # When enabled, allowTools is the bootstrap set and agents can discover
 # additional registered tools at runtime via tool_search.
@@ -65,18 +58,24 @@ allowTools:
   - web_fetch
 
 exec:
+  # Default timeout for one-shot command execution.
   maxCommandSeconds: 1200
+  # Terminal sessions are long-lived PTY sessions used by terminal_* tools.
   maxTerminalSessions: 8
   maxTerminalRuntimeSeconds: 1200
   terminalIdleTTLSeconds: 1800
   terminalOutputBufferBytes: 262144
   sandbox:
+    # enabled/failIfUnavailable are pointers internally so omitted values can
+    # default to true. Keep explicit values here for predictable installs.
     enabled: true
     failIfUnavailable: true
     network:
+      # Network is blocked inside the command sandbox unless enabled here.
       enabled: false
       allowedDomains: []
   commandRules:
+    # Rules are matched against argv tokens. decision is allow, ask, or deny.
     - id: allow-go
       decision: allow
       pattern: ["go"]
@@ -113,6 +112,7 @@ summary:
   maxKeepLastMessages: 12
   maxSummaryChunkTokens: 4096
   llm_client:
+    # openai | anthropic | google | local
     provider: openai
     openai:
       apiKey: "${OPENAI_API_KEY}"
@@ -121,6 +121,32 @@ summary:
       api: completions
       extraHeaders: {}
       extraParams: {}
+      logPayloads: false
+    # anthropic:
+    #   apiKey: "${ANTHROPIC_API_KEY}"
+    #   model: claude-sonnet-4-6
+    #   baseURL: https://api.anthropic.com
+    #   maxTokens: 4096
+    #   extraParams: {}
+    #   promptCache:
+    #     enabled: true
+    #     cacheSystem: true
+    #     cacheTools: true
+    #     cacheMessages: false
+    # google:
+    #   apiKey: "${GOOGLE_LLM_API_KEY}"
+    #   model: gemini-2.5-flash
+    #   baseURL: https://generativelanguage.googleapis.com/
+    #   timeoutSeconds: 30
+    #   contextCache:
+    #     enabled: false
+    #     cachedContent: ""
+    #     autoCreate: false
+    #     ttlSeconds: 3600
+    #     cacheSystem: true
+    #     cacheTools: true
+    #     displayName: manifold-summary
+    #   extraParams: {}
 
 # Primary LLM provider configuration.
 llm_client:
@@ -130,6 +156,9 @@ llm_client:
     apiKey: "${OPENAI_API_KEY}"
     baseURL: https://api.openai.com/v1
     model: gpt-5-mini
+    # Optional legacy summary aliases. Prefer summary.llm_client for new config.
+    summaryModel: gpt-5-nano
+    summaryBaseURL: https://api.openai.com/v1
     # completions | responses
     api: completions
     extraHeaders: {}
@@ -140,6 +169,9 @@ llm_client:
       prompt_cache_key: manifold-local-agent
       prompt_cache_retention: in_memory # or 24h on supported OpenAI models
       reasoning_effort: medium
+    # Per-client payload logging. This is separate from the top-level
+    # logPayloads switch and should remain false unless debugging requests.
+    logPayloads: false
   anthropic:
     apiKey: "${ANTHROPIC_API_KEY}"
     model: claude-sonnet-4-6
@@ -206,31 +238,7 @@ obs:
     lookbackHours: 24
     timeoutSeconds: 5
 
-# Optional web search backend used by the internal web_search tool.
-web:
-  searXNGURL: http://localhost:8080
-
-# Optional built-in Matrix gateway.
-matrix:
-  enabled: false
-  homeserverURL: https://matrix.example.com
-  userID: "${MATRIX_USER_ID}"
-  accessToken: "${MATRIX_ACCESS_TOKEN}"
-  deviceID: manifold-agentd
-  syncTimeoutSeconds: 30
-  syncRetryDelaySeconds: 3
-  processBacklog: false
-  rooms:
-    - roomID: "!example:matrix.example.com"
-      defaultTarget: orchestrator
-      allowUnmentioned: true
-      mentions:
-        "@razer": razer
-        "@gpt": gpt
-      systemPromptRef: assets/prompts/matrix/default.txt
-      maxConcurrent: 1
-
-# Optional authentication.
+# Optional authentication. Disabled by default.
 auth:
   enabled: false
   # oidc | oauth2
@@ -310,7 +318,7 @@ databases:
     backend: sqlite # sqlite | postgres
     dsn: ""
     index: embeddings
-    dimensions: 1536
+    dimensions: 1536 # Ensure to set the correct value for your embedding model
     metric: cosine
   graph:
     backend: sqlite # sqlite | postgres
@@ -328,7 +336,7 @@ embedding:
     # Embedding; enabled applies them for any model; disabled leaves queries raw.
     mode: auto # auto | enabled | disabled
     format: qwen
-    # Leave blank to use the built-in per-surface defaults.
+    # Recommended to leave blank to use the built-in per-surface defaults.
     defaultQuery: ""
     ragQuery: ""
     evolvingMemoryQuery: ""
@@ -355,6 +363,8 @@ reranking:
 # Optional defaults for the describe_image tool. Leave blank to use the
 # invoking agent/specialist endpoint and model; per-tool-call base_url/model
 # arguments still override these values.
+# This is useful if you want the describe_image tool to use a local model
+# with vision support. Otherwise, leave blank.
 imageTool:
   baseURL: ""
   model: ""
@@ -362,8 +372,13 @@ imageTool:
 # Unified agent memory. This is the canonical switch for evolving memory,
 # belief memory, and MAGMA graph memory. Rolling chat summaries remain separate
 # context management and are controlled by the summary block above.
+# Can be toggled on or off per session in Chat view. Recommend to leave disabled
+# and toggle per session when you want to store/retrieve memories.
+# When enabled, memories retrieved are from all sessions, and not just the current session.
+# Memories and lessons learned in a session will affect other memory enabled sessions.
+# This is intentional.
 memory:
-  enabled: true
+  enabled: false
   retrieval:
     maxTokensPerPrompt: 2200
     timeoutMs: 700
@@ -371,6 +386,8 @@ memory:
   # Dedicated clients for memory jobs. If a client is omitted, that job falls
   # back to the main llm_client. These merge over llm_client, so provider/model
   # endpoints can be overridden without repeating every shared setting.
+  # Useful if you want to offload different parts of the memory systems to different
+  # providers or self hosted endpoints.
   llmClients:
     evolving:
       provider: local
@@ -410,31 +427,86 @@ memory:
           prompt_cache_key: manifold-magma
           prompt_cache_retention: in_memory
   evolving:
+    # Async persistence and idle-session cleanup.
+    persistDebounceMs: 250
+    sessionTTLMinutes: 120
+    janitorIntervalMinutes: 15
+    storeJanitorIntervalMinutes: 60
+    maxSize: 2000
     topK: 4
     windowSize: 20
     enableRAG: true
+    retrievalSimilarityThreshold: 0.0
+    reMemEnabled: false
+    maxInnerSteps: 3
+    model: gpt-4o-mini
+    # Smart pruning deduplicates and ages out low-relevance memories.
+    enableSmartPrune: true
+    pruneThreshold: 0.97
+    relevanceDecay: 0.99
+    minRelevance: 0.05
+    pruneQualityFloor: 3
+    promotionAccessThreshold: 5
   belief:
+    enableDistillation: true
+    enableRetrieval: true
+    enableConstraintEnforcement: true
+    distillation:
+      mode: llm # simple | llm
+      maxCandidatesPerEpisode: 5
+      minCandidateConfidence: 0.55
+      autoApplyMinConfidence: 0.65
     maxBeliefsPerPrompt: 5
+    maxEvidencePerBelief: 3
+    defaultConfidence: 0.5
+    promotionThreshold: 0.8
     retrieval:
       minConfidence: 0.35
       maxTokensPerPrompt: 700
       includeContradictions: true
     lifecycle:
       minEvidenceForPromotion: 2
+      maxEvidenceAgainstPromotion: 0
       staleAfterDays: 30
+      staleConfidenceDecay: 0.90
+      allowOrgPromotion: false
+    enforcement:
+      autoEnable: true
+      softPolicyThreshold: 0.85
+      hardConstraintThreshold: 0.95
+      hardConstraintMinEvidenceFor: 3
+    # Optional RAG evidence lane for belief prompts.
+    enableRAGEvidence: false
+    maxRAGEvidencePerPrompt: 3
+    ragRetrievalK: 8
+    ragMinScore: 0.0
   magma:
     consolidation:
-      # Optional fallback model used only when magmaConsolidation does not set
-      # its own provider-specific model.
-      model: gpt-5-nano
       batchSize: 10
       maxQueueSize: 1000
       workerCount: 2
+      prompts:
+        consolidationExtraction: ""
+        intentClassification: ""
     graphs:
-      semantic: { enabled: true, topK: 20, similarityThreshold: 0.7 }
-      temporal: { enabled: true, dateResolution: auto }
-      causal: { enabled: true, llmThreshold: 0.8 }
-      entity: { enabled: true, coReference: true }
+      # Semantic graph stores similarity edges between memory events.
+      semantic:
+        enabled: true
+        topK: 20
+        similarityThreshold: 0.7
+      # Temporal graph extracts time ordering. dateResolution can be auto or a
+      # backend-specific explicit resolution.
+      temporal:
+        enabled: true
+        dateResolution: auto
+      # Causal graph relies on LLM confidence for cause/effect edges.
+      causal:
+        enabled: true
+        llmThreshold: 0.8
+      # Entity graph links mentions and optional co-reference clusters.
+      entity:
+        enabled: true
+        coReference: true
     retrieval:
       defaultHops: 2
       defaultMaxNodes: 10
@@ -448,111 +520,137 @@ memory:
       lowConfidenceThreshold: 0.65
       requireReviewApproval: false
 
-# Deprecated alias for memory.evolving. Prefer the unified memory block above.
-evolvingMemory:
-  enabled: true
-  persistDebounceMs: 250
-  sessionTTLMinutes: 120
-  janitorIntervalMinutes: 15
-  storeJanitorIntervalMinutes: 60
-  llmClient:
-    provider: local
-    openai:
-      apiKey: ""
-      baseURL: http://localhost:11434/v1
-      model: qwen-memory
-      api: completions
-      extraHeaders: {}
-      extraParams: {}
-  maxSize: 2000
-  topK: 4
-  windowSize: 20
-  enableRAG: true
-  reMemEnabled: false
-  maxInnerSteps: 3
-  model: gpt-4o-mini
-  enableSmartPrune: true
-  pruneThreshold: 0.97
-  relevanceDecay: 0.99
-  minRelevance: 0.05
-  pruneQualityFloor: 3
-  promotionAccessThreshold: 5
-
 # Shared durable memory.
 transit:
-  enabled: false
+  enabled: true
   defaultSearchLimit: 10
   defaultListLimit: 100
   maxBatchSize: 100
   enableVectorSearch: true
 
-# Deprecated alias for memory.belief. Beliefs are scoped, evidence-backed
-# project truths with candidate audit, retrieval, promotion, and optional
-# Transit policy compilation.
-beliefMemory:
-  enabled: true
-  enableDistillation: true
-  enableRetrieval: true
-  enableConstraintEnforcement: true
-  llmClient:
-    provider: openai
-    openai:
-      api: responses
-      apiKey: ${OPENAI_API_KEY}
-      baseURL: https://api.openai.com/v1
-      model: gpt-5.4-mini
-  distillation:
-    mode: llm # simple | llm
-    maxCandidatesPerEpisode: 5
-    minCandidateConfidence: 0.55
-    autoApplyMinConfidence: 0.65
-  retrieval:
-    minConfidence: 0.35
-    maxTokensPerPrompt: 700
-    includeContradictions: true
-  lifecycle:
-    minEvidenceForPromotion: 2
-    maxEvidenceAgainstPromotion: 0
-    staleAfterDays: 30
-    staleConfidenceDecay: 0.90
-    allowOrgPromotion: false
-  enforcement:
-    autoEnable: true
-    softPolicyThreshold: 0.85
-    hardConstraintThreshold: 0.95
-    hardConstraintMinEvidenceFor: 3
-  maxBeliefsPerPrompt: 5
-  maxEvidencePerBelief: 3
-  defaultConfidence: 0.5
-  promotionThreshold: 0.8
-  # Optional: blend RAG document retrieval into the belief prompt block as a
-  # delimited "Retrieved Evidence (untrusted)" sub-section. Disabled by default;
-  # requires the RAG service to be configured (see embedding/RAG settings).
-  enableRAGEvidence: false
-  maxRAGEvidencePerPrompt: 3
-  ragRetrievalK: 8
-  ragMinScore: 0.0
-
-# Speech helpers.
+# Text to speech
 tts:
   baseURL: https://api.openai.com/v1
   model: gpt-4o-mini-tts
   voice: alloy
 
+# Speech to text
 stt:
   baseURL: https://api.openai.com
   model: gpt-4o-mini-transcribe
 
-# Placeholder for future per-project controls.
-projects: {}
+# Experimental - Recommend to leave disabled until fully documented.
+# Deterministic and LLM-assisted code quality evaluation. The service can run
+# gate checks, judge diffs, and generate small candidate patches through the
+# code_qa_* tools and the CodeQA UI.
+codeQA:
+  enabled: false
+  # Relative paths are resolved under workdir; absolute paths are used as-is.
+  artifactDir: codeqa-artifacts
+  maxConcurrentRuns: 1
+  maxGateParallelism: 2
+  maxJudgeParallelism: 2
+  defaultMaxDiffBytes: 131072
+  defaultMaxChangedFiles: 12
+  # acceptThreshold is the maximum weighted issue score that can still pass.
+  acceptThreshold: 0.10
+  minConfidence: 0.70
+  # Leave blank to inherit llm_client.openai.model.
+  judgeModel: ""
+  proposerModel: ""
+  # Shell commands the CodeQA runner may execute for gates and candidate checks.
+  allowedCommands:
+    - go
+    - gofmt
+    - ruff
+    - pytest
+    - python
+    - prettier
+    - eslint
+    - tsc
+    - npm
+    - npx
+    - stylelint
+    - html-validate
+    - cargo
+    - rustfmt
+  # High-risk paths are still reviewable but weighted more carefully by judges.
+  highRiskGlobs:
+    - "**/auth/**"
+    - "**/migrations/**"
+    - "**/*crypto*"
+    - "**/deploy/**"
+    - "**/.github/**"
+  # Forbidden paths are excluded from generated candidate edits.
+  forbiddenGlobs:
+    - "**/*.pem"
+    - "**/*.key"
+    - "**/.env*"
+    - "**/node_modules/**"
+    - "**/dist/**"
+  allowAutoApply: false
+  allowCommitAccepted: false
 
 # Accurate token counting.
 tokenization:
-  enabled: false
+  enabled: true
   cacheSize: 1000
   cacheTTLSeconds: 3600
   fallbackToHeuristic: true
 
-# Specialist and MCP configuration live in dedicated files now:
-# - specialists.yaml.example
-# - mcp.yaml.example
+# Optional built-in Matrix gateway.
+# Allows Manifold specialists to send messages to Matrix channels.
+# Leave disabled unless you host your own Matrix infra.
+matrix:
+  enabled: false
+  homeserverURL: https://matrix.example.com
+  userID: "${MATRIX_USER_ID}"
+  accessToken: "${MATRIX_ACCESS_TOKEN}"
+  deviceID: manifold-agentd
+  # Maximum recent messages retained in memory for Matrix context. Set 0 to use
+  # the gateway's default behavior.
+  messageRetention: 100
+  syncTimeoutSeconds: 30
+  syncRetryDelaySeconds: 3
+  # false skips historical backlog and only processes new events after startup.
+  processBacklog: false
+  rooms:
+    - roomID: "!example:matrix.example.com"
+      # defaultTarget is the specialist/orchestrator target used when no mention
+      # route matches.
+      defaultTarget: orchestrator
+      allowUnmentioned: true
+      mentions:
+        "@razer": razer
+        "@gpt": gpt
+      systemPromptRef: assets/prompts/matrix/default.txt
+      messageRetention: 100
+      maxConcurrent: 1
+
+# Experimental: Optional Forge-style guarded agent loop. Disabled by default.
+# Can be enabled per specialist in UI regardless of this config.
+harness:
+  enabled: false
+  # legacy | guarded_chat | workflow
+  mode: guarded_chat
+  # rescueEnabled lets the guarded loop ask the model to recover after a
+  # failed/invalid step instead of ending the run immediately.
+  rescueEnabled: true
+  maxRetriesPerStep: 3
+  maxToolErrors: 2
+  # terminalTools are treated as final-answer tools by workflow enforcement.
+  terminalTools:
+    - agent_response
+  # requiredSteps can enforce a minimum workflow sequence before final output.
+  requiredSteps: []
+  # toolPrerequisites maps a tool name to prior tool calls that must have
+  # succeeded first. matchArg optionally requires matching argument values.
+  toolPrerequisites:
+    fetch:
+      - tool: search
+        matchArg: query
+  compact:
+    # compact controls metadata-aware run-history compaction inside the harness.
+    enabled: true
+    keepRecentSteps: 4
+    phaseThresholds: [0.60, 0.75, 0.90]

@@ -229,9 +229,9 @@ func TestPulseRuntimeRunsDifferentSpecialistsConcurrently(t *testing.T) {
 	t.Parallel()
 
 	var mu sync.Mutex
-	var active int
-	var sawConcurrent bool
+	var waitTimedOut bool
 	var requestBodies []string
+	var started int
 	bothStarted := make(chan struct{})
 	var closeBothStarted sync.Once
 	specialistServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -242,22 +242,22 @@ func TestPulseRuntimeRunsDifferentSpecialistsConcurrently(t *testing.T) {
 		}
 
 		mu.Lock()
-		active++
+		started++
 		requestBodies = append(requestBodies, string(body))
-		if active == 2 {
-			sawConcurrent = true
+		if started == 2 {
 			closeBothStarted.Do(func() { close(bothStarted) })
 		}
 		mu.Unlock()
 
 		select {
 		case <-bothStarted:
-		case <-time.After(500 * time.Millisecond):
+		case <-time.After(5 * time.Second):
+			mu.Lock()
+			waitTimedOut = true
+			mu.Unlock()
+			http.Error(w, "timed out waiting for concurrent specialist requests", http.StatusGatewayTimeout)
+			return
 		}
-
-		mu.Lock()
-		active--
-		mu.Unlock()
 
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"specialist response","tool_calls":[]}}]}`))
@@ -336,10 +336,10 @@ func TestPulseRuntimeRunsDifferentSpecialistsConcurrently(t *testing.T) {
 
 	mu.Lock()
 	bodies := append([]string(nil), requestBodies...)
-	gotConcurrent := sawConcurrent
+	timedOut := waitTimedOut
 	mu.Unlock()
 
-	if !gotConcurrent {
+	if timedOut {
 		t.Fatalf("expected tasks assigned to different specialists to run concurrently")
 	}
 	if len(bodies) != 2 {

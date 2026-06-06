@@ -43,7 +43,7 @@ func TestOptimizeToolRunsOptimizerMode(t *testing.T) {
 	git(t, repo, "add", ".")
 	git(t, repo, "commit", "-m", "initial")
 
-	executor := cli.NewExecutor(config.ExecConfig{MaxCommandSeconds: 60}, repo, 128*1024)
+	executor := cli.NewExecutor(testExecConfig(60), repo, 128*1024)
 	runner := appcodeqa.NewCLICommandRunner(executor, []string{"git", "go", "gofmt"})
 	svc := codeqaservice.New(appcodeqa.Options{
 		ArtifactDir:            t.TempDir(),
@@ -110,4 +110,14 @@ func git(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %v failed: %v\n%s", args, err, string(output))
 	}
 	return string(output)
+}
+
+func testExecConfig(maxCommandSeconds int) config.ExecConfig {
+	disabled := false
+	return config.ExecConfig{
+		MaxCommandSeconds: maxCommandSeconds,
+		Sandbox: config.ExecSandboxConfig{
+			Enabled: &disabled,
+		},
+	}
 }

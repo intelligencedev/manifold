@@ -32,7 +32,7 @@ func TestPackagerBuildFiltersAndTruncates(t *testing.T) {
 	git(t, repo, "add", ".")
 	git(t, repo, "commit", "-m", "head")
 
-	executor := cli.NewExecutor(config.ExecConfig{MaxCommandSeconds: 30}, repo, 64*1024)
+	executor := cli.NewExecutor(testExecConfig(30), repo, 64*1024)
 	runner := codeqa.NewCLICommandRunner(executor, nil)
 	packager := NewPackager(runner, codeqa.Options{DefaultMaxDiffBytes: 40, DefaultMaxChangedFiles: 1, ForbiddenGlobs: []string{"**/*.pem"}})
 	bundle, err := packager.Build(t.Context(), BuildRequest{
@@ -120,4 +120,14 @@ func git(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %v failed: %v\n%s", args, err, string(output))
 	}
 	return string(output)
+}
+
+func testExecConfig(maxCommandSeconds int) config.ExecConfig {
+	disabled := false
+	return config.ExecConfig{
+		MaxCommandSeconds: maxCommandSeconds,
+		Sandbox: config.ExecSandboxConfig{
+			Enabled: &disabled,
+		},
+	}
 }

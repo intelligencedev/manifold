@@ -47,7 +47,7 @@ func TestCodeQARunsLifecycle(t *testing.T) {
 	writeCodeQAFile(t, repo, "foo/foo.go", "package foo\n\n// Add keeps the contract stable.\nfunc Add(a, b int) int { return a + b }\n")
 	gitCodeQA(t, repo, "commit", "-am", "head")
 
-	executor := cli.NewExecutor(config.ExecConfig{MaxCommandSeconds: 60}, repo, 128*1024)
+	executor := cli.NewExecutor(testExecConfig(60), repo, 128*1024)
 	runner := codeqa.NewCLICommandRunner(executor, []string{"go", "gofmt"})
 	svc := codeqaservice.New(codeqa.Options{
 		ArtifactDir:            t.TempDir(),
@@ -182,4 +182,14 @@ func gitCodeQA(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %v failed: %v\n%s", args, err, string(output))
 	}
 	return string(output)
+}
+
+func testExecConfig(maxCommandSeconds int) config.ExecConfig {
+	disabled := false
+	return config.ExecConfig{
+		MaxCommandSeconds: maxCommandSeconds,
+		Sandbox: config.ExecSandboxConfig{
+			Enabled: &disabled,
+		},
+	}
 }

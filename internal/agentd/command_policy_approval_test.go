@@ -7,11 +7,12 @@ import (
 	"testing"
 
 	"manifold/internal/config"
+	"manifold/internal/persistence/databases"
 	"manifold/internal/tools/cli"
 	terminaltool "manifold/internal/tools/terminal"
 )
 
-func TestCommandPolicyApprovalPersistsAndUpdatesLivePolicy(t *testing.T) {
+func TestCommandPolicyApprovalPersistsToDBAndUpdatesLivePolicy(t *testing.T) {
 	dir := t.TempDir()
 	originalDir, err := os.Getwd()
 	if err != nil {
@@ -48,7 +49,11 @@ func TestCommandPolicyApprovalPersistsAndUpdatesLivePolicy(t *testing.T) {
 	t.Cleanup(func() {
 		_ = terminalManager.Close()
 	})
-	a := &app{cfg: cfg, cliExecutor: executor, terminalManager: terminalManager}
+	store := databases.NewCommandPolicyStore(nil)
+	if err := store.Init(context.Background()); err != nil {
+		t.Fatalf("init command policy store: %v", err)
+	}
+	a := &app{cfg: cfg, cliExecutor: executor, terminalManager: terminalManager, commandPolicyStore: store}
 
 	rule := config.ExecCommandRule{
 		ID:            "approved:cli:test",
@@ -72,13 +77,53 @@ func TestCommandPolicyApprovalPersistsAndUpdatesLivePolicy(t *testing.T) {
 	if !res.OK || res.PolicyID != rule.ID || !strings.Contains(res.Stdout, "hi") {
 		t.Fatalf("unexpected run result after policy update: %#v", res)
 	}
+	rules, err := store.ListRules(context.Background(), systemUserID)
+	if err != nil {
+		t.Fatalf("list command policy rules: %v", err)
+	}
+	if len(rules) != 1 || rules[0].ID != rule.ID {
+		t.Fatalf("expected approved rule in DB, got %+v", rules)
+	}
 
 	b, err := os.ReadFile("config.yaml")
 	if err != nil {
 		t.Fatalf("read config.yaml: %v", err)
 	}
-	if !strings.Contains(string(b), "approved:cli:test") {
-		t.Fatalf("persisted config missing approval rule:\n%s", string(b))
+	if strings.Contains(string(b), "approved:cli:test") {
+		t.Fatalf("approval rule should not be written to config.yaml:\n%s", string(b))
+	}
+}
+
+func TestInitializeCommandPolicySeedsDBOnce(t *testing.T) {
+	store := databases.NewCommandPolicyStore(nil)
+	if err := store.Init(context.Background()); err != nil {
+		t.Fatalf("init command policy store: %v", err)
+	}
+	cfg := &config.Config{Exec: config.ExecConfig{CommandRules: []config.ExecCommandRule{{
+		ID:       "seed:go",
+		Decision: "allow",
+		Pattern:  []string{"go"},
+		Contexts: []string{"cli"},
+	}}}}
+
+	if err := initializeCommandPolicy(context.Background(), cfg, store); err != nil {
+		t.Fatalf("initializeCommandPolicy first error: %v", err)
+	}
+	if len(cfg.Exec.CommandRules) != 1 || cfg.Exec.CommandRules[0].ID != "seed:go" {
+		t.Fatalf("expected config rules to be seeded into effective policy, got %+v", cfg.Exec.CommandRules)
+	}
+
+	cfg.Exec.CommandRules = []config.ExecCommandRule{{
+		ID:       "yaml:echo",
+		Decision: "allow",
+		Pattern:  []string{"echo"},
+		Contexts: []string{"cli"},
+	}}
+	if err := initializeCommandPolicy(context.Background(), cfg, store); err != nil {
+		t.Fatalf("initializeCommandPolicy second error: %v", err)
+	}
+	if len(cfg.Exec.CommandRules) != 1 || cfg.Exec.CommandRules[0].ID != "seed:go" {
+		t.Fatalf("expected DB policy to remain source of truth, got %+v", cfg.Exec.CommandRules)
 	}
 }
 

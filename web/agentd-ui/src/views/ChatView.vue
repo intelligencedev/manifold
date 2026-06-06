@@ -77,14 +77,8 @@
           <div
             v-for="session in sessions"
             :key="session.id"
-            class="group rounded-lg border border-transparent px-3 py-2 transition"
-            :class="
-              sessionSelectMode && selectedSessionIds.includes(session.id)
-                ? 'border-danger/70 bg-danger/20'
-                : !sessionSelectMode && session.id === activeSessionId
-                  ? 'border-accent/70 bg-surface-muted/60'
-                  : 'hover:border-border hover:bg-surface-muted/40'
-            "
+            class="conversation-session-row group rounded-lg border border-transparent px-3 py-2 transition"
+            :class="sessionRowClasses(session.id)"
             @click="
               sessionSelectMode
                 ? toggleSessionSelection(session.id)
@@ -140,13 +134,30 @@
               </div>
               <div class="flex items-center gap-2">
                 <span
-                  v-if="sessionIsStreaming(session.id)"
-                  class="flex items-center gap-1 text-xs text-accent"
+                  v-if="
+                    sessionAwaitingInput(session.id) ||
+                    sessionIsStreaming(session.id)
+                  "
+                  class="conversation-session-status flex items-center gap-1 text-xs"
+                  :class="
+                    sessionAwaitingInput(session.id)
+                      ? 'conversation-session-status--awaiting'
+                      : 'conversation-session-status--streaming'
+                  "
                 >
                   <span
-                    class="h-1.5 w-1.5 animate-pulse rounded-full bg-accent"
+                    class="h-1.5 w-1.5 animate-pulse rounded-full"
+                    :class="
+                      sessionAwaitingInput(session.id)
+                        ? 'bg-warning'
+                        : 'bg-accent'
+                    "
                   ></span>
-                  Streaming
+                  {{
+                    sessionAwaitingInput(session.id)
+                      ? "Awaiting user input"
+                      : "Streaming"
+                  }}
                 </span>
                 <button
                   type="button"
@@ -222,6 +233,28 @@
                   />
                 </svg>
               </button>
+            </span>
+            <span
+              v-if="commandPolicyAllowAllActive"
+              class="flex items-center gap-1.5 rounded-full border border-warning/40 bg-warning/10 px-2.5 py-1 text-warning"
+              title="Command approvals are skipped for this session unless policy explicitly denies a command."
+            >
+              <span class="h-1.5 w-1.5 rounded-full bg-warning"></span>
+              <span class="font-medium">All commands allowed</span>
+              <button
+                type="button"
+                class="ml-0.5 rounded-full border border-warning/40 px-1.5 py-0.5 text-[10px] font-semibold text-warning transition hover:bg-warning/15 disabled:cursor-not-allowed disabled:opacity-60"
+                :disabled="commandPolicyDisablePending"
+                @click.stop="disableSessionCommandPolicyAllowAll"
+              >
+                {{ commandPolicyDisablePending ? "Disabling..." : "Disable" }}
+              </button>
+            </span>
+            <span
+              v-if="commandPolicyDisableError"
+              class="rounded-full border border-danger/40 bg-danger/10 px-2.5 py-1 text-danger"
+            >
+              {{ commandPolicyDisableError }}
             </span>
             <div
               class="flex items-center gap-3"
@@ -2242,10 +2275,15 @@ function withKnownContextBudget(
 const toolMessages = computed(() => chat.toolMessages);
 const activeThoughtSummaries = computed(() => chat.activeThoughtSummaries);
 const memorySettingsSavingBySession = ref<Record<string, boolean>>({});
+const commandPolicyDisablePending = ref(false);
+const commandPolicyDisableError = ref("");
 const activeMemorySettingsSaving = computed(() => {
   const sessionId = activeSessionId.value;
   return Boolean(sessionId && memorySettingsSavingBySession.value[sessionId]);
 });
+const commandPolicyAllowAllActive = computed(() =>
+  Boolean(activeSession.value?.commandPolicyAllowAll),
+);
 const memoryEnabled = computed(
   () =>
     activeSession.value?.memoryEnabled ??
@@ -2281,13 +2319,45 @@ const sessionMessageCounts = computed<Record<string, number>>(() => {
   }
   return counts;
 });
+const sessionsAwaitingInput = computed(() => {
+  const ids = new Set<string>();
+  for (const [sessionId, messages] of Object.entries(messagesBySession.value)) {
+    if (
+      messages.some((message) =>
+        (message.inputRequests || []).some((request) =>
+          isInputRequestRespondable(request),
+        ),
+      )
+    ) {
+      ids.add(sessionId);
+    }
+  }
+  return ids;
+});
 
 function messageCountFor(sessionId: string) {
   return sessionMessageCounts.value[sessionId] ?? 0;
 }
 
+function sessionAwaitingInput(sessionId: string) {
+  return sessionsAwaitingInput.value.has(sessionId);
+}
+
 function sessionIsStreaming(sessionId: string) {
   return chat.isSessionStreaming(sessionId);
+}
+
+function sessionRowClasses(sessionId: string) {
+  if (sessionSelectMode.value && selectedSessionIds.value.includes(sessionId)) {
+    return "border-danger/70 bg-danger/20";
+  }
+  if (!sessionSelectMode.value && sessionAwaitingInput(sessionId)) {
+    return "conversation-session-row--awaiting";
+  }
+  if (!sessionSelectMode.value && sessionId === activeSessionId.value) {
+    return "border-accent/70 bg-surface-muted/60";
+  }
+  return "hover:border-border hover:bg-surface-muted/40";
 }
 
 // --- Response timer (elapsed while streaming; frozen when stream completes) ---
@@ -3413,6 +3483,7 @@ watch(activeSummaryEvent, (event) => {
 });
 
 watch(activeSessionId, (sessionId) => {
+  commandPolicyDisableError.value = "";
   if (sessionId) {
     void loadMessagesFromServer(sessionId);
   }
@@ -3679,6 +3750,21 @@ async function setSessionMemorySetting(event: Event) {
     const { [sessionId]: _removed, ...rest } =
       memorySettingsSavingBySession.value;
     memorySettingsSavingBySession.value = rest;
+  }
+}
+
+async function disableSessionCommandPolicyAllowAll() {
+  const sessionId = activeSessionId.value;
+  if (!sessionId || commandPolicyDisablePending.value) return;
+  commandPolicyDisablePending.value = true;
+  commandPolicyDisableError.value = "";
+  try {
+    await chat.updateSessionCommandPolicyAllowAll(sessionId, false);
+  } catch (error) {
+    console.warn("Failed to disable session command policy override:", error);
+    commandPolicyDisableError.value = "Could not disable command override.";
+  } finally {
+    commandPolicyDisablePending.value = false;
   }
 }
 
@@ -4410,6 +4496,44 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 
 .chat-side {
   min-height: 0;
+}
+
+.conversation-session-row--awaiting {
+  border-color: rgb(var(--color-warning) / 0.72);
+  background: rgb(var(--color-warning) / 0.12);
+  animation: conversationAwaitingPulse 1.35s ease-in-out infinite;
+}
+
+.conversation-session-row--awaiting:hover {
+  border-color: rgb(var(--color-warning) / 0.9);
+  background: rgb(var(--color-warning) / 0.18);
+}
+
+.conversation-session-status--awaiting {
+  color: rgb(var(--color-warning));
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.conversation-session-status--streaming {
+  color: rgb(var(--color-accent));
+  white-space: nowrap;
+}
+
+@keyframes conversationAwaitingPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgb(var(--color-warning) / 0.14);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgb(var(--color-warning) / 0.24);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conversation-session-row--awaiting {
+    animation: none;
+  }
 }
 
 .participant-status {

@@ -76,6 +76,9 @@ func buildAppStartup(ctx context.Context, cfg *config.Config) (appStartupDeps, e
 	if err != nil {
 		return appStartupDeps{}, fmt.Errorf("init databases: %w", err)
 	}
+	if err := initializeCommandPolicy(ctx, cfg, mgr.CommandPolicy); err != nil {
+		return appStartupDeps{}, fmt.Errorf("init command policy: %w", err)
+	}
 	durableClient := durable.NewClient(mgr.Durable)
 	durableRegistry := durable.NewRegistry()
 	tooling, err := initAppTooling(ctx, cfg, httpClient, llm, mgr)
@@ -173,6 +176,7 @@ func newAppShell(deps appShellDeps) *app {
 		evolvingSessionTTL: defaultEvolvingSessionTTL,
 		mcpStore:           deps.mgr.MCP,
 		userPrefsStore:     deps.mgr.UserPreferences,
+		commandPolicyStore: deps.mgr.CommandPolicy,
 		mcpManager:         deps.routing.mcpManager,
 		mcpPool:            deps.routing.mcpPool,
 		workspaceManager:   deps.routing.workspaceManager,

@@ -73,6 +73,7 @@ type Manager struct {
 	MCP                persistence.MCPStore
 	Projects           persistence.ProjectsStore
 	UserPreferences    persistence.UserPreferencesStore
+	CommandPolicy      persistence.CommandPolicyStore
 	Pulse              persistence.PulseStore
 	MatrixMessages     persistence.MatrixMessageStore
 	Transit            transit.Store
@@ -93,6 +94,7 @@ func (m Manager) Close() {
 	closeIfPossible(m.Durable)
 	closeIfPossible(m.Projects)
 	closeIfPossible(m.UserPreferences)
+	closeIfPossible(m.CommandPolicy)
 	closeIfPossible(m.Pulse)
 	closeIfPossible(m.MatrixMessages)
 	closeIfPossible(m.Transit)

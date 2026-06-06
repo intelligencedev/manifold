@@ -172,6 +172,7 @@ func (a *app) chatSessionsHandler() http.HandlerFunc {
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
 			}
+			sessions = a.overlayCommandPolicySessionStates(r.Context(), userID, sessions)
 			w.Header().Set("Content-Type", "application/json")
 			if err := json.NewEncoder(w).Encode(sessions); err != nil {
 				log.Error().Err(err).Msg("encode_chat_sessions")
@@ -201,6 +202,7 @@ func (a *app) chatSessionsHandler() http.HandlerFunc {
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
 			}
+			sess = a.overlayCommandPolicySessionState(r.Context(), userID, sess)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusCreated)
 			if err := json.NewEncoder(w).Encode(sess); err != nil {

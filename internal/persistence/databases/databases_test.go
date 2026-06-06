@@ -199,7 +199,7 @@ func TestFactory_DefaultsAndNone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewManager error: %v", err)
 	}
-	if mgr.Search == nil || mgr.Vector == nil || mgr.Graph == nil {
+	if mgr.Search == nil || mgr.Vector == nil || mgr.Graph == nil || mgr.CommandPolicy == nil {
 		t.Fatalf("expected non-nil backends by default")
 	}
 	// None should create no-op backends

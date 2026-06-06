@@ -11,21 +11,21 @@ import (
 	"manifold/internal/config"
 )
 
-func wrapSandbox(cfg config.ExecConfig, workdir, resolvedCommand string, args, env []string) (string, []string, bool, error) {
+func wrapSandbox(cfg config.ExecConfig, workdir, resolvedCommand string, args, env []string, network *sandboxNetwork) (string, []string, bool, error) {
 	if !boolDefault(cfg.Sandbox.Enabled, true) {
 		return resolvedCommand, append([]string(nil), args...), false, nil
 	}
-	if boolDefault(cfg.Sandbox.Network.Enabled, false) && len(cfg.Sandbox.Network.AllowedDomains) > 0 {
-		return "", nil, false, policyDeny("sandbox network domain allowlists are not supported by sandbox-exec", "", false)
-	}
 	sandboxExec := "/usr/bin/sandbox-exec"
 	if _, err := os.Stat(sandboxExec); err != nil {
+		if network != nil && network.mode == networkModeDomainLimited {
+			return "", nil, false, policyDeny("sandbox-exec is required for domain-limited network egress", "", false)
+		}
 		if boolDefault(cfg.Sandbox.FailIfUnavailable, true) {
 			return "", nil, false, policyDeny("sandbox-exec is required but unavailable", "", false)
 		}
 		return resolvedCommand, append([]string(nil), args...), false, nil
 	}
-	profile, err := macOSSandboxProfile(cfg, workdir, resolvedCommand)
+	profile, err := macOSSandboxProfile(cfg, workdir, resolvedCommand, network)
 	if err != nil {
 		return "", nil, false, err
 	}
@@ -34,7 +34,7 @@ func wrapSandbox(cfg config.ExecConfig, workdir, resolvedCommand string, args, e
 	return sandboxExec, wrappedArgs, true, nil
 }
 
-func macOSSandboxProfile(cfg config.ExecConfig, workdir, resolvedCommand string) (string, error) {
+func macOSSandboxProfile(cfg config.ExecConfig, workdir, resolvedCommand string, network *sandboxNetwork) (string, error) {
 	writePaths := []string{workdir}
 	if realWorkdir, err := filepath.EvalSymlinks(workdir); err == nil {
 		writePaths = append(writePaths, realWorkdir)
@@ -48,7 +48,11 @@ func macOSSandboxProfile(cfg config.ExecConfig, workdir, resolvedCommand string)
 		fmt.Fprintf(&b, "(allow file-write* (subpath %q))\n", path)
 	}
 	b.WriteString("(allow file-write* (literal \"/dev/null\"))\n")
-	if boolDefault(cfg.Sandbox.Network.Enabled, false) {
+	if network != nil && network.mode == networkModeDomainLimited {
+		b.WriteString("(deny network*)\n")
+		hostPort := strings.TrimPrefix(network.proxyURL, "http://")
+		fmt.Fprintf(&b, "(allow network-outbound (remote tcp %q))\n", hostPort)
+	} else if boolDefault(cfg.Sandbox.Network.Enabled, false) {
 		b.WriteString("(allow network*)\n")
 	} else {
 		b.WriteString("(deny network*)\n")

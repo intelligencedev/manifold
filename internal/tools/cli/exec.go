@@ -106,6 +106,9 @@ func (e *ExecutorImpl) Run(ctx context.Context, req ExecRequest) (ExecResult, er
 	if err != nil {
 		return ExecResult{}, err
 	}
+	if prepared.Cleanup != nil {
+		defer prepared.Cleanup()
+	}
 
 	tout := req.Timeout
 	if tout <= 0 || tout > time.Duration(cfg.MaxCommandSeconds)*time.Second {

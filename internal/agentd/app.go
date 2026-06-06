@@ -90,6 +90,7 @@ type app struct {
 	teamStore          persist.SpecialistTeamsStore
 	mcpStore           persist.MCPStore
 	userPrefsStore     persist.UserPreferencesStore
+	commandPolicyStore persist.CommandPolicyStore
 	mcpManager         *mcpclient.Manager
 	mcpPool            *mcpclient.MCPServerPool
 	startupMCPOAuthIDs []int64

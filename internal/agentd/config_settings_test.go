@@ -196,9 +196,8 @@ func TestApplyAgentdSettingsYAML_UsesNormalizedAliases(t *testing.T) {
 	if !ok || len(binaries) != 2 || binaries[0] != "git" || binaries[1] != "rg" {
 		t.Fatalf("expected split block binaries, got %#v", execCfg["blockBinaries"])
 	}
-	rules, ok := execCfg["commandRules"].([]config.ExecCommandRule)
-	if !ok || len(rules) != 1 || rules[0].ID != "allow-go-test" {
-		t.Fatalf("expected command rules in YAML map, got %#v", execCfg["commandRules"])
+	if _, ok := execCfg["commandRules"]; ok {
+		t.Fatalf("command rules should not be written to YAML map, got %#v", execCfg["commandRules"])
 	}
 	sandboxCfg, ok := execCfg["sandbox"].(map[string]any)
 	if !ok || sandboxCfg["enabled"] != false || sandboxCfg["failIfUnavailable"] != true {

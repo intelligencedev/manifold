@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,5 +50,29 @@ func TestMacOSSandboxBlocksWritesOutsideWorkspace(t *testing.T) {
 	}
 	if _, statErr := os.Stat(outside); statErr == nil {
 		t.Fatalf("sandboxed command created outside file %s", outside)
+	}
+}
+
+func TestMacOSSandboxProfileDomainLimitedNetworkOnlyAllowsBroker(t *testing.T) {
+	t.Parallel()
+	cfg := testExecConfig()
+	cfg.Sandbox.Enabled = testBool(true)
+	cfg.Sandbox.Network.Enabled = testBool(true)
+	cfg.Sandbox.Network.AllowedDomains = []string{"example.com"}
+	profile, err := macOSSandboxProfile(cfg, t.TempDir(), "/usr/bin/curl", &sandboxNetwork{
+		mode:     networkModeDomainLimited,
+		proxyURL: "http://localhost:3128",
+	})
+	if err != nil {
+		t.Fatalf("macOSSandboxProfile error: %v", err)
+	}
+	if !strings.Contains(profile, "(deny network*)") {
+		t.Fatalf("domain-limited profile must deny general network: %s", profile)
+	}
+	if !strings.Contains(profile, `localhost:3128`) {
+		t.Fatalf("domain-limited profile must allow broker endpoint: %s", profile)
+	}
+	if strings.Contains(profile, "(allow network*)") {
+		t.Fatalf("domain-limited profile must not allow all network: %s", profile)
 	}
 }

@@ -372,6 +372,7 @@ func (a *app) handleChatSession(
 			writeChatDetailStoreError(w, r, err, sessionID, "get_chat_session")
 			return
 		}
+		sess = a.overlayCommandPolicySessionState(r.Context(), userID, sess)
 		writeChatJSON(w, sess, "encode_chat_session")
 	case http.MethodPatch:
 		a.patchChatSession(w, r, currentUser, userID, sessionID)
@@ -389,6 +390,11 @@ func (a *app) handleChatSession(
 		}
 		if err := a.chatStore.DeleteSession(r.Context(), userID, sessionID); err != nil {
 			writeChatDetailStoreError(w, r, err, sessionID, "delete_chat_session")
+			return
+		}
+		if err := a.deleteCommandPolicySessionOverride(r.Context(), userID, sessionID); err != nil {
+			log.Error().Err(err).Str("session", sessionID).Msg("delete_command_policy_session_override")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
 		if deleteProject {
@@ -436,9 +442,10 @@ type patchChatSessionRequest struct {
 	LegacyEvolvingMemoryEnabled *bool   `json:"evolving_memory_enabled"`
 	BeliefMemoryEnabled         *bool   `json:"beliefMemoryEnabled"`
 	LegacyBeliefMemoryEnabled   *bool   `json:"belief_memory_enabled"`
+	CommandPolicyAllowAll       *bool   `json:"commandPolicyAllowAll"`
 }
 
-func (b patchChatSessionRequest) normalized() (*string, *bool, *bool, *bool) {
+func (b patchChatSessionRequest) normalized() (*string, *bool, *bool, *bool, *bool) {
 	projectID := b.ProjectID
 	if projectID == nil {
 		projectID = b.LegacyProjectID
@@ -455,7 +462,7 @@ func (b patchChatSessionRequest) normalized() (*string, *bool, *bool, *bool) {
 	if beliefMemoryEnabled == nil {
 		beliefMemoryEnabled = b.LegacyBeliefMemoryEnabled
 	}
-	return projectID, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled
+	return projectID, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled, b.CommandPolicyAllowAll
 }
 
 func (a *app) patchChatSession(
@@ -471,8 +478,8 @@ func (a *app) patchChatSession(
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	projectID, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled := body.normalized()
-	if body.Name == nil && projectID == nil && memoryEnabled == nil && evolvingMemoryEnabled == nil && beliefMemoryEnabled == nil {
+	projectID, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled, commandPolicyAllowAll := body.normalized()
+	if body.Name == nil && projectID == nil && memoryEnabled == nil && evolvingMemoryEnabled == nil && beliefMemoryEnabled == nil && commandPolicyAllowAll == nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -488,6 +495,23 @@ func (a *app) patchChatSession(
 			return
 		}
 	}
+	if commandPolicyAllowAll != nil {
+		if sess.ID == "" {
+			var err error
+			sess, err = a.chatStore.GetSession(r.Context(), userID, sessionID)
+			if err != nil {
+				writeChatDetailStoreError(w, r, err, sessionID, "get_chat_session")
+				return
+			}
+		}
+		if err := a.setCommandPolicySessionAllowAll(r.Context(), userID, sessionID, *commandPolicyAllowAll); err != nil {
+			log.Error().Err(err).Str("session", sessionID).Msg("set_command_policy_session_override")
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		sess.CommandPolicyAllowAll = *commandPolicyAllowAll
+	}
+	sess = a.overlayCommandPolicySessionState(r.Context(), userID, sess)
 	writeChatJSON(w, sess, "encode_chat_session")
 }
 

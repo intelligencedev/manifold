@@ -55,6 +55,7 @@ type PreparedCommand struct {
 	ExecArgs         []string
 	Dir              string
 	Env              []string
+	Cleanup          func()
 	Decision         string
 	PolicyID         string
 	Sandboxed        bool
@@ -68,6 +69,14 @@ type PrepareRequest struct {
 	Context string
 }
 
+type preparedLaunch struct {
+	execCommand string
+	execArgs    []string
+	env         []string
+	cleanup     func()
+	sandboxed   bool
+}
+
 type evaluation struct {
 	decision      string
 	policyID      string
@@ -79,11 +88,19 @@ type approvalResult struct {
 	policyID         string
 }
 
+type CommandSessionScope struct {
+	UserID    int64
+	SessionID string
+}
+
 type ApprovalController interface {
 	PersistCommandAllowRule(ctx context.Context, rule config.ExecCommandRule) (config.ExecCommandRule, error)
+	SessionAllowAllCommands(ctx context.Context, scope CommandSessionScope) (bool, error)
+	SetSessionAllowAllCommands(ctx context.Context, scope CommandSessionScope, allow bool) error
 }
 
 type approvalControllerContextKey struct{}
+type commandSessionScopeContextKey struct{}
 
 func WithApprovalController(ctx context.Context, controller ApprovalController) context.Context {
 	if ctx == nil || controller == nil {
@@ -100,17 +117,78 @@ func ApprovalControllerFromContext(ctx context.Context) ApprovalController {
 	return controller
 }
 
+func WithCommandSessionScope(ctx context.Context, scope CommandSessionScope) context.Context {
+	scope.SessionID = strings.TrimSpace(scope.SessionID)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if scope.SessionID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, commandSessionScopeContextKey{}, scope)
+}
+
+func CommandSessionScopeFromContext(ctx context.Context) (CommandSessionScope, bool) {
+	if ctx == nil {
+		return CommandSessionScope{}, false
+	}
+	if scope, ok := ctx.Value(commandSessionScopeContextKey{}).(CommandSessionScope); ok && strings.TrimSpace(scope.SessionID) != "" {
+		scope.SessionID = strings.TrimSpace(scope.SessionID)
+		return scope, true
+	}
+	sessionID, ok := sandbox.SessionIDFromContext(ctx)
+	if !ok {
+		return CommandSessionScope{}, false
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return CommandSessionScope{}, false
+	}
+	return CommandSessionScope{SessionID: sessionID}, true
+}
+
 func Prepare(ctx context.Context, cfg config.ExecConfig, req PrepareRequest) (PreparedCommand, error) {
 	config.ApplyExecDefaults(&cfg)
-	command, args, err := NormalizeCommandArgs(req.Command, req.Args)
+	command, safeArgs, base, err := normalizePrepareRequest(ctx, req)
 	if err != nil {
 		return PreparedCommand{}, err
 	}
+
+	argv := append([]string{command}, safeArgs...)
+	result, approval, err := evaluateAndApprove(ctx, cfg, req.Context, argv)
+	if err != nil {
+		return PreparedCommand{}, err
+	}
+
+	launch, err := prepareLaunch(cfg, base, command, safeArgs, result.policyID)
+	if err != nil {
+		return PreparedCommand{}, err
+	}
+	return PreparedCommand{
+		Command:          command,
+		Args:             safeArgs,
+		ExecCommand:      launch.execCommand,
+		ExecArgs:         launch.execArgs,
+		Dir:              base,
+		Env:              launch.env,
+		Cleanup:          launch.cleanup,
+		Decision:         result.decision,
+		PolicyID:         firstNonEmpty(approval.policyID, result.policyID),
+		Sandboxed:        launch.sandboxed,
+		UserInstructions: approval.userInstructions,
+	}, nil
+}
+
+func normalizePrepareRequest(ctx context.Context, req PrepareRequest) (string, []string, string, error) {
+	command, args, err := NormalizeCommandArgs(req.Command, req.Args)
+	if err != nil {
+		return "", nil, "", err
+	}
 	if command == "" {
-		return PreparedCommand{}, errors.New("command is required")
+		return "", nil, "", errors.New("command is required")
 	}
 	if err := validateBinaryName(command); err != nil {
-		return PreparedCommand{}, policyDeny(err.Error(), "", false)
+		return "", nil, "", policyDeny(err.Error(), "", false)
 	}
 
 	base := req.Workdir
@@ -118,63 +196,77 @@ func Prepare(ctx context.Context, cfg config.ExecConfig, req PrepareRequest) (Pr
 		base = sandbox.ResolveBaseDir(ctx, "")
 	}
 	if strings.TrimSpace(base) == "" {
-		return PreparedCommand{}, errors.New("workdir is required")
+		return "", nil, "", errors.New("workdir is required")
 	}
 	base, err = filepath.Abs(base)
 	if err != nil {
-		return PreparedCommand{}, fmt.Errorf("resolve workdir: %w", err)
+		return "", nil, "", fmt.Errorf("resolve workdir: %w", err)
 	}
 
 	safeArgs := make([]string, 0, len(args))
 	for _, arg := range args {
 		safeArg, err := sandbox.SanitizeArg(base, arg)
 		if err != nil {
-			return PreparedCommand{}, err
+			return "", nil, "", err
 		}
 		safeArgs = append(safeArgs, safeArg)
 	}
+	return command, safeArgs, base, nil
+}
 
-	argv := append([]string{command}, safeArgs...)
-	result, err := evaluatePolicy(ctx, cfg, req.Context, argv)
+func evaluateAndApprove(ctx context.Context, cfg config.ExecConfig, execContext string, argv []string) (evaluation, approvalResult, error) {
+	result, err := evaluatePolicy(ctx, cfg, execContext, argv)
 	if err != nil {
-		return PreparedCommand{}, err
+		return evaluation{}, approvalResult{}, err
 	}
 	approval := approvalResult{policyID: result.policyID}
 	if result.decision == DecisionAsk {
-		approval, err = requestApproval(ctx, result, argv, req.Context)
+		if sessionResult, ok := sessionAllowAllEvaluation(ctx); ok {
+			return sessionResult, approvalResult{policyID: sessionResult.policyID}, nil
+		}
+		approval, err = requestApproval(ctx, result, argv, execContext)
 		if err != nil {
-			return PreparedCommand{}, err
+			return evaluation{}, approvalResult{}, err
 		}
 	}
+	return result, approval, nil
+}
 
+func prepareLaunch(cfg config.ExecConfig, base, command string, safeArgs []string, policyID string) (preparedLaunch, error) {
 	if err := ensureRuntimeDirs(base); err != nil {
-		return PreparedCommand{}, err
+		return preparedLaunch{}, err
 	}
 	env := secureEnv(base)
+	network, env, err := prepareSandboxNetwork(cfg, base, env)
+	if err != nil {
+		return preparedLaunch{}, err
+	}
+	success := false
+	defer func() {
+		if !success {
+			runCleanup(network.cleanup)
+		}
+	}()
 	resolved, err := lookPath(command, pathFromEnv(env))
 	if err != nil {
-		return PreparedCommand{}, policyDeny(fmt.Sprintf("command is not available: %q", command), result.policyID, false)
+		return preparedLaunch{}, policyDeny(fmt.Sprintf("command is not available: %q", command), policyID, false)
 	}
 
-	execCommand, execArgs, sandboxed, err := wrapSandbox(cfg, base, resolved, safeArgs, env)
+	execCommand, execArgs, sandboxed, err := wrapSandbox(cfg, base, resolved, safeArgs, env, &network)
 	if err != nil {
 		var policyErr *PolicyError
 		if errors.As(err, &policyErr) {
-			return PreparedCommand{}, policyErr
+			return preparedLaunch{}, policyErr
 		}
-		return PreparedCommand{}, err
+		return preparedLaunch{}, err
 	}
-	return PreparedCommand{
-		Command:          command,
-		Args:             safeArgs,
-		ExecCommand:      execCommand,
-		ExecArgs:         execArgs,
-		Dir:              base,
-		Env:              env,
-		Decision:         result.decision,
-		PolicyID:         firstNonEmpty(approval.policyID, result.policyID),
-		Sandboxed:        sandboxed,
-		UserInstructions: approval.userInstructions,
+	success = true
+	return preparedLaunch{
+		execCommand: execCommand,
+		execArgs:    execArgs,
+		env:         env,
+		cleanup:     network.cleanup,
+		sandboxed:   sandboxed,
 	}, nil
 }
 
@@ -247,7 +339,7 @@ func evaluatePolicy(ctx context.Context, cfg config.ExecConfig, execContext stri
 		}
 	}
 	if bestRank == 0 {
-		if canPromptCommandApproval(ctx) {
+		if canPromptCommandApproval(ctx) || canUseSessionCommandPolicy(ctx) {
 			return evaluation{
 				decision:      DecisionAsk,
 				policyID:      "unmatched",
@@ -377,27 +469,83 @@ func canPromptCommandApproval(ctx context.Context) bool {
 	return inputrequest.RequesterFromContext(ctx) != nil && ApprovalControllerFromContext(ctx) != nil
 }
 
+func canUseSessionCommandPolicy(ctx context.Context) bool {
+	if ApprovalControllerFromContext(ctx) == nil {
+		return false
+	}
+	_, ok := CommandSessionScopeFromContext(ctx)
+	return ok
+}
+
+func sessionAllowAllEvaluation(ctx context.Context) (evaluation, bool) {
+	controller := ApprovalControllerFromContext(ctx)
+	if controller == nil {
+		return evaluation{}, false
+	}
+	scope, ok := CommandSessionScopeFromContext(ctx)
+	if !ok {
+		return evaluation{}, false
+	}
+	allow, err := controller.SessionAllowAllCommands(ctx, scope)
+	if err != nil || !allow {
+		return evaluation{}, false
+	}
+	return evaluation{
+		decision:      DecisionAllow,
+		policyID:      sessionAllowAllPolicyID(scope),
+		justification: "Session command policy allows all commands.",
+	}, true
+}
+
+func sessionAllowAllPolicyID(scope CommandSessionScope) string {
+	return "session:" + strings.TrimSpace(scope.SessionID) + ":allow-all"
+}
+
 func requestApproval(ctx context.Context, result evaluation, argv []string, execContext string) (approvalResult, error) {
 	requester := inputrequest.RequesterFromContext(ctx)
 	controller := ApprovalControllerFromContext(ctx)
 	if requester == nil || controller == nil {
-		return approvalResult{}, &PolicyError{
-			Message:          fmt.Sprintf("command requires approval and cannot prompt in this context: %s", strings.Join(argv, " ")),
-			Decision:         DecisionAsk,
-			PolicyID:         result.policyID,
-			RequiresApproval: true,
+		return approvalResult{}, commandApprovalUnavailable(result, argv)
+	}
+	req := commandApprovalRequest(ctx, result, argv)
+	resp, err := requester.RequestInfo(ctx, req)
+	if err != nil {
+		if errors.Is(err, durable.ErrSuspended) {
+			return approvalResult{}, err
+		}
+		return approvalResult{}, commandApprovalPolicyError(result, fmt.Sprintf("command approval failed: %v", err), "")
+	}
+	userInstructions := strings.TrimSpace(resp.Answer)
+	if approvalResponseHasChoice(resp, "deny") {
+		return approvalResult{}, commandApprovalDenied(result, argv, userInstructions)
+	}
+	for _, choice := range resp.ChoiceIDs {
+		approval, handled, err := handleCommandApprovalChoice(ctx, controller, result, argv, execContext, userInstructions, choice)
+		if handled || err != nil {
+			return approval, err
 		}
 	}
+	if strings.EqualFold(strings.TrimSpace(resp.Answer), "approve") {
+		return approvalResult{userInstructions: userInstructions, policyID: result.policyID}, nil
+	}
+	return approvalResult{}, commandApprovalDenied(result, argv, userInstructions)
+}
+
+func commandApprovalUnavailable(result evaluation, argv []string) *PolicyError {
+	return commandApprovalPolicyError(
+		result,
+		fmt.Sprintf("command requires approval and cannot prompt in this context: %s", strings.Join(argv, " ")),
+		"",
+	)
+}
+
+func commandApprovalRequest(ctx context.Context, result evaluation, argv []string) inputrequest.Request {
 	meta := inputrequest.RunMetadataFromContext(ctx)
-	req := inputrequest.Request{
-		ID:       fmt.Sprintf("command-approval-%d", time.Now().UnixNano()),
-		Question: fmt.Sprintf("Approve command execution: %s", strings.Join(argv, " ")),
-		Reason:   strings.TrimSpace(result.justification),
-		Choices: []inputrequest.Choice{
-			{ID: "approve_once", Label: "Approve once", Description: "Run this command one time without changing policy."},
-			{ID: "always_allow", Label: "Always allow", Description: "Add this exact argv prefix to exec.commandRules."},
-			{ID: "deny", Label: "Deny", Description: "Do not run this command."},
-		},
+	return inputrequest.Request{
+		ID:            fmt.Sprintf("command-approval-%d", time.Now().UnixNano()),
+		Question:      fmt.Sprintf("Approve command execution: %s", strings.Join(argv, " ")),
+		Reason:        strings.TrimSpace(result.justification),
+		Choices:       commandApprovalChoices(ctx),
 		AllowFreeText: true,
 		Multiple:      false,
 		Agent:         meta.Agent,
@@ -408,47 +556,88 @@ func requestApproval(ctx context.Context, result evaluation, argv []string, exec
 		Depth:         meta.Depth,
 		CreatedAt:     time.Now().UTC(),
 	}
-	resp, err := requester.RequestInfo(ctx, req)
+}
+
+func approvalResponseHasChoice(resp inputrequest.Response, id string) bool {
+	for _, choice := range resp.ChoiceIDs {
+		if strings.EqualFold(strings.TrimSpace(choice), id) {
+			return true
+		}
+	}
+	return false
+}
+
+func handleCommandApprovalChoice(
+	ctx context.Context,
+	controller ApprovalController,
+	result evaluation,
+	argv []string,
+	execContext string,
+	userInstructions string,
+	choice string,
+) (approvalResult, bool, error) {
+	switch strings.ToLower(strings.TrimSpace(choice)) {
+	case "approve_once", "approve":
+		return approvalResult{userInstructions: userInstructions, policyID: result.policyID}, true, nil
+	case "always_allow":
+		approval, err := persistCommandAllowApproval(ctx, controller, result, argv, execContext, userInstructions)
+		return approval, true, err
+	case "allow_all_session":
+		approval, err := persistSessionAllowAllApproval(ctx, controller, result, userInstructions)
+		return approval, true, err
+	default:
+		return approvalResult{}, false, nil
+	}
+}
+
+func persistCommandAllowApproval(
+	ctx context.Context,
+	controller ApprovalController,
+	result evaluation,
+	argv []string,
+	execContext string,
+	userInstructions string,
+) (approvalResult, error) {
+	rule := commandApprovalAllowRule(execContext, argv)
+	persisted, err := controller.PersistCommandAllowRule(ctx, rule)
 	if err != nil {
-		if errors.Is(err, durable.ErrSuspended) {
-			return approvalResult{}, err
-		}
-		return approvalResult{}, &PolicyError{
-			Message:          fmt.Sprintf("command approval failed: %v", err),
-			Decision:         DecisionAsk,
-			PolicyID:         result.policyID,
-			RequiresApproval: true,
-		}
+		return approvalResult{}, commandApprovalPolicyError(result, fmt.Sprintf("persist command allow rule: %v", err), userInstructions)
 	}
-	userInstructions := strings.TrimSpace(resp.Answer)
-	for _, choice := range resp.ChoiceIDs {
-		if strings.EqualFold(strings.TrimSpace(choice), "deny") {
-			return approvalResult{}, commandApprovalDenied(result, argv, userInstructions)
-		}
+	return approvalResult{
+		userInstructions: userInstructions,
+		policyID:         firstNonEmpty(strings.TrimSpace(persisted.ID), result.policyID),
+	}, nil
+}
+
+func persistSessionAllowAllApproval(
+	ctx context.Context,
+	controller ApprovalController,
+	result evaluation,
+	userInstructions string,
+) (approvalResult, error) {
+	scope, ok := CommandSessionScopeFromContext(ctx)
+	if !ok {
+		return approvalResult{}, commandApprovalPolicyError(result, "persist session command policy: session scope is unavailable", userInstructions)
 	}
-	for _, choice := range resp.ChoiceIDs {
-		switch strings.ToLower(strings.TrimSpace(choice)) {
-		case "approve_once", "approve":
-			return approvalResult{userInstructions: userInstructions, policyID: result.policyID}, nil
-		case "always_allow":
-			rule := commandApprovalAllowRule(execContext, argv)
-			persisted, err := controller.PersistCommandAllowRule(ctx, rule)
-			if err != nil {
-				return approvalResult{}, &PolicyError{
-					Message:          fmt.Sprintf("persist command allow rule: %v", err),
-					Decision:         DecisionAsk,
-					PolicyID:         result.policyID,
-					RequiresApproval: true,
-					UserInstructions: userInstructions,
-				}
-			}
-			return approvalResult{userInstructions: userInstructions, policyID: firstNonEmpty(strings.TrimSpace(persisted.ID), result.policyID)}, nil
-		}
+	if err := controller.SetSessionAllowAllCommands(ctx, scope, true); err != nil {
+		return approvalResult{}, commandApprovalPolicyError(result, fmt.Sprintf("persist session command policy: %v", err), userInstructions)
 	}
-	if strings.EqualFold(strings.TrimSpace(resp.Answer), "approve") {
-		return approvalResult{userInstructions: userInstructions, policyID: result.policyID}, nil
+	return approvalResult{userInstructions: userInstructions, policyID: sessionAllowAllPolicyID(scope)}, nil
+}
+
+func commandApprovalChoices(ctx context.Context) []inputrequest.Choice {
+	choices := []inputrequest.Choice{
+		{ID: "approve_once", Label: "Approve once", Description: "Run this command one time without changing policy."},
+		{ID: "always_allow", Label: "Always allow", Description: "Add this exact argv prefix to persistent command policy."},
 	}
-	return approvalResult{}, commandApprovalDenied(result, argv, userInstructions)
+	if _, ok := CommandSessionScopeFromContext(ctx); ok {
+		choices = append(choices, inputrequest.Choice{
+			ID:          "allow_all_session",
+			Label:       "Allow all in this session",
+			Description: "Skip command prompts for this chat session. Explicit denies and sandbox rules still apply.",
+		})
+	}
+	return append(choices, inputrequest.Choice{ID: "deny", Label: "Deny", Description: "Do not run this command."})
 }
 
 func commandApprovalDenied(result evaluation, argv []string, userInstructions string) *PolicyError {
@@ -457,6 +646,16 @@ func commandApprovalDenied(result evaluation, argv []string, userInstructions st
 		Decision:         DecisionDeny,
 		PolicyID:         result.policyID,
 		RequiresApproval: false,
+		UserInstructions: userInstructions,
+	}
+}
+
+func commandApprovalPolicyError(result evaluation, message string, userInstructions string) *PolicyError {
+	return &PolicyError{
+		Message:          message,
+		Decision:         DecisionAsk,
+		PolicyID:         result.policyID,
+		RequiresApproval: true,
 		UserInstructions: userInstructions,
 	}
 }

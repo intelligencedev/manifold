@@ -8,7 +8,7 @@ import (
 	"manifold/internal/config"
 )
 
-func wrapSandbox(cfg config.ExecConfig, workdir, resolvedCommand string, args, env []string) (string, []string, bool, error) {
+func wrapSandbox(cfg config.ExecConfig, workdir, resolvedCommand string, args, env []string, network *sandboxNetwork) (string, []string, bool, error) {
 	if !boolDefault(cfg.Sandbox.Enabled, true) {
 		return resolvedCommand, append([]string(nil), args...), false, nil
 	}

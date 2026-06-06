@@ -27,6 +27,7 @@ type preparedStart struct {
 	policyID         string
 	userInstructions string
 	sandboxed        bool
+	cleanup          func()
 }
 
 func (m *Manager) prepareStart(ctx context.Context, req StartRequest) (preparedStart, error) {
@@ -63,6 +64,7 @@ func (m *Manager) prepareStart(ctx context.Context, req StartRequest) (preparedS
 		policyID:         prepared.PolicyID,
 		userInstructions: prepared.UserInstructions,
 		sandboxed:        prepared.Sandboxed,
+		cleanup:          prepared.Cleanup,
 	}, nil
 }
 
@@ -104,6 +106,7 @@ func (m *Manager) startSessionLocked(prepared preparedStart, req StartRequest, n
 		policyID:         prepared.policyID,
 		userInstructions: prepared.userInstructions,
 		sandboxed:        prepared.sandboxed,
+		cleanup:          prepared.cleanup,
 		cmd:              cmd,
 		pty:              tty,
 		pid:              cmd.Process.Pid,

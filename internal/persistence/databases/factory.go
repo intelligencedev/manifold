@@ -249,6 +249,11 @@ func initializeDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfi
 		return err
 	}
 
+	m.CommandPolicy = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewCommandPolicyStore)
+	if err := initStore(ctx, "command policy store", m.CommandPolicy); err != nil {
+		return err
+	}
+
 	m.Pulse = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPulseStore)
 	if err := initStore(ctx, "pulse store", m.Pulse); err != nil {
 		return err

@@ -130,7 +130,7 @@ jobs:
       - name: Smoke final artifact
         shell: bash
         run: |
-          artifact="$(find dist/release -type f \( -name '*.tar.gz' -o -name '*.zip' \) | head -1)"
+          artifact="$(find dist/release -type f -name '*.zip' | head -1)"
           scripts/release/smoke-manifold-artifact.sh \
             --artifact "$artifact" \
             --json-output "dist/release/doctor-${{ matrix.target_os }}-${{ matrix.target_arch }}.json"

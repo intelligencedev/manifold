@@ -24,7 +24,8 @@ The default dashboard does not require ClickHouse. When `obs.local.enabled` is t
 
 Local host builds are supported through the Makefile, but they are a developer workflow, not the simplest deployment path. Use them when you want to:
 
-- iterate on Go code with `make build-agentd` or `make build-manifold`; both server builds write `dist/manifold`
+- build the standard Forge-backed Manifold binary with `make build-manifold`, which writes `dist/manifold`
+- iterate on server-only Go code with `make build-agentd` when you do not need to refresh embedded frontend assets
 - run the frontend separately with `pnpm -C web/agentd-ui dev`
 
 Host builds use SQLite by default and do not require an external database

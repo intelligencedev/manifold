@@ -70,13 +70,11 @@ jobs:
 
       - name: Install golangci-lint
         run: |
-          curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $GOMODCACHE/bin v2.12.2 || true
-          export PATH="$GOMODCACHE/bin:$PATH"
-        env:
-          GOMODCACHE: ${{ runner.temp }}
+          mkdir -p "${{ runner.temp }}/bin"
+          curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b "${{ runner.temp }}/bin" v2.12.2
 
       - name: Run golangci-lint
-        run: ${{ runner.temp }}/golangci-lint run --timeout=5m
+        run: ${{ runner.temp }}/bin/golangci-lint run --timeout=5m
 
       - name: Run tests (race, coverage)
         run: |

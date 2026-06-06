@@ -145,7 +145,7 @@ For the full deployment walkthrough, see:
 
 ### Frontend feature gates
 
-`make build-manifold` builds `dist/manifold` with the embedded frontend using the stable UI feature gate. Stable builds do render frontend undocumented features still in active development.
+`make build-manifold` is the standard host build for Manifold. It builds `dist/manifold` with the Forge backend, embedded frontend, and stable UI feature gate. Stable builds do render frontend undocumented features still in active development.
 
 To build the same backend and embedded frontend with beta UI links enabled, use either command:
 
@@ -156,6 +156,19 @@ make build-manifold FEATURE_GATE=beta
 
 The build passes `FEATURE_GATE` through to Vite as `VITE_MANIFOLD_FEATURE_GATE`.
 
+### Release packages
+
+Release artifacts are zip files that contain the runtime `manifold` binary and the example configuration files needed to bootstrap a deployment:
+
+- `manifold` or `manifold.exe`
+- `config.yaml.example`
+- `specialists.yaml.example`
+- `mcp.yaml.example`
+- `example.env`
+- `THIRD_PARTY_NOTICES.txt`
+
+The `agent` one-shot CLI and `openapi` generator are developer tools and are not required for the Manifold server, UI, or API runtime.
+
 ### Forge harness
 
-Manifold includes an optional Forge-style guarded agent loop for workflow enforcement, tool-error recovery, and control-flow-safe compaction. It is disabled by default. See [docs/forge_harness.md](./docs/forge_harness.md) for modes, configuration, rollout guidance, and deterministic scenario tests.
+Standard Manifold builds use the Forge backend. The stricter guarded harness modes for workflow enforcement, tool-error recovery, and control-flow-safe compaction are still controlled by runtime configuration. See [docs/forge_harness.md](./docs/forge_harness.md) for modes, configuration, rollout guidance, and deterministic scenario tests.

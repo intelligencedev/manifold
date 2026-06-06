@@ -134,9 +134,13 @@ jobs:
             go build -tags "forge" -ldflags "-s -w" \
             -o "dist/package/manifold${ext}" ./cmd/agentd
 
-      - name: Add release notes files
+      - name: Add release package files
         shell: bash
         run: |
+          cp config.yaml.example dist/package/
+          cp specialists.yaml.example dist/package/
+          cp mcp.yaml.example dist/package/
+          cp example.env dist/package/
           touch dist/package/THIRD_PARTY_NOTICES.txt
 
       - name: Package artifact
@@ -144,20 +148,14 @@ jobs:
         run: |
           mkdir -p dist/release
           archive="manifold-${{ inputs.version }}-${{ matrix.target_os }}-${{ matrix.target_arch }}"
-          if [[ "${{ matrix.target_os }}" == "windows" ]]; then
-            (cd dist/package && zip -qr "../release/${archive}.zip" .)
-            shasum -a 256 "dist/release/${archive}.zip" > "dist/release/${archive}.zip.sha256"
-          else
-            tar -czf "dist/release/${archive}.tar.gz" -C dist/package .
-            shasum -a 256 "dist/release/${archive}.tar.gz" > "dist/release/${archive}.tar.gz.sha256"
-          fi
+          (cd dist/package && zip -qr "../release/${archive}.zip" .)
+          shasum -a 256 "dist/release/${archive}.zip" > "dist/release/${archive}.zip.sha256"
 
       - name: Upload Manifold artifact
         uses: actions/upload-artifact@v4
         with:
           name: manifold-${{ matrix.target_os }}-${{ matrix.target_arch }}
           path: |
-            dist/release/manifold-${{ inputs.version }}-${{ matrix.target_os }}-${{ matrix.target_arch }}.tar.gz
             dist/release/manifold-${{ inputs.version }}-${{ matrix.target_os }}-${{ matrix.target_arch }}.zip
-            dist/release/manifold-${{ inputs.version }}-${{ matrix.target_os }}-${{ matrix.target_arch }}.*.sha256
+            dist/release/manifold-${{ inputs.version }}-${{ matrix.target_os }}-${{ matrix.target_arch }}.zip.sha256
           if-no-files-found: error

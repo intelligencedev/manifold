@@ -103,6 +103,8 @@ Use this path when you want Manifold to run without an external Postgres, ClickH
 make build-manifold
 ```
 
+This is the standard host build. It produces `dist/manifold` with the Forge backend and embedded frontend.
+
 1. In `.env`, leave database and telemetry backends empty:
 
 ```dotenv

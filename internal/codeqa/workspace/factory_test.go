@@ -4,12 +4,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"manifold/internal/codeqa"
 )
 
-func TestPrepareGateUsesGitWorktree(t *testing.T) {
+func TestPrepareGateUsesIsolatedGitCheckout(t *testing.T) {
 	t.Parallel()
 	repo := initWorkspaceGitRepo(t)
 	writeWorkspaceFile(t, repo, "go.mod", "module example.com/repo\n\ngo 1.24.5\n")
@@ -30,6 +31,20 @@ func TestPrepareGateUsesGitWorktree(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(prepared.Path, "go.mod")); err != nil {
 		t.Fatalf("expected checked out file in worktree: %v", err)
+	}
+	gitDir := strings.TrimSpace(gitWorkspace(t, prepared.Path, "rev-parse", "--git-dir"))
+	if !filepath.IsAbs(gitDir) {
+		gitDir = filepath.Join(prepared.Path, gitDir)
+	}
+	rel, err := filepath.Rel(prepared.Path, gitDir)
+	if err != nil {
+		t.Fatalf("resolve git dir: %v", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		t.Fatalf("expected git dir inside prepared checkout, got %s", gitDir)
+	}
+	if _, err := os.Stat(filepath.Join(gitDir, "objects", "info", "alternates")); !os.IsNotExist(err) {
+		t.Fatalf("expected isolated checkout without git alternates, got err=%v", err)
 	}
 }
 

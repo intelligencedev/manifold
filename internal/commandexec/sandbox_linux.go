@@ -21,10 +21,7 @@ func wrapSandbox(cfg config.ExecConfig, workdir, resolvedCommand string, args, e
 		if network != nil && network.mode == networkModeDomainLimited {
 			return "", nil, false, policyDeny("bwrap is required for domain-limited network egress", "", false)
 		}
-		if boolDefault(cfg.Sandbox.FailIfUnavailable, true) {
-			return "", nil, false, policyDeny("bwrap is required but unavailable", "", false)
-		}
-		return resolvedCommand, append([]string(nil), args...), false, nil
+		return "", nil, false, policyDeny("bwrap is required but unavailable", "", false)
 	}
 	command := resolvedCommand
 	commandArgs := append([]string(nil), args...)

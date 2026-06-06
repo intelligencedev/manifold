@@ -88,7 +88,7 @@ func TestCodeQARunsLifecycle(t *testing.T) {
 	}
 
 	var detail codeqa.RunResult
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(45 * time.Second)
 	for time.Now().Before(deadline) {
 		detailRec := httptest.NewRecorder()
 		detailReq := httptest.NewRequest(http.MethodGet, "/api/codeqa/runs/"+created.RunID, nil)

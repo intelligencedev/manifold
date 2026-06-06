@@ -28,8 +28,9 @@ func isAbsoluteOrDrive(p string) bool {
 }
 
 // SanitizeArg returns a safe, cleaned argument if it looks like a path.
-// It rejects absolute paths and traversal, and ensures the final path
-// would remain under WORKDIR when joined.
+// It rejects literal absolute paths and traversal, and ensures the final path
+// would remain under WORKDIR when joined. It is defense-in-depth for argv and
+// is not a confidentiality boundary; OS sandboxing must enforce runtime paths.
 func SanitizeArg(workdir, arg string) (string, error) {
 	if !looksPathLike(arg) {
 		return arg, nil

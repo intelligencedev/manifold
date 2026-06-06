@@ -59,6 +59,7 @@ develop/**/.env.*
 # Ignore by default all hidden files except .gitignore
 .*
 !.gitignore
+!.golangci.yml
 !.github/
 !.github/**
 

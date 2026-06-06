@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"maps"
 	"sort"
 	"sync"
 
@@ -29,7 +30,7 @@ func (s *MemoryStore) Save(_ context.Context, userID int64, run codeqa.RunResult
 	if _, ok := s.runs[userID]; !ok {
 		s.runs[userID] = make(map[string]codeqa.RunResult)
 	}
-	s.runs[userID][run.RunID] = run
+	s.runs[userID][run.RunID] = cloneRunResult(run)
 	return nil
 }
 
@@ -37,7 +38,10 @@ func (s *MemoryStore) Get(_ context.Context, userID int64, runID string) (codeqa
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	run, ok := s.runs[userID][runID]
-	return run, ok, nil
+	if !ok {
+		return codeqa.RunResult{}, false, nil
+	}
+	return cloneRunResult(run), true, nil
 }
 
 func (s *MemoryStore) List(_ context.Context, userID int64, limit int) ([]codeqa.RunResult, error) {
@@ -46,7 +50,7 @@ func (s *MemoryStore) List(_ context.Context, userID int64, limit int) ([]codeqa
 	userRuns := s.runs[userID]
 	out := make([]codeqa.RunResult, 0, len(userRuns))
 	for _, run := range userRuns {
-		out = append(out, run)
+		out = append(out, cloneRunResult(run))
 	}
 	sort.Slice(out, func(i int, j int) bool {
 		return out[i].StartedAt.After(out[j].StartedAt)
@@ -64,8 +68,9 @@ func (s *MemoryStore) AppendEvent(_ context.Context, userID int64, event codeqa.
 		s.events[userID] = make(map[string][]codeqa.RunEvent)
 	}
 	event.Sequence = int64(len(s.events[userID][event.RunID]) + 1)
-	s.events[userID][event.RunID] = append(s.events[userID][event.RunID], event)
-	return event, nil
+	cloned := cloneRunEvent(event)
+	s.events[userID][event.RunID] = append(s.events[userID][event.RunID], cloned)
+	return cloned, nil
 }
 
 func (s *MemoryStore) ListEvents(_ context.Context, userID int64, runID string) ([]codeqa.RunEvent, error) {
@@ -73,6 +78,63 @@ func (s *MemoryStore) ListEvents(_ context.Context, userID int64, runID string) 
 	defer s.mu.RUnlock()
 	src := s.events[userID][runID]
 	out := make([]codeqa.RunEvent, len(src))
-	copy(out, src)
+	for i, event := range src {
+		out[i] = cloneRunEvent(event)
+	}
 	return out, nil
+}
+
+func cloneRunResult(in codeqa.RunResult) codeqa.RunResult {
+	out := in
+	out.Diff.Files = cloneChangedFiles(in.Diff.Files)
+	out.Diff.SourceTrees = maps.Clone(in.Diff.SourceTrees)
+	out.Gates = cloneGateResults(in.Gates)
+	out.Judges = cloneJudgeVerdicts(in.Judges)
+	out.Aggregate.HardFailures = append([]string(nil), in.Aggregate.HardFailures...)
+	out.Artifacts = maps.Clone(in.Artifacts)
+	return out
+}
+
+func cloneChangedFiles(in []codeqa.ChangedFile) []codeqa.ChangedFile {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]codeqa.ChangedFile, len(in))
+	for i, file := range in {
+		out[i] = file
+		out[i].RelatedTests = append([]string(nil), file.RelatedTests...)
+	}
+	return out
+}
+
+func cloneGateResults(in []codeqa.GateResult) []codeqa.GateResult {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]codeqa.GateResult, len(in))
+	for i, gate := range in {
+		out[i] = gate
+		out[i].Metrics = maps.Clone(gate.Metrics)
+	}
+	return out
+}
+
+func cloneJudgeVerdicts(in []codeqa.JudgeVerdict) []codeqa.JudgeVerdict {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]codeqa.JudgeVerdict, len(in))
+	for i, verdict := range in {
+		out[i] = verdict
+		out[i].Scores = maps.Clone(verdict.Scores)
+		out[i].BlockingConcerns = append([]string(nil), verdict.BlockingConcerns...)
+		out[i].Evidence = append([]string(nil), verdict.Evidence...)
+	}
+	return out
+}
+
+func cloneRunEvent(in codeqa.RunEvent) codeqa.RunEvent {
+	out := in
+	out.Payload = maps.Clone(in.Payload)
+	return out
 }

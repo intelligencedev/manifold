@@ -20,6 +20,7 @@ func TestConfigYAMLExampleLoads(t *testing.T) {
 	t.Chdir(tmpDir)
 
 	t.Setenv("OPENAI_API_KEY", "test-openai-key")
+	t.Setenv("WORKDIR", tmpDir)
 	t.Setenv("ANTHROPIC_API_KEY", "test-anthropic-key")
 	t.Setenv("GOOGLE_LLM_API_KEY", "test-google-key")
 	t.Setenv("EMBED_API_KEY", "test-embed-key")
@@ -41,7 +42,7 @@ func TestConfigYAMLExampleLoads(t *testing.T) {
 	if cfg.CodeQA.ArtifactDir == "" {
 		t.Fatal("expected codeQA artifactDir from example config")
 	}
-	if cfg.MCP.Servers == nil {
-		t.Fatal("expected inline mcp.servers to load as an empty list")
+	if len(cfg.MCP.Servers) != 0 {
+		t.Fatalf("expected no inline mcp.servers in config example, got %+v", cfg.MCP.Servers)
 	}
 }

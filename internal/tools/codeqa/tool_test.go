@@ -26,7 +26,13 @@ func (fakeProvider) Chat(ctx context.Context, msgs []llm.Message, tools []llm.To
 	if strings.Contains(prompt, "You are improving code quality inside a sandboxed git worktree.") {
 		return llm.Message{Role: "assistant", Content: `{"summary":"add documentation","edits":[{"path":"foo/foo.go","search":"package foo\n\nfunc Add(a, b int) int { return a + b }","replace":"package foo\n\n// Add returns a stable sum.\nfunc Add(a, b int) int { return a + b }"}]}`}, nil
 	}
-	return llm.Message{Role: "assistant", Content: `{"verdict":"option_a_better","confidence":0.9,"scores":{"correctness":0.4,"maintainability":0.4,"test_quality":0.2},"evidence":["foo/foo.go"]}`}, nil
+	if strings.Contains(prompt, "OPTION_A = CANDIDATE") {
+		return llm.Message{Role: "assistant", Content: `{"verdict":"option_a_better","confidence":0.9,"scores":{"correctness":0.4,"maintainability":0.4,"test_quality":0.2},"evidence":["foo/foo.go"]}`}, nil
+	}
+	if strings.Contains(prompt, "OPTION_B = CANDIDATE") {
+		return llm.Message{Role: "assistant", Content: `{"verdict":"option_b_better","confidence":0.9,"scores":{"correctness":-0.4,"maintainability":-0.4,"test_quality":-0.2},"evidence":["foo/foo.go"]}`}, nil
+	}
+	return llm.Message{Role: "assistant", Content: `{"verdict":"tie","confidence":0.9,"scores":{},"evidence":["foo/foo.go"]}`}, nil
 }
 
 func (fakeProvider) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, h llm.StreamHandler) error {

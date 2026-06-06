@@ -29,7 +29,7 @@ func (f fakeProvider) Chat(ctx context.Context, msgs []llm.Message, tools []llm.
 			return llm.Message{Role: "assistant", Content: `{"verdict":"option_a_better","confidence":0.9,"scores":{"correctness":0.4,"maintainability":0.4,"test_quality":0.2},"evidence":["foo/foo.go"]}`}, nil
 		}
 		if strings.Contains(prompt, "OPTION_B = CANDIDATE") {
-			return llm.Message{Role: "assistant", Content: `{"verdict":"option_b_better","confidence":0.9,"scores":{"correctness":0.4,"maintainability":0.4,"test_quality":0.2},"evidence":["foo/foo.go"]}`}, nil
+			return llm.Message{Role: "assistant", Content: `{"verdict":"option_b_better","confidence":0.9,"scores":{"correctness":-0.4,"maintainability":-0.4,"test_quality":-0.2},"evidence":["foo/foo.go"]}`}, nil
 		}
 		return llm.Message{Role: "assistant", Content: `{"verdict":"tie","confidence":0.9,"scores":{"correctness":0.0,"maintainability":0.0,"test_quality":0.0},"evidence":["foo/foo.go"]}`}, nil
 	}

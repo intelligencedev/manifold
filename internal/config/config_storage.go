@@ -2,30 +2,17 @@ package config
 
 type DBConfig struct {
 	// Backend selects the default durable storage backend for subsystems that
-	// do not set their own backend. Supported values: sqlite, postgres, memory,
-	// auto. Empty defaults to sqlite unless DefaultDSN is set.
+	// do not set their own backend. Public deployments use sqlite or postgres.
+	// Empty defaults to sqlite unless DefaultDSN is set.
 	Backend string `yaml:"backend" json:"backend"`
 	// DefaultDSN is an optional shared connection string. If a per-subsystem
 	// DSN is not provided, this value will be used for Postgres backends.
-	DefaultDSN           string       `yaml:"defaultDSN" json:"defaultDSN"`
-	SQLite               SQLiteConfig `yaml:"sqlite" json:"sqlite"`
-	Embedded             bool         `yaml:"embedded" json:"embedded"`
-	EmbeddedPort         uint32       `yaml:"embeddedPort" json:"embeddedPort"`
-	EmbeddedDataDir      string       `yaml:"embeddedDataDir" json:"embeddedDataDir"`
-	EmbeddedVersion      string       `yaml:"embeddedVersion" json:"embeddedVersion"`
-	EmbeddedExtensions   []string     `yaml:"embeddedExtensions" json:"embeddedExtensions"`
-	EmbeddedExtensionURL string       `yaml:"embeddedExtensionURL" json:"embeddedExtensionURL"`
-	// EmbeddedAllowExternalRuntimeResolution enables development-only fallback
-	// to remote PostgreSQL downloads and local system extension discovery when
-	// no release runtime asset is embedded in the binary.
-	EmbeddedAllowExternalRuntimeResolution bool `yaml:"embeddedAllowExternalRuntimeResolution" json:"embeddedAllowExternalRuntimeResolution"`
-	// EmbeddedDiagnosticLogPath is populated from the top-level log path at
-	// runtime so embedded PostgreSQL errors can point users at useful logs.
-	EmbeddedDiagnosticLogPath string       `yaml:"-" json:"-"`
-	Search                    SearchConfig `yaml:"search" json:"search"`
-	Vector                    VectorConfig `yaml:"vector" json:"vector"`
-	Graph                     GraphConfig  `yaml:"graph" json:"graph"`
-	Chat                      ChatConfig   `yaml:"chat" json:"chat"`
+	DefaultDSN string       `yaml:"defaultDSN" json:"defaultDSN"`
+	SQLite     SQLiteConfig `yaml:"sqlite" json:"sqlite"`
+	Search     SearchConfig `yaml:"search" json:"search"`
+	Vector     VectorConfig `yaml:"vector" json:"vector"`
+	Graph      GraphConfig  `yaml:"graph" json:"graph"`
+	Chat       ChatConfig   `yaml:"chat" json:"chat"`
 }
 
 // SQLiteConfig configures the default local durable SQLite database.
@@ -47,7 +34,7 @@ type SQLiteVectorConfig struct {
 
 // SearchConfig configures the full-text search backend.
 type SearchConfig struct {
-	// Backend selects the implementation, e.g. "auto", "sqlite", "memory", "none", "postgres".
+	// Backend selects the implementation. Public deployments use sqlite or postgres.
 	Backend string `yaml:"backend" json:"backend"`
 	// DSN is a connection string or URL for the backend (if applicable).
 	DSN string `yaml:"dsn" json:"dsn"`

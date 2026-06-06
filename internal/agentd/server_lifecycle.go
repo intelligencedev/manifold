@@ -51,11 +51,6 @@ func (a *app) close() {
 			pool.Close()
 		}
 	}
-	if a.embeddedRuntime != nil {
-		if err := a.embeddedRuntime.Stop(); err != nil {
-			log.Warn().Err(err).Msg("stop embedded postgres")
-		}
-	}
 }
 
 func (a *app) launchStartupMCPOAuthPrompts(baseURL string) {

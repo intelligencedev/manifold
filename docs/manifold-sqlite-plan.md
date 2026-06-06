@@ -7,13 +7,13 @@ Use `github.com/ncruces/go-sqlite3` with `github.com/ncruces/go-sqlite3/ext/vec1
 
 ## Public Config And Interfaces
 - Add root database selection:
-  - `databases.backend: sqlite | postgres | memory | auto`, default `sqlite`.
+  - `databases.backend: sqlite | postgres`, default `sqlite`.
   - `databases.sqlite.path`, default `~/.manifold/manifold.db`.
   - `databases.sqlite.busyTimeoutMs: 10000`, `wal: true`, `maxOpenConns: 1`.
 - Extend existing `chat`, `search`, `vector`, and `graph` backend values to include `sqlite`; keep `postgres`, `memory`, `auto`, `none` behavior.
 - Keep existing store interfaces unchanged. Add SQLite implementations behind the current `Manager` fields rather than changing callers.
 - Keep `databases.defaultDSN` for Postgres. It is not required for the SQLite default path.
-- Leave embedded Postgres available only when explicitly configured; remove it from the default quickstart path.
+- Postgres remains available only through a configured external endpoint.
 
 ## Key Implementation Changes
 - Replace the placeholder `internal/persistence/sqlite` package with a shared SQLite opener, migration runner, and helpers for JSON, timestamps, transactions, and Vec1 registration using `driver.Open(dsn, vec1.Register)`.

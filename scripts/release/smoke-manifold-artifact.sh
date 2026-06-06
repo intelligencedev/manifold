@@ -47,7 +47,8 @@ MANIFOLD_BIN="$(find "$APP_DIR" -type f \( -name manifold -o -name manifold.exe 
 chmod +x "$MANIFOLD_BIN" || true
 
 DOCTOR_JSON="${JSON_OUTPUT:-${WORKDIR}/doctor.json}"
-HOME="$HOME_DIR" APPDATA="${HOME_DIR}/AppData/Roaming" "$MANIFOLD_BIN" embedded-postgres doctor --json > "$DOCTOR_JSON"
+HOME="$HOME_DIR" APPDATA="${HOME_DIR}/AppData/Roaming" \
+  "$MANIFOLD_BIN" storage doctor --json --path "${HOME_DIR}/.manifold/manifold.db" > "$DOCTOR_JSON"
 python3 - "$DOCTOR_JSON" <<'PY'
 import json
 import sys
@@ -66,22 +67,17 @@ llm_client:
     model: gpt-4o-mini
     api: completions
 databases:
-  embedded: true
-  embeddedPort: 5433
-  embeddedDataDir: ""
-  defaultDSN: ""
+  backend: sqlite
+  sqlite:
+    path: "${HOME_DIR}/.manifold/manifold.db"
   chat:
-    backend: auto
-    dsn: ""
+    backend: sqlite
   search:
-    backend: auto
-    dsn: ""
+    backend: sqlite
   vector:
-    backend: auto
-    dsn: ""
+    backend: sqlite
   graph:
-    backend: auto
-    dsn: ""
+    backend: sqlite
 obs:
   otlp: ""
   local:
@@ -106,10 +102,5 @@ for _ in $(seq 1 90); do
 done
 
 curl -fsS http://127.0.0.1:32180/ >/dev/null
-
-if grep -Eiq 'extension not available|system discovery|apt|homebrew|fallback' "$LOG_PATH" "${WORKDIR}/stdout.log" "${WORKDIR}/stderr.log" 2>/dev/null; then
-  echo "release smoke logs contain forbidden runtime fallback text" >&2
-  exit 1
-fi
 
 echo "Manifold artifact smoke test passed for $ARTIFACT"

@@ -5,8 +5,6 @@ on:
     inputs:
       version:
         required: true
-      runtime_artifact_run_id:
-        required: false
       publish_release:
         required: true
         default: "false"
@@ -17,10 +15,6 @@ on:
       version:
         required: true
         type: string
-      runtime_artifact_run_id:
-        required: false
-        type: string
-        default: ""
 
 permissions:
   contents: read
@@ -73,34 +67,6 @@ jobs:
         shell: bash
         run: corepack enable
 
-      - name: Download runtime artifact from current run
-        if: ${{ inputs.runtime_artifact_run_id == '' }}
-        uses: actions/download-artifact@v4
-        with:
-          name: postgres-runtime-${{ matrix.target_os }}-${{ matrix.target_arch }}
-          path: dist/postgres-runtime
-
-      - name: Download runtime artifact from run
-        if: ${{ inputs.runtime_artifact_run_id != '' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          gh run download "${{ inputs.runtime_artifact_run_id }}" \
-            --name "postgres-runtime-${{ matrix.target_os }}-${{ matrix.target_arch }}" \
-            --dir dist/postgres-runtime
-
-      - name: Embed runtime asset
-        shell: bash
-        run: |
-          archive="$(find dist/postgres-runtime -type f \( -name '*.tar.zst' -o -name '*.zip' \) | head -1)"
-          manifest="$(find dist/postgres-runtime -type f -name '*.manifest.json' | head -1)"
-          scripts/release/embed-runtime-asset.sh \
-            --runtime-archive "$archive" \
-            --runtime-manifest "$manifest" \
-            --target-os "${{ matrix.target_os }}" \
-            --target-arch "${{ matrix.target_arch }}"
-
       - name: Build frontend
         shell: bash
         run: make frontend
@@ -112,17 +78,12 @@ jobs:
           ext=""
           if [[ "${{ matrix.target_os }}" == "windows" ]]; then ext=".exe"; fi
           GOOS="${{ matrix.target_os }}" GOARCH="${{ matrix.target_arch }}" \
-            go build -tags "forge,embedded_pg_runtime" -ldflags "-s -w" \
+            go build -tags "forge" -ldflags "-s -w" \
             -o "dist/package/manifold${ext}" ./cmd/agentd
 
       - name: Add release notes files
         shell: bash
         run: |
-          cat > dist/package/README-embedded-postgres.txt <<'EOF'
-          Manifold includes a native PostgreSQL runtime with pgvector, PostGIS, and pgRouting.
-          No system PostgreSQL, Docker, Homebrew, apt, Chocolatey, or internet access is required at runtime.
-          EOF
-          cp dist/postgres-runtime/*.manifest.json dist/package/postgres-runtime.manifest.json
           touch dist/package/THIRD_PARTY_NOTICES.txt
 
       - name: Package artifact

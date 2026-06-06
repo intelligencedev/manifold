@@ -287,7 +287,7 @@ databases:
   # SQLite is the default durable backend. It lets Manifold run as a single
   # binary with no DATABASE_URL. Set backend=postgres and defaultDSN below for
   # multi-host deployments or existing PostgreSQL data.
-  backend: sqlite # sqlite | postgres | memory | auto
+  backend: sqlite # sqlite | postgres
   sqlite:
     path: "~/.manifold/manifold.db"
     busyTimeoutMs: 10000
@@ -298,33 +298,22 @@ databases:
       annMinRows: 5000
       annRebuildChanges: 1000
       nprobe: 0.08
-  # Embedded Postgres remains available only when explicitly enabled.
-  embedded: false
-  embeddedPort: 5433
-  embeddedDataDir: "" # defaults to ~/.manifold/embedded-postgres/data
-  embeddedVersion: "17"
-  embeddedExtensions: # extensions installed into embedded PG (default: pgvector, postgis, pgrouting)
-    - pgvector
-    - postgis
-    - pgrouting
-  embeddedAllowExternalRuntimeResolution: false # development only: allow downloaded/system PostgreSQL fallback when no embedded release runtime is bundled
-  embeddedExtensionURL: "" # development only: override pre-built extension package base URL when external runtime resolution is enabled
   defaultDSN: "" # optional Postgres DSN, e.g. ${DATABASE_URL}
   chat:
-    backend: sqlite # sqlite | memory | auto | postgres
+    backend: sqlite # sqlite | postgres
     dsn: ""
   search:
-    backend: sqlite # sqlite | memory | auto | postgres
+    backend: sqlite # sqlite | postgres
     dsn: ""
     index: documents
   vector:
-    backend: sqlite # sqlite | memory | auto | postgres | qdrant
+    backend: sqlite # sqlite | postgres
     dsn: ""
     index: embeddings
     dimensions: 1536
     metric: cosine
   graph:
-    backend: sqlite # sqlite | memory | auto | postgres
+    backend: sqlite # sqlite | postgres
     dsn: ""
 
 # Embedding service, used by vector features and evolving memory.

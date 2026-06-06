@@ -18,7 +18,6 @@ import (
 	"manifold/internal/config"
 	"manifold/internal/constitution"
 	"manifold/internal/durable"
-	"manifold/internal/embeddedpg"
 	"manifold/internal/fleet"
 	"manifold/internal/httpapi"
 	llmpkg "manifold/internal/llm"
@@ -99,12 +98,11 @@ func buildAppStartup(ctx context.Context, cfg *config.Config) (appStartupDeps, e
 	}, nil
 }
 
-func (deps appStartupDeps) shellDeps(cfg *config.Config, embeddedRuntime *embeddedpg.Runtime) appShellDeps {
+func (deps appStartupDeps) shellDeps(cfg *config.Config) appShellDeps {
 	return appShellDeps{
 		cfg:              cfg,
 		httpClient:       deps.httpClient,
 		mgr:              deps.mgr,
-		embeddedRuntime:  embeddedRuntime,
 		llm:              deps.llm,
 		summaryLLM:       deps.summaryLLM,
 		durableClient:    deps.durableClient,
@@ -137,7 +135,6 @@ type appShellDeps struct {
 	cfg              *config.Config
 	httpClient       *http.Client
 	mgr              databases.Manager
-	embeddedRuntime  *embeddedpg.Runtime
 	llm              llmpkg.Provider
 	summaryLLM       llmpkg.Provider
 	durableClient    *durable.Client
@@ -155,7 +152,6 @@ func newAppShell(deps appShellDeps) *app {
 		cfg:                deps.cfg,
 		httpClient:         deps.httpClient,
 		mgr:                &deps.mgr,
-		embeddedRuntime:    deps.embeddedRuntime,
 		llm:                deps.llm,
 		summaryLLM:         deps.summaryLLM,
 		durableStore:       deps.mgr.Durable,

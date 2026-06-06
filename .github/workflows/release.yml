@@ -50,24 +50,11 @@ jobs:
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
 
-  build-postgres-runtimes:
-    needs: validate-version
-    uses: ./.github/workflows/build-postgres-runtime.yml
-    with:
-      pg_version: "17.5"
-      pgvector_version: "0.8.2"
-      postgis_version: "3.6.2"
-      pgrouting_version: "4.0.1"
-    secrets: inherit
-
   build-manifold-artifacts:
-    needs:
-      - validate-version
-      - build-postgres-runtimes
+    needs: validate-version
     uses: ./.github/workflows/build-manifold-release.yml
     with:
       version: ${{ needs.validate-version.outputs.version }}
-      runtime_artifact_run_id: ""
     secrets: inherit
 
   smoke-manifold-artifacts:

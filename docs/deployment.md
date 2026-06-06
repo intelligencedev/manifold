@@ -28,7 +28,8 @@ Local host builds are supported through the Makefile, but they are a developer w
 - run the frontend separately with `pnpm -C web/agentd-ui dev`
 
 Host builds use SQLite by default and do not require an external database
-service. Embedded Postgres remains available only when explicitly configured.
+service. Postgres remains supported only through an explicitly configured
+external endpoint.
 
 ## Prerequisites
 
@@ -181,12 +182,6 @@ Then start Postgres with Manifold:
 docker compose up -d pg-manifold manifold
 ```
 
-Embedded Postgres also remains available when `databases.embedded` is true.
-In that mode Manifold starts bundled PostgreSQL 17 before initializing stores,
-sets the runtime default DSN internally, and stops the embedded process during
-shutdown. The default data directory is `~/.manifold/embedded-postgres`; set
-`embeddedDataDir` to choose a different persistent location.
-
 ## Service Map
 
 Core services:
@@ -220,7 +215,6 @@ When optional Postgres is enabled, Manifold connects to Postgres at
 - `config.yaml.example` is the full runtime reference. `specialists.yaml.example` and `mcp.yaml.example` document the optional external specialist and MCP config files.
 - Leave `DATABASE_URL` empty for the default SQLite backend.
 - For optional Postgres, set `databases.backend: postgres`, wire `databases.defaultDSN` and per-subsystem DSNs to `${DATABASE_URL}`, and start `pg-manifold`.
-- For embedded Postgres, set `databases.embedded: true` and leave `DATABASE_URL`, `databases.defaultDSN`, and per-subsystem DSNs empty so Manifold can supply the embedded DSN at runtime.
 - `obs.local.enabled: true` gives the dashboard local process telemetry without ClickHouse or an OpenTelemetry Collector. `obs.clickhouse.dsn` upgrades the dashboard to persistent telemetry when ClickHouse is available.
 - If you use `llm_client.openai.api: responses`, you can tune context-management behavior through `llm_client.openai.extraParams` in [config.yaml.example](../config.yaml.example).
 - Voice input requires an OpenAI-compatible transcription endpoint through the `stt` section in [config.yaml.example](../config.yaml.example).
@@ -252,7 +246,6 @@ Back up:
 
 - SQLite database file from `databases.sqlite.path`, default `~/.manifold/manifold.db`
 - PostgreSQL data from `pg-manifold` when Postgres is explicitly configured
-- embedded Postgres data from `embeddedDataDir` or `~/.manifold/embedded-postgres` when `databases.embedded` is enabled
 - the entire `workdir`
 
 At minimum, a recoverable local deployment needs both the database state and the project filesystem.

@@ -5,7 +5,8 @@ Manifold supports two observability modes:
 - **Local process telemetry**: enabled by default with `obs.local.enabled: true`. Metrics, logs, and traces are stored in bounded in-memory buffers inside Manifold and are visible in the Overview dashboard without ClickHouse or an OpenTelemetry Collector.
 - **Persistent telemetry**: optional ClickHouse and OTLP export for historical queries, cross-restart data, and external dashboards.
 
-A basic Docker first run only needs `pg-manifold` and `manifold`. A host run with embedded Postgres does not need external database or telemetry services.
+A basic Docker first run only needs `manifold`. SQLite is the default durable
+backend, so a host run does not need an external database or telemetry service.
 
 ## Logging
 

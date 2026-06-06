@@ -1,8 +1,9 @@
 package auth
 
-import "slices"
-
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func requireRole(t *testing.T, roles []string, want string) {
 	t.Helper()

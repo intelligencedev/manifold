@@ -19,6 +19,14 @@ func (a *app) initAuth(ctx context.Context) error {
 	}
 
 	dsn := a.cfg.Databases.DefaultDSN
+	if dsn == "" && a.mgr != nil && a.mgr.SQLite != nil {
+		a.authStore = auth.NewSQLiteStore(a.mgr.SQLite, a.cfg.Auth.SessionTTLHours)
+		if err := a.authStore.InitSchema(ctx); err != nil {
+			return fmt.Errorf("auth sqlite schema init failed: %w", err)
+		}
+		_ = a.authStore.EnsureDefaultRoles(ctx)
+		return a.initConfiguredAuthProvider(ctx)
+	}
 	if dsn == "" {
 		return fmt.Errorf("auth enabled but databases.defaultDSN is empty")
 	}
@@ -32,6 +40,10 @@ func (a *app) initAuth(ctx context.Context) error {
 	}
 	_ = a.authStore.EnsureDefaultRoles(ctx)
 
+	return a.initConfiguredAuthProvider(ctx)
+}
+
+func (a *app) initConfiguredAuthProvider(ctx context.Context) error {
 	providerName := strings.ToLower(strings.TrimSpace(a.cfg.Auth.Provider))
 	if providerName == "" {
 		providerName = "oidc"

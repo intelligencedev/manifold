@@ -357,33 +357,47 @@ func applyMCPAndDatabaseDefaults(cfg *Config) {
 			cfg.MCP.Servers[i].HTTP.TimeoutSeconds = 30
 		}
 	}
-	if cfg.Databases.Search.Backend == "" {
+	if cfg.Databases.Backend == "" {
 		if cfg.Databases.DefaultDSN != "" {
-			cfg.Databases.Search.Backend = "auto"
+			cfg.Databases.Backend = "postgres"
 		} else {
-			cfg.Databases.Search.Backend = "memory"
+			cfg.Databases.Backend = "sqlite"
 		}
+	} else {
+		cfg.Databases.Backend = strings.ToLower(strings.TrimSpace(cfg.Databases.Backend))
+	}
+	if cfg.Databases.SQLite.BusyTimeoutMs <= 0 {
+		cfg.Databases.SQLite.BusyTimeoutMs = 10000
+	}
+	if cfg.Databases.SQLite.MaxOpenConns <= 0 {
+		cfg.Databases.SQLite.MaxOpenConns = 1
+	}
+	if !cfg.Databases.SQLite.WAL {
+		cfg.Databases.SQLite.WAL = true
+	}
+	if cfg.Databases.SQLite.Vector.ANNMinRows <= 0 {
+		cfg.Databases.SQLite.Vector.ANNMinRows = 5000
+	}
+	if cfg.Databases.SQLite.Vector.ANNRebuildChanges <= 0 {
+		cfg.Databases.SQLite.Vector.ANNRebuildChanges = 1000
+	}
+	if cfg.Databases.SQLite.Vector.NProbe <= 0 {
+		cfg.Databases.SQLite.Vector.NProbe = 0.08
+	}
+	if !cfg.Databases.SQLite.Vector.ANNEnabled {
+		cfg.Databases.SQLite.Vector.ANNEnabled = true
+	}
+	if cfg.Databases.Search.Backend == "" {
+		cfg.Databases.Search.Backend = cfg.Databases.Backend
 	}
 	if cfg.Databases.Vector.Backend == "" {
-		if cfg.Databases.DefaultDSN != "" {
-			cfg.Databases.Vector.Backend = "auto"
-		} else {
-			cfg.Databases.Vector.Backend = "memory"
-		}
+		cfg.Databases.Vector.Backend = cfg.Databases.Backend
 	}
 	if cfg.Databases.Graph.Backend == "" {
-		if cfg.Databases.DefaultDSN != "" {
-			cfg.Databases.Graph.Backend = "auto"
-		} else {
-			cfg.Databases.Graph.Backend = "memory"
-		}
+		cfg.Databases.Graph.Backend = cfg.Databases.Backend
 	}
 	if cfg.Databases.Chat.Backend == "" {
-		if cfg.Databases.DefaultDSN != "" {
-			cfg.Databases.Chat.Backend = "auto"
-		} else {
-			cfg.Databases.Chat.Backend = "memory"
-		}
+		cfg.Databases.Chat.Backend = cfg.Databases.Backend
 	}
 }
 

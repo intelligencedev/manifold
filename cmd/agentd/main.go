@@ -14,5 +14,8 @@ func main() {
 	if handled, code := runEmbeddedPostgresCommand(os.Args[1:], os.Stdout, os.Stderr); handled {
 		os.Exit(code)
 	}
+	if handled, code := runStorageCommand(os.Args[1:], os.Stdout, os.Stderr); handled {
+		os.Exit(code)
+	}
 	agentd.Run()
 }

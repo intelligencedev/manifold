@@ -103,19 +103,21 @@ cp config.yaml.example config.yaml
 #   OPENAI_API_KEY=...
 #   WORKDIR=/absolute/path/to/your/manifold-workdir
 
-docker compose up -d pg-manifold manifold
+docker compose up -d manifold
 ```
 
 Then open <http://localhost:32180>.
 
 ### Self-contained host run
 
-Manifold can also run without external database or telemetry services when you build the `manifold` binary locally. Enable the embedded Postgres runtime and keep ClickHouse/OTLP unset:
+Manifold can run without external database or telemetry services when you build the `manifold` binary locally. SQLite is the default durable backend, and Postgres is optional:
 
 ```yaml
 databases:
-  embedded: true
+  backend: sqlite
   defaultDSN: ""
+  sqlite:
+    path: "~/.manifold/manifold.db"
 
 obs:
   otlp: ""
@@ -125,9 +127,13 @@ obs:
     dsn: ""
 ```
 
-Release builds use a bundled PostgreSQL 17 runtime and verify `pgvector`, `postgis`, and `pgrouting` before startup completes. Development builds that do not embed a runtime must set `databases.embeddedAllowExternalRuntimeResolution: true` to use the legacy downloaded/system PostgreSQL fallback.
+Check local storage before startup with:
 
-With that configuration, `manifold` starts a bundled PostgreSQL process for durable state and serves metrics, logs, and traces from bounded process-local telemetry. You still need an LLM provider, which can be a remote API key or a local OpenAI-compatible endpoint.
+```bash
+./dist/manifold storage doctor --json
+```
+
+With that configuration, `manifold` stores durable state in SQLite with FTS5 and Vec1 enabled, and serves metrics, logs, and traces from bounded process-local telemetry. You still need an LLM provider, which can be a remote API key or a local OpenAI-compatible endpoint.
 
 For the full deployment walkthrough, see:
 

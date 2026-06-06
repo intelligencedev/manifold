@@ -2,12 +2,15 @@ package databases
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"manifold/internal/config"
+	sqlitep "manifold/internal/persistence/sqlite"
 )
 
 func TestMemorySearch_IndexAndSearch(t *testing.T) {
@@ -88,6 +91,135 @@ func TestMemoryGraph_TypedEdges(t *testing.T) {
 	}
 	if len(got) != 1 || got[0] != "event:2" {
 		t.Fatalf("unexpected typed neighbors: %#v", got)
+	}
+}
+
+func TestSQLiteSearch_IndexChunksAndSearch(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db := openTestSQLite(t)
+	search := NewSQLiteSearch(db)
+
+	if err := search.Index(ctx, "doc:1", "The quick brown fox jumps over the lazy dog", map[string]string{"type": "doc"}); err != nil {
+		t.Fatalf("Index() error = %v", err)
+	}
+	hits, err := search.Search(ctx, "quick fox", 5)
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+	if len(hits) == 0 || hits[0].ID != "doc:1" {
+		t.Fatalf("unexpected hits: %#v", hits)
+	}
+	if err := search.(*sqliteSearch).UpsertChunk(ctx, ChunkSearchRow{ID: "chunk:1", DocID: "doc:1", Index: 0, Text: "fast fox chunk", Metadata: map[string]string{"type": "chunk", "tenant": "t1"}, Lang: "english"}); err != nil {
+		t.Fatalf("UpsertChunk() error = %v", err)
+	}
+	chunks, err := search.(*sqliteSearch).SearchChunks(ctx, "fox", "english", 5, map[string]string{"tenant": "t1"})
+	if err != nil {
+		t.Fatalf("SearchChunks() error = %v", err)
+	}
+	if len(chunks) != 1 || chunks[0].ID != "chunk:1" {
+		t.Fatalf("unexpected chunks: %#v", chunks)
+	}
+}
+
+func TestSQLiteVector_UpsertFilterAndQuery(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db := openTestSQLite(t)
+	store, err := NewSQLiteVector(db, config.VectorConfig{Dimensions: 2, Metric: "cosine"}, config.SQLiteVectorConfig{NProbe: 0.08})
+	if err != nil {
+		t.Fatalf("NewSQLiteVector() error = %v", err)
+	}
+	if err := store.Upsert(ctx, "a", []float32{1, 0}, map[string]string{"tenant": "t1", "type": "chunk"}); err != nil {
+		t.Fatalf("Upsert(a) error = %v", err)
+	}
+	if err := store.Upsert(ctx, "b", []float32{0, 1}, map[string]string{"tenant": "t2", "type": "chunk"}); err != nil {
+		t.Fatalf("Upsert(b) error = %v", err)
+	}
+	results, err := store.SimilaritySearch(ctx, []float32{0.9, 0.1}, 3, map[string]string{"tenant": "t1"})
+	if err != nil {
+		t.Fatalf("SimilaritySearch() error = %v", err)
+	}
+	if len(results) != 1 || results[0].ID != "a" {
+		t.Fatalf("unexpected results: %#v", results)
+	}
+}
+
+func TestSQLiteVector_ANNRebuildState(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db := openTestSQLite(t)
+	store, err := NewSQLiteVector(db, config.VectorConfig{Dimensions: 2, Metric: "cosine"}, config.SQLiteVectorConfig{
+		ANNEnabled:        true,
+		ANNMinRows:        8,
+		ANNRebuildChanges: 1,
+		NProbe:            0.08,
+	})
+	if err != nil {
+		t.Fatalf("NewSQLiteVector() error = %v", err)
+	}
+	vectorStore := store.(*sqliteVector)
+	vectors := map[string][]float32{
+		"a": {1, 0},
+		"b": {0.9, 0.1},
+		"c": {0.8, 0.2},
+		"d": {0.7, 0.3},
+		"e": {0.3, 0.7},
+		"f": {0.2, 0.8},
+		"g": {0.1, 0.9},
+		"h": {0, 1},
+	}
+	for id, vector := range vectors {
+		if err := store.Upsert(ctx, id, vector, map[string]string{"tenant": "t1"}); err != nil {
+			t.Fatalf("Upsert(%s) error = %v", id, err)
+		}
+	}
+	if err := vectorStore.rebuildANNIfNeeded(ctx); err != nil {
+		t.Fatalf("rebuildANNIfNeeded: %v", err)
+	}
+	mode, err := vectorStore.vectorIndexMode(ctx)
+	if err != nil {
+		t.Fatalf("vectorIndexMode final: %v", err)
+	}
+	if mode != "ann" {
+		t.Fatalf("expected ann index mode, got %q", mode)
+	}
+	results, err := store.SimilaritySearch(ctx, []float32{1, 0}, 2, map[string]string{"tenant": "t1"})
+	if err != nil {
+		t.Fatalf("SimilaritySearch() error = %v", err)
+	}
+	if len(results) == 0 || results[0].ID != "a" {
+		t.Fatalf("unexpected results after ann rebuild: %#v", results)
+	}
+}
+
+func TestSQLiteGraph_TypedMagmaMaintenance(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	graph := NewSQLiteGraph(openTestSQLite(t))
+	if err := graph.UpsertNode(ctx, "event:1", []string{"MagmaEvent"}, map[string]any{"tenant": "t1", "session": "s1", "text": "hello", "graphs": `["semantic"]`}); err != nil {
+		t.Fatalf("UpsertNode() error = %v", err)
+	}
+	if err := TypedUpsertEdge(ctx, graph, TypedEdgeInput{Source: "event:1", GraphType: "semantic", Rel: "SIMILAR_TO", Target: "event:2", Props: map[string]any{"weight": 0.8}}); err != nil {
+		t.Fatalf("TypedUpsertEdge() error = %v", err)
+	}
+	maintenance, ok := graph.(MagmaGraphMaintenanceDB)
+	if !ok {
+		t.Fatal("sqlite graph does not implement MagmaGraphMaintenanceDB")
+	}
+	events, err := maintenance.ListMagmaEvents(ctx)
+	if err != nil {
+		t.Fatalf("ListMagmaEvents() error = %v", err)
+	}
+	if len(events) != 1 || events[0].ID != "event:1" {
+		t.Fatalf("unexpected events: %#v", events)
+	}
+	edges, err := maintenance.ListMagmaEdges(ctx)
+	if err != nil {
+		t.Fatalf("ListMagmaEdges() error = %v", err)
+	}
+	if len(edges) != 1 || edges[0].Weight != 0.8 {
+		t.Fatalf("unexpected edges: %#v", edges)
 	}
 }
 
@@ -194,8 +326,8 @@ func TestPostgresMagmaEventDeleteStatementsArePreparedSafe(t *testing.T) {
 func TestFactory_DefaultsAndNone(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	// Defaults should create memory backends
-	mgr, err := NewManager(ctx, config.DBConfig{})
+	// Defaults should create SQLite-backed local backends.
+	mgr, err := NewManager(ctx, config.DBConfig{SQLite: config.SQLiteConfig{Path: t.TempDir() + "/manifold.db"}})
 	if err != nil {
 		t.Fatalf("NewManager error: %v", err)
 	}
@@ -203,7 +335,7 @@ func TestFactory_DefaultsAndNone(t *testing.T) {
 		t.Fatalf("expected non-nil backends by default")
 	}
 	// None should create no-op backends
-	mgr, err = NewManager(ctx, config.DBConfig{Search: config.SearchConfig{Backend: "none"}, Vector: config.VectorConfig{Backend: "none"}, Graph: config.GraphConfig{Backend: "none"}})
+	mgr, err = NewManager(ctx, config.DBConfig{Backend: "memory", Search: config.SearchConfig{Backend: "none"}, Vector: config.VectorConfig{Backend: "none"}, Graph: config.GraphConfig{Backend: "none"}})
 	if err != nil {
 		t.Fatalf("NewManager error (none): %v", err)
 	}
@@ -279,6 +411,21 @@ func TestFactory_RejectsUnsupportedBackends(t *testing.T) {
 	if err == nil || err.Error() != "unsupported chat backend: bogus" {
 		t.Fatalf("expected unsupported chat backend error, got %v", err)
 	}
+}
+
+func openTestSQLite(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := sqlitep.Open(context.Background(), sqlitep.Config{
+		Path:          filepath.Join(t.TempDir(), "manifold.db"),
+		BusyTimeoutMs: 10000,
+		WAL:           true,
+		MaxOpenConns:  1,
+	})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
 }
 
 func TestCloseIfPossible_IgnoresTypedNilAndCallsClosers(t *testing.T) {

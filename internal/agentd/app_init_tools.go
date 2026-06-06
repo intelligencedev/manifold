@@ -54,7 +54,7 @@ func initAppTooling(ctx context.Context, cfg *config.Config, httpClient *http.Cl
 	baseToolRegistry := toolRegistry
 	exec := cli.NewExecutor(cfg.Exec, cfg.Workdir, cfg.OutputTruncateByte)
 	terminalManager := terminaltool.NewManager(cfg.Exec, cfg.Workdir)
-	codeQAService := initCodeQAService(ctx, cfg, exec, llm)
+	codeQAService := initCodeQAService(ctx, cfg, exec, llm, mgr)
 
 	registerBaseTools(baseToolOptions{
 		cfg:              cfg,
@@ -93,10 +93,17 @@ func initAppTooling(ctx context.Context, cfg *config.Config, httpClient *http.Cl
 	}, nil
 }
 
-func initCodeQAService(ctx context.Context, cfg *config.Config, exec cli.Executor, llm llmpkg.Provider) *codeqaservice.Service {
+func initCodeQAService(ctx context.Context, cfg *config.Config, exec cli.Executor, llm llmpkg.Provider, mgr databases.Manager) *codeqaservice.Service {
 	codeQAOpts := appcodeqa.OptionsFromConfig(cfg.CodeQA, cfg.Workdir)
 	codeQAStore := codeqastore.CodeQAStore(codeqastore.NewMemoryStore())
-	if strings.TrimSpace(cfg.Databases.DefaultDSN) != "" {
+	if shouldUseSQLiteDefault(cfg, mgr) {
+		sqliteStore := codeqastore.NewSQLiteStore(mgr.SQLite)
+		if initErr := sqliteStore.Init(ctx); initErr != nil {
+			log.Warn().Err(initErr).Msg("codeqa_sqlite_store_init_failed")
+		} else {
+			codeQAStore = sqliteStore
+		}
+	} else if strings.TrimSpace(cfg.Databases.DefaultDSN) != "" {
 		if pool, poolErr := databases.OpenPool(ctx, cfg.Databases.DefaultDSN); poolErr != nil {
 			log.Warn().Err(poolErr).Msg("codeqa_postgres_pool_open_failed")
 		} else {
@@ -111,6 +118,14 @@ func initCodeQAService(ctx context.Context, cfg *config.Config, exec cli.Executo
 	}
 	codeQARunner := appcodeqa.NewCLICommandRunner(exec, codeQAOpts.AllowedCommands)
 	return codeqaservice.New(codeQAOpts, codeQARunner, llm, codeQAStore)
+}
+
+func shouldUseSQLiteDefault(cfg *config.Config, mgr databases.Manager) bool {
+	if mgr.SQLite == nil || cfg == nil {
+		return false
+	}
+	backend := strings.ToLower(strings.TrimSpace(cfg.Databases.Backend))
+	return backend == "sqlite" || strings.TrimSpace(cfg.Databases.DefaultDSN) == ""
 }
 
 type baseToolOptions struct {

@@ -7,6 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+
+	sqlitep "manifold/internal/persistence/sqlite"
 )
 
 func TestStoreSchemaAndUser(t *testing.T) {
@@ -48,5 +50,60 @@ func TestStoreSchemaAndUser(t *testing.T) {
 	}
 	if _, _, err := st.GetSession(ctx, sess.ID); err != nil {
 		t.Fatalf("get session: %v", err)
+	}
+}
+
+func TestSQLiteStoreSchemaAndUser(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, err := sqlitep.Open(ctx, sqlitep.Config{
+		Path:          t.TempDir() + "/auth.db",
+		WAL:           true,
+		BusyTimeoutMs: 10000,
+		MaxOpenConns:  1,
+	})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+
+	st := NewSQLiteStore(db, 1)
+	if err := st.InitSchema(ctx); err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+	if err := st.EnsureDefaultRoles(ctx); err != nil {
+		t.Fatalf("seed roles: %v", err)
+	}
+	u := &User{Email: "test@example.com", Name: "Test", Provider: "oidc", Subject: "sub123"}
+	if _, err := st.UpsertUser(ctx, u); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if err := st.AddRole(ctx, u.ID, "user"); err != nil {
+		t.Fatalf("add role: %v", err)
+	}
+	ok, err := st.HasRole(ctx, u.ID, "user")
+	if err != nil || !ok {
+		t.Fatalf("has role: %v ok=%v", err, ok)
+	}
+	roles, err := st.RolesForUser(ctx, u.ID)
+	if err != nil {
+		t.Fatalf("roles: %v", err)
+	}
+	if len(roles) != 1 || roles[0] != "user" {
+		t.Fatalf("roles = %+v, want user", roles)
+	}
+	sess, err := st.CreateSession(ctx, u.ID)
+	if err != nil || sess == nil {
+		t.Fatalf("session: %v", err)
+	}
+	if err := st.SetSessionIDToken(ctx, sess.ID, "id-token"); err != nil {
+		t.Fatalf("set id token: %v", err)
+	}
+	gotSession, gotUser, err := st.GetSession(ctx, sess.ID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if gotSession.IDToken != "id-token" || gotUser.Email != u.Email {
+		t.Fatalf("session/user = %+v %+v", gotSession, gotUser)
 	}
 }

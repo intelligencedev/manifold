@@ -2,20 +2,23 @@ package databases
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"manifold/internal/agent/memory/belief"
 	"manifold/internal/config"
 	"manifold/internal/durable"
 	"manifold/internal/persistence"
+	sqlitep "manifold/internal/persistence/sqlite"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // NewManager constructs database backends based on configuration.
-// Supported backends: memory, none, auto, postgres.
+// Supported backends: sqlite, memory, none, auto, postgres.
 func NewManager(ctx context.Context, cfg config.DBConfig) (m Manager, err error) {
 	defer func() {
 		if err != nil {
@@ -29,22 +32,37 @@ func NewManager(ctx context.Context, cfg config.DBConfig) (m Manager, err error)
 	graphDSN := firstNonEmpty(cfg.Graph.DSN, cfg.DefaultDSN)
 	chatDSN := firstNonEmpty(cfg.Chat.DSN, cfg.DefaultDSN)
 
-	m.Search, err = buildSearchStore(ctx, cfg.Search.Backend, searchDSN)
+	rootBackend := resolveRootBackend(cfg)
+	searchBackend := resolveBackend(cfg.Search.Backend, rootBackend)
+	vectorBackend := resolveBackend(cfg.Vector.Backend, rootBackend)
+	graphBackend := resolveBackend(cfg.Graph.Backend, rootBackend)
+	chatBackend := resolveBackend(cfg.Chat.Backend, rootBackend)
+
+	if needsSQLite(rootBackend, searchBackend, vectorBackend, graphBackend, chatBackend) {
+		m.SQLite, err = openSQLite(ctx, cfg.SQLite)
+		if err != nil {
+			return Manager{}, err
+		}
+	}
+
+	m.Search, err = buildSearchStore(ctx, searchBackend, searchDSN, m.SQLite)
 	if err != nil {
 		return Manager{}, err
 	}
 
-	m.Vector, err = buildVectorStore(ctx, cfg.Vector, vectorDSN)
+	vectorCfg := cfg.Vector
+	vectorCfg.Backend = vectorBackend
+	m.Vector, err = buildVectorStore(ctx, vectorCfg, vectorDSN, m.SQLite, cfg.SQLite.Vector)
 	if err != nil {
 		return Manager{}, err
 	}
 
-	m.Graph, err = buildGraphStore(ctx, cfg.Graph.Backend, graphDSN)
+	m.Graph, err = buildGraphStore(ctx, graphBackend, graphDSN, m.SQLite)
 	if err != nil {
 		return Manager{}, err
 	}
 
-	m.Chat, err = buildChatStore(ctx, cfg.Chat.Backend, chatDSN)
+	m.Chat, err = buildChatStore(ctx, chatBackend, chatDSN, m.SQLite)
 	if err != nil {
 		return Manager{}, err
 	}
@@ -56,7 +74,7 @@ func NewManager(ctx context.Context, cfg config.DBConfig) (m Manager, err error)
 		return Manager{}, err
 	}
 
-	m.SpecialistActivity, err = buildSpecialistActivityStore(ctx, cfg.Chat.Backend, chatDSN)
+	m.SpecialistActivity, err = buildSpecialistActivityStore(ctx, chatBackend, chatDSN, m.SQLite)
 	if err != nil {
 		return Manager{}, err
 	}
@@ -74,7 +92,7 @@ func NewManager(ctx context.Context, cfg config.DBConfig) (m Manager, err error)
 	return m, nil
 }
 
-func buildSearchStore(ctx context.Context, backend, dsn string) (FullTextSearch, error) {
+func buildSearchStore(ctx context.Context, backend, dsn string, sqliteDB *sql.DB) (FullTextSearch, error) {
 	switch backend {
 	case "", "memory":
 		return NewMemorySearch(), nil
@@ -82,7 +100,15 @@ func buildSearchStore(ctx context.Context, backend, dsn string) (FullTextSearch,
 		if pool := openOptionalPostgresPool(ctx, dsn); pool != nil {
 			return NewPostgresSearch(pool), nil
 		}
+		if sqliteDB != nil {
+			return NewSQLiteSearch(sqliteDB), nil
+		}
 		return NewMemorySearch(), nil
+	case "sqlite":
+		if sqliteDB == nil {
+			return nil, fmt.Errorf("search backend sqlite requires database")
+		}
+		return NewSQLiteSearch(sqliteDB), nil
 	case "postgres", "pg":
 		if dsn == "" {
 			return nil, fmt.Errorf("search backend postgres requires DSN")
@@ -99,7 +125,7 @@ func buildSearchStore(ctx context.Context, backend, dsn string) (FullTextSearch,
 	}
 }
 
-func buildVectorStore(ctx context.Context, cfg config.VectorConfig, dsn string) (VectorStore, error) {
+func buildVectorStore(ctx context.Context, cfg config.VectorConfig, dsn string, sqliteDB *sql.DB, sqliteCfg config.SQLiteVectorConfig) (VectorStore, error) {
 	switch cfg.Backend {
 	case "", "memory":
 		return NewMemoryVector(), nil
@@ -111,7 +137,15 @@ func buildVectorStore(ctx context.Context, cfg config.VectorConfig, dsn string) 
 			}
 			return NewPostgresVector(pool, cfg.Dimensions, cfg.Metric), nil
 		}
+		if sqliteDB != nil {
+			return NewSQLiteVector(sqliteDB, cfg, sqliteCfg)
+		}
 		return NewMemoryVector(), nil
+	case "sqlite":
+		if sqliteDB == nil {
+			return nil, fmt.Errorf("vector backend sqlite requires database")
+		}
+		return NewSQLiteVector(sqliteDB, cfg, sqliteCfg)
 	case "postgres", "pgvector", "pg":
 		if dsn == "" {
 			return nil, fmt.Errorf("vector backend postgres requires DSN")
@@ -141,7 +175,7 @@ func buildVectorStore(ctx context.Context, cfg config.VectorConfig, dsn string) 
 	}
 }
 
-func buildGraphStore(ctx context.Context, backend, dsn string) (GraphDB, error) {
+func buildGraphStore(ctx context.Context, backend, dsn string, sqliteDB *sql.DB) (GraphDB, error) {
 	switch backend {
 	case "", "memory":
 		return NewMemoryGraph(), nil
@@ -149,7 +183,15 @@ func buildGraphStore(ctx context.Context, backend, dsn string) (GraphDB, error) 
 		if pool := openOptionalPostgresPool(ctx, dsn); pool != nil {
 			return NewPostgresGraph(pool), nil
 		}
+		if sqliteDB != nil {
+			return NewSQLiteGraph(sqliteDB), nil
+		}
 		return NewMemoryGraph(), nil
+	case "sqlite":
+		if sqliteDB == nil {
+			return nil, fmt.Errorf("graph backend sqlite requires database")
+		}
+		return NewSQLiteGraph(sqliteDB), nil
 	case "postgres", "pg":
 		if dsn == "" {
 			return nil, fmt.Errorf("graph backend postgres requires DSN")
@@ -166,7 +208,7 @@ func buildGraphStore(ctx context.Context, backend, dsn string) (GraphDB, error) 
 	}
 }
 
-func buildChatStore(ctx context.Context, backend, dsn string) (persistence.ChatStore, error) {
+func buildChatStore(ctx context.Context, backend, dsn string, sqliteDB *sql.DB) (persistence.ChatStore, error) {
 	switch backend {
 	case "", "memory", "none", "disabled":
 		return newMemoryChatStore(), nil
@@ -174,7 +216,15 @@ func buildChatStore(ctx context.Context, backend, dsn string) (persistence.ChatS
 		if pool := openOptionalPostgresPool(ctx, dsn); pool != nil {
 			return NewPostgresChatStore(pool), nil
 		}
+		if sqliteDB != nil {
+			return NewSQLiteChatStore(sqliteDB), nil
+		}
 		return newMemoryChatStore(), nil
+	case "sqlite":
+		if sqliteDB == nil {
+			return nil, fmt.Errorf("chat backend sqlite requires database")
+		}
+		return NewSQLiteChatStore(sqliteDB), nil
 	case "postgres", "pg":
 		if dsn == "" {
 			return nil, fmt.Errorf("chat backend postgres requires DSN")
@@ -189,7 +239,58 @@ func buildChatStore(ctx context.Context, backend, dsn string) (persistence.ChatS
 	}
 }
 
-func buildSpecialistActivityStore(ctx context.Context, backend, dsn string) (persistence.SpecialistActivityStore, error) {
+func resolveRootBackend(cfg config.DBConfig) string {
+	backend := normalizeBackend(cfg.Backend)
+	if backend != "" {
+		return backend
+	}
+	if strings.TrimSpace(cfg.DefaultDSN) != "" {
+		return "postgres"
+	}
+	return "sqlite"
+}
+
+func resolveBackend(backend, root string) string {
+	backend = normalizeBackend(backend)
+	if backend != "" {
+		return backend
+	}
+	if root == "" {
+		return "sqlite"
+	}
+	return root
+}
+
+func normalizeBackend(backend string) string {
+	return strings.ToLower(strings.TrimSpace(backend))
+}
+
+func needsSQLite(backends ...string) bool {
+	for _, backend := range backends {
+		switch normalizeBackend(backend) {
+		case "sqlite":
+			return true
+		case "auto":
+			return true
+		}
+	}
+	return false
+}
+
+func openSQLite(ctx context.Context, cfg config.SQLiteConfig) (*sql.DB, error) {
+	db, err := sqlitep.Open(ctx, sqlitep.Config{
+		Path:          cfg.Path,
+		BusyTimeoutMs: cfg.BusyTimeoutMs,
+		WAL:           cfg.WAL,
+		MaxOpenConns:  cfg.MaxOpenConns,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("connect sqlite: %w", err)
+	}
+	return db, nil
+}
+
+func buildSpecialistActivityStore(ctx context.Context, backend, dsn string, sqliteDB *sql.DB) (persistence.SpecialistActivityStore, error) {
 	switch backend {
 	case "", "memory", "none", "disabled":
 		return NewMemorySpecialistActivityStore(), nil
@@ -197,7 +298,15 @@ func buildSpecialistActivityStore(ctx context.Context, backend, dsn string) (per
 		if pool := openOptionalPostgresPool(ctx, dsn); pool != nil {
 			return NewPostgresSpecialistActivityStore(pool), nil
 		}
+		if sqliteDB != nil {
+			return NewSQLiteSpecialistActivityStore(sqliteDB), nil
+		}
 		return NewMemorySpecialistActivityStore(), nil
+	case "sqlite":
+		if sqliteDB == nil {
+			return nil, fmt.Errorf("specialist activity backend sqlite requires database")
+		}
+		return NewSQLiteSpecialistActivityStore(sqliteDB), nil
 	case "postgres", "pg":
 		if dsn == "" {
 			return nil, fmt.Errorf("specialist activity backend postgres requires DSN")
@@ -215,71 +324,147 @@ func buildSpecialistActivityStore(ctx context.Context, backend, dsn string) (per
 func initializeDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfig, chatDSN string) error {
 	configureDefaultPostgresStores(ctx, m, cfg)
 
-	m.FlowV2 = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPostgresFlowV2Store)
+	defaultBackend := resolveDefaultStoreBackend(cfg, m.SQLite != nil)
+	if err := initializeMemoryDefaultStores(ctx, m, cfg, defaultBackend); err != nil {
+		return err
+	}
+	if err := initializeWorkflowDefaultStores(ctx, m, cfg, defaultBackend); err != nil {
+		return err
+	}
+	if err := initializePlaygroundDefaultStore(ctx, m, cfg, chatDSN, defaultBackend); err != nil {
+		return err
+	}
+	if err := initializeConfigDefaultStores(ctx, m, cfg, defaultBackend); err != nil {
+		return err
+	}
+	if err := initializeRuntimeDefaultStores(ctx, m, cfg, defaultBackend); err != nil {
+		return err
+	}
+	return initializeBeliefDefaultStore(ctx, m, cfg, defaultBackend)
+}
+
+func initializeMemoryDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfig, defaultBackend string) error {
+	if defaultBackend != "sqlite" {
+		return nil
+	}
+	m.EvolvingMemory = NewSQLiteEvolvingMemoryStoreWithDimensions(m.SQLite, cfg.Vector.Dimensions)
+	if store, ok := m.EvolvingMemory.(interface{ Init(context.Context) error }); ok {
+		return initStore(ctx, "evolving memory store", store)
+	}
+	return nil
+}
+
+func initializeWorkflowDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfig, defaultBackend string) error {
+	if defaultBackend == "sqlite" {
+		m.FlowV2 = NewSQLiteFlowV2Store(m.SQLite)
+		m.Durable = durable.NewSQLiteStore(m.SQLite)
+	} else {
+		m.FlowV2 = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPostgresFlowV2Store)
+		m.Durable = durable.NewStore(openOptionalPostgresPool(ctx, cfg.DefaultDSN))
+	}
 	if err := initStore(ctx, "flow v2 store", m.FlowV2); err != nil {
 		return err
 	}
+	return initStore(ctx, "durable store", m.Durable)
+}
 
-	m.Durable = durable.NewStore(openOptionalPostgresPool(ctx, cfg.DefaultDSN))
-	if err := initStore(ctx, "durable store", m.Durable); err != nil {
-		return err
-	}
-
+func initializePlaygroundDefaultStore(ctx context.Context, m *Manager, cfg config.DBConfig, chatDSN string, defaultBackend string) error {
 	playgroundDSN := firstNonEmpty(chatDSN, cfg.DefaultDSN)
-	if playgroundDSN != "" {
-		store, err := NewPlaygroundStoreFromDSN(ctx, playgroundDSN)
+	if defaultBackend == "sqlite" {
+		store, err := NewSQLitePlaygroundStore(ctx, m.SQLite)
 		if err != nil {
 			return fmt.Errorf("init playground store: %w", err)
 		}
 		m.Playground = store
+		return nil
 	}
-
-	m.MCP = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewMCPStore)
-	if err := initStore(ctx, "mcp store", m.MCP); err != nil {
-		return err
+	if playgroundDSN == "" {
+		return nil
 	}
-
-	m.Projects = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPostgresProjectsStore)
-	if err := initStore(ctx, "projects store", m.Projects); err != nil {
-		return err
+	store, err := NewPlaygroundStoreFromDSN(ctx, playgroundDSN)
+	if err != nil {
+		return fmt.Errorf("init playground store: %w", err)
 	}
-
-	m.UserPreferences = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewUserPreferencesStore)
-	if err := initStore(ctx, "user preferences store", m.UserPreferences); err != nil {
-		return err
-	}
-
-	m.CommandPolicy = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewCommandPolicyStore)
-	if err := initStore(ctx, "command policy store", m.CommandPolicy); err != nil {
-		return err
-	}
-
-	m.Pulse = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPulseStore)
-	if err := initStore(ctx, "pulse store", m.Pulse); err != nil {
-		return err
-	}
-
-	m.MatrixMessages = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewMatrixMessageStore)
-	if err := initStore(ctx, "matrix message store", m.MatrixMessages); err != nil {
-		return err
-	}
-
-	m.Transit = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPostgresTransitStore)
-	if err := initStore(ctx, "transit store", m.Transit); err != nil {
-		return err
-	}
-
-	m.Belief = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, func(pool *pgxpool.Pool) belief.Store {
-		return NewBeliefStoreWithDimensions(pool, cfg.Vector.Dimensions)
-	})
-	if err := initStore(ctx, "belief store", m.Belief); err != nil {
-		return err
-	}
-
+	m.Playground = store
 	return nil
 }
 
+func initializeConfigDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfig, defaultBackend string) error {
+	if defaultBackend == "sqlite" {
+		m.MCP = NewSQLiteMCPStore(m.SQLite)
+		m.Projects = NewSQLiteProjectsStore(m.SQLite)
+		m.UserPreferences = NewSQLiteUserPreferencesStore(m.SQLite)
+		m.CommandPolicy = NewSQLiteCommandPolicyStore(m.SQLite)
+	} else {
+		m.MCP = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewMCPStore)
+		m.Projects = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPostgresProjectsStore)
+		m.UserPreferences = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewUserPreferencesStore)
+		m.CommandPolicy = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewCommandPolicyStore)
+	}
+	if err := initStore(ctx, "mcp store", m.MCP); err != nil {
+		return err
+	}
+	if err := initStore(ctx, "projects store", m.Projects); err != nil {
+		return err
+	}
+	if err := initStore(ctx, "user preferences store", m.UserPreferences); err != nil {
+		return err
+	}
+	return initStore(ctx, "command policy store", m.CommandPolicy)
+}
+
+func initializeRuntimeDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfig, defaultBackend string) error {
+	if defaultBackend == "sqlite" {
+		m.Pulse = NewSQLitePulseStore(m.SQLite)
+		m.MatrixMessages = NewSQLiteMatrixMessageStore(m.SQLite)
+		m.Transit = NewSQLiteTransitStore(m.SQLite)
+	} else {
+		m.Pulse = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPulseStore)
+		m.MatrixMessages = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewMatrixMessageStore)
+		m.Transit = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPostgresTransitStore)
+	}
+	if err := initStore(ctx, "pulse store", m.Pulse); err != nil {
+		return err
+	}
+	if err := initStore(ctx, "matrix message store", m.MatrixMessages); err != nil {
+		return err
+	}
+	return initStore(ctx, "transit store", m.Transit)
+}
+
+func initializeBeliefDefaultStore(ctx context.Context, m *Manager, cfg config.DBConfig, defaultBackend string) error {
+	if defaultBackend == "sqlite" {
+		m.Belief = NewSQLiteBeliefStore(m.SQLite)
+	} else {
+		m.Belief = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, func(pool *pgxpool.Pool) belief.Store {
+			return NewBeliefStoreWithDimensions(pool, cfg.Vector.Dimensions)
+		})
+	}
+	return initStore(ctx, "belief store", m.Belief)
+}
+
+func resolveDefaultStoreBackend(cfg config.DBConfig, sqliteAvailable bool) string {
+	backend := resolveRootBackend(cfg)
+	switch backend {
+	case "sqlite":
+		if sqliteAvailable {
+			return "sqlite"
+		}
+	case "auto":
+		if strings.TrimSpace(cfg.DefaultDSN) == "" && sqliteAvailable {
+			return "sqlite"
+		}
+	case "postgres", "pg":
+		return "postgres"
+	}
+	return "postgres"
+}
+
 func configureDefaultPostgresStores(ctx context.Context, m *Manager, cfg config.DBConfig) {
+	backend := resolveRootBackend(cfg)
+	if backend == "sqlite" || backend == "memory" || backend == "none" || backend == "disabled" {
+		return
+	}
 	if cfg.DefaultDSN == "" {
 		return
 	}

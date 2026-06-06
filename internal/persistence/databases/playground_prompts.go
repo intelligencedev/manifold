@@ -3,12 +3,9 @@ package databases
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"manifold/internal/playground/registry"
 	"sort"
 	"strings"
-
-	"github.com/jackc/pgx/v5"
 )
 
 func (s *PlaygroundStore) CreatePrompt(ctx context.Context, prompt registry.Prompt) (registry.Prompt, error) {
@@ -17,7 +14,7 @@ func (s *PlaygroundStore) CreatePrompt(ctx context.Context, prompt registry.Prom
 		return registry.Prompt{}, err
 	}
 	uid := userIDFromContext(ctx)
-	_, err = s.pool.Exec(ctx, `INSERT INTO playground_prompts (id, user_id, payload) VALUES ($1, $2, $3)`, prompt.ID, uid, data)
+	_, err = s.exec(ctx, `INSERT INTO playground_prompts (id, user_id, payload) VALUES ($1, $2, $3)`, prompt.ID, uid, data)
 	if err != nil {
 		if isPGConstraint(err) {
 			return registry.Prompt{}, registry.ErrPromptExists
@@ -30,13 +27,9 @@ func (s *PlaygroundStore) CreatePrompt(ctx context.Context, prompt registry.Prom
 // GetPrompt loads a prompt by ID.
 func (s *PlaygroundStore) GetPrompt(ctx context.Context, id string) (registry.Prompt, bool, error) {
 	uid := userIDFromContext(ctx)
-	row := s.pool.QueryRow(ctx, `SELECT payload FROM playground_prompts WHERE id=$1 AND user_id=$2`, id, uid)
-	var payload []byte
-	if err := row.Scan(&payload); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return registry.Prompt{}, false, nil
-		}
-		return registry.Prompt{}, false, err
+	payload, ok, err := s.queryOnePayload(ctx, `SELECT payload FROM playground_prompts WHERE id=$1 AND user_id=$2`, id, uid)
+	if err != nil || !ok {
+		return registry.Prompt{}, ok, err
 	}
 	var prompt registry.Prompt
 	if err := json.Unmarshal(payload, &prompt); err != nil {
@@ -48,26 +41,18 @@ func (s *PlaygroundStore) GetPrompt(ctx context.Context, id string) (registry.Pr
 // ListPrompts fetches all prompts and filters in memory.
 func (s *PlaygroundStore) ListPrompts(ctx context.Context, filter registry.ListFilter) ([]registry.Prompt, error) {
 	uid := userIDFromContext(ctx)
-	rows, err := s.pool.Query(ctx, `SELECT payload FROM playground_prompts WHERE user_id=$1`, uid)
+	payloads, err := s.queryPayloads(ctx, `SELECT payload FROM playground_prompts WHERE user_id=$1`, uid)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	var prompts []registry.Prompt
-	for rows.Next() {
-		var payload []byte
-		if err := rows.Scan(&payload); err != nil {
-			return nil, err
-		}
+	for _, payload := range payloads {
 		var prompt registry.Prompt
 		if err := json.Unmarshal(payload, &prompt); err != nil {
 			return nil, err
 		}
 		prompts = append(prompts, prompt)
-	}
-	if rows.Err() != nil {
-		return nil, rows.Err()
 	}
 
 	filtered := prompts[:0]
@@ -115,7 +100,7 @@ func (s *PlaygroundStore) CreatePromptVersion(ctx context.Context, version regis
 		return registry.PromptVersion{}, err
 	}
 	uid := userIDFromContext(ctx)
-	_, err = s.pool.Exec(ctx, `INSERT INTO playground_prompt_versions (id, prompt_id, created_at, user_id, payload) VALUES ($1,$2,$3,$4,$5)`, version.ID, version.PromptID, version.CreatedAt.UTC(), uid, data)
+	_, err = s.exec(ctx, `INSERT INTO playground_prompt_versions (id, prompt_id, created_at, user_id, payload) VALUES ($1,$2,$3,$4,$5)`, version.ID, version.PromptID, version.CreatedAt.UTC(), uid, data)
 	if err != nil {
 		return registry.PromptVersion{}, err
 	}
@@ -125,37 +110,28 @@ func (s *PlaygroundStore) CreatePromptVersion(ctx context.Context, version regis
 // ListPromptVersions returns all versions for a prompt newest first.
 func (s *PlaygroundStore) ListPromptVersions(ctx context.Context, promptID string) ([]registry.PromptVersion, error) {
 	uid := userIDFromContext(ctx)
-	rows, err := s.pool.Query(ctx, `SELECT payload FROM playground_prompt_versions WHERE prompt_id=$1 AND user_id=$2 ORDER BY created_at DESC`, promptID, uid)
+	payloads, err := s.queryPayloads(ctx, `SELECT payload FROM playground_prompt_versions WHERE prompt_id=$1 AND user_id=$2 ORDER BY created_at DESC`, promptID, uid)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	var versions []registry.PromptVersion
-	for rows.Next() {
-		var payload []byte
-		if err := rows.Scan(&payload); err != nil {
-			return nil, err
-		}
+	for _, payload := range payloads {
 		var version registry.PromptVersion
 		if err := json.Unmarshal(payload, &version); err != nil {
 			return nil, err
 		}
 		versions = append(versions, version)
 	}
-	return versions, rows.Err()
+	return versions, nil
 }
 
 // GetPromptVersion fetches a prompt version by ID.
 func (s *PlaygroundStore) GetPromptVersion(ctx context.Context, id string) (registry.PromptVersion, bool, error) {
 	uid := userIDFromContext(ctx)
-	row := s.pool.QueryRow(ctx, `SELECT payload FROM playground_prompt_versions WHERE id=$1 AND user_id=$2`, id, uid)
-	var payload []byte
-	if err := row.Scan(&payload); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return registry.PromptVersion{}, false, nil
-		}
-		return registry.PromptVersion{}, false, err
+	payload, ok, err := s.queryOnePayload(ctx, `SELECT payload FROM playground_prompt_versions WHERE id=$1 AND user_id=$2`, id, uid)
+	if err != nil || !ok {
+		return registry.PromptVersion{}, ok, err
 	}
 	var version registry.PromptVersion
 	if err := json.Unmarshal(payload, &version); err != nil {

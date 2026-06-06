@@ -284,10 +284,21 @@ auth:
 
 # Database backends.
 databases:
-  # Docker Compose users can keep embedded=false and use pg-manifold through
-  # DATABASE_URL. Host-run users can set embedded=true and leave DATABASE_URL
-  # empty; Manifold will start a bundled local PostgreSQL and wire its DSN into
-  # all database-backed stores at startup.
+  # SQLite is the default durable backend. It lets Manifold run as a single
+  # binary with no DATABASE_URL. Set backend=postgres and defaultDSN below for
+  # multi-host deployments or existing PostgreSQL data.
+  backend: sqlite # sqlite | postgres | memory | auto
+  sqlite:
+    path: "~/.manifold/manifold.db"
+    busyTimeoutMs: 10000
+    wal: true
+    maxOpenConns: 1
+    vector:
+      annEnabled: true
+      annMinRows: 5000
+      annRebuildChanges: 1000
+      nprobe: 0.08
+  # Embedded Postgres remains available only when explicitly enabled.
   embedded: false
   embeddedPort: 5433
   embeddedDataDir: "" # defaults to ~/.manifold/embedded-postgres/data
@@ -298,23 +309,23 @@ databases:
     - pgrouting
   embeddedAllowExternalRuntimeResolution: false # development only: allow downloaded/system PostgreSQL fallback when no embedded release runtime is bundled
   embeddedExtensionURL: "" # development only: override pre-built extension package base URL when external runtime resolution is enabled
-  defaultDSN: "${DATABASE_URL}"
+  defaultDSN: "" # optional Postgres DSN, e.g. ${DATABASE_URL}
   chat:
-    backend: postgres # memory | auto | postgres
-    dsn: "${DATABASE_URL}"
+    backend: sqlite # sqlite | memory | auto | postgres
+    dsn: ""
   search:
-    backend: postgres # memory | auto | postgres
-    dsn: "${DATABASE_URL}"
+    backend: sqlite # sqlite | memory | auto | postgres
+    dsn: ""
     index: documents
   vector:
-    backend: postgres # memory | auto | postgres | qdrant
-    dsn: "${DATABASE_URL}"
+    backend: sqlite # sqlite | memory | auto | postgres | qdrant
+    dsn: ""
     index: embeddings
     dimensions: 1536
     metric: cosine
   graph:
-    backend: postgres # memory | auto | postgres
-    dsn: "${DATABASE_URL}"
+    backend: sqlite # sqlite | memory | auto | postgres
+    dsn: ""
 
 # Embedding service, used by vector features and evolving memory.
 embedding:

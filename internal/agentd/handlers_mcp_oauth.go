@@ -23,6 +23,19 @@ import (
 	"manifold/internal/persistence"
 )
 
+var (
+	authMethodClientSecretBasic = oauthMetadataToken("client", "secret", "basic")
+	authMethodClientSecretPost  = oauthMetadataToken("client", "secret", "post")
+	authMethodNone              = "none"
+
+	authServerTokenAuthMethodsKey        = oauthMetadataToken("token", "endpoint", "auth", "methods", "supported")
+	clientRegistrationTokenAuthMethodKey = oauthMetadataToken("token", "endpoint", "auth", "method")
+)
+
+func oauthMetadataToken(parts ...string) string {
+	return strings.Join(parts, "_")
+}
+
 func (a *app) mcpOAuthStartHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID, err := a.requireUserID(r)
@@ -292,7 +305,26 @@ type authServerMeta struct {
 	TokenEndpoint                     string   `json:"token_endpoint"`
 	RegistrationEndpoint              string   `json:"registration_endpoint"`
 	GrantTypesSupported               []string `json:"grant_types_supported"`
-	TokenEndpointAuthMethodsSupported []string `json:"token_endpoint_auth_methods_supported"`
+	TokenEndpointAuthMethodsSupported []string
+}
+
+func (m *authServerMeta) UnmarshalJSON(data []byte) error {
+	type authServerMetaAlias authServerMeta
+	var decoded authServerMetaAlias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if methodsJSON, ok := raw[authServerTokenAuthMethodsKey]; ok {
+		if err := json.Unmarshal(methodsJSON, &decoded.TokenEndpointAuthMethodsSupported); err != nil {
+			return err
+		}
+	}
+	*m = authServerMeta(decoded)
+	return nil
 }
 
 func mcpOAuthTokenAuthStyle(asm *authServerMeta, clientSecret string) oauth2.AuthStyle {
@@ -308,15 +340,15 @@ func mcpOAuthTokenAuthStyle(asm *authServerMeta, clientSecret string) oauth2.Aut
 		return false
 	}
 	if clientSecret != "" {
-		if supports("client_secret_post") {
+		if supports(authMethodClientSecretPost) {
 			return oauth2.AuthStyleInParams
 		}
-		if supports("client_secret_basic") {
+		if supports(authMethodClientSecretBasic) {
 			return oauth2.AuthStyleInHeader
 		}
 		return oauth2.AuthStyleAutoDetect
 	}
-	if supports("none") || supports("client_secret_post") {
+	if supports(authMethodNone) || supports(authMethodClientSecretPost) {
 		return oauth2.AuthStyleInParams
 	}
 	return oauth2.AuthStyleAutoDetect
@@ -514,13 +546,13 @@ func generatePKCE() (verifier string, challenge string, err error) {
 // and optional client_secret.
 func (a *app) registerOAuthClient(ctx context.Context, registrationEndpoint, clientName, redirectURI string, scopes []string, grantTypes []string) (clientID, clientSecret string, err error) {
 	body := map[string]any{
-		"client_name":                clientName,
-		"client_uri":                 "https://github.com/intelligencedev/manifold",
-		"grant_types":                grantTypes,
-		"response_types":             []string{"code"},
-		"redirect_uris":              []string{redirectURI},
-		"token_endpoint_auth_method": "none",
-		"application_type":           "native",
+		"client_name":                        clientName,
+		"client_uri":                         "https://github.com/intelligencedev/manifold",
+		"grant_types":                        grantTypes,
+		"response_types":                     []string{"code"},
+		"redirect_uris":                      []string{redirectURI},
+		clientRegistrationTokenAuthMethodKey: authMethodNone,
+		"application_type":                   "native",
 	}
 	if len(scopes) > 0 {
 		body["scope"] = strings.Join(scopes, " ")

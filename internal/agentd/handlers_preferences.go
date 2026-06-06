@@ -84,10 +84,10 @@ func (a *app) handleSetPreferences(w http.ResponseWriter, r *http.Request, userI
 	if a.mcpPool != nil && a.mcpPool.RequiresPerUserMCP() && req.ActiveProjectID != "" {
 		ws, err := a.workspaceManager.Checkout(r.Context(), userID, req.ActiveProjectID, "")
 		if err != nil {
-			log.Warn().Err(err).Int64("userId", userID).Str("projectId", req.ActiveProjectID).Msg("workspace_checkout_for_mcp_failed")
+			log.Warn().Err(err).Int64("userId", userID).Str(workspaceRefFieldCamel(), req.ActiveProjectID).Msg("workspace_checkout_for_mcp_failed")
 		} else if ws.BaseDir != "" {
 			if err := a.mcpPool.EnsureUserSession(r.Context(), a.baseToolRegistry, userID, req.ActiveProjectID, ws.BaseDir); err != nil {
-				log.Warn().Err(err).Int64("userId", userID).Str("projectId", req.ActiveProjectID).Msg("mcp_session_setup_failed")
+				log.Warn().Err(err).Int64("userId", userID).Str(workspaceRefFieldCamel(), req.ActiveProjectID).Msg("mcp_session_setup_failed")
 			}
 		}
 	}
@@ -150,7 +150,7 @@ func (a *app) setActiveProjectHandler() http.HandlerFunc {
 		}
 
 		if err := a.userPrefsStore.SetActiveProject(r.Context(), userID, req.ProjectID); err != nil {
-			log.Error().Err(err).Int64("userId", userID).Str("projectId", req.ProjectID).Msg("failed to set active project")
+			log.Error().Err(err).Int64("userId", userID).Str(workspaceRefFieldCamel(), req.ProjectID).Msg("failed to set active project")
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -158,19 +158,20 @@ func (a *app) setActiveProjectHandler() http.HandlerFunc {
 		// Set up per-user MCP sessions for the new project when required
 		if a.mcpPool != nil && a.mcpPool.RequiresPerUserMCP() && req.ProjectID != "" {
 			// Checkout workspace to get the materialized path
-			ws, err := a.workspaceManager.Checkout(r.Context(), userID, req.ProjectID, "")
+			workspaceRef := req.ProjectID
+			ws, err := a.workspaceManager.Checkout(r.Context(), userID, workspaceRef, "")
 			if err != nil {
-				log.Warn().Err(err).Int64("userId", userID).Str("projectId", req.ProjectID).Msg("workspace_checkout_for_mcp_failed")
+				log.Warn().Err(err).Int64("userId", userID).Str(workspaceRefFieldCamel(), workspaceRef).Msg("workspace_checkout_for_mcp_failed")
 				// Non-fatal - preference is saved but MCP session not set up
 			} else if ws.BaseDir != "" {
-				if err := a.mcpPool.EnsureUserSession(r.Context(), a.baseToolRegistry, userID, req.ProjectID, ws.BaseDir); err != nil {
-					log.Warn().Err(err).Int64("userId", userID).Str("projectId", req.ProjectID).Msg("mcp_session_setup_failed")
+				if err := a.mcpPool.EnsureUserSession(r.Context(), a.baseToolRegistry, userID, workspaceRef, ws.BaseDir); err != nil {
+					log.Warn().Err(err).Int64("userId", userID).Str(workspaceRefFieldCamel(), workspaceRef).Msg("mcp_session_setup_failed")
 					// Non-fatal - agent can still work without path-dependent MCP tools
 				}
 			}
 		}
 
-		log.Debug().Int64("userId", userID).Str("projectId", req.ProjectID).Msg("active project updated")
+		log.Debug().Int64("userId", userID).Str(workspaceRefFieldCamel(), req.ProjectID).Msg("active project updated")
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "activeProjectId": req.ProjectID})

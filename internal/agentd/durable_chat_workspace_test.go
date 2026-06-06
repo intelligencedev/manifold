@@ -21,6 +21,7 @@ import (
 	"manifold/internal/testhelpers"
 	"manifold/internal/tools"
 	"manifold/internal/tools/cli"
+	terminaltool "manifold/internal/tools/terminal"
 	"manifold/internal/workspaces"
 )
 
@@ -159,133 +160,152 @@ func TestResumeOrAttachDurableChatRunRetriesFailedTask(t *testing.T) {
 func TestDurableChatRunCommandApprovalAnswerResumesRun(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
-	dir := t.TempDir()
-	execCfg := config.ExecConfig{
-		Sandbox: config.ExecSandboxConfig{
-			Enabled:           commandPolicyTestBool(false),
-			FailIfUnavailable: commandPolicyTestBool(true),
-			Network:           config.ExecSandboxNetworkConfig{Enabled: commandPolicyTestBool(false)},
-		},
-	}
-	executor := cli.NewExecutor(execCfg, dir, 0)
-	baseTools := tools.NewRegistry()
-	baseTools.Register(cli.NewTool(executor))
-	provider := &agentRunScriptedProvider{streamResponses: []agentRunStreamResponse{
-		{ToolCalls: []llm.ToolCall{{ID: "call-date", Name: "run_cli", Args: json.RawMessage(`{"command":"date"}`)}}},
-		{Deltas: []string{"done"}},
-	}}
-	chatStore := newPromptHandlerChatStore()
-	store := durable.NewMemoryStore()
-	client := durable.NewClient(store)
-	registry := durable.NewRegistry()
-	app := &app{
-		cfg: &config.Config{
-			Workdir:     dir,
-			EnableTools: true,
-			MaxSteps:    2,
-			Exec:        execCfg,
-			OpenAI:      config.OpenAIConfig{APIKey: "test", Model: "orchestrator-model"},
-			LLMClient: config.LLMClientConfig{
-				Provider: "openai",
-				OpenAI:   config.OpenAIConfig{APIKey: "test", Model: "orchestrator-model"},
-			},
-		},
-		llm:              provider,
-		baseToolRegistry: baseTools,
-		toolRegistry:     baseTools,
-		specRegistry:     specialists.NewRegistry(config.LLMClientConfig{}, nil, nil, baseTools),
-		engine: &agent.Engine{
-			LLM:      provider,
-			Tools:    baseTools,
-			MaxSteps: 2,
-			System:   "system",
-			Model:    "orchestrator-model",
-		},
-		chatStore:       chatStore,
-		chatMemory:      memory.NewManager(chatStore, provider, memory.Config{}),
-		runs:            newRunStore(),
-		durableStore:    store,
-		durableClient:   client,
-		durableRegistry: registry,
-		cliExecutor:     executor,
-	}
-	app.registerDurableHandlers()
-	worker := durable.NewWorker(store, client, registry, durable.WorkerOptions{WorkerID: "test", Lease: time.Minute, PollInterval: 10 * time.Millisecond})
-
-	body := strings.NewReader(`{"prompt":"what time is it?","session_id":"durable-approval"}`)
-	req := httptest.NewRequest(http.MethodPost, "/api/chat/runs", body)
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	app.chatRunsHandler().ServeHTTP(rec, req)
-	if rec.Code != http.StatusCreated {
-		t.Fatalf("start status = %d body=%s", rec.Code, rec.Body.String())
-	}
-	var start struct {
-		RunID string `json:"run_id"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &start); err != nil {
-		t.Fatalf("decode start: %v", err)
-	}
-	if start.RunID == "" {
-		t.Fatalf("missing run_id in start response: %s", rec.Body.String())
+	tests := []struct {
+		name string
+		tool string
+		args json.RawMessage
+	}{
+		{name: "run_cli", tool: "run_cli", args: json.RawMessage(`{"command":"date"}`)},
+		{name: "terminal_start", tool: "terminal_start", args: json.RawMessage(`{"command":"date"}`)},
 	}
 
-	if err := worker.RunOnce(ctx); err != nil {
-		t.Fatalf("first worker run: %v", err)
-	}
-	events, status, found, err := client.ListEvents(ctx, systemUserID, start.RunID, 0)
-	if err != nil || !found {
-		t.Fatalf("list events found=%v err=%v", found, err)
-	}
-	if status != durable.TaskStatusWaiting {
-		t.Fatalf("status = %s, want waiting", status)
-	}
-	var requestID string
-	for _, event := range events {
-		payload := durableChatStreamPayload(start.RunID, event)
-		if payload["type"] == "input_request" {
-			requestID, _ = payload["request_id"].(string)
-			break
-		}
-	}
-	if requestID == "" {
-		t.Fatalf("input request not found in events: %+v", events)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	answer := strings.NewReader(`{"choice_ids":["approve_once"],"answer":"Use this once."}`)
-	answerReq := httptest.NewRequest(http.MethodPost, "/api/chat/runs/"+start.RunID+"/input/"+requestID+"/answer", answer)
-	answerReq.Header.Set("Content-Type", "application/json")
-	answerRec := httptest.NewRecorder()
-	app.chatRunDetailHandler().ServeHTTP(answerRec, answerReq)
-	if answerRec.Code != http.StatusOK {
-		t.Fatalf("answer status = %d body=%s", answerRec.Code, answerRec.Body.String())
-	}
-	resumed, retried, err := app.resumeOrAttachDurableChatRun(ctx, systemUserID, start.RunID)
-	if err != nil {
-		t.Fatalf("resume or attach: %v", err)
-	}
-	if retried || resumed.Status != durable.TaskStatusQueued {
-		t.Fatalf("resume result = %+v retried=%v, want queued attach", resumed, retried)
-	}
-	if err := worker.RunOnce(ctx); err != nil {
-		t.Fatalf("second worker run: %v", err)
-	}
-	events, status, found, err = client.ListEvents(ctx, systemUserID, start.RunID, 0)
-	if err != nil || !found {
-		t.Fatalf("list final events found=%v err=%v", found, err)
-	}
-	if status != durable.TaskStatusCompleted {
-		t.Fatalf("status = %s, want completed", status)
-	}
-	var final string
-	for _, event := range events {
-		payload := durableChatStreamPayload(start.RunID, event)
-		if payload["type"] == "final" {
-			final, _ = payload["data"].(string)
-		}
-	}
-	if final != "done" {
-		t.Fatalf("final = %q, want done; events=%+v", final, events)
+			ctx := context.Background()
+			dir := t.TempDir()
+			execCfg := config.ExecConfig{
+				Sandbox: config.ExecSandboxConfig{
+					Enabled:           commandPolicyTestBool(false),
+					FailIfUnavailable: commandPolicyTestBool(true),
+					Network:           config.ExecSandboxNetworkConfig{Enabled: commandPolicyTestBool(false)},
+				},
+			}
+			executor := cli.NewExecutor(execCfg, dir, 0)
+			terminalManager := terminaltool.NewManager(execCfg, dir)
+			t.Cleanup(func() { _ = terminalManager.Close() })
+			baseTools := tools.NewRegistry()
+			baseTools.Register(cli.NewTool(executor))
+			baseTools.Register(terminaltool.NewStartTool(terminalManager))
+			provider := &agentRunScriptedProvider{streamResponses: []agentRunStreamResponse{
+				{ToolCalls: []llm.ToolCall{{ID: "call-date", Name: tt.tool, Args: tt.args}}},
+				{Deltas: []string{"done"}},
+			}}
+			chatStore := newPromptHandlerChatStore()
+			store := durable.NewMemoryStore()
+			client := durable.NewClient(store)
+			registry := durable.NewRegistry()
+			app := &app{
+				cfg: &config.Config{
+					Workdir:     dir,
+					EnableTools: true,
+					MaxSteps:    2,
+					Exec:        execCfg,
+					OpenAI:      config.OpenAIConfig{APIKey: "test", Model: "orchestrator-model"},
+					LLMClient: config.LLMClientConfig{
+						Provider: "openai",
+						OpenAI:   config.OpenAIConfig{APIKey: "test", Model: "orchestrator-model"},
+					},
+				},
+				llm:              provider,
+				baseToolRegistry: baseTools,
+				toolRegistry:     baseTools,
+				specRegistry:     specialists.NewRegistry(config.LLMClientConfig{}, nil, nil, baseTools),
+				engine: &agent.Engine{
+					LLM:      provider,
+					Tools:    baseTools,
+					MaxSteps: 2,
+					System:   "system",
+					Model:    "orchestrator-model",
+				},
+				chatStore:       chatStore,
+				chatMemory:      memory.NewManager(chatStore, provider, memory.Config{}),
+				runs:            newRunStore(),
+				durableStore:    store,
+				durableClient:   client,
+				durableRegistry: registry,
+				cliExecutor:     executor,
+				terminalManager: terminalManager,
+			}
+			app.registerDurableHandlers()
+			worker := durable.NewWorker(store, client, registry, durable.WorkerOptions{WorkerID: "test", Lease: time.Minute, PollInterval: 10 * time.Millisecond})
+
+			body := strings.NewReader(`{"prompt":"what time is it?","session_id":"durable-approval"}`)
+			req := httptest.NewRequest(http.MethodPost, "/api/chat/runs", body)
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			app.chatRunsHandler().ServeHTTP(rec, req)
+			if rec.Code != http.StatusCreated {
+				t.Fatalf("start status = %d body=%s", rec.Code, rec.Body.String())
+			}
+			var start struct {
+				RunID string `json:"run_id"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &start); err != nil {
+				t.Fatalf("decode start: %v", err)
+			}
+			if start.RunID == "" {
+				t.Fatalf("missing run_id in start response: %s", rec.Body.String())
+			}
+
+			if err := worker.RunOnce(ctx); err != nil {
+				t.Fatalf("first worker run: %v", err)
+			}
+			events, status, found, err := client.ListEvents(ctx, systemUserID, start.RunID, 0)
+			if err != nil || !found {
+				t.Fatalf("list events found=%v err=%v", found, err)
+			}
+			if status != durable.TaskStatusWaiting {
+				t.Fatalf("status = %s, want waiting", status)
+			}
+			var requestID string
+			for _, event := range events {
+				payload := durableChatStreamPayload(start.RunID, event)
+				if payload["type"] == "input_request" {
+					requestID, _ = payload["request_id"].(string)
+					break
+				}
+			}
+			if requestID == "" {
+				t.Fatalf("input request not found in events: %+v", events)
+			}
+
+			answer := strings.NewReader(`{"choice_ids":["approve_once"],"answer":"Use this once."}`)
+			answerReq := httptest.NewRequest(http.MethodPost, "/api/chat/runs/"+start.RunID+"/input/"+requestID+"/answer", answer)
+			answerReq.Header.Set("Content-Type", "application/json")
+			answerRec := httptest.NewRecorder()
+			app.chatRunDetailHandler().ServeHTTP(answerRec, answerReq)
+			if answerRec.Code != http.StatusOK {
+				t.Fatalf("answer status = %d body=%s", answerRec.Code, answerRec.Body.String())
+			}
+			resumed, retried, err := app.resumeOrAttachDurableChatRun(ctx, systemUserID, start.RunID)
+			if err != nil {
+				t.Fatalf("resume or attach: %v", err)
+			}
+			if retried || resumed.Status != durable.TaskStatusQueued {
+				t.Fatalf("resume result = %+v retried=%v, want queued attach", resumed, retried)
+			}
+			if err := worker.RunOnce(ctx); err != nil {
+				t.Fatalf("second worker run: %v", err)
+			}
+			events, status, found, err = client.ListEvents(ctx, systemUserID, start.RunID, 0)
+			if err != nil || !found {
+				t.Fatalf("list final events found=%v err=%v", found, err)
+			}
+			if status != durable.TaskStatusCompleted {
+				t.Fatalf("status = %s, want completed", status)
+			}
+			var final string
+			for _, event := range events {
+				payload := durableChatStreamPayload(start.RunID, event)
+				if payload["type"] == "final" {
+					final, _ = payload["data"].(string)
+				}
+			}
+			if final != "done" {
+				t.Fatalf("final = %q, want done; events=%+v", final, events)
+			}
+		})
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"manifold/internal/commandexec"
+	"manifold/internal/durable"
 )
 
 type startTool struct{ manager *Manager }
@@ -43,6 +44,9 @@ func (t *startTool) Call(ctx context.Context, raw json.RawMessage) (any, error) 
 	}
 	res, err := t.manager.Start(ctx, args)
 	if err != nil {
+		if errors.Is(err, durable.ErrSuspended) {
+			return nil, err
+		}
 		var policyErr *commandexec.PolicyError
 		if errors.As(err, &policyErr) {
 			return StartResult{

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -236,12 +237,11 @@ func TestParallelToolParsesArrayArguments(t *testing.T) {
 
 func TestParallelToolParsesStreamedArguments(t *testing.T) {
 	reg := tools.NewRegistry()
-	count := 0
+	var count atomic.Int64
 	reg.Register(fakeTool{
 		name: "alpha",
 		call: func(ctx context.Context, raw json.RawMessage) (any, error) {
-			count++
-			return map[string]int{"call": count}, nil
+			return map[string]int64{"call": count.Add(1)}, nil
 		},
 	})
 

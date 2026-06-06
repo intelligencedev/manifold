@@ -233,9 +233,11 @@ func (s *sqliteChatStore) ListMessages(ctx context.Context, userID *int64, sessi
 	out := []persistence.ChatMessage{}
 	for rows.Next() {
 		var msg persistence.ChatMessage
-		if err := rows.Scan(&msg.ID, &msg.SessionID, &msg.Role, &msg.Content, &msg.CreatedAt); err != nil {
+		var createdAt sqliteTime
+		if err := rows.Scan(&msg.ID, &msg.SessionID, &msg.Role, &msg.Content, &createdAt); err != nil {
 			return nil, err
 		}
+		msg.CreatedAt = createdAt.Time
 		out = append(out, msg)
 	}
 	return out, rows.Err()
@@ -427,7 +429,7 @@ func (s *sqliteChatStore) finalizeSQLiteChatDeleteTx(ctx context.Context, tx *sq
 }
 
 func sqliteDeleteMessagesAfter(ctx context.Context, tx *sql.Tx, sessionID string, messageID string, inclusive bool) error {
-	var targetCreated time.Time
+	var targetCreated string
 	err := tx.QueryRowContext(ctx, `SELECT created_at FROM chat_messages WHERE session_id = ? AND id = ?`, sessionID, messageID).Scan(&targetCreated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return persistence.ErrNotFound
@@ -472,9 +474,13 @@ func scanSQLiteChatSession(row interface {
 }) (persistence.ChatSession, error) {
 	var session persistence.ChatSession
 	var owner sql.NullInt64
-	if err := row.Scan(&session.ID, &session.Name, &session.Kind, &owner, &session.CreatedAt, &session.UpdatedAt, &session.LastMessagePreview, &session.Model, &session.Summary, &session.SummarizedCount, &session.ProjectID, &session.MemoryEnabled, &session.EvolvingMemoryEnabled, &session.BeliefMemoryEnabled); err != nil {
+	var createdAt sqliteTime
+	var updatedAt sqliteTime
+	if err := row.Scan(&session.ID, &session.Name, &session.Kind, &owner, &createdAt, &updatedAt, &session.LastMessagePreview, &session.Model, &session.Summary, &session.SummarizedCount, &session.ProjectID, &session.MemoryEnabled, &session.EvolvingMemoryEnabled, &session.BeliefMemoryEnabled); err != nil {
 		return persistence.ChatSession{}, err
 	}
+	session.CreatedAt = createdAt.Time
+	session.UpdatedAt = updatedAt.Time
 	if session.Kind == "" {
 		session.Kind = persistence.ChatSessionKindChat
 	}

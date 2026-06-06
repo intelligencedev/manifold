@@ -1,4 +1,4 @@
-//go:build !dev
+//go:build !dev && forge
 
 package webui
 
@@ -9,7 +9,7 @@ import (
 
 const embeddedDistDir = "dist"
 
-// Embed all top-level files and assets
+// Embed all top-level files and assets for release builds.
 // Note: files beginning with '_' are excluded by default in embed patterns.
 // If Vite generates underscore-prefixed files, add dist/assets/_* pattern.
 //

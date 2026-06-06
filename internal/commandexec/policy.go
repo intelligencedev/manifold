@@ -702,6 +702,7 @@ func secureEnv(workdir string) []string {
 		"TMP=" + tmpDir,
 		"GOTOOLCHAIN=local",
 		"GO111MODULE=on",
+		"GOTELEMETRY=off",
 		"GOCACHE=" + filepath.Join(cacheDir, "go-build"),
 		"GOMODCACHE=" + filepath.Join(cacheDir, "go-mod"),
 		"TERM=xterm-256color",

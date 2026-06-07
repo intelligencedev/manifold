@@ -543,7 +543,7 @@ llm_client:
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
-	if cfg.LLMClient.OpenAI.Model != "gpt-4o-mini" {
+	if cfg.LLMClient.OpenAI.Model != "gpt-5-mini" {
 		t.Fatalf("expected default model, got %q", cfg.LLMClient.OpenAI.Model)
 	}
 	if cfg.Exec.MaxCommandSeconds != 30 {
@@ -615,6 +615,79 @@ llm_client:
 	}
 	if cfg.Harness.Compact.KeepRecentSteps != 4 || !reflect.DeepEqual(cfg.Harness.Compact.PhaseThresholds, []float64{0.60, 0.75, 0.90}) {
 		t.Fatalf("unexpected default harness compact config: %+v", cfg.Harness.Compact)
+	}
+}
+
+func TestLoad_NoConfigFileUsesFirstRunDefaults(t *testing.T) {
+	tmpDir := t.TempDir()
+	home := filepath.Join(tmpDir, "home")
+	t.Chdir(tmpDir)
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "dummy-openai")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("GOOGLE_LLM_API_KEY", "")
+	t.Setenv("GOOGLE_API_KEY", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	wantWorkdir := filepath.Join(home, ".manifold", "projects")
+	if cfg.Workdir != wantWorkdir {
+		t.Fatalf("expected default workdir %q, got %q", wantWorkdir, cfg.Workdir)
+	}
+	if info, err := os.Stat(wantWorkdir); err != nil || !info.IsDir() {
+		t.Fatalf("expected default workdir to be created, info=%v err=%v", info, err)
+	}
+	if cfg.LLMClient.Provider != "openai" || cfg.LLMClient.OpenAI.APIKey != "dummy-openai" {
+		t.Fatalf("unexpected llm defaults: %+v", cfg.LLMClient)
+	}
+	if cfg.Databases.Backend != "sqlite" {
+		t.Fatalf("expected sqlite default, got %q", cfg.Databases.Backend)
+	}
+	if cfg.Memory.Enabled {
+		t.Fatalf("expected global memory disabled by default")
+	}
+	if !cfg.EvolvingMemory.Enabled || !cfg.BeliefMemory.Enabled || !cfg.Magma.Enabled {
+		t.Fatalf("expected memory subsystems enabled, got evolving=%v belief=%v magma=%v", cfg.EvolvingMemory.Enabled, cfg.BeliefMemory.Enabled, cfg.Magma.Enabled)
+	}
+	if !cfg.EvolvingMemory.EnableRAG || !cfg.BeliefMemory.EnableDistillation || !cfg.BeliefMemory.EnableRetrieval || !cfg.BeliefMemory.EnableConstraintEnforcement {
+		t.Fatalf("unexpected memory subsystem defaults: evolving=%+v belief=%+v", cfg.EvolvingMemory, cfg.BeliefMemory)
+	}
+	if cfg.Embedding.BaseURL != OpenAIAPIBaseURL || cfg.Embedding.APIKey != "dummy-openai" {
+		t.Fatalf("unexpected embedding defaults: %+v", cfg.Embedding)
+	}
+	if cfg.ImageTool.BaseURL != OpenAIAPIV1BaseURL || cfg.ImageTool.Model != "gpt-5.4-mini" {
+		t.Fatalf("unexpected image tool defaults: %+v", cfg.ImageTool)
+	}
+	if cfg.Reranking.Enabled {
+		t.Fatalf("expected reranking disabled by default")
+	}
+}
+
+func TestLoad_MinimalConfigSelectsOnlyConfiguredProviderKey(t *testing.T) {
+	tmpDir := t.TempDir()
+	home := filepath.Join(tmpDir, "home")
+	t.Chdir(tmpDir)
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("ANTHROPIC_API_KEY", "dummy-anthropic")
+	t.Setenv("GOOGLE_LLM_API_KEY", "")
+	t.Setenv("GOOGLE_API_KEY", "")
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(``), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.LLMClient.Provider != "anthropic" {
+		t.Fatalf("expected anthropic provider from env-only config, got %q", cfg.LLMClient.Provider)
+	}
+	if cfg.LLMClient.Anthropic.APIKey != "dummy-anthropic" {
+		t.Fatalf("expected anthropic api key from env, got %q", cfg.LLMClient.Anthropic.APIKey)
 	}
 }
 

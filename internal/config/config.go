@@ -104,6 +104,15 @@ type Config struct {
 	Memory MemoryConfig `yaml:"memory" json:"memory"`
 	// MemoryConfigured is set when the YAML contains a top-level memory block.
 	MemoryConfigured bool `yaml:"-" json:"-"`
+	// EvolvingMemoryConfigured is set when the YAML contains the legacy
+	// top-level evolvingMemory block.
+	EvolvingMemoryConfigured bool `yaml:"-" json:"-"`
+	// BeliefMemoryConfigured is set when the YAML contains the legacy
+	// top-level beliefMemory block.
+	BeliefMemoryConfigured bool `yaml:"-" json:"-"`
+	// MagmaConfigured is set when the YAML contains the legacy top-level magma
+	// block.
+	MagmaConfigured bool `yaml:"-" json:"-"`
 	// ImageTool configures defaults for the describe_image tool.
 	ImageTool ImageToolConfig `yaml:"imageTool" json:"imageTool"`
 	// EvolvingMemory configures the Search-Synthesis-Evolve memory system.

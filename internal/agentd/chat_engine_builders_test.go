@@ -54,6 +54,14 @@ func buildOrchestratorTestRequest(sessionID, systemPromptOverride string, owner 
 	}
 }
 
+func enabledChatMemoryRunSettings() chatMemoryRunSettings {
+	return chatMemoryRunSettings{
+		MemoryEnabled:         true,
+		EvolvingMemoryEnabled: true,
+		BeliefMemoryEnabled:   true,
+	}
+}
+
 func TestBuildSpecialistChatEngineUsesOverrideAndSkills(t *testing.T) {
 	t.Parallel()
 
@@ -72,7 +80,9 @@ func TestBuildSpecialistChatEngineUsesOverrideAndSkills(t *testing.T) {
 	}
 	app.invalidateSpecialistsCache(ctx, 7)
 
-	result := app.buildSpecialistChatEngine(ctx, buildSpecialistTestRequest("alpha", "override system", "sess-1", 7))
+	req := buildSpecialistTestRequest("alpha", "override system", "sess-1", 7)
+	req.MemorySettings = enabledChatMemoryRunSettings()
+	result := app.buildSpecialistChatEngine(ctx, req)
 	if result.Err != nil {
 		t.Fatalf("buildSpecialistChatEngine: %v", result.Err)
 	}
@@ -610,7 +620,9 @@ func TestBuildSpecialistChatEngineAttachesSessionEvolvingMemory(t *testing.T) {
 	}
 	app.invalidateSpecialistsCache(ctx, 7)
 
-	result := app.buildSpecialistChatEngine(ctx, buildSpecialistTestRequest("alpha", "", "sess-42", 7))
+	req := buildSpecialistTestRequest("alpha", "", "sess-42", 7)
+	req.MemorySettings = enabledChatMemoryRunSettings()
+	result := app.buildSpecialistChatEngine(ctx, req)
 	if result.Err != nil {
 		t.Fatalf("buildSpecialistChatEngine: %v", result.Err)
 	}
@@ -713,7 +725,9 @@ func TestBuildTeamChatEngineAttachesSessionEvolvingMemory(t *testing.T) {
 		t.Fatalf("upsert team: %v", err)
 	}
 
-	result := app.buildTeamChatEngine(ctx, buildTeamTestRequest("ops", "sess-team", 9))
+	req := buildTeamTestRequest("ops", "sess-team", 9)
+	req.MemorySettings = enabledChatMemoryRunSettings()
+	result := app.buildTeamChatEngine(ctx, req)
 	if result.Err != nil {
 		t.Fatalf("buildTeamChatEngine: %v", result.Err)
 	}

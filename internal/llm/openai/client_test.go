@@ -53,6 +53,31 @@ func TestClientDefaultsToResponsesAPI(t *testing.T) {
 	}
 }
 
+func TestNewDoesNotMutateProvidedHTTPClientTransport(t *testing.T) {
+	t.Parallel()
+
+	transport := http.DefaultTransport
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   time.Second,
+	}
+
+	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: "http://localhost:8000", Model: "m"}, client)
+
+	if client.Transport != transport {
+		t.Fatalf("expected original client transport to be unchanged")
+	}
+	if cli.httpClient == client {
+		t.Fatalf("expected self-hosted wrapper to use a client copy")
+	}
+	if cli.httpClient.Timeout != client.Timeout {
+		t.Fatalf("expected copied client to preserve timeout")
+	}
+	if _, ok := cli.httpClient.Transport.(*sseTransportWrapper); !ok {
+		t.Fatalf("expected copied client to use SSE transport wrapper, got %T", cli.httpClient.Transport)
+	}
+}
+
 func TestChatWithOptions_ServerReturnsChoice(t *testing.T) {
 	// Start a test server that mimics minimal OpenAI Chat Completion response.
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

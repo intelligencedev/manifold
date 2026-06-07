@@ -224,6 +224,7 @@ func TestPromptHandlerRoutesSpecialistBeforeDevMockFallback(t *testing.T) {
 				APIKey:  "test",
 				BaseURL: specialistServer.URL,
 				Model:   "spec-model",
+				API:     "completions",
 			},
 		},
 	}
@@ -301,6 +302,7 @@ func TestPromptHandlerSystemPromptOverridesDirectSpecialistPrompt(t *testing.T) 
 				APIKey:  "test",
 				BaseURL: specialistServer.URL,
 				Model:   "spec-model",
+				API:     "completions",
 			},
 		},
 	}
@@ -564,6 +566,7 @@ func newSpecialistTestApp(t *testing.T, baseURL string, specs []config.Specialis
 				APIKey:  "test",
 				BaseURL: baseURL,
 				Model:   "spec-model",
+				API:     "completions",
 			},
 		},
 	}

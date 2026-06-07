@@ -83,7 +83,9 @@ func New(c config.OpenAIConfig, httpClient *http.Client) *Client {
 			isSelfHost: true,
 		}
 
-		httpClient.Transport = wrappedTransport
+		clientCopy := *httpClient
+		clientCopy.Transport = wrappedTransport
+		httpClient = &clientCopy
 	}
 
 	opts := []option.RequestOption{option.WithAPIKey(c.APIKey)}

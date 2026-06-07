@@ -44,6 +44,15 @@ func openAICloudTestClient(serverURL string) (*http.Client, error) {
 	return &http.Client{Transport: rewriteTransport{target: target, base: transport}}, nil
 }
 
+func TestClientDefaultsToResponsesAPI(t *testing.T) {
+	t.Parallel()
+
+	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: config.OpenAIAPIV1BaseURL, Model: "m"}, nil)
+	if cli.api != "responses" {
+		t.Fatalf("expected default api responses, got %q", cli.api)
+	}
+}
+
 func TestChatWithOptions_ServerReturnsChoice(t *testing.T) {
 	// Start a test server that mimics minimal OpenAI Chat Completion response.
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +63,7 @@ func TestChatWithOptions_ServerReturnsChoice(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	c := config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m"}
+	c := config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m", API: "completions"}
 	cli := New(c, srv.Client())
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -88,7 +97,7 @@ func TestSelfHostedChatUsesReturnedUsageWithoutTokenizeFallback(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m"}, srv.Client())
+	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m", API: "completions"}, srv.Client())
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -123,7 +132,7 @@ func TestChatWithOptions_AppendsWebSearchOptions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("test client: %v", err)
 	}
-	c := config.OpenAIConfig{APIKey: "test", BaseURL: "https://api.openai.com/v1", Model: "gpt-5-search-api"}
+	c := config.OpenAIConfig{APIKey: "test", BaseURL: "https://api.openai.com/v1", Model: "gpt-5-search-api", API: "completions"}
 	cli := New(c, httpClient)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -164,7 +173,7 @@ func TestChatWithOptionsNilToolsOmitsNativeWebSearch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("test client: %v", err)
 	}
-	c := config.OpenAIConfig{APIKey: "test", BaseURL: "https://api.openai.com/v1", Model: "gpt-5-search-api"}
+	c := config.OpenAIConfig{APIKey: "test", BaseURL: "https://api.openai.com/v1", Model: "gpt-5-search-api", API: "completions"}
 	cli := New(c, httpClient)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -544,6 +553,7 @@ func TestSelfHostedSSEHeaderInjection(t *testing.T) {
 		APIKey:  "test",
 		BaseURL: srv.URL, // This should trigger SSE header injection
 		Model:   "test-model",
+		API:     "completions",
 	}
 	cli := New(c, httpClient)
 
@@ -595,7 +605,7 @@ func TestSelfHostedSSEFallbackUsesFinalUsageChunkForMetrics(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: model}, srv.Client())
+	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: model, API: "completions"}, srv.Client())
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -682,7 +692,7 @@ func TestSelfHostedChatStripsTaggedThoughtContent(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m"}, srv.Client())
+	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m", API: "completions"}, srv.Client())
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -722,7 +732,7 @@ func TestSelfHostedChatStreamParsesTaggedThoughtContent(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m"}, srv.Client())
+	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m", API: "completions"}, srv.Client())
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -763,7 +773,7 @@ func TestSelfHostedChatStripsThinkBlockContent(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m"}, srv.Client())
+	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m", API: "completions"}, srv.Client())
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -800,7 +810,7 @@ func TestSelfHostedChatStreamParsesThinkBlocks(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m"}, srv.Client())
+	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m", API: "completions"}, srv.Client())
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -843,7 +853,7 @@ func TestSelfHostedChatStreamUsesMessageReasoningContent(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m"}, srv.Client())
+	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m", API: "completions"}, srv.Client())
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -883,7 +893,7 @@ func TestSelfHostedChatStreamAccumulatesReasoningContentTokens(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m"}, srv.Client())
+	cli := New(config.OpenAIConfig{APIKey: "test", BaseURL: srv.URL, Model: "m", API: "completions"}, srv.Client())
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 

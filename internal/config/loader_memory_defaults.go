@@ -207,7 +207,7 @@ func applySummaryOpenAIDefaults(cfg *Config) {
 	if cfg.Summary.LLMClient.OpenAI.API == "" {
 		cfg.Summary.LLMClient.OpenAI.API = cfg.LLMClient.OpenAI.API
 		if cfg.Summary.LLMClient.OpenAI.API == "" {
-			cfg.Summary.LLMClient.OpenAI.API = "completions"
+			cfg.Summary.LLMClient.OpenAI.API = "responses"
 		}
 	}
 	if len(cfg.Summary.LLMClient.OpenAI.ExtraHeaders) == 0 && len(cfg.LLMClient.OpenAI.ExtraHeaders) > 0 {

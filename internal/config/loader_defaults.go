@@ -114,7 +114,7 @@ func applyLLMDefaults(cfg *Config) {
 		cfg.LLMClient.OpenAI.Model = "gpt-5-mini"
 	}
 	if cfg.LLMClient.OpenAI.API == "" {
-		cfg.LLMClient.OpenAI.API = "completions"
+		cfg.LLMClient.OpenAI.API = "responses"
 	}
 	if cfg.LLMClient.Anthropic.Model == "" {
 		cfg.LLMClient.Anthropic.Model = "claude-sonnet-4-6"

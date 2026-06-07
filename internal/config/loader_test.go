@@ -546,6 +546,9 @@ llm_client:
 	if cfg.LLMClient.OpenAI.Model != "gpt-5-mini" {
 		t.Fatalf("expected default model, got %q", cfg.LLMClient.OpenAI.Model)
 	}
+	if cfg.LLMClient.OpenAI.API != "responses" {
+		t.Fatalf("expected default OpenAI api responses, got %q", cfg.LLMClient.OpenAI.API)
+	}
 	if cfg.Exec.MaxCommandSeconds != 30 {
 		t.Fatalf("expected default command timeout, got %d", cfg.Exec.MaxCommandSeconds)
 	}
@@ -641,6 +644,9 @@ func TestLoad_NoConfigFileUsesFirstRunDefaults(t *testing.T) {
 	}
 	if cfg.LLMClient.Provider != "openai" || cfg.LLMClient.OpenAI.APIKey != "dummy-openai" {
 		t.Fatalf("unexpected llm defaults: %+v", cfg.LLMClient)
+	}
+	if cfg.LLMClient.OpenAI.API != "responses" {
+		t.Fatalf("expected default OpenAI api responses, got %q", cfg.LLMClient.OpenAI.API)
 	}
 	if cfg.Databases.Backend != "sqlite" {
 		t.Fatalf("expected sqlite default, got %q", cfg.Databases.Backend)

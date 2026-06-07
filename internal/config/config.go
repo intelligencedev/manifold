@@ -397,7 +397,7 @@ type OpenAIConfig struct {
 	SummaryModel   string `yaml:"summaryModel" json:"summaryModel"`
 	SummaryBaseURL string `yaml:"summaryBaseURL" json:"summaryBaseURL"`
 	// API selects which OpenAI-compatible API surface to use for chat: "completions" or "responses".
-	// Defaults to "completions" if empty or unrecognized.
+	// Defaults to "responses" if empty.
 	API string `yaml:"api" json:"api"`
 	// ExtraHeaders are added to every main agent HTTP request.
 	ExtraHeaders map[string]string `yaml:"extraHeaders" json:"extraHeaders"`

@@ -60,7 +60,7 @@ jobs:
 
           case "$TARGET" in
             all)
-              matrix='{"include":[{"target_os":"linux","target_arch":"amd64","runner":"ubuntu-24.04"},{"target_os":"linux","target_arch":"arm64","runner":"ubuntu-24.04-arm"},{"target_os":"darwin","target_arch":"amd64","runner":"macos-15-intel"},{"target_os":"darwin","target_arch":"arm64","runner":"macos-15"},{"target_os":"windows","target_arch":"amd64","runner":"windows-2022"},{"target_os":"windows","target_arch":"arm64","runner":"windows-11-arm"}]}'
+              matrix='{"include":[{"target_os":"linux","target_arch":"amd64","runner":"ubuntu-24.04"},{"target_os":"linux","target_arch":"arm64","runner":"ubuntu-24.04-arm"},{"target_os":"darwin","target_arch":"amd64","runner":["self-hosted","Linux","X64","cross-compile"]},{"target_os":"darwin","target_arch":"arm64","runner":["self-hosted","Linux","X64","cross-compile","target-darwin-arm64"]},{"target_os":"windows","target_arch":"amd64","runner":"windows-2022"},{"target_os":"windows","target_arch":"arm64","runner":"windows-11-arm"}]}'
               ;;
             linux-amd64)
               matrix='{"include":[{"target_os":"linux","target_arch":"amd64","runner":"ubuntu-24.04"}]}'
@@ -69,10 +69,10 @@ jobs:
               matrix='{"include":[{"target_os":"linux","target_arch":"arm64","runner":"ubuntu-24.04-arm"}]}'
               ;;
             darwin-amd64)
-              matrix='{"include":[{"target_os":"darwin","target_arch":"amd64","runner":"macos-15-intel"}]}'
+              matrix='{"include":[{"target_os":"darwin","target_arch":"amd64","runner":["self-hosted","Linux","X64","cross-compile"]}]}'
               ;;
             darwin-arm64)
-              matrix='{"include":[{"target_os":"darwin","target_arch":"arm64","runner":"macos-15"}]}'
+              matrix='{"include":[{"target_os":"darwin","target_arch":"arm64","runner":["self-hosted","Linux","X64","cross-compile","target-darwin-arm64"]}]}'
               ;;
             windows-amd64)
               matrix='{"include":[{"target_os":"windows","target_arch":"amd64","runner":"windows-2022"}]}'
@@ -148,8 +148,27 @@ jobs:
         run: |
           mkdir -p dist/release
           archive="manifold-${{ inputs.version }}-${{ matrix.target_os }}-${{ matrix.target_arch }}"
-          (cd dist/package && zip -qr "../release/${archive}.zip" .)
-          shasum -a 256 "dist/release/${archive}.zip" > "dist/release/${archive}.zip.sha256"
+          if command -v zip >/dev/null 2>&1; then
+            (cd dist/package && zip -qr "../release/${archive}.zip" .)
+          else
+            ARCHIVE_PATH="dist/release/${archive}.zip" python3 - <<'PY'
+          import os
+          import pathlib
+          import zipfile
+
+          archive = pathlib.Path(os.environ["ARCHIVE_PATH"])
+          root = pathlib.Path("dist/package")
+          with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+              for path in sorted(root.rglob("*")):
+                  if path.is_file():
+                      zf.write(path, path.relative_to(root))
+          PY
+          fi
+          if command -v shasum >/dev/null 2>&1; then
+            shasum -a 256 "dist/release/${archive}.zip" > "dist/release/${archive}.zip.sha256"
+          else
+            sha256sum "dist/release/${archive}.zip" > "dist/release/${archive}.zip.sha256"
+          fi
 
       - name: Upload Manifold artifact
         uses: actions/upload-artifact@v4

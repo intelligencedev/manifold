@@ -120,6 +120,43 @@ jobs:
         shell: bash
         run: corepack enable
 
+      - name: Install self-hosted Linux prerequisites
+        if: ${{ runner.os == 'Linux' && contains(matrix.runner, 'self-hosted') }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          missing=()
+          for tool in make zip python3; do
+            if ! command -v "$tool" >/dev/null 2>&1; then
+              missing+=("$tool")
+            fi
+          done
+          if [ "${#missing[@]}" -eq 0 ]; then
+            exit 0
+          fi
+
+          run_as_root() {
+            if [ "$(id -u)" -eq 0 ]; then
+              "$@"
+            else
+              sudo "$@"
+            fi
+          }
+
+          if command -v apt-get >/dev/null 2>&1; then
+            run_as_root apt-get update
+            run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y make zip python3
+          elif command -v dnf >/dev/null 2>&1; then
+            run_as_root dnf install -y make zip python3
+          elif command -v yum >/dev/null 2>&1; then
+            run_as_root yum install -y make zip python3
+          else
+            echo "Missing required tools: ${missing[*]}" >&2
+            echo "Install make, zip, and python3 on the self-hosted runner image." >&2
+            exit 1
+          fi
+
       - name: Build frontend
         shell: bash
         run: make frontend

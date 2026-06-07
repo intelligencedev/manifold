@@ -8,26 +8,14 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"manifold/internal/config"
-	"manifold/internal/embeddedpg"
 )
 
 func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
-	cfg.Databases.EmbeddedDiagnosticLogPath = cfg.LogPath
-	embeddedRuntime, err := embeddedpg.Start(&cfg.Databases)
-	if err != nil {
-		return nil, fmt.Errorf("start embedded postgres: %w", err)
-	}
-	defer func() {
-		if err != nil && embeddedRuntime != nil {
-			_ = embeddedRuntime.Stop()
-		}
-	}()
-
 	startup, err := buildAppStartup(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-	app := newAppShell(startup.shellDeps(cfg, embeddedRuntime))
+	app := newAppShell(startup.shellDeps(cfg))
 	if err := app.initPersistentServices(ctx, cfg); err != nil {
 		return nil, err
 	}

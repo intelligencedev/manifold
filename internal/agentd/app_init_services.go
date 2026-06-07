@@ -18,7 +18,6 @@ import (
 	"manifold/internal/config"
 	"manifold/internal/constitution"
 	"manifold/internal/durable"
-	"manifold/internal/embeddedpg"
 	"manifold/internal/fleet"
 	"manifold/internal/httpapi"
 	llmpkg "manifold/internal/llm"
@@ -76,6 +75,9 @@ func buildAppStartup(ctx context.Context, cfg *config.Config) (appStartupDeps, e
 	if err != nil {
 		return appStartupDeps{}, fmt.Errorf("init databases: %w", err)
 	}
+	if err := initializeCommandPolicy(ctx, cfg, mgr.CommandPolicy); err != nil {
+		return appStartupDeps{}, fmt.Errorf("init command policy: %w", err)
+	}
 	durableClient := durable.NewClient(mgr.Durable)
 	durableRegistry := durable.NewRegistry()
 	tooling, err := initAppTooling(ctx, cfg, httpClient, llm, mgr)
@@ -96,12 +98,11 @@ func buildAppStartup(ctx context.Context, cfg *config.Config) (appStartupDeps, e
 	}, nil
 }
 
-func (deps appStartupDeps) shellDeps(cfg *config.Config, embeddedRuntime *embeddedpg.Runtime) appShellDeps {
+func (deps appStartupDeps) shellDeps(cfg *config.Config) appShellDeps {
 	return appShellDeps{
 		cfg:              cfg,
 		httpClient:       deps.httpClient,
 		mgr:              deps.mgr,
-		embeddedRuntime:  embeddedRuntime,
 		llm:              deps.llm,
 		summaryLLM:       deps.summaryLLM,
 		durableClient:    deps.durableClient,
@@ -134,7 +135,6 @@ type appShellDeps struct {
 	cfg              *config.Config
 	httpClient       *http.Client
 	mgr              databases.Manager
-	embeddedRuntime  *embeddedpg.Runtime
 	llm              llmpkg.Provider
 	summaryLLM       llmpkg.Provider
 	durableClient    *durable.Client
@@ -152,7 +152,6 @@ func newAppShell(deps appShellDeps) *app {
 		cfg:                deps.cfg,
 		httpClient:         deps.httpClient,
 		mgr:                &deps.mgr,
-		embeddedRuntime:    deps.embeddedRuntime,
 		llm:                deps.llm,
 		summaryLLM:         deps.summaryLLM,
 		durableStore:       deps.mgr.Durable,
@@ -173,6 +172,7 @@ func newAppShell(deps appShellDeps) *app {
 		evolvingSessionTTL: defaultEvolvingSessionTTL,
 		mcpStore:           deps.mgr.MCP,
 		userPrefsStore:     deps.mgr.UserPreferences,
+		commandPolicyStore: deps.mgr.CommandPolicy,
 		mcpManager:         deps.routing.mcpManager,
 		mcpPool:            deps.routing.mcpPool,
 		workspaceManager:   deps.routing.workspaceManager,
@@ -185,6 +185,9 @@ func newAppShell(deps appShellDeps) *app {
 		WorkerID:     fmt.Sprintf("agentd-%d", os.Getpid()),
 		Lease:        5 * time.Minute,
 		PollInterval: 500 * time.Millisecond,
+		QueueConcurrency: map[string]int{
+			durableChatQueue: durableChatWorkerConcurrency,
+		},
 	})
 	return a
 }

@@ -11,6 +11,7 @@ import {
   listChatSessions,
   renameChatSession as apiRenameChatSession,
   streamChatRunEvents,
+  updateChatSessionCommandPolicyAllowAll as apiUpdateChatSessionCommandPolicyAllowAll,
   updateChatSessionMemorySettings as apiUpdateChatSessionMemorySettings,
   updateChatSessionProject as apiUpdateChatSessionProject,
 } from "@/api/chat";
@@ -353,7 +354,29 @@ function createSessionSettingsActions(state: ChatStoreState) {
     return normalized;
   }
 
-  return { updateSessionProject, updateSessionMemorySettings };
+  async function updateSessionCommandPolicyAllowAll(
+    sessionId: string,
+    allow: boolean,
+  ) {
+    const existing = state.sessions.value.find((s) => s.id === sessionId);
+    if (existing && (existing.commandPolicyAllowAll ?? false) === allow) {
+      return existing;
+    }
+    const updated = await apiUpdateChatSessionCommandPolicyAllowAll(
+      sessionId,
+      allow,
+    );
+    state.sessionsError.value = null;
+    const normalized = normalizeSessionMeta(updated);
+    state.upsertSessionMeta(normalized);
+    return normalized;
+  }
+
+  return {
+    updateSessionProject,
+    updateSessionMemorySettings,
+    updateSessionCommandPolicyAllowAll,
+  };
 }
 
 function nextMemoryEnabled(

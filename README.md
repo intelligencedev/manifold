@@ -103,19 +103,21 @@ cp config.yaml.example config.yaml
 #   OPENAI_API_KEY=...
 #   WORKDIR=/absolute/path/to/your/manifold-workdir
 
-docker compose up -d pg-manifold manifold
+docker compose up -d manifold
 ```
 
 Then open <http://localhost:32180>.
 
 ### Self-contained host run
 
-Manifold can also run without external database or telemetry services when you build the `manifold` binary locally. Enable the embedded Postgres runtime and keep ClickHouse/OTLP unset:
+Manifold can run without external database or telemetry services when you build the `manifold` binary locally. SQLite is the default durable backend, and Postgres is optional:
 
 ```yaml
 databases:
-  embedded: true
+  backend: sqlite
   defaultDSN: ""
+  sqlite:
+    path: "~/.manifold/manifold.db"
 
 obs:
   otlp: ""
@@ -125,9 +127,13 @@ obs:
     dsn: ""
 ```
 
-Release builds use a bundled PostgreSQL 17 runtime and verify `pgvector`, `postgis`, and `pgrouting` before startup completes. Development builds that do not embed a runtime must set `databases.embeddedAllowExternalRuntimeResolution: true` to use the legacy downloaded/system PostgreSQL fallback.
+Check local storage before startup with:
 
-With that configuration, `manifold` starts a bundled PostgreSQL process for durable state and serves metrics, logs, and traces from bounded process-local telemetry. You still need an LLM provider, which can be a remote API key or a local OpenAI-compatible endpoint.
+```bash
+./dist/manifold storage doctor --json
+```
+
+With that configuration, `manifold` stores durable state in SQLite with FTS5 and Vec1 enabled, and serves metrics, logs, and traces from bounded process-local telemetry. You still need an LLM provider, which can be a remote API key or a local OpenAI-compatible endpoint.
 
 For the full deployment walkthrough, see:
 
@@ -139,7 +145,7 @@ For the full deployment walkthrough, see:
 
 ### Frontend feature gates
 
-`make build-manifold` builds `dist/manifold` with the embedded frontend using the stable UI feature gate. Stable builds do render frontend undocumented features still in active development.
+`make build-manifold` is the standard host build for Manifold. It builds `dist/manifold` with the Forge backend, embedded frontend, and stable UI feature gate. Stable builds do render frontend undocumented features still in active development.
 
 To build the same backend and embedded frontend with beta UI links enabled, use either command:
 
@@ -150,6 +156,19 @@ make build-manifold FEATURE_GATE=beta
 
 The build passes `FEATURE_GATE` through to Vite as `VITE_MANIFOLD_FEATURE_GATE`.
 
+### Release packages
+
+Release artifacts are zip files that contain the runtime `manifold` binary and the example configuration files needed to bootstrap a deployment:
+
+- `manifold` or `manifold.exe`
+- `config.yaml.example`
+- `specialists.yaml.example`
+- `mcp.yaml.example`
+- `example.env`
+- `THIRD_PARTY_NOTICES.txt`
+
+The `agent` one-shot CLI and `openapi` generator are developer tools and are not required for the Manifold server, UI, or API runtime.
+
 ### Forge harness
 
-Manifold includes an optional Forge-style guarded agent loop for workflow enforcement, tool-error recovery, and control-flow-safe compaction. It is disabled by default. See [docs/forge_harness.md](./docs/forge_harness.md) for modes, configuration, rollout guidance, and deterministic scenario tests.
+Standard Manifold builds use the Forge backend. The stricter guarded harness modes for workflow enforcement, tool-error recovery, and control-flow-safe compaction are still controlled by runtime configuration. See [docs/forge_harness.md](./docs/forge_harness.md) for modes, configuration, rollout guidance, and deterministic scenario tests.

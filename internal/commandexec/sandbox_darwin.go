@@ -11,21 +11,20 @@ import (
 	"manifold/internal/config"
 )
 
-func wrapSandbox(cfg config.ExecConfig, workdir, resolvedCommand string, args, env []string) (string, []string, bool, error) {
+var macOSSandboxExecPath = "/usr/bin/sandbox-exec"
+
+func wrapSandbox(cfg config.ExecConfig, workdir, resolvedCommand string, args, env []string, network *sandboxNetwork) (string, []string, bool, error) {
 	if !boolDefault(cfg.Sandbox.Enabled, true) {
 		return resolvedCommand, append([]string(nil), args...), false, nil
 	}
-	if boolDefault(cfg.Sandbox.Network.Enabled, false) && len(cfg.Sandbox.Network.AllowedDomains) > 0 {
-		return "", nil, false, policyDeny("sandbox network domain allowlists are not supported by sandbox-exec", "", false)
-	}
-	sandboxExec := "/usr/bin/sandbox-exec"
+	sandboxExec := macOSSandboxExecPath
 	if _, err := os.Stat(sandboxExec); err != nil {
-		if boolDefault(cfg.Sandbox.FailIfUnavailable, true) {
-			return "", nil, false, policyDeny("sandbox-exec is required but unavailable", "", false)
+		if network != nil && network.mode == networkModeDomainLimited {
+			return "", nil, false, policyDeny("sandbox-exec is required for domain-limited network egress", "", false)
 		}
-		return resolvedCommand, append([]string(nil), args...), false, nil
+		return "", nil, false, policyDeny("sandbox-exec is required but unavailable", "", false)
 	}
-	profile, err := macOSSandboxProfile(cfg, workdir, resolvedCommand)
+	profile, err := macOSSandboxProfile(cfg, workdir, resolvedCommand, network)
 	if err != nil {
 		return "", nil, false, err
 	}
@@ -34,26 +33,59 @@ func wrapSandbox(cfg config.ExecConfig, workdir, resolvedCommand string, args, e
 	return sandboxExec, wrappedArgs, true, nil
 }
 
-func macOSSandboxProfile(cfg config.ExecConfig, workdir, resolvedCommand string) (string, error) {
-	writePaths := []string{workdir}
+func macOSSandboxProfile(cfg config.ExecConfig, workdir, resolvedCommand string, network *sandboxNetwork) (string, error) {
+	workspacePaths := []string{workdir}
 	if realWorkdir, err := filepath.EvalSymlinks(workdir); err == nil {
-		writePaths = append(writePaths, realWorkdir)
+		workspacePaths = append(workspacePaths, realWorkdir)
+	}
+
+	readPaths := append(macOSReadOnlyRoots(), workspacePaths...)
+	if commandDir := filepath.Dir(resolvedCommand); commandDir != "." && commandDir != string(filepath.Separator) {
+		readPaths = append(readPaths, commandDir)
+		if realCommandDir, err := filepath.EvalSymlinks(commandDir); err == nil {
+			readPaths = append(readPaths, realCommandDir)
+		}
 	}
 
 	var b strings.Builder
 	b.WriteString("(version 1)\n")
-	b.WriteString("(allow default)\n")
-	b.WriteString("(deny file-write*)\n")
-	for _, path := range compactPaths(writePaths) {
+	b.WriteString("(deny default)\n")
+	b.WriteString("(allow process-fork)\n")
+	b.WriteString("(allow process-exec)\n")
+	b.WriteString("(allow sysctl-read)\n")
+	b.WriteString("(allow mach-lookup)\n")
+	b.WriteString("(allow signal (target self))\n")
+	b.WriteString("(allow file-read-metadata)\n")
+	for _, path := range compactPaths(readPaths) {
+		fmt.Fprintf(&b, "(allow file-read* (subpath %q))\n", path)
+	}
+	b.WriteString("(allow file-read* (literal \"/\"))\n")
+	for _, path := range compactPaths(workspacePaths) {
 		fmt.Fprintf(&b, "(allow file-write* (subpath %q))\n", path)
 	}
-	b.WriteString("(allow file-write* (literal \"/dev/null\"))\n")
-	if boolDefault(cfg.Sandbox.Network.Enabled, false) {
+	b.WriteString("(allow file-read* file-write* (literal \"/dev/null\") (literal \"/dev/random\") (literal \"/dev/urandom\"))\n")
+	if network != nil && network.mode == networkModeDomainLimited {
+		b.WriteString("(deny network*)\n")
+		hostPort := strings.TrimPrefix(network.proxyURL, "http://")
+		fmt.Fprintf(&b, "(allow network-outbound (remote tcp %q))\n", hostPort)
+	} else if boolDefault(cfg.Sandbox.Network.Enabled, false) {
 		b.WriteString("(allow network*)\n")
 	} else {
 		b.WriteString("(deny network*)\n")
 	}
 	return b.String(), nil
+}
+
+func macOSReadOnlyRoots() []string {
+	return []string{
+		"/usr",
+		"/bin",
+		"/sbin",
+		"/System",
+		"/Library",
+		"/opt",
+		"/private/var/db/dyld",
+	}
 }
 
 func compactPaths(paths []string) []string {

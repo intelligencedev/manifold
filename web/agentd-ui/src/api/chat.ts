@@ -79,6 +79,17 @@ export async function updateChatSessionMemorySettings(
   return data;
 }
 
+export async function updateChatSessionCommandPolicyAllowAll(
+  id: string,
+  allow: boolean,
+): Promise<ChatSessionMeta> {
+  const { data } = await apiClient.patch<ChatSessionMeta>(
+    `/chat/sessions/${encodeURIComponent(id)}`,
+    { commandPolicyAllowAll: allow },
+  );
+  return data;
+}
+
 export async function deleteChatSession(id: string): Promise<void> {
   await apiClient.delete(`/chat/sessions/${encodeURIComponent(id)}`);
 }

@@ -142,6 +142,7 @@ func (a *app) handleUpdateAgentdConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	payload = normalizeAgentdSettings(payload)
+	payload.CommandRules = nil
 
 	if err := applyAgentdSettings(a.cfg, payload); err != nil {
 		writeError(w, http.StatusBadRequest, err)

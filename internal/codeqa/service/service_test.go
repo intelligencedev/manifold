@@ -29,7 +29,7 @@ func (f fakeProvider) Chat(ctx context.Context, msgs []llm.Message, tools []llm.
 			return llm.Message{Role: "assistant", Content: `{"verdict":"option_a_better","confidence":0.9,"scores":{"correctness":0.4,"maintainability":0.4,"test_quality":0.2},"evidence":["foo/foo.go"]}`}, nil
 		}
 		if strings.Contains(prompt, "OPTION_B = CANDIDATE") {
-			return llm.Message{Role: "assistant", Content: `{"verdict":"option_b_better","confidence":0.9,"scores":{"correctness":0.4,"maintainability":0.4,"test_quality":0.2},"evidence":["foo/foo.go"]}`}, nil
+			return llm.Message{Role: "assistant", Content: `{"verdict":"option_b_better","confidence":0.9,"scores":{"correctness":-0.4,"maintainability":-0.4,"test_quality":-0.2},"evidence":["foo/foo.go"]}`}, nil
 		}
 		return llm.Message{Role: "assistant", Content: `{"verdict":"tie","confidence":0.9,"scores":{"correctness":0.0,"maintainability":0.0,"test_quality":0.0},"evidence":["foo/foo.go"]}`}, nil
 	}
@@ -138,7 +138,7 @@ func TestServiceRunOptimizeCreatesCandidateArtifacts(t *testing.T) {
 }
 
 func newTestService(repo string, artifactDir string, providerResponse string) *Service {
-	executor := cli.NewExecutor(config.ExecConfig{MaxCommandSeconds: 60}, repo, 128*1024)
+	executor := cli.NewExecutor(testExecConfig(60), repo, 128*1024)
 	runner := codeqa.NewCLICommandRunner(executor, []string{"go", "gofmt"})
 	return New(codeqa.Options{
 		ArtifactDir:            artifactDir,
@@ -190,4 +190,14 @@ func git(t *testing.T, dir string, args ...string) string {
 		t.Fatalf("git %v failed: %v\n%s", args, err, string(output))
 	}
 	return string(output)
+}
+
+func testExecConfig(maxCommandSeconds int) config.ExecConfig {
+	disabled := false
+	return config.ExecConfig{
+		MaxCommandSeconds: maxCommandSeconds,
+		Sandbox: config.ExecSandboxConfig{
+			Enabled: &disabled,
+		},
+	}
 }

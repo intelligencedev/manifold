@@ -15,7 +15,6 @@ import (
 	"manifold/internal/config"
 	"manifold/internal/constitution"
 	"manifold/internal/durable"
-	"manifold/internal/embeddedpg"
 	"manifold/internal/fleet"
 	llmpkg "manifold/internal/llm"
 	"manifold/internal/matrixgw"
@@ -90,6 +89,7 @@ type app struct {
 	teamStore          persist.SpecialistTeamsStore
 	mcpStore           persist.MCPStore
 	userPrefsStore     persist.UserPreferencesStore
+	commandPolicyStore persist.CommandPolicyStore
 	mcpManager         *mcpclient.Manager
 	mcpPool            *mcpclient.MCPServerPool
 	startupMCPOAuthIDs []int64
@@ -99,7 +99,6 @@ type app struct {
 	runMetrics         *clickhouseRunMetrics
 	logMetrics         []logMetricsProvider
 	transitService     *transitdomain.Service
-	embeddedRuntime    *embeddedpg.Runtime
 	ragService         *ragservice.Service
 	matrixGateway      *matrixgw.Service
 	pulseRuntime       *pulseRuntime

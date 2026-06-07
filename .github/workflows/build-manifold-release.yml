@@ -4,20 +4,35 @@ on:
   workflow_dispatch:
     inputs:
       version:
+        description: "Version label used in artifact names, for example v0.0.0-main.123"
         required: true
-      runtime_artifact_run_id:
-        required: false
-      publish_release:
+      target:
+        description: "OS/architecture target to build"
         required: true
-        default: "false"
+        default: darwin-arm64
         type: choice
-        options: ["false", "true"]
+        options:
+          - darwin-arm64
+          - darwin-amd64
+          - linux-amd64
+          - linux-arm64
+          - windows-amd64
+          - windows-arm64
+          - all
+      ref:
+        description: "Optional branch, tag, or SHA to build"
+        required: false
+        default: ""
   workflow_call:
     inputs:
       version:
         required: true
         type: string
-      runtime_artifact_run_id:
+      target:
+        required: false
+        type: string
+        default: all
+      ref:
         required: false
         type: string
         default: ""
@@ -30,34 +45,66 @@ env:
   GO_VERSION: 1.26.3
 
 jobs:
+  select-targets:
+    name: Select build targets
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+    steps:
+      - id: targets
+        shell: bash
+        env:
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+
+          case "$TARGET" in
+            all)
+              matrix='{"include":[{"target_os":"linux","target_arch":"amd64","runner":"ubuntu-24.04"},{"target_os":"linux","target_arch":"arm64","runner":"ubuntu-24.04-arm"},{"target_os":"darwin","target_arch":"amd64","runner":["self-hosted","Linux","X64","cross-compile"]},{"target_os":"darwin","target_arch":"arm64","runner":["self-hosted","Linux","X64","cross-compile","target-darwin-arm64"]},{"target_os":"windows","target_arch":"amd64","runner":"windows-2022"},{"target_os":"windows","target_arch":"arm64","runner":"windows-11-arm"}]}'
+              ;;
+            linux-amd64)
+              matrix='{"include":[{"target_os":"linux","target_arch":"amd64","runner":"ubuntu-24.04"}]}'
+              ;;
+            linux-arm64)
+              matrix='{"include":[{"target_os":"linux","target_arch":"arm64","runner":"ubuntu-24.04-arm"}]}'
+              ;;
+            darwin-amd64)
+              matrix='{"include":[{"target_os":"darwin","target_arch":"amd64","runner":["self-hosted","Linux","X64","cross-compile"]}]}'
+              ;;
+            darwin-arm64)
+              matrix='{"include":[{"target_os":"darwin","target_arch":"arm64","runner":["self-hosted","Linux","X64","cross-compile","target-darwin-arm64"]}]}'
+              ;;
+            windows-amd64)
+              matrix='{"include":[{"target_os":"windows","target_arch":"amd64","runner":"windows-2022"}]}'
+              ;;
+            windows-arm64)
+              matrix='{"include":[{"target_os":"windows","target_arch":"arm64","runner":"windows-11-arm"}]}'
+              ;;
+            *)
+              echo "Unsupported target: $TARGET" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
   build:
     name: Manifold ${{ matrix.target_os }}/${{ matrix.target_arch }}
+    needs: select-targets
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - target_os: linux
-            target_arch: amd64
-            runner: ubuntu-22.04
-          - target_os: linux
-            target_arch: arm64
-            runner: ubuntu-22.04-arm
-          - target_os: darwin
-            target_arch: amd64
-            runner: macos-13
-          - target_os: darwin
-            target_arch: arm64
-            runner: macos-14
-          - target_os: windows
-            target_arch: amd64
-            runner: windows-2022
-          - target_os: windows
-            target_arch: arm64
-            runner: windows-2022-arm
+      matrix: ${{ fromJSON(needs.select-targets.outputs.matrix) }}
     steps:
       - name: Checkout
+        if: ${{ inputs.ref == '' }}
         uses: actions/checkout@v4
+
+      - name: Checkout ref
+        if: ${{ inputs.ref != '' }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -73,33 +120,42 @@ jobs:
         shell: bash
         run: corepack enable
 
-      - name: Download runtime artifact from current run
-        if: ${{ inputs.runtime_artifact_run_id == '' }}
-        uses: actions/download-artifact@v4
-        with:
-          name: postgres-runtime-${{ matrix.target_os }}-${{ matrix.target_arch }}
-          path: dist/postgres-runtime
-
-      - name: Download runtime artifact from run
-        if: ${{ inputs.runtime_artifact_run_id != '' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Install self-hosted Linux prerequisites
+        if: ${{ runner.os == 'Linux' && contains(matrix.runner, 'self-hosted') }}
         shell: bash
         run: |
-          gh run download "${{ inputs.runtime_artifact_run_id }}" \
-            --name "postgres-runtime-${{ matrix.target_os }}-${{ matrix.target_arch }}" \
-            --dir dist/postgres-runtime
+          set -euo pipefail
 
-      - name: Embed runtime asset
-        shell: bash
-        run: |
-          archive="$(find dist/postgres-runtime -type f \( -name '*.tar.zst' -o -name '*.zip' \) | head -1)"
-          manifest="$(find dist/postgres-runtime -type f -name '*.manifest.json' | head -1)"
-          scripts/release/embed-runtime-asset.sh \
-            --runtime-archive "$archive" \
-            --runtime-manifest "$manifest" \
-            --target-os "${{ matrix.target_os }}" \
-            --target-arch "${{ matrix.target_arch }}"
+          missing=()
+          for tool in make zip python3; do
+            if ! command -v "$tool" >/dev/null 2>&1; then
+              missing+=("$tool")
+            fi
+          done
+          if [ "${#missing[@]}" -eq 0 ]; then
+            exit 0
+          fi
+
+          run_as_root() {
+            if [ "$(id -u)" -eq 0 ]; then
+              "$@"
+            else
+              sudo "$@"
+            fi
+          }
+
+          if command -v apt-get >/dev/null 2>&1; then
+            run_as_root apt-get update
+            run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y make zip python3
+          elif command -v dnf >/dev/null 2>&1; then
+            run_as_root dnf install -y make zip python3
+          elif command -v yum >/dev/null 2>&1; then
+            run_as_root yum install -y make zip python3
+          else
+            echo "Missing required tools: ${missing[*]}" >&2
+            echo "Install make, zip, and python3 on the self-hosted runner image." >&2
+            exit 1
+          fi
 
       - name: Build frontend
         shell: bash
@@ -111,18 +167,17 @@ jobs:
           mkdir -p dist/package
           ext=""
           if [[ "${{ matrix.target_os }}" == "windows" ]]; then ext=".exe"; fi
-          GOOS="${{ matrix.target_os }}" GOARCH="${{ matrix.target_arch }}" \
-            go build -tags "forge,embedded_pg_runtime" -ldflags "-s -w" \
+          CGO_ENABLED=0 GOOS="${{ matrix.target_os }}" GOARCH="${{ matrix.target_arch }}" \
+            go build -tags "forge" -ldflags "-s -w" \
             -o "dist/package/manifold${ext}" ./cmd/agentd
 
-      - name: Add release notes files
+      - name: Add release package files
         shell: bash
         run: |
-          cat > dist/package/README-embedded-postgres.txt <<'EOF'
-          Manifold includes a native PostgreSQL runtime with pgvector, PostGIS, and pgRouting.
-          No system PostgreSQL, Docker, Homebrew, apt, Chocolatey, or internet access is required at runtime.
-          EOF
-          cp dist/postgres-runtime/*.manifest.json dist/package/postgres-runtime.manifest.json
+          cp config.yaml.example dist/package/
+          cp specialists.yaml.example dist/package/
+          cp mcp.yaml.example dist/package/
+          cp example.env dist/package/
           touch dist/package/THIRD_PARTY_NOTICES.txt
 
       - name: Package artifact
@@ -130,12 +185,26 @@ jobs:
         run: |
           mkdir -p dist/release
           archive="manifold-${{ inputs.version }}-${{ matrix.target_os }}-${{ matrix.target_arch }}"
-          if [[ "${{ matrix.target_os }}" == "windows" ]]; then
+          if command -v zip >/dev/null 2>&1; then
             (cd dist/package && zip -qr "../release/${archive}.zip" .)
+          else
+            ARCHIVE_PATH="dist/release/${archive}.zip" python3 - <<'PY'
+          import os
+          import pathlib
+          import zipfile
+
+          archive = pathlib.Path(os.environ["ARCHIVE_PATH"])
+          root = pathlib.Path("dist/package")
+          with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+              for path in sorted(root.rglob("*")):
+                  if path.is_file():
+                      zf.write(path, path.relative_to(root))
+          PY
+          fi
+          if command -v shasum >/dev/null 2>&1; then
             shasum -a 256 "dist/release/${archive}.zip" > "dist/release/${archive}.zip.sha256"
           else
-            tar -czf "dist/release/${archive}.tar.gz" -C dist/package .
-            shasum -a 256 "dist/release/${archive}.tar.gz" > "dist/release/${archive}.tar.gz.sha256"
+            sha256sum "dist/release/${archive}.zip" > "dist/release/${archive}.zip.sha256"
           fi
 
       - name: Upload Manifold artifact
@@ -143,7 +212,6 @@ jobs:
         with:
           name: manifold-${{ matrix.target_os }}-${{ matrix.target_arch }}
           path: |
-            dist/release/manifold-${{ inputs.version }}-${{ matrix.target_os }}-${{ matrix.target_arch }}.tar.gz
             dist/release/manifold-${{ inputs.version }}-${{ matrix.target_os }}-${{ matrix.target_arch }}.zip
-            dist/release/manifold-${{ inputs.version }}-${{ matrix.target_os }}-${{ matrix.target_arch }}.*.sha256
+            dist/release/manifold-${{ inputs.version }}-${{ matrix.target_os }}-${{ matrix.target_arch }}.zip.sha256
           if-no-files-found: error

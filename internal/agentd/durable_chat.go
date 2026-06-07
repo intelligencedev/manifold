@@ -28,8 +28,9 @@ import (
 )
 
 const (
-	durableChatQueue       = "chat"
-	durableChatRunTaskName = "chat.run"
+	durableChatQueue             = "chat"
+	durableChatRunTaskName       = "chat.run"
+	durableChatWorkerConcurrency = 4
 )
 
 type durableChatTaskParams struct {
@@ -714,6 +715,7 @@ func (a *app) durableChatRunContext(runID string, prepared durableChatPreparedRu
 		Model: prepared.exec.Engine.Model,
 		Depth: prepared.exec.Engine.AgentDepth,
 	})
+	runCtx = commandexec.WithCommandSessionScope(runCtx, commandPolicySessionScope(prepared.exec.UserID, prepared.exec.RunRequest.SessionID))
 	return commandexec.WithApprovalController(runCtx, commandPolicyApprovalController{app: a})
 }
 

@@ -1,8 +1,9 @@
 package memory
 
-import "strings"
-
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 func (em *EvolvingMemory) GetRecentWindow() []*MemoryEntry {
 	em.mu.RLock()

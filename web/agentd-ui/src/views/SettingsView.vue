@@ -1616,9 +1616,11 @@ function normalizeAgentdSettings(
   } as AgentdSettings & {
     summaryThreshold?: unknown;
     summaryKeepLast?: unknown;
+    commandRules?: unknown;
   };
   delete merged.summaryThreshold;
   delete merged.summaryKeepLast;
+  delete merged.commandRules;
   for (const key of numericSettingKeys) {
     merged[key] = toNumber(input?.[key], defaultAgentdSettings[key]);
   }

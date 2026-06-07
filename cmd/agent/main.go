@@ -15,7 +15,6 @@ import (
 	"manifold/internal/agent"
 	"manifold/internal/agent/prompts"
 	"manifold/internal/config"
-	"manifold/internal/embeddedpg"
 	llmpkg "manifold/internal/llm"
 	llmproviders "manifold/internal/llm/providers"
 	"manifold/internal/mcpclient"
@@ -70,14 +69,6 @@ func run(cfg *config.Config, query string, maxSteps int, specialistName string) 
 		defer func() { _ = shutdown(context.Background()) }()
 	}
 	llmpkg.ConfigureLogging(cfg.LogPayloads, cfg.LogRawPrompts, cfg.OutputTruncateByte)
-
-	embeddedRuntime, err := startEmbeddedPostgres(cfg)
-	if err != nil {
-		return err
-	}
-	if embeddedRuntime != nil {
-		defer stopEmbeddedPostgres(embeddedRuntime)
-	}
 
 	specs, err := loadCLISpecialists(baseCtx, cfg)
 	if err != nil {
@@ -138,21 +129,6 @@ func initObservability(ctx context.Context, cfg *config.Config) func(context.Con
 	}
 	observability.EnableOTelLogging(cfg.Obs.ServiceName)
 	return shutdown
-}
-
-func startEmbeddedPostgres(cfg *config.Config) (*embeddedpg.Runtime, error) {
-	cfg.Databases.EmbeddedDiagnosticLogPath = cfg.LogPath
-	embeddedRuntime, err := embeddedpg.Start(&cfg.Databases)
-	if err != nil {
-		return nil, fmt.Errorf("start embedded postgres: %w", err)
-	}
-	return embeddedRuntime, nil
-}
-
-func stopEmbeddedPostgres(runtime *embeddedpg.Runtime) {
-	if stopErr := runtime.Stop(); stopErr != nil {
-		log.Warn().Err(stopErr).Msg("stop embedded postgres")
-	}
 }
 
 func newCLIHTTPClient(cfg *config.Config) *http.Client {

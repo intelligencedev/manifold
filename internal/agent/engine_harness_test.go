@@ -297,12 +297,14 @@ func TestRunHarnessWorkflowOverlaysAgentResponseTerminalTool(t *testing.T) {
 }
 
 func TestRunHarnessWorkflowStillAppliesAfterReMem(t *testing.T) {
-	provider := &harnessScriptedProvider{responses: []llm.Message{
+	rememProvider := &harnessScriptedProvider{responses: []llm.Message{
 		{Role: "assistant", Content: `{"action":"ACT","content":"ready"}`},
+	}}
+	provider := &harnessScriptedProvider{responses: []llm.Message{
 		{Role: "assistant", Content: "too soon"},
 		{Role: "assistant", ToolCalls: []llm.ToolCall{{Name: "agent_response", Args: json.RawMessage(`{"text":"done"}`)}}},
 	}}
-	em := memory.NewEvolvingMemory(memory.EvolvingMemoryConfig{LLM: provider})
+	em := memory.NewEvolvingMemory(memory.EvolvingMemoryConfig{LLM: rememProvider})
 	eng := &Engine{
 		LLM:            provider,
 		Tools:          tools.NewRegistry(),
@@ -318,7 +320,7 @@ func TestRunHarnessWorkflowStillAppliesAfterReMem(t *testing.T) {
 		EvolvingMemory: em,
 		ReMemEnabled:   true,
 		ReMemController: memory.NewReMemController(memory.ReMemConfig{
-			LLM:           provider,
+			LLM:           rememProvider,
 			Memory:        em,
 			MaxInnerSteps: 1,
 		}),
@@ -328,8 +330,8 @@ func TestRunHarnessWorkflowStillAppliesAfterReMem(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "done", final)
-	require.Len(t, provider.calls, 3)
-	require.Contains(t, provider.calls[2][len(provider.calls[2])-1].Content, "Do not answer with bare text")
+	require.Len(t, provider.calls, 2)
+	require.Contains(t, provider.calls[1][len(provider.calls[1])-1].Content, "Do not answer with bare text")
 }
 
 func TestRunHarnessToolErrorNudgeAllowsRecovery(t *testing.T) {

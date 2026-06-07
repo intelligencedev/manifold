@@ -298,7 +298,14 @@ func (o *Optimizer) commitCandidate(ctx context.Context, repoPath string, iterat
 	if message == "" {
 		message = fmt.Sprintf("codeqa optimizer candidate %d", iteration+1)
 	}
-	if _, err := o.runner.Run(ctx, repoPath, codeqa.CommandRequest{Command: "git", Args: []string{"commit", "--no-verify", "-m", message}}); err != nil {
+	if _, err := o.runner.Run(ctx, repoPath, codeqa.CommandRequest{
+		Command: "git",
+		Args: []string{
+			"-c", "user.name=Manifold CodeQA",
+			"-c", "user.email=codeqa@manifold.local",
+			"commit", "--no-verify", "-m", message,
+		},
+	}); err != nil {
 		return fmt.Errorf("commit candidate diff: %w", err)
 	}
 	return nil

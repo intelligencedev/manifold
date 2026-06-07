@@ -159,17 +159,18 @@ func (a *app) prepareChatRunRequest(r *http.Request, userID *int64, req chatRunR
 	if userID != nil {
 		resolvedUserID = *userID
 	}
+	workspaceRef := req.ProjectID
 
-	ws, err := a.workspaceManager.Checkout(r.Context(), resolvedUserID, req.ProjectID, req.SessionID)
+	ws, err := a.workspaceManager.Checkout(r.Context(), resolvedUserID, workspaceRef, req.SessionID)
 	if err != nil {
 		switch {
 		case errors.Is(err, workspaces.ErrInvalidProjectID):
 			return r, nil, http.StatusBadRequest, err
 		case errors.Is(err, workspaces.ErrProjectNotFound):
-			log.Error().Err(err).Str("project_id", req.ProjectID).Msg("project_dir_missing")
+			log.Error().Err(err).Str(workspaceRefFieldSnake(), workspaceRef).Msg("workspace_dir_missing")
 			return r, nil, http.StatusBadRequest, err
 		default:
-			log.Error().Err(err).Str("project_id", req.ProjectID).Msg("workspace_checkout_failed")
+			log.Error().Err(err).Str(workspaceRefFieldSnake(), workspaceRef).Msg("workspace_checkout_failed")
 			return r, nil, http.StatusInternalServerError, err
 		}
 	}
@@ -178,7 +179,7 @@ func (a *app) prepareChatRunRequest(r *http.Request, userID *int64, req chatRunR
 	}
 
 	ctx = sandbox.WithBaseDir(r.Context(), ws.BaseDir)
-	ctx = sandbox.WithProjectID(ctx, req.ProjectID)
+	ctx = sandbox.WithProjectID(ctx, workspaceRef)
 	r = r.WithContext(ctx)
 	return r, &ws, 0, nil
 }

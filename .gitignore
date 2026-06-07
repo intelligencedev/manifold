@@ -59,6 +59,7 @@ develop/**/.env.*
 # Ignore by default all hidden files except .gitignore
 .*
 !.gitignore
+!.golangci.yml
 !.github/
 !.github/**
 
@@ -93,3 +94,4 @@ docs/shared-belief-memory-for-agentic-systems.md
 docs/forge_plan.md
 docs/warpp-v2.md
 config.yaml.localmem
+docs/manifold-windows-sandbox-plan.md

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"manifold/internal/config"
 	"manifold/internal/flow"
 )
 
@@ -35,6 +36,25 @@ type UserPreferencesStore interface {
 	Get(ctx context.Context, userID int64) (UserPreferences, error)
 	// SetActiveProject updates the user's active project selection.
 	SetActiveProject(ctx context.Context, userID int64, projectID string) error
+}
+
+// CommandPolicyStore persists command execution policy rules.
+type CommandPolicyStore interface {
+	Init(ctx context.Context) error
+	ListRules(ctx context.Context, userID int64) ([]config.ExecCommandRule, error)
+	UpsertRule(ctx context.Context, userID int64, rule config.ExecCommandRule) (config.ExecCommandRule, error)
+	GetSessionOverride(ctx context.Context, userID int64, sessionID string) (CommandPolicySessionOverride, bool, error)
+	SetSessionAllowAll(ctx context.Context, userID int64, sessionID string, allow bool) error
+	DeleteSessionOverride(ctx context.Context, userID int64, sessionID string) error
+}
+
+// CommandPolicySessionOverride stores session-scoped command policy choices.
+type CommandPolicySessionOverride struct {
+	UserID           int64     `json:"userId"`
+	SessionID        string    `json:"sessionId"`
+	AllowAllCommands bool      `json:"allowAllCommands"`
+	CreatedAt        time.Time `json:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt"`
 }
 
 // PulseRoom stores per-Matrix-room automation settings.
@@ -254,6 +274,7 @@ type ChatSession struct {
 	MemoryEnabled         bool      `json:"memoryEnabled"`
 	EvolvingMemoryEnabled bool      `json:"evolvingMemoryEnabled"`
 	BeliefMemoryEnabled   bool      `json:"beliefMemoryEnabled"`
+	CommandPolicyAllowAll bool      `json:"commandPolicyAllowAll"`
 }
 
 // ChatMessage is a single turn within a chat session.

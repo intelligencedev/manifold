@@ -4,15 +4,42 @@ on:
   workflow_dispatch:
     inputs:
       version:
+        description: "Version label used in artifact names"
         required: true
+      target:
+        description: "OS/architecture target to smoke"
+        required: true
+        default: darwin-arm64
+        type: choice
+        options:
+          - darwin-arm64
+          - darwin-amd64
+          - linux-amd64
+          - linux-arm64
+          - windows-amd64
+          - windows-arm64
+          - all
       artifact_run_id:
+        description: "Optional workflow run ID to download artifacts from"
         required: false
+      ref:
+        description: "Optional branch, tag, or SHA for smoke scripts"
+        required: false
+        default: ""
   workflow_call:
     inputs:
       version:
         required: true
         type: string
+      target:
+        required: false
+        type: string
+        default: all
       artifact_run_id:
+        required: false
+        type: string
+        default: ""
+      ref:
         required: false
         type: string
         default: ""
@@ -22,34 +49,66 @@ permissions:
   actions: read
 
 jobs:
+  select-targets:
+    name: Select smoke targets
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+    steps:
+      - id: targets
+        shell: bash
+        env:
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+
+          case "$TARGET" in
+            all)
+              matrix='{"include":[{"target_os":"linux","target_arch":"amd64","runner":"ubuntu-24.04"},{"target_os":"linux","target_arch":"arm64","runner":"ubuntu-24.04-arm"},{"target_os":"darwin","target_arch":"amd64","runner":"macos-15-intel"},{"target_os":"darwin","target_arch":"arm64","runner":"macos-15"},{"target_os":"windows","target_arch":"amd64","runner":"windows-2022"},{"target_os":"windows","target_arch":"arm64","runner":"windows-11-arm"}]}'
+              ;;
+            linux-amd64)
+              matrix='{"include":[{"target_os":"linux","target_arch":"amd64","runner":"ubuntu-24.04"}]}'
+              ;;
+            linux-arm64)
+              matrix='{"include":[{"target_os":"linux","target_arch":"arm64","runner":"ubuntu-24.04-arm"}]}'
+              ;;
+            darwin-amd64)
+              matrix='{"include":[{"target_os":"darwin","target_arch":"amd64","runner":"macos-15-intel"}]}'
+              ;;
+            darwin-arm64)
+              matrix='{"include":[{"target_os":"darwin","target_arch":"arm64","runner":"macos-15"}]}'
+              ;;
+            windows-amd64)
+              matrix='{"include":[{"target_os":"windows","target_arch":"amd64","runner":"windows-2022"}]}'
+              ;;
+            windows-arm64)
+              matrix='{"include":[{"target_os":"windows","target_arch":"arm64","runner":"windows-11-arm"}]}'
+              ;;
+            *)
+              echo "Unsupported target: $TARGET" >&2
+              exit 1
+              ;;
+          esac
+
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
   smoke:
     name: Smoke ${{ matrix.target_os }}/${{ matrix.target_arch }}
+    needs: select-targets
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - target_os: linux
-            target_arch: amd64
-            runner: ubuntu-22.04
-          - target_os: linux
-            target_arch: arm64
-            runner: ubuntu-22.04-arm
-          - target_os: darwin
-            target_arch: amd64
-            runner: macos-13
-          - target_os: darwin
-            target_arch: arm64
-            runner: macos-14
-          - target_os: windows
-            target_arch: amd64
-            runner: windows-2022
-          - target_os: windows
-            target_arch: arm64
-            runner: windows-2022-arm
+      matrix: ${{ fromJSON(needs.select-targets.outputs.matrix) }}
     steps:
       - name: Checkout scripts
+        if: ${{ inputs.ref == '' }}
         uses: actions/checkout@v4
+
+      - name: Checkout scripts ref
+        if: ${{ inputs.ref != '' }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Download artifact from current run
         if: ${{ inputs.artifact_run_id == '' }}
@@ -71,7 +130,7 @@ jobs:
       - name: Smoke final artifact
         shell: bash
         run: |
-          artifact="$(find dist/release -type f \( -name '*.tar.gz' -o -name '*.zip' \) | head -1)"
+          artifact="$(find dist/release -type f -name '*.zip' | head -1)"
           scripts/release/smoke-manifold-artifact.sh \
             --artifact "$artifact" \
             --json-output "dist/release/doctor-${{ matrix.target_os }}-${{ matrix.target_arch }}.json"

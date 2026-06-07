@@ -564,8 +564,17 @@ llm_client:
 	if cfg.OutputTruncateByte != 64*1024 {
 		t.Fatalf("expected default output truncate bytes, got %d", cfg.OutputTruncateByte)
 	}
-	if cfg.Databases.Search.Backend != "memory" {
-		t.Fatalf("expected default search backend memory, got %q", cfg.Databases.Search.Backend)
+	if cfg.Databases.Backend != "sqlite" {
+		t.Fatalf("expected default database backend sqlite, got %q", cfg.Databases.Backend)
+	}
+	if cfg.Databases.Search.Backend != "sqlite" {
+		t.Fatalf("expected default search backend sqlite, got %q", cfg.Databases.Search.Backend)
+	}
+	if cfg.Databases.SQLite.BusyTimeoutMs != 10000 {
+		t.Fatalf("expected default sqlite busy timeout 10000, got %d", cfg.Databases.SQLite.BusyTimeoutMs)
+	}
+	if cfg.Databases.SQLite.MaxOpenConns != 1 {
+		t.Fatalf("expected default sqlite max open conns 1, got %d", cfg.Databases.SQLite.MaxOpenConns)
 	}
 	if cfg.CodeQA.ArtifactDir != "codeqa-artifacts" {
 		t.Fatalf("expected default codeqa artifact dir, got %q", cfg.CodeQA.ArtifactDir)

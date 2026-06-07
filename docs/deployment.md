@@ -2,7 +2,8 @@
 
 This guide describes the current deployment model for Manifold as shipped in this repository.
 
-Manifold currently stores projects on the local filesystem under the `workdir` configured in `config.yaml`.
+Manifold stores durable runtime state in SQLite by default and stores projects
+on the local filesystem under the `workdir` configured in `config.yaml`.
 
 ## Deployment Modes
 
@@ -10,7 +11,6 @@ Manifold currently stores projects on the local filesystem under the `workdir` c
 
 For a fresh clone, the supported first-run path is:
 
-- `pg-manifold` for PostgreSQL
 - `manifold` for the Manifold server and the embedded frontend
 
 Optional services can be added later:
@@ -24,10 +24,13 @@ The default dashboard does not require ClickHouse. When `obs.local.enabled` is t
 
 Local host builds are supported through the Makefile, but they are a developer workflow, not the simplest deployment path. Use them when you want to:
 
-- iterate on Go code with `make build-agentd` or `make build-manifold`; both server builds write `dist/manifold`
+- build the standard Forge-backed Manifold binary with `make build-manifold`, which writes `dist/manifold`
+- iterate on server-only Go code with `make build-agentd` when you do not need to refresh embedded frontend assets
 - run the frontend separately with `pnpm -C web/agentd-ui dev`
 
-Host builds can also run with embedded Postgres. In that mode Manifold starts a bundled PostgreSQL process during server startup and no external database service is required.
+Host builds use SQLite by default and do not require an external database
+service. Postgres remains supported only through an explicitly configured
+external endpoint.
 
 ## Prerequisites
 
@@ -67,21 +70,24 @@ llm_client:
     apiKey: "${OPENAI_API_KEY}"
 
 databases:
-  defaultDSN: "${DATABASE_URL}"
+  backend: sqlite
+  defaultDSN: ""
+  sqlite:
+    path: "~/.manifold/manifold.db"
 ```
 
 1. Edit `.env` and set the secret values referenced by your YAML:
 
 ```dotenv
 OPENAI_API_KEY="your_real_api_key"
-DATABASE_URL="postgres://manifold:manifold@pg-manifold:5432/manifold?sslmode=disable"
+DATABASE_URL=""
 CLICKHOUSE_DSN=""
 ```
 
 1. Start the required services:
 
 ```bash
-docker compose up -d pg-manifold manifold
+docker compose up -d manifold
 ```
 
 1. Open the UI at <http://localhost:32180>.
@@ -113,22 +119,18 @@ Configure `config.yaml`:
 
 ```yaml
 databases:
-  embedded: true
-  embeddedPort: 5433
-  embeddedDataDir: ""
+  backend: sqlite
   defaultDSN: ""
+  sqlite:
+    path: "~/.manifold/manifold.db"
   chat:
-    backend: auto
-    dsn: ""
+    backend: sqlite
   search:
-    backend: auto
-    dsn: ""
+    backend: sqlite
   vector:
-    backend: auto
-    dsn: ""
+    backend: sqlite
   graph:
-    backend: auto
-    dsn: ""
+    backend: sqlite
 
 obs:
   otlp: ""
@@ -141,22 +143,55 @@ obs:
 Run:
 
 ```bash
+./dist/manifold storage doctor --json
 ./dist/manifold
 ```
 
-When `databases.embedded` is true, Manifold starts bundled PostgreSQL 17 before initializing stores, sets the runtime default DSN internally, and stops the embedded process during shutdown. The default data directory is `~/.manifold/embedded-postgres`; set `embeddedDataDir` to choose a different persistent location. Release builds extract the native runtime to the Manifold runtime cache and verify every runtime file checksum before executing PostgreSQL.
+SQLite durable state is stored at `~/.manifold/manifold.db` unless
+`databases.sqlite.path` is set. The storage doctor verifies SQLite open, FTS5,
+Vec1 registration, WAL mode, and a temporary vector query.
 
-The embedded mode requires `pgvector`, `postgis`, and `pgrouting`. Startup fails if any required extension cannot be created or probed with `postgis_full_version()` and `pgr_version()`. Development builds without an embedded runtime can opt into the legacy downloaded/system fallback with `databases.embeddedAllowExternalRuntimeResolution: true`; release builds should leave that setting false.
+## Optional Postgres Deployment
+
+Use Postgres for multi-host deployments or when keeping existing Postgres data:
+
+```yaml
+databases:
+  backend: postgres
+  defaultDSN: "${DATABASE_URL}"
+  chat:
+    backend: postgres
+    dsn: "${DATABASE_URL}"
+  search:
+    backend: postgres
+    dsn: "${DATABASE_URL}"
+  vector:
+    backend: postgres
+    dsn: "${DATABASE_URL}"
+  graph:
+    backend: postgres
+    dsn: "${DATABASE_URL}"
+```
+
+```dotenv
+DATABASE_URL="postgres://manifold:manifold@pg-manifold:5432/manifold?sslmode=disable"
+```
+
+Then start Postgres with Manifold:
+
+```bash
+docker compose up -d pg-manifold manifold
+```
 
 ## Service Map
 
 Core services:
 
 - `manifold`: the main Manifold container with the embedded web UI
-- `pg-manifold`: PostgreSQL with pgvector, PostGIS, and pgRouting
 
 Optional services:
 
+- `pg-manifold`: PostgreSQL with pgvector, PostGIS, and pgRouting
 - `clickhouse`: optional persistent metrics, traces, and logs query backend
 - `otel-collector`: optional OTLP ingestion pipeline
 - `keycloak-db`: Postgres for Keycloak
@@ -170,15 +205,17 @@ Optional services:
 - `8123` and `9000`: ClickHouse HTTP and native ports when enabled
 - `4417` and `4418`: OTLP collector ports when enabled
 
-Inside the compose network, Manifold connects to Postgres at `pg-manifold:5432`. Host tools should use `localhost:5433`.
+When optional Postgres is enabled, Manifold connects to Postgres at
+`pg-manifold:5432` inside the compose network. Host tools should use
+`localhost:5433`.
 
 ## Configuration Notes
 
 - `config.yaml` is the primary runtime configuration file. `.env` is only used to supply values for `${VAR}` interpolation inside YAML.
 - The runtime validates that `workdir` exists and is a directory.
 - `config.yaml.example` is the full runtime reference. `specialists.yaml.example` and `mcp.yaml.example` document the optional external specialist and MCP config files.
-- `databases.defaultDSN` and the per-subsystem DSNs in `config.yaml.example` are wired to `${DATABASE_URL}` for the compose network.
-- For embedded Postgres, set `databases.embedded: true` and leave `DATABASE_URL`, `databases.defaultDSN`, and per-subsystem DSNs empty so Manifold can supply the embedded DSN at runtime.
+- Leave `DATABASE_URL` empty for the default SQLite backend.
+- For optional Postgres, set `databases.backend: postgres`, wire `databases.defaultDSN` and per-subsystem DSNs to `${DATABASE_URL}`, and start `pg-manifold`.
 - `obs.local.enabled: true` gives the dashboard local process telemetry without ClickHouse or an OpenTelemetry Collector. `obs.clickhouse.dsn` upgrades the dashboard to persistent telemetry when ClickHouse is available.
 - If you use `llm_client.openai.api: responses`, you can tune context-management behavior through `llm_client.openai.extraParams` in [config.yaml.example](../config.yaml.example).
 - Voice input requires an OpenAI-compatible transcription endpoint through the `stt` section in [config.yaml.example](../config.yaml.example).
@@ -208,8 +245,8 @@ See [storage.md](./storage.md) for details.
 
 Back up:
 
-- PostgreSQL data from `pg-manifold`
-- embedded Postgres data from `embeddedDataDir` or `~/.manifold/embedded-postgres` when `databases.embedded` is enabled
+- SQLite database file from `databases.sqlite.path`, default `~/.manifold/manifold.db`
+- PostgreSQL data from `pg-manifold` when Postgres is explicitly configured
 - the entire `workdir`
 
 At minimum, a recoverable local deployment needs both the database state and the project filesystem.

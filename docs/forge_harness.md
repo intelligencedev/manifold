@@ -1,6 +1,6 @@
 # Forge Harness
 
-The Forge harness is an optional guarded agent loop for Manifold. It keeps the existing Manifold runtime, providers, tools, memory systems, policy checks, delegation, callbacks, and chat plumbing, but adds Forge-style validation around each model/tool step.
+Standard Manifold builds include the Forge backend. The Forge harness is the optional guarded agent loop layered on that backend. It keeps the existing Manifold runtime, providers, tools, memory systems, policy checks, delegation, callbacks, and chat plumbing, but adds Forge-style validation around each model/tool step.
 
 The harness is disabled by default. Existing Manifold chat behavior remains the default path unless `harness.enabled` is set to `true`.
 

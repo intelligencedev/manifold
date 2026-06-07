@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"manifold/internal/commandexec"
 	"manifold/internal/config"
 )
 
@@ -20,6 +21,9 @@ func (c commandPolicyApprovalController) PersistCommandAllowRule(ctx context.Con
 	if c.app == nil || c.app.cfg == nil {
 		return config.ExecCommandRule{}, errors.New("command policy config is unavailable")
 	}
+	if c.app.commandPolicyStore == nil {
+		return config.ExecCommandRule{}, errors.New("command policy store is unavailable")
+	}
 	rule = normalizeCommandApprovalRule(rule)
 	if err := validateCommandRulesSettings([]config.ExecCommandRule{rule}); err != nil {
 		return config.ExecCommandRule{}, err
@@ -33,14 +37,39 @@ func (c commandPolicyApprovalController) PersistCommandAllowRule(ctx context.Con
 		return existing, nil
 	}
 
-	original := cloneCommandRules(c.app.cfg.Exec.CommandRules)
-	c.app.cfg.Exec.CommandRules = append(c.app.cfg.Exec.CommandRules, cloneCommandApprovalRule(rule))
-	if err := persistToConfigYAML(currentAgentdSettings(c.app.cfg)); err != nil {
-		c.app.cfg.Exec.CommandRules = original
+	stored, err := c.app.commandPolicyStore.UpsertRule(ctx, systemUserID, rule)
+	if err != nil {
 		return config.ExecCommandRule{}, err
 	}
-	c.app.updateLiveCommandPolicy(rule)
-	return rule, nil
+	c.app.cfg.Exec.CommandRules = append(c.app.cfg.Exec.CommandRules, cloneCommandApprovalRule(stored))
+	c.app.updateLiveCommandPolicy(stored)
+	return stored, nil
+}
+
+func (c commandPolicyApprovalController) SessionAllowAllCommands(ctx context.Context, scope commandexec.CommandSessionScope) (bool, error) {
+	if c.app == nil || c.app.commandPolicyStore == nil {
+		return false, errors.New("command policy store is unavailable")
+	}
+	override, ok, err := c.app.commandPolicyStore.GetSessionOverride(ctx, scope.UserID, scope.SessionID)
+	if err != nil || !ok {
+		return false, err
+	}
+	return override.AllowAllCommands, nil
+}
+
+func (c commandPolicyApprovalController) SetSessionAllowAllCommands(ctx context.Context, scope commandexec.CommandSessionScope, allow bool) error {
+	if c.app == nil || c.app.commandPolicyStore == nil {
+		return errors.New("command policy store is unavailable")
+	}
+	return c.app.commandPolicyStore.SetSessionAllowAll(ctx, scope.UserID, scope.SessionID, allow)
+}
+
+func commandPolicySessionScope(userID *int64, sessionID string) commandexec.CommandSessionScope {
+	scope := commandexec.CommandSessionScope{
+		UserID:    commandPolicyUserID(userID),
+		SessionID: strings.TrimSpace(sessionID),
+	}
+	return scope
 }
 
 func (a *app) updateLiveCommandPolicy(rule config.ExecCommandRule) {

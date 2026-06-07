@@ -57,7 +57,7 @@ func (f *Factory) Prepare(ctx context.Context, repoPath, runID string, mode code
 				return Prepared{}, fmt.Errorf("optimize mode requires a clean git worktree")
 			}
 		}
-		return f.prepareGitWorktree(ctx, gitRoot, runID, "HEAD")
+		return f.prepareGitCheckout(ctx, gitRoot, runID, "HEAD")
 	}
 	return f.prepareCopy(absRepo, runID)
 }
@@ -70,10 +70,10 @@ func (f *Factory) CheckoutRef(ctx context.Context, repoPath, runID, ref string) 
 	if strings.TrimSpace(ref) == "" {
 		ref = "HEAD"
 	}
-	return f.prepareGitWorktree(ctx, repoRoot, filepath.Join(runID, "refs"), ref)
+	return f.prepareGitCheckout(ctx, repoRoot, filepath.Join(runID, "refs"), ref)
 }
 
-func (f *Factory) prepareGitWorktree(ctx context.Context, repoRoot, runID, ref string) (Prepared, error) {
+func (f *Factory) prepareGitCheckout(ctx context.Context, repoRoot, runID, ref string) (Prepared, error) {
 	target := filepath.Join(f.workspaceRoot(runID), sanitizeRef(ref))
 	if err := os.RemoveAll(target); err != nil {
 		return Prepared{}, fmt.Errorf("clear workspace path: %w", err)
@@ -81,17 +81,18 @@ func (f *Factory) prepareGitWorktree(ctx context.Context, repoRoot, runID, ref s
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return Prepared{}, fmt.Errorf("create workspace root: %w", err)
 	}
-	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "worktree", "add", "--detach", target, ref)
+	cmd := exec.CommandContext(ctx, "git", "clone", "--quiet", "--no-local", repoRoot, target)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return Prepared{}, fmt.Errorf("add git worktree: %w: %s", err, strings.TrimSpace(string(output)))
+		return Prepared{}, fmt.Errorf("clone git workspace: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	checkoutCmd := exec.CommandContext(ctx, "git", "-C", target, "checkout", "--quiet", "--detach", ref)
+	if output, err := checkoutCmd.CombinedOutput(); err != nil {
+		_ = os.RemoveAll(target)
+		return Prepared{}, fmt.Errorf("checkout git workspace ref %s: %w: %s", ref, err, strings.TrimSpace(string(output)))
 	}
 	cleanup := func() error {
-		removeCmd := exec.CommandContext(context.Background(), "git", "-C", repoRoot, "worktree", "remove", "--force", target)
-		if output, err := removeCmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("remove git worktree: %w: %s", err, strings.TrimSpace(string(output)))
-		}
-		return nil
+		return os.RemoveAll(target)
 	}
 	return Prepared{Path: target, RepoRoot: repoRoot, IsGit: true, cleanup: cleanup}, nil
 }

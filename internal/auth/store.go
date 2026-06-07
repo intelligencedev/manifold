@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"errors"
 	"strings"
@@ -15,6 +16,7 @@ import (
 // Store provides user/session persistence and RBAC checks.
 type Store struct {
 	pool       *pgxpool.Pool
+	db         *sql.DB
 	sessionTTL time.Duration
 }
 
@@ -25,8 +27,18 @@ func NewStore(pool *pgxpool.Pool, sessionTTLHours int) *Store {
 	return &Store{pool: pool, sessionTTL: time.Duration(sessionTTLHours) * time.Hour}
 }
 
+func NewSQLiteStore(db *sql.DB, sessionTTLHours int) *Store {
+	if sessionTTLHours <= 0 {
+		sessionTTLHours = 72
+	}
+	return &Store{db: db, sessionTTL: time.Duration(sessionTTLHours) * time.Hour}
+}
+
 // InitSchema creates required auth tables if they do not exist.
 func (s *Store) InitSchema(ctx context.Context) error {
+	if s.db != nil {
+		return s.sqliteInitSchema(ctx)
+	}
 	_, err := s.pool.Exec(ctx, `
 CREATE TABLE IF NOT EXISTS users (
   id BIGSERIAL PRIMARY KEY,
@@ -66,6 +78,9 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 // EnsureDefaultRoles seeds common roles if missing.
 func (s *Store) EnsureDefaultRoles(ctx context.Context) error {
+	if s.db != nil {
+		return s.sqliteEnsureDefaultRoles(ctx)
+	}
 	roles := []string{"admin", "user"}
 	for _, name := range roles {
 		_, err := s.pool.Exec(ctx, `INSERT INTO roles(name) VALUES($1) ON CONFLICT (name) DO NOTHING`, name)
@@ -78,6 +93,9 @@ func (s *Store) EnsureDefaultRoles(ctx context.Context) error {
 
 // UpsertUser creates or updates a user by provider+subject or email.
 func (s *Store) UpsertUser(ctx context.Context, u *User) (*User, error) {
+	if s.db != nil {
+		return s.sqliteUpsertUser(ctx, u)
+	}
 	if u.Email == "" || u.Provider == "" || u.Subject == "" {
 		return nil, errors.New("missing required user fields")
 	}
@@ -98,6 +116,9 @@ RETURNING id, created_at, updated_at
 
 // AddRole assigns a role to a user.
 func (s *Store) AddRole(ctx context.Context, userID int64, roleName string) error {
+	if s.db != nil {
+		return s.sqliteAddRole(ctx, userID, roleName)
+	}
 	var roleID int64
 	err := s.pool.QueryRow(ctx, `SELECT id FROM roles WHERE name=$1`, roleName).Scan(&roleID)
 	if err != nil {
@@ -109,6 +130,9 @@ func (s *Store) AddRole(ctx context.Context, userID int64, roleName string) erro
 
 // HasRole returns true if the user has the given role.
 func (s *Store) HasRole(ctx context.Context, userID int64, roleName string) (bool, error) {
+	if s.db != nil {
+		return s.sqliteHasRole(ctx, userID, roleName)
+	}
 	var exists bool
 	err := s.pool.QueryRow(ctx, `
 SELECT EXISTS (
@@ -123,6 +147,9 @@ SELECT EXISTS (
 
 // RolesForUser returns a list of role names for the given user.
 func (s *Store) RolesForUser(ctx context.Context, userID int64) ([]string, error) {
+	if s.db != nil {
+		return s.sqliteRolesForUser(ctx, userID)
+	}
 	rows, err := s.pool.Query(ctx, `
 SELECT r.name
 FROM user_roles ur
@@ -147,6 +174,9 @@ ORDER BY r.name
 
 // ListUsers returns all users.
 func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
+	if s.db != nil {
+		return s.sqliteListUsers(ctx)
+	}
 	rows, err := s.pool.Query(ctx, `
 SELECT id, email, name, picture, provider, subject, created_at, updated_at
 FROM users
@@ -168,6 +198,9 @@ ORDER BY id DESC`)
 
 // GetUserByID fetches a user by ID.
 func (s *Store) GetUserByID(ctx context.Context, id int64) (*User, error) {
+	if s.db != nil {
+		return s.sqliteGetUserByID(ctx, id)
+	}
 	var u User
 	err := s.pool.QueryRow(ctx, `
 SELECT id, email, name, picture, provider, subject, created_at, updated_at
@@ -180,6 +213,9 @@ FROM users WHERE id=$1`, id).Scan(&u.ID, &u.Email, &u.Name, &u.Picture, &u.Provi
 
 // UpdateUser updates mutable fields for a user (email, name, picture, provider, subject).
 func (s *Store) UpdateUser(ctx context.Context, u *User) error {
+	if s.db != nil {
+		return s.sqliteUpdateUser(ctx, u)
+	}
 	if u == nil || u.ID == 0 {
 		return errors.New("invalid user")
 	}
@@ -194,12 +230,18 @@ WHERE id=$6
 
 // DeleteUser deletes a user by ID (cascades to sessions and user_roles).
 func (s *Store) DeleteUser(ctx context.Context, id int64) error {
+	if s.db != nil {
+		return s.sqliteDeleteUser(ctx, id)
+	}
 	_, err := s.pool.Exec(ctx, `DELETE FROM users WHERE id=$1`, id)
 	return err
 }
 
 // SetUserRoles replaces the set of roles for a user.
 func (s *Store) SetUserRoles(ctx context.Context, userID int64, roles []string) error {
+	if s.db != nil {
+		return s.sqliteSetUserRoles(ctx, userID, roles)
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -232,6 +274,9 @@ RETURNING id`, name).Scan(&roleID)
 
 // CreateSession issues a new session for a user.
 func (s *Store) CreateSession(ctx context.Context, userID int64) (*Session, error) {
+	if s.db != nil {
+		return s.sqliteCreateSession(ctx, userID)
+	}
 	id, err := randomID(32)
 	if err != nil {
 		return nil, err
@@ -246,6 +291,9 @@ func (s *Store) CreateSession(ctx context.Context, userID int64) (*Session, erro
 
 // GetSession returns the session and associated user if valid.
 func (s *Store) GetSession(ctx context.Context, id string) (*Session, *User, error) {
+	if s.db != nil {
+		return s.sqliteGetSession(ctx, id)
+	}
 	var sess Session
 	err := s.pool.QueryRow(ctx, `SELECT id, user_id, expires_at, created_at, id_token FROM sessions WHERE id=$1`, id).
 		Scan(&sess.ID, &sess.UserID, &sess.ExpiresAt, &sess.CreatedAt, &sess.IDToken)
@@ -268,12 +316,18 @@ func (s *Store) GetSession(ctx context.Context, id string) (*Session, *User, err
 
 // SetSessionIDToken stores the OIDC ID token for a session (used for RP-initiated logout).
 func (s *Store) SetSessionIDToken(ctx context.Context, id string, idToken string) error {
+	if s.db != nil {
+		return s.sqliteSetSessionIDToken(ctx, id, idToken)
+	}
 	_, err := s.pool.Exec(ctx, `UPDATE sessions SET id_token=$2 WHERE id=$1`, id, idToken)
 	return err
 }
 
 // DeleteSession removes a session by id.
 func (s *Store) DeleteSession(ctx context.Context, id string) error {
+	if s.db != nil {
+		return s.sqliteDeleteSession(ctx, id)
+	}
 	_, err := s.pool.Exec(ctx, `DELETE FROM sessions WHERE id=$1`, id)
 	return err
 }

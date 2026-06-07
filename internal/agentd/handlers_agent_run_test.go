@@ -17,6 +17,7 @@ import (
 	"manifold/internal/agent/memory"
 	"manifold/internal/config"
 	"manifold/internal/llm"
+	"manifold/internal/persistence/databases"
 	"manifold/internal/testhelpers"
 	"manifold/internal/tools"
 	"manifold/internal/tools/cli"
@@ -344,6 +345,10 @@ func TestAgentRunHandlerSSEPromptsForUnmatchedCommandApproval(t *testing.T) {
 	a.engine.MaxSteps = 2
 	a.cliExecutor = executor
 	a.inputRequests = newInputRequestBroker()
+	a.commandPolicyStore = databases.NewCommandPolicyStore(nil)
+	if err := a.commandPolicyStore.Init(context.Background()); err != nil {
+		t.Fatalf("init command policy store: %v", err)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/agent/run", a.agentRunHandler())
@@ -389,14 +394,17 @@ func TestAgentRunHandlerSSEPromptsForUnmatchedCommandApproval(t *testing.T) {
 					t.Fatalf("expected command approval to allow free text, got %#v", event)
 				}
 				choices, _ := event["choices"].([]any)
-				if len(choices) != 3 {
-					t.Fatalf("expected three approval choices, got %#v", event["choices"])
+				if len(choices) != 4 {
+					t.Fatalf("expected four approval choices, got %#v", event["choices"])
+				}
+				if !approvalChoicesContain(choices, "allow_all_session") {
+					t.Fatalf("expected session allow-all approval choice, got %#v", event["choices"])
 				}
 				requestID, _ := event["request_id"].(string)
 				if requestID == "" {
 					t.Fatalf("input request missing request_id: %#v", event)
 				}
-				answerBody := bytes.NewBufferString(`{"choice_ids":["approve_once"],"answer":"Use this once."}`)
+				answerBody := bytes.NewBufferString(`{"choice_ids":["allow_all_session"],"answer":"Allow for this session."}`)
 				answerResp, err := server.Client().Post(server.URL+"/api/chat/input-requests/"+requestID+"/answer", "application/json", answerBody)
 				if err != nil {
 					t.Fatalf("answer request error: %v", err)
@@ -422,6 +430,24 @@ func TestAgentRunHandlerSSEPromptsForUnmatchedCommandApproval(t *testing.T) {
 	if !sawInputRequest {
 		t.Fatal("expected unmatched command to emit an input_request approval prompt")
 	}
+	sessionID := normalizeClientChatSessionID("approval-stream")
+	override, ok, err := a.commandPolicyStore.GetSessionOverride(context.Background(), systemUserID, sessionID)
+	if err != nil {
+		t.Fatalf("get command policy session override: %v", err)
+	}
+	if !ok || !override.AllowAllCommands {
+		t.Fatalf("expected allow-all session override for %q, got ok=%v override=%+v", sessionID, ok, override)
+	}
+}
+
+func approvalChoicesContain(choices []any, id string) bool {
+	for _, choice := range choices {
+		obj, _ := choice.(map[string]any)
+		if obj["id"] == id {
+			return true
+		}
+	}
+	return false
 }
 
 func readSSEData(r io.Reader, out chan<- map[string]any, errCh chan<- error) {

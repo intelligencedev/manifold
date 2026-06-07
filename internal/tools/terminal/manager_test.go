@@ -3,12 +3,16 @@ package terminal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
+	"manifold/internal/agent/inputrequest"
+	"manifold/internal/commandexec"
 	"manifold/internal/config"
+	"manifold/internal/durable"
 	"manifold/internal/sandbox"
 )
 
@@ -267,4 +271,49 @@ func TestTerminalStartToolReturnsStablePolicyPayload(t *testing.T) {
 	if res.OK || res.Decision != "deny" || res.Error == "" {
 		t.Fatalf("unexpected policy payload: %#v", res)
 	}
+}
+
+func TestTerminalStartToolPropagatesDurableSuspension(t *testing.T) {
+	t.Parallel()
+
+	cfg := managerTestConfig(config.ExecConfig{})
+	cfg.CommandRules = []config.ExecCommandRule{{
+		ID:       "ask-echo",
+		Decision: "ask",
+		Pattern:  []string{"echo"},
+	}}
+	manager := NewManager(cfg, t.TempDir())
+	defer manager.Close()
+
+	ctx := testContext(t, "sess")
+	ctx = inputrequest.WithRequester(ctx, suspendingInputRequester{})
+	ctx = commandexec.WithApprovalController(ctx, testApprovalController{})
+
+	payload, err := NewStartTool(manager).Call(ctx, json.RawMessage(`{"command":"echo","args":["hi"]}`))
+	if !errors.Is(err, durable.ErrSuspended) {
+		t.Fatalf("Call error = %v, want durable suspension with nil payload", err)
+	}
+	if payload != nil {
+		t.Fatalf("payload = %#v, want nil", payload)
+	}
+}
+
+type suspendingInputRequester struct{}
+
+func (suspendingInputRequester) RequestInfo(context.Context, inputrequest.Request) (inputrequest.Response, error) {
+	return inputrequest.Response{}, durable.ErrSuspended
+}
+
+type testApprovalController struct{}
+
+func (testApprovalController) PersistCommandAllowRule(_ context.Context, rule config.ExecCommandRule) (config.ExecCommandRule, error) {
+	return rule, nil
+}
+
+func (testApprovalController) SessionAllowAllCommands(context.Context, commandexec.CommandSessionScope) (bool, error) {
+	return false, nil
+}
+
+func (testApprovalController) SetSessionAllowAllCommands(context.Context, commandexec.CommandSessionScope, bool) error {
+	return nil
 }

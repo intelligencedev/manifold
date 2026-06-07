@@ -41,11 +41,11 @@ help:
 	@echo "  make sonar-scan          # run SonarScanner against local SonarQube"
 	@echo "  make sonar               # alias for sonar-scan"
 	@echo "  make sonar-down          # stop local SonarQube stack"
-	@echo "  make build              # build host platform binaries into $(DIST)/"
-	@echo "  make build-agentd       # build only the Manifold server binary"
-	@echo "  make build-manifold     # build Forge architecture manifold + embedded frontend"
-	@echo "  make build-manifold-beta # build Forge manifold + embedded frontend with beta UI links"
-	@echo "  make build-agent        # build only the agent binary"
+	@echo "  make build              # build developer host platform binaries into $(DIST)/"
+	@echo "  make build-manifold     # build standard Manifold binary with Forge backend and embedded frontend"
+	@echo "  make build-manifold-beta # build standard Manifold binary with beta UI links"
+	@echo "  make build-agentd       # build Manifold server without refreshing embedded frontend"
+	@echo "  make build-agent        # build only the one-shot agent CLI"
 	@echo "  make frontend           # install frontend deps, then build Vue.js assets"
 	@echo "  make openapi            # generate docs/openapi/openapi.json"
 	@echo "  make cross              # build all platforms (tar/zip) into $(DIST)/"
@@ -241,10 +241,10 @@ FEATURE_GATE ?= stable
 
 .PHONY: build-manifold build-manifold-beta
 build-manifold: frontend | $(DIST)
-	@echo "Building Forge architecture manifold with embedded frontend and tags '$(FORGE_BUILD_TAGS)' -> $(DIST)/manifold"
+	@echo "Building standard Manifold with Forge backend and embedded frontend using tags '$(FORGE_BUILD_TAGS)' -> $(DIST)/manifold"
 	@rm -f $(DIST)/agentd
 	go build -tags "$(FORGE_BUILD_TAGS)" -o $(DIST)/manifold ./cmd/agentd
-	@echo "Forge architecture manifold with frontend build complete"
+	@echo "Standard Manifold build complete"
 
 build-manifold-beta: FEATURE_GATE := beta
 build-manifold-beta: build-manifold

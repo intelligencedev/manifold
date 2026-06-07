@@ -98,6 +98,7 @@ export function normalizeSessionMeta(meta: ChatSessionMeta): ChatSessionMeta {
     memory_enabled?: unknown;
     evolving_memory_enabled?: unknown;
     belief_memory_enabled?: unknown;
+    command_policy_allow_all?: unknown;
   };
   const wire = meta as ChatSessionMetaWire;
   const rawCount = wire.messageCount ?? wire.message_count;
@@ -121,6 +122,8 @@ export function normalizeSessionMeta(meta: ChatSessionMeta): ChatSessionMeta {
     typeof rawMemoryEnabled === "boolean"
       ? rawMemoryEnabled
       : legacyMemoryEnabled;
+  const rawCommandPolicyAllowAll =
+    wire.commandPolicyAllowAll ?? wire.command_policy_allow_all;
   return {
     ...meta,
     messageCount,
@@ -128,6 +131,10 @@ export function normalizeSessionMeta(meta: ChatSessionMeta): ChatSessionMeta {
     memoryEnabled,
     evolvingMemoryEnabled: memoryEnabled,
     beliefMemoryEnabled: memoryEnabled,
+    commandPolicyAllowAll:
+      typeof rawCommandPolicyAllowAll === "boolean"
+        ? rawCommandPolicyAllowAll
+        : false,
   };
 }
 

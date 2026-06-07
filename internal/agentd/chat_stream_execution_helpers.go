@@ -119,6 +119,7 @@ func (a *app) streamExecutionContext(req streamExecutionContextRequest) (context
 		Model: req.Engine.Model,
 		Depth: req.Engine.AgentDepth,
 	})
+	ctx = commandexec.WithCommandSessionScope(ctx, commandPolicySessionScope(req.UserID, req.Request.SessionID))
 	ctx = commandexec.WithApprovalController(ctx, commandPolicyApprovalController{app: a})
 	return ctx, cancel, dur
 }

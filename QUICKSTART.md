@@ -20,7 +20,7 @@ If you use `nvm`, run `nvm use` from the repository root to pick up the checked-
 
 ## Docker Compose Quick Start
 
-Use this path when you want Compose to run both Manifold and PostgreSQL.
+Use this path when you want Compose to run Manifold with the default SQLite backend.
 
 ### 1. Prepare The Repo
 
@@ -37,7 +37,7 @@ Set at minimum:
 ```dotenv
 OPENAI_API_KEY="your_real_api_key"
 WORKDIR="/absolute/path/to/your/manifold/tmp/manifold-workdir"
-DATABASE_URL="postgres://manifold:manifold@pg-manifold:5432/manifold?sslmode=disable"
+DATABASE_URL=""
 CLICKHOUSE_DSN=""
 ```
 
@@ -45,18 +45,18 @@ Notes:
 
 - `WORKDIR` must be an absolute path on the host.
 - Because Docker Compose bind-mounts `${WORKDIR}:${WORKDIR}`, the same absolute path must exist and be accessible from Docker.
-- `DATABASE_URL` should point at `pg-manifold` when running inside the compose network.
+- Leave `DATABASE_URL` empty for the default SQLite backend.
 - Leave `CLICKHOUSE_DSN` empty unless you also start the optional ClickHouse service.
 
 ### 3. Review `config.yaml`
 
-The example config already points its Postgres-backed services at `pg-manifold:5432` and its UI/API redirects at `http://localhost:32180`.
+The example config uses SQLite at `~/.manifold/manifold.db` and points its UI/API redirects at `http://localhost:32180`.
 
 For a first run, you usually only need to verify:
 
 - `auth.enabled: false`
-- `databases.embedded: false`
-- `databases.defaultDSN` still points to `pg-manifold:5432`
+- `databases.backend: sqlite`
+- `databases.defaultDSN: ""`
 - `llm_client` matches the provider you plan to use
 - `obs.local.enabled: true`
 - `obs.clickhouse.dsn` stays empty unless you start ClickHouse
@@ -66,13 +66,13 @@ For a first run, you usually only need to verify:
 ### 4. Start Manifold
 
 ```bash
-docker compose up -d pg-manifold manifold
+docker compose up -d manifold
 ```
 
 Watch startup if needed:
 
 ```bash
-docker compose logs -f pg-manifold manifold
+docker compose logs -f manifold
 ```
 
 ### 5. Open The UI
@@ -103,6 +103,8 @@ Use this path when you want Manifold to run without an external Postgres, ClickH
 make build-manifold
 ```
 
+This is the standard host build. It produces `dist/manifold` with the Forge backend and embedded frontend.
+
 1. In `.env`, leave database and telemetry backends empty:
 
 ```dotenv
@@ -111,26 +113,22 @@ CLICKHOUSE_DSN=""
 OPENAI_API_KEY="your_real_api_key"
 ```
 
-1. In `config.yaml`, enable embedded Postgres and local telemetry:
+1. In `config.yaml`, keep SQLite and local telemetry enabled:
 
 ```yaml
 databases:
-  embedded: true
-  embeddedPort: 5433
-  embeddedDataDir: ""
+  backend: sqlite
   defaultDSN: ""
+  sqlite:
+    path: "~/.manifold/manifold.db"
   chat:
-    backend: auto
-    dsn: ""
+    backend: sqlite
   search:
-    backend: auto
-    dsn: ""
+    backend: sqlite
   vector:
-    backend: auto
-    dsn: ""
+    backend: sqlite
   graph:
-    backend: auto
-    dsn: ""
+    backend: sqlite
 
 obs:
   otlp: ""
@@ -143,14 +141,15 @@ obs:
 1. Run the server:
 
 ```bash
+./dist/manifold storage doctor --json
 ./dist/manifold
 ```
 
-The first embedded Postgres run may download and unpack PostgreSQL binaries, then it stores data under `~/.manifold/embedded-postgres` unless `embeddedDataDir` is set. Dashboard telemetry uses in-process buffers and resets when `manifold` restarts.
+SQLite durable state is stored at `~/.manifold/manifold.db` unless `databases.sqlite.path` is set. Dashboard telemetry uses in-process buffers and resets when `manifold` restarts.
 
 ## Optional Services
 
-The base Docker deployment only needs `pg-manifold` and `manifold`. A host run with `databases.embedded: true` does not need `pg-manifold`.
+The base Docker deployment only needs `manifold`. Add `pg-manifold` only when you explicitly configure `databases.backend: postgres`.
 
 Optional compose services:
 
@@ -160,7 +159,7 @@ Optional compose services:
 Example:
 
 ```bash
-docker compose up -d pg-manifold manifold clickhouse otel-collector
+docker compose up -d manifold clickhouse otel-collector
 ```
 
 ## Troubleshooting
@@ -168,7 +167,7 @@ docker compose up -d pg-manifold manifold clickhouse otel-collector
 - If `manifold` exits immediately, check `docker compose logs manifold`.
 - If project operations fail, verify `WORKDIR` exists on the host and is writable.
 - If the UI loads but model calls fail, verify `OPENAI_API_KEY` or your provider-specific base URL and model settings.
-- If the database does not connect, confirm your DSN still uses `pg-manifold:5432` inside Docker, not host port `5433`.
-- For an embedded Postgres host run, confirm `DATABASE_URL` and per-store DSNs are empty so the runtime-generated embedded DSN can be used.
+- Run `./dist/manifold storage doctor --json` to verify SQLite, FTS5, Vec1, WAL, and a temp vector query.
+- For optional Postgres, confirm your DSN uses `pg-manifold:5432` inside Docker, not host port `5433`.
 
 For more detail, see [docs/deployment.md](./docs/deployment.md), [docs/auth.md](./docs/auth.md), and [docs/observability.md](./docs/observability.md).

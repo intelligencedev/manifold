@@ -2,6 +2,7 @@ package databases
 
 import (
 	"context"
+	"database/sql"
 	"reflect"
 
 	"manifold/internal/agent/memory"
@@ -61,6 +62,7 @@ type GraphDB interface {
 
 // Manager holds concrete database backends resolved from configuration.
 type Manager struct {
+	SQLite             *sql.DB
 	Search             FullTextSearch
 	Vector             VectorStore
 	Graph              GraphDB
@@ -73,6 +75,7 @@ type Manager struct {
 	MCP                persistence.MCPStore
 	Projects           persistence.ProjectsStore
 	UserPreferences    persistence.UserPreferencesStore
+	CommandPolicy      persistence.CommandPolicyStore
 	Pulse              persistence.PulseStore
 	MatrixMessages     persistence.MatrixMessageStore
 	Transit            transit.Store
@@ -81,6 +84,7 @@ type Manager struct {
 
 // Close attempts to close any underlying pools. It's a no-op for memory backends.
 func (m Manager) Close() {
+	closeIfPossible(m.SQLite)
 	closeIfPossible(m.Search)
 	closeIfPossible(m.Vector)
 	closeIfPossible(m.Graph)
@@ -93,6 +97,7 @@ func (m Manager) Close() {
 	closeIfPossible(m.Durable)
 	closeIfPossible(m.Projects)
 	closeIfPossible(m.UserPreferences)
+	closeIfPossible(m.CommandPolicy)
 	closeIfPossible(m.Pulse)
 	closeIfPossible(m.MatrixMessages)
 	closeIfPossible(m.Transit)

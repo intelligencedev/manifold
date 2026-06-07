@@ -59,6 +59,78 @@ func TestMemoryStoreClaimPreventsDuplicateActiveClaims(t *testing.T) {
 	}
 }
 
+func TestWorkerStartRunsConfiguredQueueConcurrently(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	store := NewMemoryStore()
+	client := NewClient(store)
+	registry := NewRegistry()
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	released := false
+
+	registry.Register("chat", "slow", func(ctx context.Context, _ map[string]any) (map[string]any, error) {
+		started <- struct{}{}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-release:
+			return map[string]any{"ok": true}, nil
+		}
+	})
+
+	spawns := make([]SpawnResult, 0, 2)
+	for range 2 {
+		spawn, err := client.Spawn(ctx, SpawnRequest{Queue: "chat", Name: "slow", UserID: 7})
+		if err != nil {
+			t.Fatalf("spawn chat task: %v", err)
+		}
+		spawns = append(spawns, spawn)
+	}
+
+	worker := NewWorker(store, client, registry, WorkerOptions{
+		WorkerID:     "test",
+		Lease:        time.Minute,
+		PollInterval: 5 * time.Millisecond,
+		QueueConcurrency: map[string]int{
+			"chat": 2,
+		},
+	})
+	worker.Start(ctx)
+	defer func() {
+		if !released {
+			close(release)
+		}
+		if err := worker.Close(); err != nil {
+			t.Fatalf("close worker: %v", err)
+		}
+	}()
+
+	for i := range 2 {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatalf("chat task %d did not start concurrently", i+1)
+		}
+	}
+
+	close(release)
+	released = true
+	doneCtx, doneCancel := context.WithTimeout(ctx, time.Second)
+	defer doneCancel()
+	for _, spawn := range spawns {
+		snapshot, err := client.AwaitResult(doneCtx, 7, spawn.TaskID, 5*time.Millisecond)
+		if err != nil {
+			t.Fatalf("await task %s: %v", spawn.TaskID, err)
+		}
+		if snapshot.State != TaskStatusCompleted {
+			t.Fatalf("task %s status = %s, want completed", spawn.TaskID, snapshot.State)
+		}
+	}
+}
+
 func TestMemoryStoreListTasksFiltersByUserQueueStatusAndName(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

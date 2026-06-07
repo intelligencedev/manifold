@@ -2,6 +2,7 @@ package agentd
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"manifold/internal/config"
 	persist "manifold/internal/persistence"
+	"manifold/internal/persistence/databases"
 	"manifold/internal/projects"
 )
 
@@ -214,6 +216,93 @@ func TestDeleteChatSessionPreservesUserProject(t *testing.T) {
 	if len(userProjects) != 1 || userProjects[0].ID != project.ID {
 		t.Fatalf("expected user project to remain, got %#v", userProjects)
 	}
+}
+
+func TestDeleteChatSessionDeletesCommandPolicyOverride(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	chatStore := newPromptHandlerChatStore()
+	if _, err := chatStore.EnsureSession(ctx, nil, "sess-policy-delete", "Chat"); err != nil {
+		t.Fatalf("EnsureSession: %v", err)
+	}
+	commandPolicyStore := databases.NewCommandPolicyStore(nil)
+	if err := commandPolicyStore.Init(ctx); err != nil {
+		t.Fatalf("init command policy store: %v", err)
+	}
+	if err := commandPolicyStore.SetSessionAllowAll(ctx, systemUserID, "sess-policy-delete", true); err != nil {
+		t.Fatalf("SetSessionAllowAll: %v", err)
+	}
+	a := &app{cfg: &config.Config{}, chatStore: chatStore, commandPolicyStore: commandPolicyStore}
+	req := httptest.NewRequest(http.MethodDelete, "/api/chat/sessions/sess-policy-delete", nil)
+	rr := httptest.NewRecorder()
+
+	a.chatSessionDetailHandler().ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("expected status 204, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if _, ok, err := commandPolicyStore.GetSessionOverride(ctx, systemUserID, "sess-policy-delete"); err != nil {
+		t.Fatalf("GetSessionOverride: %v", err)
+	} else if ok {
+		t.Fatal("expected command policy session override to be deleted")
+	}
+}
+
+func TestPatchChatSessionCommandPolicyAllowAll(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	chatStore := newPromptHandlerChatStore()
+	if _, err := chatStore.EnsureSession(ctx, nil, "sess-policy-patch", "Chat"); err != nil {
+		t.Fatalf("EnsureSession: %v", err)
+	}
+	commandPolicyStore := databases.NewCommandPolicyStore(nil)
+	if err := commandPolicyStore.Init(ctx); err != nil {
+		t.Fatalf("init command policy store: %v", err)
+	}
+	a := &app{cfg: &config.Config{}, chatStore: chatStore, commandPolicyStore: commandPolicyStore}
+
+	enableReq := httptest.NewRequest(http.MethodPatch, "/api/chat/sessions/sess-policy-patch", strings.NewReader(`{"commandPolicyAllowAll":true}`))
+	enableRR := httptest.NewRecorder()
+	a.chatSessionDetailHandler().ServeHTTP(enableRR, enableReq)
+	if enableRR.Code != http.StatusOK {
+		t.Fatalf("expected enable status 200, got %d: %s", enableRR.Code, enableRR.Body.String())
+	}
+	enabled := decodeChatSessionResponse(t, enableRR)
+	if !enabled.CommandPolicyAllowAll {
+		t.Fatalf("expected commandPolicyAllowAll=true in response, got %+v", enabled)
+	}
+	if override, ok, err := commandPolicyStore.GetSessionOverride(ctx, systemUserID, "sess-policy-patch"); err != nil {
+		t.Fatalf("GetSessionOverride enabled: %v", err)
+	} else if !ok || !override.AllowAllCommands {
+		t.Fatalf("expected stored allow-all override, ok=%v override=%+v", ok, override)
+	}
+
+	disableReq := httptest.NewRequest(http.MethodPatch, "/api/chat/sessions/sess-policy-patch", strings.NewReader(`{"commandPolicyAllowAll":false}`))
+	disableRR := httptest.NewRecorder()
+	a.chatSessionDetailHandler().ServeHTTP(disableRR, disableReq)
+	if disableRR.Code != http.StatusOK {
+		t.Fatalf("expected disable status 200, got %d: %s", disableRR.Code, disableRR.Body.String())
+	}
+	disabled := decodeChatSessionResponse(t, disableRR)
+	if disabled.CommandPolicyAllowAll {
+		t.Fatalf("expected commandPolicyAllowAll=false in response, got %+v", disabled)
+	}
+	if _, ok, err := commandPolicyStore.GetSessionOverride(ctx, systemUserID, "sess-policy-patch"); err != nil {
+		t.Fatalf("GetSessionOverride disabled: %v", err)
+	} else if ok {
+		t.Fatal("expected command policy session override to be cleared")
+	}
+}
+
+func decodeChatSessionResponse(t *testing.T, rr *httptest.ResponseRecorder) persist.ChatSession {
+	t.Helper()
+	var session persist.ChatSession
+	if err := json.Unmarshal(rr.Body.Bytes(), &session); err != nil {
+		t.Fatalf("decode chat session response: %v\n%s", err, rr.Body.String())
+	}
+	return session
 }
 
 func TestPatchChatSessionProjectDeletesPreviousTemporaryProject(t *testing.T) {

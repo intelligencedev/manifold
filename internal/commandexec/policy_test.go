@@ -3,6 +3,7 @@ package commandexec
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -129,6 +130,23 @@ func TestPrepareRejectsPathLikeAndUnknownBinaries(t *testing.T) {
 	}
 }
 
+func TestPrepareAllowedDomainsRequiresSandbox(t *testing.T) {
+	t.Parallel()
+
+	cfg := testExecConfig(config.ExecCommandRule{ID: "allow-echo", Decision: DecisionAllow, Pattern: []string{"echo"}})
+	cfg.Sandbox.Enabled = testBool(false)
+	cfg.Sandbox.Network.Enabled = testBool(true)
+	cfg.Sandbox.Network.AllowedDomains = []string{"example.com"}
+	_, err := Prepare(context.Background(), cfg, PrepareRequest{Command: "echo hi", Workdir: t.TempDir(), Context: ContextCLI})
+	var policyErr *PolicyError
+	if !errors.As(err, &policyErr) {
+		t.Fatalf("expected policy error, got %v", err)
+	}
+	if !strings.Contains(policyErr.Error(), "allowedDomains requires") {
+		t.Fatalf("unexpected policy error: %v", policyErr)
+	}
+}
+
 type approvalRequester struct {
 	choiceIDs []string
 	answer    string
@@ -143,14 +161,35 @@ func (r *approvalRequester) RequestInfo(ctx context.Context, req inputrequest.Re
 }
 
 type approvalController struct {
-	called bool
-	rule   config.ExecCommandRule
+	called           bool
+	rule             config.ExecCommandRule
+	sessionAllowAll  map[string]bool
+	sessionSetScope  CommandSessionScope
+	sessionSetCalled bool
 }
 
 func (c *approvalController) PersistCommandAllowRule(ctx context.Context, rule config.ExecCommandRule) (config.ExecCommandRule, error) {
 	c.called = true
 	c.rule = rule
 	return rule, nil
+}
+
+func (c *approvalController) SessionAllowAllCommands(ctx context.Context, scope CommandSessionScope) (bool, error) {
+	return c.sessionAllowAll[sessionScopeTestKey(scope)], nil
+}
+
+func (c *approvalController) SetSessionAllowAllCommands(ctx context.Context, scope CommandSessionScope, allow bool) error {
+	c.sessionSetCalled = true
+	c.sessionSetScope = scope
+	if c.sessionAllowAll == nil {
+		c.sessionAllowAll = map[string]bool{}
+	}
+	c.sessionAllowAll[sessionScopeTestKey(scope)] = allow
+	return nil
+}
+
+func sessionScopeTestKey(scope CommandSessionScope) string {
+	return strconv.FormatInt(scope.UserID, 10) + "\x00" + scope.SessionID
 }
 
 type suspendingApprovalRequester struct{}
@@ -190,6 +229,34 @@ func TestPrepareAskPromptsOnlyInteractiveContext(t *testing.T) {
 	}
 	if !requester.request.AllowFreeText || len(requester.request.Choices) != 3 {
 		t.Fatalf("approval request did not expose expected frontend controls: %#v", requester.request)
+	}
+}
+
+func TestPrepareSessionScopedApprovalChoice(t *testing.T) {
+	t.Parallel()
+
+	cfg := testExecConfig(config.ExecCommandRule{ID: "allow-go", Decision: DecisionAllow, Pattern: []string{"go"}})
+	requester := &approvalRequester{choiceIDs: []string{"approve_once"}}
+	controller := &approvalController{}
+	ctx := inputrequest.WithRequester(context.Background(), requester)
+	ctx = WithApprovalController(ctx, controller)
+	ctx = WithCommandSessionScope(ctx, CommandSessionScope{UserID: 7, SessionID: "session-a"})
+
+	if _, err := Prepare(ctx, cfg, PrepareRequest{Command: "echo hi", Workdir: t.TempDir(), Context: ContextCLI}); err != nil {
+		t.Fatalf("Prepare error: %v", err)
+	}
+	if len(requester.request.Choices) != 4 {
+		t.Fatalf("expected session-scoped approval choice, got %#v", requester.request.Choices)
+	}
+	var found bool
+	for _, choice := range requester.request.Choices {
+		if choice.ID == "allow_all_session" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("allow_all_session choice missing: %#v", requester.request.Choices)
 	}
 }
 
@@ -238,6 +305,75 @@ func TestPrepareUnmatchedInteractiveCanPersistAlwaysAllow(t *testing.T) {
 	}
 	if prepared.PolicyID != controller.rule.ID {
 		t.Fatalf("prepared policy id = %q, want persisted rule id %q", prepared.PolicyID, controller.rule.ID)
+	}
+}
+
+func TestPrepareUnmatchedInteractiveCanAllowAllForSession(t *testing.T) {
+	t.Parallel()
+
+	cfg := testExecConfig(config.ExecCommandRule{ID: "allow-go", Decision: DecisionAllow, Pattern: []string{"go"}})
+	requester := &approvalRequester{choiceIDs: []string{"allow_all_session"}}
+	controller := &approvalController{}
+	scope := CommandSessionScope{UserID: 7, SessionID: "session-a"}
+	ctx := inputrequest.WithRequester(context.Background(), requester)
+	ctx = WithApprovalController(ctx, controller)
+	ctx = WithCommandSessionScope(ctx, scope)
+
+	prepared, err := Prepare(ctx, cfg, PrepareRequest{Command: "echo hi", Workdir: t.TempDir(), Context: ContextCLI})
+	if err != nil {
+		t.Fatalf("Prepare error: %v", err)
+	}
+	if !controller.sessionSetCalled || controller.sessionSetScope != scope {
+		t.Fatalf("expected session allow-all to persist, called=%v scope=%#v", controller.sessionSetCalled, controller.sessionSetScope)
+	}
+	if prepared.PolicyID != "session:session-a:allow-all" {
+		t.Fatalf("policy id = %q, want session allow-all", prepared.PolicyID)
+	}
+}
+
+func TestPrepareSessionAllowAllSkipsPromptsOnlyForSameSession(t *testing.T) {
+	t.Parallel()
+
+	cfg := testExecConfig(config.ExecCommandRule{ID: "allow-go", Decision: DecisionAllow, Pattern: []string{"go"}})
+	controller := &approvalController{sessionAllowAll: map[string]bool{
+		sessionScopeTestKey(CommandSessionScope{UserID: 7, SessionID: "session-a"}): true,
+	}}
+	ctx := WithApprovalController(context.Background(), controller)
+	ctx = WithCommandSessionScope(ctx, CommandSessionScope{UserID: 7, SessionID: "session-a"})
+	prepared, err := Prepare(ctx, cfg, PrepareRequest{Command: "echo hi", Workdir: t.TempDir(), Context: ContextCLI})
+	if err != nil {
+		t.Fatalf("Prepare same session error: %v", err)
+	}
+	if prepared.PolicyID != "session:session-a:allow-all" || prepared.Decision != DecisionAllow {
+		t.Fatalf("unexpected same-session prepared command: %#v", prepared)
+	}
+
+	otherCtx := WithApprovalController(context.Background(), controller)
+	otherCtx = WithCommandSessionScope(otherCtx, CommandSessionScope{UserID: 7, SessionID: "session-b"})
+	_, err = Prepare(otherCtx, cfg, PrepareRequest{Command: "echo hi", Workdir: t.TempDir(), Context: ContextCLI})
+	var policyErr *PolicyError
+	if !errors.As(err, &policyErr) || policyErr.Decision != DecisionAsk {
+		t.Fatalf("expected different session to require approval, got %v", err)
+	}
+}
+
+func TestPrepareSessionAllowAllDoesNotBypassDenyOrAvailability(t *testing.T) {
+	t.Parallel()
+
+	scope := CommandSessionScope{UserID: 7, SessionID: "session-a"}
+	controller := &approvalController{sessionAllowAll: map[string]bool{sessionScopeTestKey(scope): true}}
+	ctx := WithApprovalController(context.Background(), controller)
+	ctx = WithCommandSessionScope(ctx, scope)
+
+	_, err := Prepare(ctx, testExecConfig(config.ExecCommandRule{ID: "deny-echo", Decision: DecisionDeny, Pattern: []string{"echo"}}), PrepareRequest{Command: "echo hi", Workdir: t.TempDir(), Context: ContextCLI})
+	var policyErr *PolicyError
+	if !errors.As(err, &policyErr) || policyErr.PolicyID != "deny-echo" {
+		t.Fatalf("expected explicit deny to win, got %v", err)
+	}
+
+	_, err = Prepare(ctx, testExecConfig(config.ExecCommandRule{ID: "allow-go", Decision: DecisionAllow, Pattern: []string{"go"}}), PrepareRequest{Command: "definitely-not-a-manifold-command", Workdir: t.TempDir(), Context: ContextCLI})
+	if !errors.As(err, &policyErr) || !strings.Contains(policyErr.Error(), "not available") {
+		t.Fatalf("expected unavailable binary to fail, got %v", err)
 	}
 }
 

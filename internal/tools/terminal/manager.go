@@ -136,6 +136,7 @@ type session struct {
 	policyID         string
 	userInstructions string
 	sandboxed        bool
+	cleanup          func()
 	cmd              *exec.Cmd
 	pty              *os.File
 	pid              int
@@ -147,6 +148,7 @@ type session struct {
 	buffer           *outputBuffer
 	done             chan struct{}
 	stopOnce         sync.Once
+	cleanupOnce      sync.Once
 	timer            *time.Timer
 }
 
@@ -230,6 +232,12 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) (StartResult, err
 	if err != nil {
 		return StartResult{}, err
 	}
+	cleanupPrepared := true
+	defer func() {
+		if cleanupPrepared && prepared.cleanup != nil {
+			prepared.cleanup()
+		}
+	}()
 
 	now := time.Now().UTC()
 	m.mu.Lock()
@@ -249,6 +257,7 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) (StartResult, err
 		return StartResult{}, err
 	}
 	m.sessions[session.id] = session
+	cleanupPrepared = false
 	m.mu.Unlock()
 
 	if req.Stdin != "" {
@@ -370,6 +379,7 @@ func (m *Manager) Close() error {
 		if s.pty != nil {
 			_ = s.pty.Close()
 		}
+		s.cleanupResources()
 	}
 	return firstErr
 }
@@ -432,6 +442,7 @@ func (m *Manager) purgeExpiredLocked(now time.Time) {
 			if s.pty != nil {
 				_ = s.pty.Close()
 			}
+			s.cleanupResources()
 		}
 	}
 }
@@ -508,8 +519,17 @@ func (m *Manager) watchSession(s *session, timeout time.Duration) {
 		}
 		s.mu.Unlock()
 		_ = s.pty.Close()
+		s.cleanupResources()
 		close(s.done)
 	}()
+}
+
+func (s *session) cleanupResources() {
+	s.cleanupOnce.Do(func() {
+		if s.cleanup != nil {
+			s.cleanup()
+		}
+	})
 }
 
 func (m *Manager) stopSession(s *session, signalName string, grace time.Duration) error {

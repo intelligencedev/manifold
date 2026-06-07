@@ -139,6 +139,7 @@ export interface ChatSessionMeta {
   memoryEnabled?: boolean;
   evolvingMemoryEnabled?: boolean;
   beliefMemoryEnabled?: boolean;
+  commandPolicyAllowAll?: boolean;
 }
 
 export interface AgentTraceEntry {

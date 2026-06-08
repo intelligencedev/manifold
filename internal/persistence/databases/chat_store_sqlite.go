@@ -46,9 +46,9 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
 	summary TEXT NOT NULL DEFAULT '',
 	summarized_count INTEGER NOT NULL DEFAULT 0,
 	project_id TEXT NOT NULL DEFAULT '',
-	memory_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-	evolving_memory_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-	belief_memory_enabled BOOLEAN NOT NULL DEFAULT TRUE
+	memory_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+	evolving_memory_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+	belief_memory_enabled BOOLEAN NOT NULL DEFAULT FALSE
 );
 CREATE TABLE IF NOT EXISTS chat_messages (
 	id TEXT PRIMARY KEY,

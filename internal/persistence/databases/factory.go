@@ -391,15 +391,25 @@ func initializePlaygroundDefaultStore(ctx context.Context, m *Manager, cfg confi
 
 func initializeConfigDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfig, defaultBackend string) error {
 	if defaultBackend == "sqlite" {
+		m.Specialists = NewSQLiteSpecialistsStore(m.SQLite)
+		m.SpecialistTeams = NewSQLiteSpecialistTeamsStore(m.SQLite)
 		m.MCP = NewSQLiteMCPStore(m.SQLite)
 		m.Projects = NewSQLiteProjectsStore(m.SQLite)
 		m.UserPreferences = NewSQLiteUserPreferencesStore(m.SQLite)
 		m.CommandPolicy = NewSQLiteCommandPolicyStore(m.SQLite)
 	} else {
+		m.Specialists = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewSpecialistsStore)
+		m.SpecialistTeams = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewSpecialistTeamsStore)
 		m.MCP = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewMCPStore)
 		m.Projects = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPostgresProjectsStore)
 		m.UserPreferences = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewUserPreferencesStore)
 		m.CommandPolicy = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewCommandPolicyStore)
+	}
+	if err := initStore(ctx, "specialists store", m.Specialists); err != nil {
+		return err
+	}
+	if err := initStore(ctx, "specialist teams store", m.SpecialistTeams); err != nil {
+		return err
 	}
 	if err := initStore(ctx, "mcp store", m.MCP); err != nil {
 		return err

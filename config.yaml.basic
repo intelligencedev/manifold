@@ -1,0 +1,28 @@
+# Minimal first-run Manifold config.
+#
+# No YAML keys are required for a default local install. Manifold will use:
+# - workdir: $HOME/.manifold/projects, created on startup when omitted
+# - llm_client.provider: openai, unless only ANTHROPIC_API_KEY or
+#   GOOGLE_LLM_API_KEY / GOOGLE_API_KEY is set
+# - databases.backend: sqlite
+# - memory.enabled: false, with memory subsystems configured and ready
+# - harness.enabled: false
+# - embedding: OpenAI text-embedding-3-small
+# - imageTool: OpenAI-compatible gpt-5.4-mini
+# - reranking.enabled: false
+#
+# Set one provider key in your environment, then run Manifold:
+#   OPENAI_API_KEY=...
+#   ANTHROPIC_API_KEY=...
+#   GOOGLE_LLM_API_KEY=...
+#
+# To force a provider when multiple keys are present, uncomment one block:
+#
+# llm_client:
+#   provider: openai
+#
+# llm_client:
+#   provider: anthropic
+#
+# llm_client:
+#   provider: google

@@ -26,7 +26,7 @@ type Client struct {
 	logPayloads              bool
 	baseURL                  string
 	httpClient               *http.Client
-	api                      string // "completions" (default) or "responses"
+	api                      string // "responses" (default) or "completions"
 	apiKey                   string // Stored for raw HTTP requests (e.g., Gemini)
 	inputTokensUnsupported   atomic.Bool
 	applyTemplateUnsupported atomic.Bool
@@ -83,7 +83,9 @@ func New(c config.OpenAIConfig, httpClient *http.Client) *Client {
 			isSelfHost: true,
 		}
 
-		httpClient.Transport = wrappedTransport
+		clientCopy := *httpClient
+		clientCopy.Transport = wrappedTransport
+		httpClient = &clientCopy
 	}
 
 	opts := []option.RequestOption{option.WithAPIKey(c.APIKey)}
@@ -94,7 +96,7 @@ func New(c config.OpenAIConfig, httpClient *http.Client) *Client {
 
 	api := strings.ToLower(strings.TrimSpace(c.API))
 	if api == "" {
-		api = "completions"
+		api = "responses"
 	}
 	policy := defaultResponsesContextPolicy(c.Model)
 	policy.applyOverrides(llm.NormalizeExtraParams(c.ExtraParams), c.Model)

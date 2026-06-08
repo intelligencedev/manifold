@@ -2,9 +2,11 @@ package databases
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"manifold/internal/persistence"
@@ -19,6 +21,294 @@ func NewSpecialistTeamsStore(pool *pgxpool.Pool) persistence.SpecialistTeamsStor
 		return &memTeamStore{teams: map[int64]map[string]persistence.SpecialistTeam{}, memberships: map[int64]map[string]map[string]struct{}{}}
 	}
 	return &pgTeamStore{pool: pool}
+}
+
+type sqliteTeamStore struct {
+	db       *sql.DB
+	initOnce sync.Once
+	initErr  error
+}
+
+func NewSQLiteSpecialistTeamsStore(db *sql.DB) persistence.SpecialistTeamsStore {
+	return &sqliteTeamStore{db: db}
+}
+
+func (s *sqliteTeamStore) Init(ctx context.Context) error {
+	if s.db == nil {
+		return errors.New("sqlite specialist teams store requires db")
+	}
+	s.initOnce.Do(func() {
+		_, s.initErr = s.db.ExecContext(ctx, `
+CREATE TABLE IF NOT EXISTS specialist_groups (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	user_id INTEGER NOT NULL DEFAULT 0,
+	name TEXT NOT NULL,
+	description TEXT NOT NULL DEFAULT '',
+	orchestrator_name TEXT NOT NULL DEFAULT '',
+	orchestrator TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(orchestrator)),
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	UNIQUE(user_id, name)
+);
+CREATE TABLE IF NOT EXISTS specialist_group_memberships (
+	user_id INTEGER NOT NULL DEFAULT 0,
+	group_id INTEGER NOT NULL REFERENCES specialist_groups(id) ON DELETE CASCADE,
+	specialist_name TEXT NOT NULL,
+	PRIMARY KEY(user_id, group_id, specialist_name)
+);
+CREATE INDEX IF NOT EXISTS specialist_groups_user_name_idx ON specialist_groups(user_id, name);
+`)
+	})
+	return s.initErr
+}
+
+func (s *sqliteTeamStore) List(ctx context.Context, userID int64) ([]persistence.SpecialistTeam, error) {
+	if err := s.Init(ctx); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, user_id, name, description, orchestrator_name, orchestrator, created_at, updated_at
+FROM specialist_groups
+WHERE user_id = ?
+ORDER BY LOWER(name)`, userID)
+	if err != nil {
+		return nil, err
+	}
+	out := []persistence.SpecialistTeam{}
+	for rows.Next() {
+		team, err := scanSQLiteSpecialistTeam(rows)
+		if err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		out = append(out, team)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	membersByID, err := s.membersByTeamID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Members = membersByID[out[i].ID]
+		if out[i].Members == nil {
+			out[i].Members = []string{}
+		}
+	}
+	return out, nil
+}
+
+func (s *sqliteTeamStore) GetByName(ctx context.Context, userID int64, name string) (persistence.SpecialistTeam, bool, error) {
+	if err := s.Init(ctx); err != nil {
+		return persistence.SpecialistTeam{}, false, err
+	}
+	row := s.db.QueryRowContext(ctx, `
+SELECT id, user_id, name, description, orchestrator_name, orchestrator, created_at, updated_at
+FROM specialist_groups
+WHERE user_id = ? AND LOWER(name) = LOWER(?)`, userID, name)
+	team, err := scanSQLiteSpecialistTeam(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return persistence.SpecialistTeam{}, false, nil
+	}
+	if err != nil {
+		return persistence.SpecialistTeam{}, false, err
+	}
+	team.Members = s.membersForTeam(ctx, userID, team.ID)
+	return team, true, nil
+}
+
+func (s *sqliteTeamStore) Upsert(ctx context.Context, teamUserID int64, team persistence.SpecialistTeam) (persistence.SpecialistTeam, error) {
+	if strings.TrimSpace(team.Name) == "" {
+		return persistence.SpecialistTeam{}, errors.New("name required")
+	}
+	if err := s.Init(ctx); err != nil {
+		return persistence.SpecialistTeam{}, err
+	}
+	orch, _ := json.Marshal(team.Orchestrator)
+	now := time.Now().UTC()
+	row := s.db.QueryRowContext(ctx, `
+INSERT INTO specialist_groups(user_id, name, description, orchestrator_name, orchestrator, created_at, updated_at)
+VALUES(?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(user_id, name) DO UPDATE SET
+	description = excluded.description,
+	orchestrator_name = excluded.orchestrator_name,
+	orchestrator = excluded.orchestrator,
+	updated_at = excluded.updated_at
+RETURNING id, created_at, updated_at`, teamUserID, team.Name, team.Description, team.OrchestratorName, string(orch), now, now)
+	if err := row.Scan(&team.ID, &team.CreatedAt, &team.UpdatedAt); err != nil {
+		return persistence.SpecialistTeam{}, err
+	}
+	team.UserID = teamUserID
+	if team.Members != nil {
+		if err := s.replaceMembers(ctx, teamUserID, team.ID, team.Members); err != nil {
+			return persistence.SpecialistTeam{}, err
+		}
+	}
+	team.Members = s.membersForTeam(ctx, teamUserID, team.ID)
+	return team, nil
+}
+
+func (s *sqliteTeamStore) Delete(ctx context.Context, userID int64, name string) error {
+	if err := s.Init(ctx); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM specialist_groups WHERE user_id = ? AND LOWER(name) = LOWER(?)`, userID, name)
+	return err
+}
+
+func (s *sqliteTeamStore) AddMember(ctx context.Context, userID int64, teamName string, specialistName string) error {
+	if strings.TrimSpace(teamName) == "" || strings.TrimSpace(specialistName) == "" {
+		return errors.New("team and specialist required")
+	}
+	if err := s.Init(ctx); err != nil {
+		return err
+	}
+	teamID, ok, err := s.teamID(ctx, userID, teamName)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return persistence.ErrNotFound
+	}
+	_, err = s.db.ExecContext(ctx, `
+INSERT INTO specialist_group_memberships(user_id, group_id, specialist_name)
+VALUES(?, ?, ?)
+ON CONFLICT DO NOTHING`, userID, teamID, specialistName)
+	return err
+}
+
+func (s *sqliteTeamStore) RemoveMember(ctx context.Context, userID int64, teamName string, specialistName string) error {
+	if err := s.Init(ctx); err != nil {
+		return err
+	}
+	teamID, ok, err := s.teamID(ctx, userID, teamName)
+	if err != nil || !ok {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `DELETE FROM specialist_group_memberships WHERE user_id = ? AND group_id = ? AND specialist_name = ?`, userID, teamID, specialistName)
+	return err
+}
+
+func (s *sqliteTeamStore) ListMemberships(ctx context.Context, userID int64) (map[string][]string, error) {
+	if err := s.Init(ctx); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+SELECT m.specialist_name, g.name
+FROM specialist_group_memberships m
+JOIN specialist_groups g ON g.id = m.group_id AND g.user_id = m.user_id
+WHERE m.user_id = ?`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]string{}
+	for rows.Next() {
+		var specialistName, teamName string
+		if err := rows.Scan(&specialistName, &teamName); err != nil {
+			return nil, err
+		}
+		out[specialistName] = append(out[specialistName], teamName)
+	}
+	for specialistName := range out {
+		sortStrings(out[specialistName])
+	}
+	return out, rows.Err()
+}
+
+func (s *sqliteTeamStore) replaceMembers(ctx context.Context, userID int64, teamID int64, members []string) error {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM specialist_group_memberships WHERE user_id = ? AND group_id = ?`, userID, teamID); err != nil {
+		return err
+	}
+	for _, member := range members {
+		member = strings.TrimSpace(member)
+		if member == "" {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx, `
+INSERT INTO specialist_group_memberships(user_id, group_id, specialist_name)
+VALUES(?, ?, ?)
+ON CONFLICT DO NOTHING`, userID, teamID, member); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *sqliteTeamStore) teamID(ctx context.Context, userID int64, name string) (int64, bool, error) {
+	var id int64
+	err := s.db.QueryRowContext(ctx, `SELECT id FROM specialist_groups WHERE user_id = ? AND LOWER(name) = LOWER(?)`, userID, name).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
+	}
+	return id, true, nil
+}
+
+func (s *sqliteTeamStore) membersForTeam(ctx context.Context, userID int64, teamID int64) []string {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT specialist_name
+FROM specialist_group_memberships
+WHERE user_id = ? AND group_id = ?
+ORDER BY LOWER(specialist_name)`, userID, teamID)
+	if err != nil {
+		return []string{}
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var member string
+		if err := rows.Scan(&member); err == nil {
+			out = append(out, member)
+		}
+	}
+	sortStrings(out)
+	return out
+}
+
+func (s *sqliteTeamStore) membersByTeamID(ctx context.Context, userID int64) (map[int64][]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT group_id, specialist_name
+FROM specialist_group_memberships
+WHERE user_id = ?
+ORDER BY group_id, LOWER(specialist_name)`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64][]string{}
+	for rows.Next() {
+		var teamID int64
+		var member string
+		if err := rows.Scan(&teamID, &member); err != nil {
+			return nil, err
+		}
+		out[teamID] = append(out[teamID], member)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for teamID := range out {
+		sortStrings(out[teamID])
+	}
+	return out, nil
+}
+
+func scanSQLiteSpecialistTeam(row interface{ Scan(dest ...any) error }) (persistence.SpecialistTeam, error) {
+	var team persistence.SpecialistTeam
+	var orchestrator string
+	if err := row.Scan(&team.ID, &team.UserID, &team.Name, &team.Description, &team.OrchestratorName, &orchestrator, &team.CreatedAt, &team.UpdatedAt); err != nil {
+		return persistence.SpecialistTeam{}, err
+	}
+	_ = json.Unmarshal([]byte(orchestrator), &team.Orchestrator)
+	return team, nil
 }
 
 type memTeamStore struct {

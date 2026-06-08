@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"reflect"
 	"strings"
 )
@@ -26,6 +27,7 @@ func applyUnifiedMemoryAliases(cfg *Config) {
 	}
 	applyUnifiedMemoryRetrievalDefaults(cfg)
 	if !cfg.MemoryConfigured {
+		applyDefaultMemorySubsystemCapabilities(cfg)
 		return
 	}
 	if !reflect.ValueOf(cfg.Memory.Evolving).IsZero() {
@@ -60,8 +62,6 @@ func syncUnifiedMemoryConfig(cfg *Config) {
 		cfg.EvolvingMemory.Enabled = cfg.Memory.Enabled
 		cfg.BeliefMemory.Enabled = cfg.Memory.Enabled
 		cfg.Magma.Enabled = cfg.Memory.Enabled
-	} else {
-		cfg.Memory.Enabled = cfg.EvolvingMemory.Enabled && cfg.BeliefMemory.Enabled && cfg.Magma.Enabled
 	}
 	cfg.Memory.Evolving = cfg.EvolvingMemory
 	cfg.Memory.Belief = cfg.BeliefMemory
@@ -76,6 +76,22 @@ func syncUnifiedMemoryConfig(cfg *Config) {
 	cfg.Memory.Magma.Consolidation.LLMClient = cfg.Magma.Consolidation.LLMClient
 }
 
+func applyDefaultMemorySubsystemCapabilities(cfg *Config) {
+	if !cfg.EvolvingMemoryConfigured {
+		cfg.EvolvingMemory.Enabled = true
+		cfg.EvolvingMemory.EnableRAG = true
+	}
+	if !cfg.BeliefMemoryConfigured {
+		cfg.BeliefMemory.Enabled = true
+		cfg.BeliefMemory.EnableDistillation = true
+		cfg.BeliefMemory.EnableRetrieval = true
+		cfg.BeliefMemory.EnableConstraintEnforcement = true
+	}
+	if !cfg.MagmaConfigured {
+		cfg.Magma.Enabled = true
+	}
+}
+
 func applyUnifiedMemoryRetrievalDefaults(cfg *Config) {
 	if cfg.Memory.Retrieval.MaxTokensPerPrompt <= 0 {
 		cfg.Memory.Retrieval.MaxTokensPerPrompt = 2200
@@ -87,19 +103,60 @@ func applyUnifiedMemoryRetrievalDefaults(cfg *Config) {
 }
 
 func applyLLMDefaults(cfg *Config) {
+	applyLLMEnvDefaults(cfg)
 	if cfg.LLMClient.Provider == "" {
-		cfg.LLMClient.Provider = "openai"
+		cfg.LLMClient.Provider = defaultLLMProvider(cfg.LLMClient)
 	}
 	if cfg.LLMClient.OpenAI.BaseURL == "" {
 		cfg.LLMClient.OpenAI.BaseURL = OpenAIAPIV1BaseURL
 	}
 	if cfg.LLMClient.OpenAI.Model == "" {
-		cfg.LLMClient.OpenAI.Model = "gpt-4o-mini"
+		cfg.LLMClient.OpenAI.Model = "gpt-5-mini"
 	}
 	if cfg.LLMClient.OpenAI.API == "" {
-		cfg.LLMClient.OpenAI.API = "completions"
+		cfg.LLMClient.OpenAI.API = "responses"
+	}
+	if cfg.LLMClient.Anthropic.Model == "" {
+		cfg.LLMClient.Anthropic.Model = "claude-sonnet-4-6"
+	}
+	if cfg.LLMClient.Anthropic.BaseURL == "" {
+		cfg.LLMClient.Anthropic.BaseURL = "https://api.anthropic.com"
+	}
+	if cfg.LLMClient.Google.Model == "" {
+		cfg.LLMClient.Google.Model = "gemini-2.5-pro"
+	}
+	if cfg.LLMClient.Google.BaseURL == "" {
+		cfg.LLMClient.Google.BaseURL = "https://generativelanguage.googleapis.com/"
 	}
 	applySummaryDefaults(cfg)
+}
+
+func applyLLMEnvDefaults(cfg *Config) {
+	if strings.TrimSpace(cfg.LLMClient.OpenAI.APIKey) == "" {
+		cfg.LLMClient.OpenAI.APIKey = strings.TrimSpace(os.Getenv("OPENAI_API_KEY"))
+	}
+	if strings.TrimSpace(cfg.LLMClient.Anthropic.APIKey) == "" {
+		cfg.LLMClient.Anthropic.APIKey = strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY"))
+	}
+	if strings.TrimSpace(cfg.LLMClient.Google.APIKey) == "" {
+		cfg.LLMClient.Google.APIKey = firstNonEmpty(
+			strings.TrimSpace(os.Getenv("GOOGLE_LLM_API_KEY")),
+			strings.TrimSpace(os.Getenv("GOOGLE_API_KEY")),
+		)
+	}
+}
+
+func defaultLLMProvider(cfg LLMClientConfig) string {
+	switch {
+	case strings.TrimSpace(cfg.OpenAI.APIKey) != "":
+		return "openai"
+	case strings.TrimSpace(cfg.Anthropic.APIKey) != "":
+		return "anthropic"
+	case strings.TrimSpace(cfg.Google.APIKey) != "":
+		return "google"
+	default:
+		return "openai"
+	}
 }
 
 func applyObservabilityDefaults(cfg *Config) {
@@ -320,6 +377,12 @@ func applyEmbeddingAndRerankingDefaults(cfg *Config) {
 	if cfg.Embedding.Model == "" {
 		cfg.Embedding.Model = "text-embedding-3-small"
 	}
+	if strings.TrimSpace(cfg.Embedding.APIKey) == "" {
+		cfg.Embedding.APIKey = firstNonEmpty(
+			strings.TrimSpace(cfg.LLMClient.OpenAI.APIKey),
+			strings.TrimSpace(os.Getenv("OPENAI_API_KEY")),
+		)
+	}
 	if cfg.Embedding.APIHeader == "" {
 		cfg.Embedding.APIHeader = "Authorization"
 	}
@@ -348,6 +411,12 @@ func applyEmbeddingAndRerankingDefaults(cfg *Config) {
 	}
 	if cfg.Reranking.Timeout <= 0 {
 		cfg.Reranking.Timeout = 30
+	}
+	if cfg.ImageTool.BaseURL == "" {
+		cfg.ImageTool.BaseURL = OpenAIAPIV1BaseURL
+	}
+	if cfg.ImageTool.Model == "" {
+		cfg.ImageTool.Model = "gpt-5.4-mini"
 	}
 }
 

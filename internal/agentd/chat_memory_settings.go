@@ -13,9 +13,9 @@ type chatMemoryRunSettings struct {
 
 func defaultChatMemoryRunSettings() chatMemoryRunSettings {
 	return chatMemoryRunSettings{
-		MemoryEnabled:         true,
-		EvolvingMemoryEnabled: true,
-		BeliefMemoryEnabled:   true,
+		MemoryEnabled:         false,
+		EvolvingMemoryEnabled: false,
+		BeliefMemoryEnabled:   false,
 	}
 }
 

@@ -6,22 +6,25 @@ import (
 	"manifold/internal/persistence/databases"
 	"manifold/internal/specialists"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog/log"
 )
 
 func (a *app) initSpecialists(ctx context.Context) error {
-	var pg *pgxpool.Pool
-	if a.cfg.Databases.DefaultDSN != "" {
-		if p, err := databases.OpenPool(ctx, a.cfg.Databases.DefaultDSN); err == nil {
-			pg = p
-		}
+	specStore := a.mgr.Specialists
+	if specStore == nil {
+		specStore = databases.NewSpecialistsStore(nil)
 	}
-	specStore := databases.NewSpecialistsStore(pg)
-	_ = specStore.Init(ctx)
+	if err := specStore.Init(ctx); err != nil {
+		return err
+	}
 	a.specStore = specStore
-	teamStore := databases.NewSpecialistTeamsStore(pg)
-	_ = teamStore.Init(ctx)
+	teamStore := a.mgr.SpecialistTeams
+	if teamStore == nil {
+		teamStore = databases.NewSpecialistTeamsStore(nil)
+	}
+	if err := teamStore.Init(ctx); err != nil {
+		return err
+	}
 	a.teamStore = teamStore
 
 	if err := specialists.SeedStore(ctx, specStore, systemUserID, a.cfg.Specialists); err != nil {

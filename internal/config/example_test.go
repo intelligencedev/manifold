@@ -46,3 +46,35 @@ func TestConfigYAMLExampleLoads(t *testing.T) {
 		t.Fatalf("expected no inline mcp.servers in config example, got %+v", cfg.MCP.Servers)
 	}
 }
+
+func TestConfigYAMLBasicLoads(t *testing.T) {
+	repoRoot := filepath.Join("..", "..")
+	data, err := os.ReadFile(filepath.Join(repoRoot, "config.yaml.basic"))
+	if err != nil {
+		t.Fatalf("read config.yaml.basic: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	home := filepath.Join(tmpDir, "home")
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), data, 0o644); err != nil {
+		t.Fatalf("write config.yaml: %v", err)
+	}
+	t.Chdir(tmpDir)
+
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "test-openai-key")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("GOOGLE_LLM_API_KEY", "")
+	t.Setenv("GOOGLE_API_KEY", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() config.yaml.basic: %v", err)
+	}
+	if cfg.Workdir != filepath.Join(home, ".manifold", "projects") {
+		t.Fatalf("unexpected basic workdir: %q", cfg.Workdir)
+	}
+	if cfg.Memory.Enabled {
+		t.Fatal("expected basic config to leave global memory disabled")
+	}
+}

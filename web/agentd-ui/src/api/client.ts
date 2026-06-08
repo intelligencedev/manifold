@@ -175,7 +175,7 @@ export async function getTeam(name: string): Promise<SpecialistTeam> {
 export async function upsertTeam(
   team: SpecialistTeam,
 ): Promise<SpecialistTeam> {
-  if (team.name && team.id == null) {
+  if (team.name && (!Number.isFinite(team.id) || (team.id ?? 0) <= 0)) {
     const { data } = await apiClient.post<SpecialistTeam>("/teams", team);
     return data;
   }

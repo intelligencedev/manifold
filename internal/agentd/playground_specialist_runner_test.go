@@ -73,12 +73,14 @@ func TestPlaygroundSpecialistRunnerUsesToolsAndIsolatedProjectContext(t *testing
 				APIKey:  "test",
 				BaseURL: specialistServer.URL,
 				Model:   "special-model",
+				API:     "completions",
 			},
 		},
 		OpenAI: config.OpenAIConfig{
 			APIKey:  "test",
 			BaseURL: specialistServer.URL,
 			Model:   "special-model",
+			API:     "completions",
 		},
 	}
 	specs := []config.SpecialistConfig{{
@@ -87,6 +89,7 @@ func TestPlaygroundSpecialistRunnerUsesToolsAndIsolatedProjectContext(t *testing
 		BaseURL:     specialistServer.URL,
 		APIKey:      "test",
 		Model:       "special-model",
+		API:         "completions",
 		EnableTools: true,
 		System:      "Use tools when useful.",
 	}}

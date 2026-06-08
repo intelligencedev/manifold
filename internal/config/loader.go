@@ -20,12 +20,14 @@ func Load() (Config, error) {
 	cfg := Config{}
 	cfg.Tokenization.FallbackToHeuristic = true
 
-	configPath, err := findRequiredFile("config.yaml", "config.yml")
+	configPath, found, err := findOptionalConfigFile("", "config.yaml", "config.yml")
 	if err != nil {
 		return Config{}, err
 	}
-	if err := loadMainConfig(configPath, &cfg); err != nil {
-		return Config{}, err
+	if found {
+		if err := loadMainConfig(configPath, &cfg); err != nil {
+			return Config{}, err
+		}
 	}
 	if err := loadExternalConfigs(&cfg); err != nil {
 		return Config{}, err
@@ -51,8 +53,11 @@ func loadMainConfig(path string, cfg *Config) error {
 	}
 
 	var aliases struct {
-		OutputTruncateByte int           `yaml:"outputTruncateByte"`
-		Memory             *MemoryConfig `yaml:"memory"`
+		OutputTruncateByte int                   `yaml:"outputTruncateByte"`
+		Memory             *MemoryConfig         `yaml:"memory"`
+		EvolvingMemory     *EvolvingMemoryConfig `yaml:"evolvingMemory"`
+		BeliefMemory       *BeliefMemoryConfig   `yaml:"beliefMemory"`
+		Magma              *MagmaConfig          `yaml:"magma"`
 	}
 	if err := yaml.Unmarshal(data, &aliases); err != nil {
 		return fmt.Errorf("%s: could not parse configuration aliases: %w", path, err)
@@ -61,6 +66,9 @@ func loadMainConfig(path string, cfg *Config) error {
 		cfg.OutputTruncateByte = aliases.OutputTruncateByte
 	}
 	cfg.MemoryConfigured = aliases.Memory != nil
+	cfg.EvolvingMemoryConfigured = aliases.EvolvingMemory != nil
+	cfg.BeliefMemoryConfigured = aliases.BeliefMemory != nil
+	cfg.MagmaConfigured = aliases.Magma != nil
 
 	return nil
 }
@@ -326,7 +334,14 @@ func validateConfigProviderCredentials(cfg *Config) error {
 
 func validateConfigWorkdir(cfg *Config) error {
 	if strings.TrimSpace(cfg.Workdir) == "" {
-		return errors.New("workdir is required")
+		workdir, err := defaultWorkdir()
+		if err != nil {
+			return err
+		}
+		cfg.Workdir = workdir
+		if err := os.MkdirAll(cfg.Workdir, 0o755); err != nil {
+			return fmt.Errorf("create default workdir: %w", err)
+		}
 	}
 	absWD, err := filepath.Abs(cfg.Workdir)
 	if err != nil {
@@ -341,6 +356,14 @@ func validateConfigWorkdir(cfg *Config) error {
 	}
 	cfg.Workdir = absWD
 	return nil
+}
+
+func defaultWorkdir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return "", errors.New("workdir is required when HOME is unavailable")
+	}
+	return filepath.Join(home, ".manifold", "projects"), nil
 }
 
 func validateConfigExec(cfg *Config) error {

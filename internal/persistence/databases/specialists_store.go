@@ -2,9 +2,11 @@ package databases
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 
 	"manifold/internal/persistence"
 
@@ -17,6 +19,178 @@ func NewSpecialistsStore(pool *pgxpool.Pool) persistence.SpecialistsStore {
 		return &memSpecStore{m: map[int64]map[string]persistence.Specialist{}}
 	}
 	return &pgSpecStore{pool: pool}
+}
+
+type sqliteSpecStore struct {
+	db       *sql.DB
+	initOnce sync.Once
+	initErr  error
+}
+
+func NewSQLiteSpecialistsStore(db *sql.DB) persistence.SpecialistsStore {
+	return &sqliteSpecStore{db: db}
+}
+
+func (s *sqliteSpecStore) Init(ctx context.Context) error {
+	if s.db == nil {
+		return errors.New("sqlite specialists store requires db")
+	}
+	s.initOnce.Do(func() {
+		_, s.initErr = s.db.ExecContext(ctx, `
+CREATE TABLE IF NOT EXISTS specialists (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	user_id INTEGER NOT NULL DEFAULT 0,
+	name TEXT NOT NULL,
+	description TEXT NOT NULL DEFAULT '',
+	base_url TEXT NOT NULL DEFAULT '',
+	api_key TEXT NOT NULL DEFAULT '',
+	model TEXT NOT NULL DEFAULT '',
+	summary_context_window_tokens INTEGER NOT NULL DEFAULT 0,
+	enable_tools INTEGER NOT NULL DEFAULT 0,
+	request_info_enabled INTEGER DEFAULT NULL,
+	image_generation INTEGER NOT NULL DEFAULT 0,
+	auto_discover INTEGER DEFAULT NULL,
+	paused INTEGER NOT NULL DEFAULT 0,
+	allow_tools TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(allow_tools)),
+	reasoning_effort TEXT NOT NULL DEFAULT '',
+	system TEXT NOT NULL DEFAULT '',
+	extra_headers TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(extra_headers)),
+	extra_params TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(extra_params)),
+	harness TEXT DEFAULT NULL,
+	provider TEXT NOT NULL DEFAULT '',
+	UNIQUE(user_id, name)
+);
+CREATE INDEX IF NOT EXISTS specialists_user_name_idx ON specialists(user_id, name);
+`)
+	})
+	return s.initErr
+}
+
+func (s *sqliteSpecStore) List(ctx context.Context, userID int64) ([]persistence.Specialist, error) {
+	if err := s.Init(ctx); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id,user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,request_info_enabled,image_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,harness,provider FROM specialists WHERE user_id=? ORDER BY LOWER(name)`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []persistence.Specialist{}
+	for rows.Next() {
+		sp, err := scanSQLiteSpecialist(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, sp)
+	}
+	return out, rows.Err()
+}
+
+func (s *sqliteSpecStore) GetByName(ctx context.Context, userID int64, name string) (persistence.Specialist, bool, error) {
+	if err := s.Init(ctx); err != nil {
+		return persistence.Specialist{}, false, err
+	}
+	row := s.db.QueryRowContext(ctx, `SELECT id,user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,request_info_enabled,image_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,harness,provider FROM specialists WHERE user_id=? AND name=?`, userID, name)
+	sp, err := scanSQLiteSpecialist(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return persistence.Specialist{}, false, nil
+	}
+	if err != nil {
+		return persistence.Specialist{}, false, err
+	}
+	return sp, true, nil
+}
+
+func (s *sqliteSpecStore) Upsert(ctx context.Context, userID int64, sp persistence.Specialist) (persistence.Specialist, error) {
+	if strings.TrimSpace(sp.Name) == "" {
+		return persistence.Specialist{}, errors.New("name required")
+	}
+	if err := s.Init(ctx); err != nil {
+		return persistence.Specialist{}, err
+	}
+	allow, _ := json.Marshal(sp.AllowTools)
+	headers, _ := json.Marshal(sp.ExtraHeaders)
+	params, _ := json.Marshal(sp.ExtraParams)
+	harness := encodeSpecialistHarness(sp.Harness)
+	row := s.db.QueryRowContext(ctx, `
+INSERT INTO specialists(user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,request_info_enabled,image_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,harness,provider)
+VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+ON CONFLICT(user_id, name) DO UPDATE SET
+	description=excluded.description,
+	base_url=excluded.base_url,
+	api_key=CASE
+		WHEN NULLIF(TRIM(excluded.api_key), '') IS NULL THEN specialists.api_key
+		ELSE excluded.api_key
+	END,
+	model=excluded.model,
+	summary_context_window_tokens=excluded.summary_context_window_tokens,
+	enable_tools=excluded.enable_tools,
+	request_info_enabled=excluded.request_info_enabled,
+	image_generation=excluded.image_generation,
+	auto_discover=excluded.auto_discover,
+	paused=excluded.paused,
+	allow_tools=excluded.allow_tools,
+	reasoning_effort=excluded.reasoning_effort,
+	system=excluded.system,
+	extra_headers=excluded.extra_headers,
+	extra_params=excluded.extra_params,
+	harness=excluded.harness,
+	provider=excluded.provider
+RETURNING id, api_key`, userID, sp.Name, sp.Description, sp.BaseURL, sp.APIKey, sp.Model, sp.SummaryContextWindowTokens, sp.EnableTools, nullableBool(sp.RequestInfoEnabled), sp.ImageGeneration, nullableBool(sp.AutoDiscover), sp.Paused, string(allow), sp.ReasoningEffort, sp.System, string(headers), string(params), nullableJSON(harness), sp.Provider)
+	if err := row.Scan(&sp.ID, &sp.APIKey); err != nil {
+		return persistence.Specialist{}, err
+	}
+	sp.UserID = userID
+	return sp, nil
+}
+
+func boolPtr(value bool) *bool {
+	return &value
+}
+
+func nullableBool(value *bool) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func nullableJSON(raw []byte) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	return string(raw)
+}
+
+func (s *sqliteSpecStore) Delete(ctx context.Context, userID int64, name string) error {
+	if err := s.Init(ctx); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `DELETE FROM specialists WHERE user_id=? AND name=?`, userID, name)
+	return err
+}
+
+func scanSQLiteSpecialist(row interface{ Scan(dest ...any) error }) (persistence.Specialist, error) {
+	var sp persistence.Specialist
+	var allow, headers, params string
+	var harness sql.NullString
+	var requestInfo, autoDiscover sql.NullBool
+	if err := row.Scan(&sp.ID, &sp.UserID, &sp.Name, &sp.Description, &sp.BaseURL, &sp.APIKey, &sp.Model, &sp.SummaryContextWindowTokens, &sp.EnableTools, &requestInfo, &sp.ImageGeneration, &autoDiscover, &sp.Paused, &allow, &sp.ReasoningEffort, &sp.System, &headers, &params, &harness, &sp.Provider); err != nil {
+		return persistence.Specialist{}, err
+	}
+	_ = json.Unmarshal([]byte(allow), &sp.AllowTools)
+	_ = json.Unmarshal([]byte(headers), &sp.ExtraHeaders)
+	_ = json.Unmarshal([]byte(params), &sp.ExtraParams)
+	if requestInfo.Valid {
+		sp.RequestInfoEnabled = boolPtr(requestInfo.Bool)
+	}
+	if autoDiscover.Valid {
+		sp.AutoDiscover = boolPtr(autoDiscover.Bool)
+	}
+	if harness.Valid {
+		sp.Harness = decodeSpecialistHarness([]byte(harness.String))
+	}
+	return sp, nil
 }
 
 type memSpecStore struct {

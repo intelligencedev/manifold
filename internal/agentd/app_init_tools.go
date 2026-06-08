@@ -237,14 +237,9 @@ func initTransitService(cfg *config.Config, mgr databases.Manager, runtimeRAGSer
 
 func registerImageTool(cfg *config.Config, httpClient *http.Client, llm llmpkg.Provider, toolRegistry tools.Registry) {
 	newProv := func(baseURL string) llmpkg.Provider {
-		switch cfg.LLMClient.Provider {
-		case "", "openai", "local":
-			cfgCopy := cfg.LLMClient.OpenAI
-			cfgCopy.BaseURL = baseURL
-			return openaillm.New(cfgCopy, httpClient)
-		default:
-			return llm
-		}
+		cfgCopy := cfg.LLMClient.OpenAI
+		cfgCopy.BaseURL = baseURL
+		return openaillm.New(cfgCopy, httpClient)
 	}
 	toolRegistry.Register(imagetool.NewDescribeTool(llm, cfg.Workdir, cfg.ImageTool.Model, cfg.ImageTool.BaseURL, newProv))
 }

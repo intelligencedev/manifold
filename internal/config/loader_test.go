@@ -621,6 +621,29 @@ llm_client:
 	}
 }
 
+func TestLoad_HarnessDefaultsDisabledWhenOmitted(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
+	t.Setenv("OPENAI_API_KEY", "dummy")
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(`workdir: .
+llm_client:
+  provider: openai
+  openai:
+    apiKey: "${OPENAI_API_KEY}"
+`), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.Harness.Enabled {
+		t.Fatalf("expected omitted harness config to default disabled, got %+v", cfg.Harness)
+	}
+}
+
 func TestLoad_NoConfigFileUsesFirstRunDefaults(t *testing.T) {
 	tmpDir := t.TempDir()
 	home := filepath.Join(tmpDir, "home")

@@ -2,9 +2,11 @@ package retrieve
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"manifold/internal/persistence/databases"
+	sqlitep "manifold/internal/persistence/sqlite"
 )
 
 func TestParallelCandidates_Memory(t *testing.T) {
@@ -36,5 +38,42 @@ func TestParallelCandidates_Memory(t *testing.T) {
 	}
 	if diag.FtLatency == 0 && diag.VecLatency == 0 {
 		t.Fatalf("expected some latency recorded")
+	}
+}
+
+func TestParallelCandidates_SQLiteFallsBackToDocumentsForChunkAwareSearch(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	db, err := sqlitep.Open(ctx, sqlitep.Config{
+		Path:          filepath.Join(t.TempDir(), "manifold.db"),
+		BusyTimeoutMs: 10000,
+		WAL:           true,
+		MaxOpenConns:  1,
+	})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	search := databases.NewSQLiteSearch(db)
+
+	if err := search.Index(ctx, "doc:web:rare", "rare fetch keyword appears in this fetched page", map[string]string{"source": "web_fetch"}); err != nil {
+		t.Fatalf("Index() error = %v", err)
+	}
+
+	plan := QueryPlan{
+		Query:   "rare_fetch-key",
+		Lang:    "english",
+		FtK:     5,
+		Filters: map[string]string{"lang": "english"},
+	}
+	fts, _, diag, err := ParallelCandidates(ctx, search, nil, plan, nil)
+	if err != nil {
+		t.Fatalf("ParallelCandidates error: %v", err)
+	}
+	if len(fts) != 1 || fts[0].ID != "doc:web:rare" {
+		t.Fatalf("unexpected FTS candidates: %#v", fts)
+	}
+	if diag.FtCount != 1 {
+		t.Fatalf("expected one FTS diagnostic count, got %+v", diag)
 	}
 }

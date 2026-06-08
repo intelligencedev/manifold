@@ -234,7 +234,7 @@ type ChunkSearchRow struct {
 // UpsertChunk inserts or updates a row in the chunks table. It assumes the
 // table has columns: id TEXT PK, doc_id TEXT, idx INT, text TEXT, metadata JSONB, lang regconfig.
 func (p *pgSearch) UpsertChunk(ctx context.Context, chunk ChunkSearchRow) error {
-	md := mapToJSON(chunk.Metadata)
+	md := mapToJSON(chunkSearchMetadata(chunk.Metadata, chunk.Lang))
 	_, err := p.pool.Exec(ctx, `
 INSERT INTO chunks(id, doc_id, idx, text, metadata, lang)
 VALUES($1,$2,$3,$4,$5,$6)

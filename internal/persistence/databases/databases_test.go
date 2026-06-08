@@ -124,6 +124,67 @@ func TestSQLiteSearch_IndexChunksAndSearch(t *testing.T) {
 	}
 }
 
+func TestSQLiteSearch_SearchChunksUsesLanguageTolerantChunkFilter(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	search := NewSQLiteSearch(openTestSQLite(t)).(*sqliteSearch)
+
+	if err := search.UpsertChunk(ctx, ChunkSearchRow{
+		ID:       "chunk:lang:1",
+		DocID:    "doc:lang",
+		Index:    0,
+		Text:     "fast fox chunk",
+		Metadata: map[string]string{"type": "chunk", "tenant": "t1"},
+		Lang:     "english",
+	}); err != nil {
+		t.Fatalf("UpsertChunk() error = %v", err)
+	}
+	chunks, err := search.SearchChunks(ctx, "fox", "english", 5, map[string]string{"tenant": "t1", "lang": "english"})
+	if err != nil {
+		t.Fatalf("SearchChunks() error = %v", err)
+	}
+	if len(chunks) != 1 || chunks[0].ID != "chunk:lang:1" {
+		t.Fatalf("unexpected chunks: %#v", chunks)
+	}
+	if chunks[0].Metadata["lang"] != "english" {
+		t.Fatalf("expected chunk metadata to include lang, got %#v", chunks[0].Metadata)
+	}
+}
+
+func TestSQLiteSearch_SearchChunksFallsBackToDocumentsAndNormalizesQuery(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	search := NewSQLiteSearch(openTestSQLite(t)).(*sqliteSearch)
+
+	if err := search.Index(ctx, "doc:web:1", "Rare fetch keyword appears in this fetched page", map[string]string{"source": "web_fetch"}); err != nil {
+		t.Fatalf("Index() error = %v", err)
+	}
+	hits, err := search.SearchChunks(ctx, "rare_fetch-key", "english", 5, map[string]string{"lang": "english"})
+	if err != nil {
+		t.Fatalf("SearchChunks() error = %v", err)
+	}
+	if len(hits) != 1 || hits[0].ID != "doc:web:1" {
+		t.Fatalf("unexpected document fallback hits: %#v", hits)
+	}
+}
+
+func TestSQLiteSearch_SearchRetriesWithPrefixNormalizedTerms(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	search := NewSQLiteSearch(openTestSQLite(t))
+
+	if err := search.Index(ctx, "doc:prefix:1", "rarefetchkeyword keyphrase appears in this document", nil); err != nil {
+		t.Fatalf("Index() error = %v", err)
+	}
+	hits, err := search.Search(ctx, "rarefetch-key", 5)
+	if err != nil {
+		t.Fatalf("Search() error = %v", err)
+	}
+	if len(hits) != 1 || hits[0].ID != "doc:prefix:1" {
+		t.Fatalf("unexpected prefix hits: %#v", hits)
+	}
+}
+
 func TestSQLiteVector_UpsertFilterAndQuery(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

@@ -143,7 +143,7 @@ func (a *app) configureUnifiedMemoryRuntime(eng *agent.Engine, em *memory.Evolvi
 		return
 	}
 	settings = normalizeChatMemoryRunSettings(settings)
-	if a.cfg == nil || !a.cfg.Memory.Enabled || !settings.MemoryEnabled {
+	if a.cfg == nil || !settings.MemoryEnabled {
 		eng.Memory = nil
 		eng.DisableMemory = true
 		return

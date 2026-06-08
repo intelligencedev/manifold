@@ -41,9 +41,9 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     summary TEXT NOT NULL DEFAULT '',
     summarized_count INTEGER NOT NULL DEFAULT 0,
     project_id TEXT NOT NULL DEFAULT '',
-    memory_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-    evolving_memory_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-    belief_memory_enabled BOOLEAN NOT NULL DEFAULT TRUE
+    memory_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    evolving_memory_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    belief_memory_enabled BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE TABLE IF NOT EXISTS chat_messages (
@@ -72,25 +72,25 @@ ALTER TABLE chat_sessions
     ADD COLUMN IF NOT EXISTS project_id TEXT NOT NULL DEFAULT '';
 
 ALTER TABLE chat_sessions
-    ADD COLUMN IF NOT EXISTS memory_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+    ADD COLUMN IF NOT EXISTS memory_enabled BOOLEAN NOT NULL DEFAULT FALSE;
 
 ALTER TABLE chat_sessions
-    ADD COLUMN IF NOT EXISTS evolving_memory_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+    ADD COLUMN IF NOT EXISTS evolving_memory_enabled BOOLEAN NOT NULL DEFAULT FALSE;
 
 ALTER TABLE chat_sessions
-    ADD COLUMN IF NOT EXISTS belief_memory_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+    ADD COLUMN IF NOT EXISTS belief_memory_enabled BOOLEAN NOT NULL DEFAULT FALSE;
 
 ALTER TABLE chat_sessions
-    ALTER COLUMN memory_enabled SET DEFAULT TRUE;
+    ALTER COLUMN memory_enabled SET DEFAULT FALSE;
 
 ALTER TABLE chat_sessions
-    ALTER COLUMN evolving_memory_enabled SET DEFAULT TRUE;
+    ALTER COLUMN evolving_memory_enabled SET DEFAULT FALSE;
 
 UPDATE chat_sessions
 SET memory_enabled = evolving_memory_enabled AND belief_memory_enabled;
 
 ALTER TABLE chat_sessions
-    ALTER COLUMN belief_memory_enabled SET DEFAULT TRUE;
+    ALTER COLUMN belief_memory_enabled SET DEFAULT FALSE;
 
 UPDATE chat_sessions
 SET evolving_memory_enabled = memory_enabled,

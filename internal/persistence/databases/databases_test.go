@@ -8,8 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"manifold/internal/config"
+	"manifold/internal/persistence"
 	sqlitep "manifold/internal/persistence/sqlite"
 )
 
@@ -345,6 +347,133 @@ func TestFactory_DefaultsAndNone(t *testing.T) {
 	_ = mgr.Vector.Upsert(ctx, "x", []float32{1}, nil)
 	_, _ = mgr.Vector.SimilaritySearch(ctx, []float32{1}, 1, nil)
 	_ = mgr.Graph.UpsertNode(ctx, "n", nil, nil)
+}
+
+func TestFactory_DefaultSQLitePersistsSpecialistsAcrossManagers(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "manifold.db")
+	cfg := config.DBConfig{SQLite: config.SQLiteConfig{Path: dbPath}}
+	mgr, err := NewManager(ctx, cfg)
+	if err != nil {
+		t.Fatalf("NewManager error: %v", err)
+	}
+	if mgr.Specialists == nil || mgr.SpecialistTeams == nil {
+		t.Fatalf("expected sqlite specialist stores")
+	}
+	_, err = mgr.Specialists.Upsert(ctx, 0, persistence.Specialist{
+		Name:        "writer",
+		Provider:    "openai",
+		Model:       "gpt-5-mini",
+		Description: "durable specialist",
+	})
+	if err != nil {
+		t.Fatalf("upsert specialist: %v", err)
+	}
+	mgr.Close()
+
+	restarted, err := NewManager(ctx, cfg)
+	if err != nil {
+		t.Fatalf("NewManager after restart error: %v", err)
+	}
+	defer restarted.Close()
+	got, ok, err := restarted.Specialists.GetByName(ctx, 0, "writer")
+	if err != nil {
+		t.Fatalf("get specialist after restart: %v", err)
+	}
+	if !ok || got.Description != "durable specialist" || got.Model != "gpt-5-mini" {
+		t.Fatalf("specialist did not persist across manager restart: ok=%v got=%+v", ok, got)
+	}
+}
+
+func TestFactory_DefaultSQLitePersistsTeamsAcrossManagers(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "manifold.db")
+	cfg := config.DBConfig{SQLite: config.SQLiteConfig{Path: dbPath}}
+	mgr, err := NewManager(ctx, cfg)
+	if err != nil {
+		t.Fatalf("NewManager error: %v", err)
+	}
+	_, err = mgr.Specialists.Upsert(ctx, 0, persistence.Specialist{
+		Name:     "lead",
+		Provider: "openai",
+		Model:    "gpt-5-mini",
+	})
+	if err != nil {
+		t.Fatalf("upsert specialist: %v", err)
+	}
+	_, err = mgr.SpecialistTeams.Upsert(ctx, 0, persistence.SpecialistTeam{
+		Name:             "ops",
+		Description:      "durable team",
+		OrchestratorName: "lead",
+		Members:          []string{"lead"},
+	})
+	if err != nil {
+		t.Fatalf("upsert team: %v", err)
+	}
+	mgr.Close()
+
+	restarted, err := NewManager(ctx, cfg)
+	if err != nil {
+		t.Fatalf("NewManager after restart error: %v", err)
+	}
+	defer restarted.Close()
+	got, ok, err := restarted.SpecialistTeams.GetByName(ctx, 0, "ops")
+	if err != nil {
+		t.Fatalf("get team after restart: %v", err)
+	}
+	if !ok || got.Description != "durable team" || got.OrchestratorName != "lead" {
+		t.Fatalf("team did not persist across manager restart: ok=%v got=%+v", ok, got)
+	}
+	if len(got.Members) != 1 || got.Members[0] != "lead" {
+		t.Fatalf("team membership did not persist across manager restart: %+v", got.Members)
+	}
+	listCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	teams, err := restarted.SpecialistTeams.List(listCtx, 0)
+	if err != nil {
+		t.Fatalf("list teams after restart: %v", err)
+	}
+	if len(teams) != 1 || teams[0].Name != "ops" || len(teams[0].Members) != 1 || teams[0].Members[0] != "lead" {
+		t.Fatalf("unexpected teams after restart: %+v", teams)
+	}
+}
+
+func TestSQLiteTeamStoreListDoesNotDeadlockWithSingleConnection(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	mgr, err := NewManager(ctx, config.DBConfig{
+		SQLite: config.SQLiteConfig{
+			Path:         filepath.Join(t.TempDir(), "manifold.db"),
+			MaxOpenConns: 1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewManager error: %v", err)
+	}
+	defer mgr.Close()
+	_, err = mgr.SpecialistTeams.Upsert(ctx, 0, persistence.SpecialistTeam{
+		Name:             "ops",
+		OrchestratorName: "lead",
+		Members:          []string{"lead"},
+	})
+	if err != nil {
+		t.Fatalf("upsert team: %v", err)
+	}
+
+	listCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	teams, err := mgr.SpecialistTeams.List(listCtx, 0)
+	if err != nil {
+		t.Fatalf("list teams: %v", err)
+	}
+	if len(teams) != 1 || teams[0].Name != "ops" || len(teams[0].Members) != 1 || teams[0].Members[0] != "lead" {
+		t.Fatalf("unexpected teams: %+v", teams)
+	}
 }
 
 func TestFactory_RejectsPostgresWithoutDSN(t *testing.T) {

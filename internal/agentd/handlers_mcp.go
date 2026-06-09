@@ -446,15 +446,22 @@ func (a *app) handleCreateMCPServer(w http.ResponseWriter, r *http.Request, user
 
 	// Only attempt connection if the server has a token or is local.
 	// Remote servers without any token need OAuth first.
+	attemptedRegister := false
 	if saved.URL != "" && saved.OAuthAccessToken == "" && saved.BearerToken == "" {
 		fmt.Printf("MCP server %s: remote server needs OAuth, skipping initial connection\n", saved.Name)
 	} else {
 		cfgSrv, needsAuth, _ := a.refreshAndConvertToConfig(r.Context(), saved)
 		if needsAuth {
 			fmt.Printf("MCP server %s needs re-authentication (token expired)\n", saved.Name)
-		} else if err := a.mcpManager.RegisterOne(r.Context(), a.baseToolRegistry, cfgSrv); err != nil {
-			fmt.Printf("failed to connect to new MCP server: %v\n", err)
+		} else {
+			attemptedRegister = true
+			if err := a.mcpManager.RegisterOne(r.Context(), a.baseToolRegistry, cfgSrv); err != nil {
+				fmt.Printf("failed to connect to new MCP server: %v\n", err)
+			}
 		}
+	}
+	if attemptedRegister {
+		a.refreshToolDiscoveryIndex()
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -477,15 +484,22 @@ func (a *app) handleUpdateMCPServer(w http.ResponseWriter, r *http.Request, user
 	}
 
 	// Only attempt reconnection if the server has a token or is local.
+	attemptedRegister := false
 	if saved.URL != "" && saved.OAuthAccessToken == "" && saved.BearerToken == "" {
 		fmt.Printf("MCP server %s: remote server needs OAuth, skipping reconnection\n", saved.Name)
 	} else {
 		cfgSrv, needsAuth, _ := a.refreshAndConvertToConfig(r.Context(), saved)
 		if needsAuth {
 			fmt.Printf("MCP server %s needs re-authentication (token expired)\n", saved.Name)
-		} else if err := a.mcpManager.RegisterOne(r.Context(), a.baseToolRegistry, cfgSrv); err != nil {
-			fmt.Printf("failed to reconnect updated MCP server: %v\n", err)
+		} else {
+			attemptedRegister = true
+			if err := a.mcpManager.RegisterOne(r.Context(), a.baseToolRegistry, cfgSrv); err != nil {
+				fmt.Printf("failed to reconnect updated MCP server: %v\n", err)
+			}
 		}
+	}
+	if attemptedRegister {
+		a.refreshToolDiscoveryIndex()
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -499,6 +513,7 @@ func (a *app) handleDeleteMCPServer(w http.ResponseWriter, r *http.Request, user
 	}
 	// Disconnect
 	a.mcpManager.RemoveOne(name, a.baseToolRegistry)
+	a.refreshToolDiscoveryIndex()
 
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -593,6 +608,7 @@ func (a *app) RefreshMCPServersOnStartup(ctx context.Context, userID int64) ([]i
 		return nil, fmt.Errorf("failed to re-list MCP servers after seed: %w", err)
 	}
 	pendingAuthIDs := make([]int64, 0)
+	toolRegistryChanged := false
 
 	for _, s := range servers {
 		if s.Disabled {
@@ -600,6 +616,7 @@ func (a *app) RefreshMCPServersOnStartup(ctx context.Context, userID int64) ([]i
 		}
 
 		if s.URL == "" {
+			toolRegistryChanged = true
 			if err := a.mcpManager.RegisterOne(ctx, a.baseToolRegistry, convertToConfig(s)); err != nil {
 				fmt.Printf("MCP server %s: registration failed: %v\n", s.Name, err)
 			}
@@ -628,11 +645,15 @@ func (a *app) RefreshMCPServersOnStartup(ctx context.Context, userID int64) ([]i
 		}
 
 		// Token is valid (or was just refreshed), register the server
+		toolRegistryChanged = true
 		if err := a.mcpManager.RegisterOne(ctx, a.baseToolRegistry, cfgSrv); err != nil {
 			fmt.Printf("MCP server %s: registration failed: %v\n", s.Name, err)
 		} else {
 			fmt.Printf("MCP server %s: registered with cached/refreshed OAuth token\n", s.Name)
 		}
+	}
+	if toolRegistryChanged {
+		a.refreshToolDiscoveryIndex()
 	}
 
 	return pendingAuthIDs, nil

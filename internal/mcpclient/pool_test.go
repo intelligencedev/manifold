@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"manifold/internal/config"
+	"manifold/internal/tools"
 )
 
 func TestMCPServerPool_RequiresPerUserMCP(t *testing.T) {
@@ -188,5 +189,28 @@ func TestMCPServerPool_UserSessionTracking(t *testing.T) {
 	}
 	if got := len(pool.perUser); got != 1 {
 		t.Errorf("len(pool.perUser) = %d, want 1", got)
+	}
+}
+
+func TestMCPServerPool_ReapIdleSessionsNotifiesToolsChanged(t *testing.T) {
+	pool := &MCPServerPool{
+		perUser: map[int64]*userMCPState{
+			1: {
+				manager:    NewManager(),
+				lastAccess: time.Now().Add(-time.Hour),
+				toolNames:  []string{"dynamic_tool"},
+			},
+		},
+	}
+	calls := 0
+	pool.SetToolsChangedCallback(func() { calls++ })
+
+	pool.reapIdleSessions(tools.NewRegistry(), time.Minute)
+
+	if calls != 1 {
+		t.Fatalf("expected tools changed callback once, got %d", calls)
+	}
+	if len(pool.perUser) != 0 {
+		t.Fatalf("expected idle session to be removed, got %d", len(pool.perUser))
 	}
 }

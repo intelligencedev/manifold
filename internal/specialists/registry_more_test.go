@@ -3,6 +3,7 @@ package specialists
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,8 @@ import (
 
 	"manifold/internal/config"
 	"manifold/internal/llm"
+	"manifold/internal/tools"
+	tooldiscovery "manifold/internal/tools/discovery"
 )
 
 func TestNewRegistry_PopulatesAgentFields(t *testing.T) {
@@ -53,6 +56,45 @@ func TestAgent_Inference_NoProvider(t *testing.T) {
 	a := &Agent{}
 	if _, err := a.Inference(context.TODO(), "u", nil); err == nil {
 		t.Fatalf("expected error when provider nil")
+	}
+}
+
+func TestAgentInferenceRefreshesToolSchemasAfterToolSearch(t *testing.T) {
+	t.Parallel()
+
+	base := tools.NewRegistry()
+	webFetch := &specialistToolSearchTestTool{name: "web_fetch", description: "Fetch a web page"}
+	base.Register(webFetch)
+	reg := tooldiscovery.NewDiscoverableRegistry(base, tooldiscovery.NewToolIndex(base.Schemas()), nil, 5)
+	provider := &specialistToolSearchProvider{}
+	agent := &Agent{
+		Model:       "test-model",
+		EnableTools: true,
+		provider:    provider,
+		tools:       reg,
+	}
+
+	out, err := agent.Inference(context.Background(), "fetch the page", nil)
+	if err != nil {
+		t.Fatalf("Inference() error = %v", err)
+	}
+	if out != "done" {
+		t.Fatalf("expected final answer, got %q", out)
+	}
+	if provider.calls != 3 {
+		t.Fatalf("expected three model calls, got %d", provider.calls)
+	}
+	if !webFetch.called {
+		t.Fatal("expected promoted web_fetch tool to be called")
+	}
+	if schemaNamesContain(provider.firstTools, "web_fetch") {
+		t.Fatalf("web_fetch should be hidden before tool_search, got %#v", provider.firstTools)
+	}
+	if !schemaNamesContain(provider.firstTools, "tool_search") {
+		t.Fatalf("tool_search should be available before promotion, got %#v", provider.firstTools)
+	}
+	if !schemaNamesContain(provider.secondTools, "web_fetch") {
+		t.Fatalf("web_fetch should be available after tool_search, got %#v", provider.secondTools)
 	}
 }
 
@@ -109,6 +151,101 @@ func TestAgentInferenceImageGenerationSendsOnlyPrompt(t *testing.T) {
 	if size, _ := gotBody["size"].(string); size != "2048x2048" {
 		t.Fatalf("expected configured image size, got %#v", gotBody["size"])
 	}
+}
+
+type specialistToolSearchTestTool struct {
+	name        string
+	description string
+	called      bool
+}
+
+func (t *specialistToolSearchTestTool) Name() string { return t.name }
+
+func (t *specialistToolSearchTestTool) JSONSchema() map[string]any {
+	return map[string]any{
+		"name":        t.name,
+		"description": t.description,
+		"parameters": map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		},
+	}
+}
+
+func (t *specialistToolSearchTestTool) Call(context.Context, json.RawMessage) (any, error) {
+	t.called = true
+	return map[string]any{"ok": true, "tool": t.name}, nil
+}
+
+type specialistToolSearchProvider struct {
+	calls       int
+	firstTools  []string
+	secondTools []string
+}
+
+func (p *specialistToolSearchProvider) Chat(_ context.Context, msgs []llm.Message, schemas []llm.ToolSchema, _ string) (llm.Message, error) {
+	p.calls++
+	names := llmToolSchemaNames(schemas)
+	switch p.calls {
+	case 1:
+		p.firstTools = names
+		if schemaNamesContain(names, "web_fetch") {
+			return llm.Message{}, fmt.Errorf("web_fetch unexpectedly visible before search: %#v", names)
+		}
+		return llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{
+			Name: "tool_search",
+			Args: json.RawMessage(`{"names":["web_fetch"]}`),
+		}}}, nil
+	case 2:
+		p.secondTools = names
+		if !schemaNamesContain(names, "web_fetch") {
+			return llm.Message{}, fmt.Errorf("web_fetch not visible after search: %#v", names)
+		}
+		if !messagesContainToolResultID(msgs) {
+			return llm.Message{}, fmt.Errorf("tool_search result was not appended with a tool call id")
+		}
+		return llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{
+			Name: "web_fetch",
+			Args: json.RawMessage(`{}`),
+		}}}, nil
+	case 3:
+		if !messagesContainToolResultID(msgs) {
+			return llm.Message{}, fmt.Errorf("web_fetch result was not appended with a tool call id")
+		}
+		return llm.Message{Role: "assistant", Content: "done"}, nil
+	default:
+		return llm.Message{}, fmt.Errorf("unexpected model call %d", p.calls)
+	}
+}
+
+func (p *specialistToolSearchProvider) ChatStream(context.Context, []llm.Message, []llm.ToolSchema, string, llm.StreamHandler) error {
+	return nil
+}
+
+func llmToolSchemaNames(schemas []llm.ToolSchema) []string {
+	out := make([]string, 0, len(schemas))
+	for _, schema := range schemas {
+		out = append(out, schema.Name)
+	}
+	return out
+}
+
+func schemaNamesContain(names []string, target string) bool {
+	for _, name := range names {
+		if name == target {
+			return true
+		}
+	}
+	return false
+}
+
+func messagesContainToolResultID(msgs []llm.Message) bool {
+	for _, msg := range msgs {
+		if msg.Role == "tool" && strings.TrimSpace(msg.ToolID) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func TestImageGenerationSpecialistDoesNotInheritBaseOpenAIExtraParams(t *testing.T) {

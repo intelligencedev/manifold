@@ -47,7 +47,11 @@ type chatWithOptionsProvider interface {
 	ChatWithOptions(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, extra map[string]any) (llm.Message, error)
 }
 
-const defaultImagePromptSize = "1K"
+const (
+	defaultImagePromptSize            = "1K"
+	specialistInferenceMaxToolSteps   = 8
+	specialistInferenceToolCallPrefix = "specialist-call"
+)
 
 // Registry holds addressable specialists by name.
 type Registry struct {
@@ -401,7 +405,7 @@ func (a *Agent) Provider() llm.Provider { return a.provider }
 // ToolsRegistry returns the filtered tool registry view for this specialist, or nil when tools are disabled.
 func (a *Agent) ToolsRegistry() tools.Registry { return a.tools }
 
-// Inference performs a single-turn completion with optional history.
+// Inference performs a completion with optional history.
 // If tools are disabled, no tool schema is sent at all.
 // If ReasoningEffort is set, a provider-specific reasoning block is attached.
 func (a *Agent) Inference(ctx context.Context, user string, history []llm.Message) (string, error) {
@@ -420,14 +424,6 @@ func (a *Agent) Inference(ctx context.Context, user string, history []llm.Messag
 	// Extra fields for the request: start with configured extra params
 	extra := a.mergedExtraParams()
 
-	schemas := []llm.ToolSchema(nil)
-	if a.EnableTools {
-		if a.tools != nil {
-			schemas = a.tools.Schemas()
-		} else {
-			schemas = []llm.ToolSchema{}
-		}
-	}
 	callWithOptions := func(ctx context.Context, messages []llm.Message, tools []llm.ToolSchema) (llm.Message, error) {
 		if p, ok := a.provider.(chatWithOptionsProvider); ok {
 			return p.ChatWithOptions(ctx, messages, tools, a.Model, extra)
@@ -436,27 +432,86 @@ func (a *Agent) Inference(ctx context.Context, user string, history []llm.Messag
 	}
 
 	if a.EnableTools && a.tools != nil {
-		msg, err := callWithOptions(ctx, msgs, schemas)
-		if err != nil {
-			return "", err
+		for step := 0; step < specialistInferenceMaxToolSteps; step++ {
+			msg, err := callWithOptions(ctx, msgs, a.toolSchemas())
+			if err != nil {
+				return "", err
+			}
+			msg.ToolCalls = ensureSpecialistToolCallIDs(msgs, llm.NormalizeToolCalls(msg.ToolCalls), step)
+			if len(msg.ToolCalls) == 0 {
+				return msg.Content, nil
+			}
+			msgs = append(msgs, msg)
+			dispatchCtx := tools.WithProvider(ctx, a.provider)
+			for _, tc := range msg.ToolCalls {
+				payload, err := a.tools.Dispatch(dispatchCtx, tc.Name, tc.Args)
+				if err != nil {
+					payload = []byte("{" + strconv.Quote("error") + ":" + strconv.Quote(err.Error()) + "}")
+				}
+				msgs = append(msgs, llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID})
+			}
 		}
-		if len(msg.ToolCalls) == 0 {
-			return msg.Content, nil
-		}
-		tc := msg.ToolCalls[0]
-		dispatchCtx := tools.WithProvider(ctx, a.provider)
-		payload, err := a.tools.Dispatch(dispatchCtx, tc.Name, tc.Args)
-		if err != nil {
-			payload = []byte("{" + strconv.Quote("error") + ":" + strconv.Quote(err.Error()) + "}")
-		}
-		return string(payload), nil
+		return "", errors.New("specialist inference exceeded max tool steps")
 	}
 
-	resp, err := callWithOptions(ctx, msgs, schemas)
+	resp, err := callWithOptions(ctx, msgs, a.toolSchemas())
 	if err != nil {
 		return "", err
 	}
 	return resp.Content, nil
+}
+
+func (a *Agent) toolSchemas() []llm.ToolSchema {
+	if !a.EnableTools {
+		return nil
+	}
+	if a.tools == nil {
+		return []llm.ToolSchema{}
+	}
+	return a.tools.Schemas()
+}
+
+func ensureSpecialistToolCallIDs(msgs []llm.Message, toolCalls []llm.ToolCall, step int) []llm.ToolCall {
+	if len(toolCalls) == 0 {
+		return toolCalls
+	}
+	used := make(map[string]struct{}, len(toolCalls))
+	for _, msg := range msgs {
+		if msg.Role != "assistant" {
+			continue
+		}
+		for _, tc := range msg.ToolCalls {
+			if id := strings.TrimSpace(tc.ID); id != "" {
+				used[id] = struct{}{}
+			}
+		}
+	}
+	for i := range toolCalls {
+		id := strings.TrimSpace(toolCalls[i].ID)
+		if id == "" {
+			id = specialistToolCallID(step, i, 0)
+		}
+		if _, exists := used[id]; exists {
+			for suffix := 1; ; suffix++ {
+				candidate := specialistToolCallID(step, i, suffix)
+				if _, usedCandidate := used[candidate]; !usedCandidate {
+					id = candidate
+					break
+				}
+			}
+		}
+		toolCalls[i].ID = id
+		used[id] = struct{}{}
+	}
+	return toolCalls
+}
+
+func specialistToolCallID(step, index, suffix int) string {
+	id := specialistInferenceToolCallPrefix + "-" + strconv.Itoa(step) + "-" + strconv.Itoa(index+1)
+	if suffix > 0 {
+		id += "-" + strconv.Itoa(suffix)
+	}
+	return id
 }
 
 // Stream performs a best-effort streaming completion. Tool schemas are omitted

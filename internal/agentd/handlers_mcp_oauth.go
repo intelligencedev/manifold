@@ -276,6 +276,7 @@ func (a *app) reregisterMCPServerWithToken(server persistence.MCPServer) {
 	if err := a.mcpManager.RegisterOne(ctx, a.baseToolRegistry, convertToConfig(server)); err != nil {
 		fmt.Printf("mcp oauth re-register failed for %s: %v\n", server.Name, err)
 	}
+	a.refreshToolDiscoveryIndex()
 }
 
 func writeMCPOAuthCallbackSuccess(w http.ResponseWriter, token *oauth2.Token, targetURL string) {

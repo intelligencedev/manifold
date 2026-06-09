@@ -46,6 +46,9 @@ type MCPServerPool struct {
 
 	// sharedToolNames tracks tools registered from shared servers (for cleanup)
 	sharedToolNames map[string][]string
+
+	// toolsChanged is called after the pool registers or unregisters tools.
+	toolsChanged func()
 }
 
 // userMCPState holds the MCP session state for a single user.
@@ -88,6 +91,23 @@ func (p *MCPServerPool) SetToolRegistry(reg tools.Registry) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.toolRegistry = reg
+}
+
+// SetToolsChangedCallback sets a callback invoked after the pool changes the
+// shared tool registry.
+func (p *MCPServerPool) SetToolsChangedCallback(cb func()) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.toolsChanged = cb
+}
+
+func (p *MCPServerPool) notifyToolsChanged() {
+	p.mu.RLock()
+	cb := p.toolsChanged
+	p.mu.RUnlock()
+	if cb != nil {
+		cb()
+	}
 }
 
 // OnWorkspaceCheckout is a callback that can be registered with workspace managers
@@ -224,12 +244,12 @@ func (p *MCPServerPool) EnsureUserSession(
 	}
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
 
 	state, exists := p.perUser[userID]
 	if exists && state.projectID == projectID && state.workspacePath == workspacePath {
 		// Already configured for this project - just update access time
 		state.lastAccess = time.Now()
+		p.mu.Unlock()
 		return nil
 	}
 
@@ -259,6 +279,7 @@ func (p *MCPServerPool) EnsureUserSession(
 		lastAccess:    time.Now(),
 		toolNames:     registeredTools,
 	}
+	p.mu.Unlock()
 
 	log.Info().
 		Int64("userID", userID).
@@ -267,6 +288,7 @@ func (p *MCPServerPool) EnsureUserSession(
 		Int("toolCount", len(registeredTools)).
 		Msg("user_mcp_session_created")
 
+	p.notifyToolsChanged()
 	return nil
 }
 
@@ -329,7 +351,6 @@ func (p *MCPServerPool) StartReaper(ctx context.Context, reg tools.Registry, int
 // reapIdleSessions removes user sessions that haven't been accessed within maxIdle.
 func (p *MCPServerPool) reapIdleSessions(reg tools.Registry, maxIdle time.Duration) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 
 	now := time.Now()
 	var toDelete []int64
@@ -346,5 +367,10 @@ func (p *MCPServerPool) reapIdleSessions(reg tools.Registry, maxIdle time.Durati
 			delete(p.perUser, userID)
 			log.Info().Int64("userID", userID).Dur("idleTime", now.Sub(state.lastAccess)).Msg("reaped_idle_user_mcp_session")
 		}
+	}
+	p.mu.Unlock()
+
+	if len(toDelete) > 0 {
+		p.notifyToolsChanged()
 	}
 }

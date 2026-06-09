@@ -180,6 +180,9 @@ func newAppShell(deps appShellDeps) *app {
 		ragService:         deps.tooling.ragService,
 		fleetBus:           fleet.NewBus(512),
 	}
+	if a.mcpPool != nil {
+		a.mcpPool.SetToolsChangedCallback(a.refreshToolDiscoveryIndex)
+	}
 	a.registerDurableHandlers()
 	a.durableWorker = durable.NewWorker(deps.mgr.Durable, deps.durableClient, deps.durableRegistry, durable.WorkerOptions{
 		WorkerID:     fmt.Sprintf("agentd-%d", os.Getpid()),

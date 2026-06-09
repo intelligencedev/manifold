@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"unicode"
 )
 
 type sqliteSearch struct {
@@ -106,14 +107,15 @@ func (s *sqliteSearch) Search(ctx context.Context, query string, limit int) ([]S
 	if limit <= 0 {
 		limit = 10
 	}
-	q := sqliteFTSQuery(query)
-	if q == "" {
+	queries := sqliteFTSQueries(query)
+	if len(queries) == 0 {
 		return nil, nil
 	}
 	if err := s.Init(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	for _, q := range queries {
+		rows, err := s.db.QueryContext(ctx, `
 SELECT id, -bm25(manifold_documents_fts) AS score,
        snippet(manifold_documents_fts, 1, '', '', '...', 12) AS snippet,
        text,
@@ -122,11 +124,18 @@ FROM manifold_documents_fts
 WHERE manifold_documents_fts MATCH ?
 ORDER BY bm25(manifold_documents_fts)
 LIMIT ?`, q, limit)
-	if err != nil {
-		return nil, err
+		if err != nil {
+			return nil, err
+		}
+		results, err := scanSQLiteSearchRows(rows, limit)
+		if err != nil {
+			return nil, err
+		}
+		if len(results) > 0 {
+			return results, nil
+		}
 	}
-	defer func() { _ = rows.Close() }()
-	return scanSQLiteSearchRows(rows, limit)
+	return nil, nil
 }
 
 func (s *sqliteSearch) GetByID(ctx context.Context, id string) (SearchResult, bool, error) {
@@ -151,13 +160,37 @@ func (s *sqliteSearch) SearchChunks(ctx context.Context, query string, _ string,
 	if limit <= 0 {
 		limit = 10
 	}
-	q := sqliteFTSQuery(query)
-	if q == "" {
+	queries := sqliteFTSQueries(query)
+	if len(queries) == 0 {
 		return nil, nil
 	}
 	if err := s.Init(ctx); err != nil {
 		return nil, err
 	}
+	chunkFilter := sqliteChunkSearchFilter(filter)
+	for _, q := range queries {
+		results, err := s.queryChunkFTS(ctx, q, limit, chunkFilter)
+		if err != nil {
+			return nil, err
+		}
+		if len(results) > 0 {
+			return results, nil
+		}
+	}
+	docFilter := sqliteDocumentFallbackFilter(filter)
+	for _, q := range queries {
+		results, err := s.queryDocumentFTS(ctx, q, limit, docFilter)
+		if err != nil {
+			return nil, err
+		}
+		if len(results) > 0 {
+			return results, nil
+		}
+	}
+	return nil, nil
+}
+
+func (s *sqliteSearch) queryChunkFTS(ctx context.Context, q string, limit int, filter map[string]string) ([]SearchResult, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, -bm25(manifold_chunks_fts) AS score,
        snippet(manifold_chunks_fts, 2, '', '', '...', 12) AS snippet,
@@ -166,12 +199,40 @@ SELECT id, -bm25(manifold_chunks_fts) AS score,
 FROM manifold_chunks_fts
 WHERE manifold_chunks_fts MATCH ?
 ORDER BY bm25(manifold_chunks_fts)
-LIMIT ?`, q, limit*10)
+LIMIT ?`, q, sqliteSearchCandidateLimit(limit))
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	results, err := scanSQLiteSearchRows(rows, limit*10)
+	results, err := scanSQLiteSearchRows(rows, sqliteSearchCandidateLimit(limit))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SearchResult, 0, min(limit, len(results)))
+	for _, result := range results {
+		if metaMatches(result.Metadata, filter) {
+			out = append(out, result)
+			if len(out) >= limit {
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+func (s *sqliteSearch) queryDocumentFTS(ctx context.Context, q string, limit int, filter map[string]string) ([]SearchResult, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, -bm25(manifold_documents_fts) AS score,
+       snippet(manifold_documents_fts, 1, '', '', '...', 12) AS snippet,
+       text,
+       metadata
+FROM manifold_documents_fts
+WHERE manifold_documents_fts MATCH ?
+ORDER BY bm25(manifold_documents_fts)
+LIMIT ?`, q, sqliteSearchCandidateLimit(limit))
+	if err != nil {
+		return nil, err
+	}
+	results, err := scanSQLiteSearchRows(rows, sqliteSearchCandidateLimit(limit))
 	if err != nil {
 		return nil, err
 	}
@@ -188,8 +249,8 @@ LIMIT ?`, q, limit*10)
 }
 
 func (s *sqliteSearch) SnippetForID(ctx context.Context, id, _, query string) (string, bool, error) {
-	q := sqliteFTSQuery(query)
-	if q == "" {
+	queries := sqliteFTSQueries(query)
+	if len(queries) == 0 {
 		return "", false, nil
 	}
 	if err := s.Init(ctx); err != nil {
@@ -199,14 +260,17 @@ func (s *sqliteSearch) SnippetForID(ctx context.Context, id, _, query string) (s
 	if strings.HasPrefix(id, "chunk:") {
 		stmt = `SELECT snippet(manifold_chunks_fts, 2, '', '', '...', 12) FROM manifold_chunks_fts WHERE id = ? AND manifold_chunks_fts MATCH ? LIMIT 1`
 	}
-	var snippet string
-	if err := s.db.QueryRowContext(ctx, stmt, id, q).Scan(&snippet); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return "", false, nil
+	for _, q := range queries {
+		var snippet string
+		if err := s.db.QueryRowContext(ctx, stmt, id, q).Scan(&snippet); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			return "", false, err
 		}
-		return "", false, err
+		return snippet, true, nil
 	}
-	return snippet, true, nil
+	return "", false, nil
 }
 
 func (s *sqliteSearch) HasChunksTable(context.Context) (bool, error) {
@@ -217,7 +281,7 @@ func (s *sqliteSearch) UpsertChunk(ctx context.Context, chunk ChunkSearchRow) er
 	if err := s.Init(ctx); err != nil {
 		return err
 	}
-	md := encodeStringMap(chunk.Metadata)
+	md := encodeStringMap(chunkSearchMetadata(chunk.Metadata, chunk.Lang))
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -240,6 +304,7 @@ ON CONFLICT(id) DO UPDATE SET doc_id=excluded.doc_id, idx=excluded.idx, text=exc
 }
 
 func scanSQLiteSearchRows(rows *sql.Rows, limit int) ([]SearchResult, error) {
+	defer func() { _ = rows.Close() }()
 	out := make([]SearchResult, 0, limit)
 	for rows.Next() {
 		var result SearchResult
@@ -253,20 +318,108 @@ func scanSQLiteSearchRows(rows *sql.Rows, limit int) ([]SearchResult, error) {
 	return out, rows.Err()
 }
 
-func sqliteFTSQuery(query string) string {
-	terms := strings.Fields(strings.TrimSpace(query))
+func sqliteFTSQueries(query string) []string {
+	terms := sqliteFTSTerms(query)
 	if len(terms) == 0 {
-		return ""
+		return nil
 	}
-	quoted := make([]string, 0, len(terms))
+	exact := strings.Join(terms, " ")
+	prefixTerms := make([]string, 0, len(terms))
 	for _, term := range terms {
-		term = strings.Trim(term, `"`)
-		if term == "" {
+		if len(term) < 3 {
+			prefixTerms = append(prefixTerms, term)
 			continue
 		}
-		quoted = append(quoted, `"`+strings.ReplaceAll(term, `"`, `""`)+`"`)
+		prefixTerms = append(prefixTerms, term+"*")
 	}
-	return strings.Join(quoted, " ")
+	prefix := strings.Join(prefixTerms, " ")
+	if prefix == exact {
+		return []string{exact}
+	}
+	return []string{exact, prefix}
+}
+
+func sqliteFTSQuery(query string) string {
+	return strings.Join(sqliteFTSTerms(query), " ")
+}
+
+func sqliteFTSTerms(query string) []string {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return nil
+	}
+	terms := make([]string, 0, 4)
+	var b strings.Builder
+	flush := func() {
+		if b.Len() == 0 {
+			return
+		}
+		terms = append(terms, b.String())
+		b.Reset()
+	}
+	for _, r := range query {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			b.WriteRune(r)
+			continue
+		}
+		flush()
+	}
+	flush()
+	return terms
+}
+
+func sqliteSearchCandidateLimit(limit int) int {
+	if limit <= 0 {
+		limit = 10
+	}
+	candidateLimit := limit * 10
+	if candidateLimit < limit {
+		return limit
+	}
+	if candidateLimit > maxSearchLimit {
+		return maxSearchLimit
+	}
+	return candidateLimit
+}
+
+func sqliteChunkSearchFilter(filter map[string]string) map[string]string {
+	if len(filter) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(filter))
+	for key, value := range filter {
+		if key == "lang" {
+			continue
+		}
+		out[key] = value
+	}
+	return out
+}
+
+func sqliteDocumentFallbackFilter(filter map[string]string) map[string]string {
+	if len(filter) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(filter))
+	for key, value := range filter {
+		if key == "lang" || key == "type" {
+			continue
+		}
+		out[key] = value
+	}
+	return out
+}
+
+func chunkSearchMetadata(metadata map[string]string, lang string) map[string]string {
+	out := copyMap(metadata)
+	if out == nil {
+		out = map[string]string{}
+	}
+	lang = strings.TrimSpace(lang)
+	if lang != "" && out["lang"] == "" {
+		out["lang"] = lang
+	}
+	return out
 }
 
 func encodeStringMap(m map[string]string) string {

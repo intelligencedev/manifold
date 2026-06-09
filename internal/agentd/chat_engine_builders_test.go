@@ -473,6 +473,53 @@ func TestBuildSpecialistChatEngineUsesSkillSearchWhenAutoDiscoverEnabled(t *test
 	}
 }
 
+func TestRefreshToolDiscoveryIndexMakesDynamicMCPToolSearchable(t *testing.T) {
+	t.Parallel()
+
+	app := newChatEngineBuilderTestApp(t)
+	app.cfg.AutoDiscover = true
+	app.cfg.EnableTools = true
+	app.toolIndex = tooldiscovery.NewToolIndex(app.baseToolRegistry.Schemas())
+	app.refreshOrchestratorToolRegistry()
+
+	ctx := context.Background()
+	autoDiscover := true
+	_, err := app.specStore.Upsert(ctx, 7, persistence.Specialist{
+		Name:         "alpha",
+		Provider:     "openai",
+		Model:        "gpt-4.1-mini",
+		System:       "specialist system",
+		EnableTools:  true,
+		AutoDiscover: &autoDiscover,
+	})
+	if err != nil {
+		t.Fatalf("upsert specialist: %v", err)
+	}
+	if _, err := app.specialistsRegistryForUser(ctx, 7); err != nil {
+		t.Fatalf("prime specialist registry: %v", err)
+	}
+
+	const dynamicTool = "oauth_mcp_lookup"
+	app.baseToolRegistry.Register(staticTool{name: dynamicTool, description: "Lookup remote OAuth MCP resources"})
+	if _, ok := app.toolIndex.Lookup(dynamicTool); ok {
+		t.Fatalf("expected initial tool index to be stale before refresh")
+	}
+
+	app.refreshToolDiscoveryIndex()
+
+	orchestrator := app.buildOrchestratorChatEngine(ctx, buildOrchestratorTestRequest("sess-1", "", 7, nil))
+	if orchestrator.Err != nil {
+		t.Fatalf("buildOrchestratorChatEngine: %v", orchestrator.Err)
+	}
+	assertToolSearchPromotes(t, orchestrator.Engine.Tools, dynamicTool)
+
+	specialist := app.buildSpecialistChatEngine(ctx, buildSpecialistTestRequest("alpha", "", "sess-2", 7))
+	if specialist.Err != nil {
+		t.Fatalf("buildSpecialistChatEngine: %v", specialist.Err)
+	}
+	assertToolSearchPromotes(t, specialist.Engine.Tools, dynamicTool)
+}
+
 func TestBuildOrchestratorChatEngineFallsBackToInlineSkillsWhenToolsDisabled(t *testing.T) {
 	t.Parallel()
 
@@ -766,6 +813,27 @@ func (t staticTool) Call(context.Context, json.RawMessage) (any, error) {
 
 func containsTool(reg tools.Registry, name string) bool {
 	return slices.Contains(tools.SchemaNames(reg), name)
+}
+
+func assertToolSearchPromotes(t *testing.T, reg tools.Registry, name string) {
+	t.Helper()
+	if reg == nil {
+		t.Fatal("expected tool registry")
+	}
+	if containsTool(reg, name) {
+		t.Fatalf("expected %s to be hidden before search, got %v", name, tools.SchemaNames(reg))
+	}
+	raw, err := json.Marshal(map[string]any{"names": []string{name}})
+	if err != nil {
+		t.Fatalf("marshal tool_search args: %v", err)
+	}
+	payload, err := reg.Dispatch(context.Background(), "tool_search", raw)
+	if err != nil {
+		t.Fatalf("tool_search dispatch: %v", err)
+	}
+	if !containsTool(reg, name) {
+		t.Fatalf("expected %s to be promoted after tool_search; payload=%s tools=%v", name, payload, tools.SchemaNames(reg))
+	}
 }
 
 func skillProjectDir(t *testing.T, name, description string) string {

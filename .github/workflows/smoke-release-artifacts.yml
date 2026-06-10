@@ -51,7 +51,7 @@ permissions:
 jobs:
   select-targets:
     name: Select smoke targets
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, cross-compile, target-darwin-arm64]
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
     steps:
@@ -64,25 +64,25 @@ jobs:
 
           case "$TARGET" in
             all)
-              matrix='{"include":[{"target_os":"linux","target_arch":"amd64","runner":"ubuntu-24.04"},{"target_os":"linux","target_arch":"arm64","runner":"ubuntu-24.04-arm"},{"target_os":"darwin","target_arch":"amd64","runner":"macos-15-intel"},{"target_os":"darwin","target_arch":"arm64","runner":"macos-15"},{"target_os":"windows","target_arch":"amd64","runner":"windows-2022"},{"target_os":"windows","target_arch":"arm64","runner":"windows-11-arm"}]}'
+              matrix='{"include":[{"target_os":"linux","target_arch":"amd64","runner":["self-hosted","Linux","X64","cross-compile","target-darwin-arm64"]},{"target_os":"linux","target_arch":"arm64","runner":["self-hosted","Linux","X64","cross-compile","target-darwin-arm64"]},{"target_os":"darwin","target_arch":"amd64","runner":["self-hosted","Linux","X64","cross-compile","target-darwin-arm64"]},{"target_os":"darwin","target_arch":"arm64","runner":["self-hosted","Linux","X64","cross-compile","target-darwin-arm64"]},{"target_os":"windows","target_arch":"amd64","runner":["self-hosted","Linux","X64","cross-compile","target-darwin-arm64"]},{"target_os":"windows","target_arch":"arm64","runner":["self-hosted","Linux","X64","cross-compile","target-darwin-arm64"]}]}'
               ;;
             linux-amd64)
-              matrix='{"include":[{"target_os":"linux","target_arch":"amd64","runner":"ubuntu-24.04"}]}'
+              matrix='{"include":[{"target_os":"linux","target_arch":"amd64","runner":["self-hosted","Linux","X64","cross-compile","target-darwin-arm64"]}]}'
               ;;
             linux-arm64)
-              matrix='{"include":[{"target_os":"linux","target_arch":"arm64","runner":"ubuntu-24.04-arm"}]}'
+              matrix='{"include":[{"target_os":"linux","target_arch":"arm64","runner":["self-hosted","Linux","X64","cross-compile","target-darwin-arm64"]}]}'
               ;;
             darwin-amd64)
-              matrix='{"include":[{"target_os":"darwin","target_arch":"amd64","runner":"macos-15-intel"}]}'
+              matrix='{"include":[{"target_os":"darwin","target_arch":"amd64","runner":["self-hosted","Linux","X64","cross-compile","target-darwin-arm64"]}]}'
               ;;
             darwin-arm64)
-              matrix='{"include":[{"target_os":"darwin","target_arch":"arm64","runner":"macos-15"}]}'
+              matrix='{"include":[{"target_os":"darwin","target_arch":"arm64","runner":["self-hosted","Linux","X64","cross-compile","target-darwin-arm64"]}]}'
               ;;
             windows-amd64)
-              matrix='{"include":[{"target_os":"windows","target_arch":"amd64","runner":"windows-2022"}]}'
+              matrix='{"include":[{"target_os":"windows","target_arch":"amd64","runner":["self-hosted","Linux","X64","cross-compile","target-darwin-arm64"]}]}'
               ;;
             windows-arm64)
-              matrix='{"include":[{"target_os":"windows","target_arch":"arm64","runner":"windows-11-arm"}]}'
+              matrix='{"include":[{"target_os":"windows","target_arch":"arm64","runner":["self-hosted","Linux","X64","cross-compile","target-darwin-arm64"]}]}'
               ;;
             *)
               echo "Unsupported target: $TARGET" >&2
@@ -133,6 +133,8 @@ jobs:
           artifact="$(find dist/release -type f -name '*.zip' | head -1)"
           scripts/release/smoke-manifold-artifact.sh \
             --artifact "$artifact" \
+            --target-os "${{ matrix.target_os }}" \
+            --target-arch "${{ matrix.target_arch }}" \
             --json-output "dist/release/doctor-${{ matrix.target_os }}-${{ matrix.target_arch }}.json"
 
       - name: Upload smoke logs

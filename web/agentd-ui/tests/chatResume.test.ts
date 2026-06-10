@@ -51,6 +51,7 @@ describe("chat durable resume", () => {
     chatApiMocks.resumeChatRun.mockResolvedValue({
       run_id: "run-1",
       status: "queued",
+      retried: true,
       last_sequence: 8,
       last_retry_sequence: 8,
     });
@@ -60,7 +61,12 @@ describe("chat durable resume", () => {
         onEvent: (event: ChatStreamEvent) => void;
       }) => {
         options.onEvent({ type: "delta", data: " resumed", sequence: 9 });
-        options.onEvent({ type: "final", data: "old work resumed", sequence: 10 });
+        options.onEvent({
+          type: "final",
+          data: "old work resumed",
+          sequence: 10,
+          durationMs: 1234,
+        });
       },
     );
 
@@ -79,6 +85,7 @@ describe("chat durable resume", () => {
     expect(message.streaming).toBe(false);
     expect(message.error).toBeUndefined();
     expect(message.content).toBe("old work resumed");
+    expect(message.durationMs).toBe(1234);
     expect(message.lastRunSequence).toBe(10);
   });
 });

@@ -27,14 +27,15 @@ type streamChatErrorRequest struct {
 }
 
 type streamChatSuccessRequest struct {
-	Context   context.Context
-	StoreCtx  context.Context
-	RunID     string
-	Request   chatRunRequest
-	UserID    *int64
-	Options   chatStreamOptions
-	Result    string
-	Workspace *workspaces.Workspace
+	Context    context.Context
+	StoreCtx   context.Context
+	RunID      string
+	Request    chatRunRequest
+	UserID     *int64
+	Options    chatStreamOptions
+	Result     string
+	DurationMs int64
+	Workspace  *workspaces.Workspace
 }
 
 type streamExecutionContextRequest struct {
@@ -194,7 +195,7 @@ func writeStreamChatError(stream *chatSSEWriter, err error, structured bool) {
 
 func (a *app) finishStreamChatSuccess(stream *chatSSEWriter, collector *chatTurnCollector, eng *agent.Engine, req streamChatSuccessRequest) {
 	result := collector.resultText(req.Result)
-	stream.write(buildChatStreamFinalPayload(result, req.Context, req.Options.IncludeMatrixMessages))
+	stream.write(buildChatStreamFinalPayload(result, req.Context, req.Options.IncludeMatrixMessages, req.DurationMs))
 	a.runs.updateStatus(req.RunID, "completed", 0)
 	a.publishChatRunEvent(fleet.EventRunFinished, req.RunID, req.Request, req.UserID, result)
 	a.storeStreamChatTurn(req.StoreCtx, collector, eng, req, result)
@@ -202,6 +203,7 @@ func (a *app) finishStreamChatSuccess(stream *chatSSEWriter, collector *chatTurn
 }
 
 func (a *app) storeStreamChatTurn(ctx context.Context, collector *chatTurnCollector, eng *agent.Engine, req streamChatSuccessRequest, result string) {
+	durationMs := req.DurationMs
 	if err := storeChatTurnWithHistory(ctx, a.chatStore, chatTurnHistoryRecord{
 		UserID:             req.UserID,
 		SessionID:          req.Request.SessionID,
@@ -210,6 +212,7 @@ func (a *app) storeStreamChatTurn(ctx context.Context, collector *chatTurnCollec
 		TurnMessages:       collector.turnMessages,
 		FinalContent:       result,
 		AssistantMessageID: req.Request.AssistantMessageID,
+		DurationMs:         &durationMs,
 		Model:              chatStoreModel(eng, req.Options.StoreModel),
 	}); err != nil {
 		log.Error().Err(err).Str("session", req.Request.SessionID).Msg("store_chat_turn_stream")

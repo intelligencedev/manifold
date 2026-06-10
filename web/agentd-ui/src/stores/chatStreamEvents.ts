@@ -107,9 +107,11 @@ export function handleStreamEvent(
     }
     case "final": {
       const text = typeof event.data === "string" ? event.data : "";
+      const durationMs = eventDurationMs(event);
       state.updateMessage(sessionId, assistantId, (m) => ({
         ...m,
         content: text || m.content,
+        durationMs: durationMs ?? m.durationMs,
         contextMetrics: withEstimatedAssistantTokens(
           m.contextMetrics,
           text || m.content,
@@ -199,6 +201,12 @@ export function handleStreamEvent(
     default:
       break;
   }
+}
+
+function eventDurationMs(event: ChatStreamEvent) {
+  const raw = event.durationMs ?? event.duration_ms;
+  const duration = typeof raw === "number" ? raw : Number(raw);
+  return Number.isFinite(duration) && duration >= 0 ? duration : undefined;
 }
 
 function eventSequence(event: ChatStreamEvent) {

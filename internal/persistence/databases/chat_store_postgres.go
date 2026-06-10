@@ -51,7 +51,8 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     session_id UUID NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
     role TEXT NOT NULL,
     content TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    duration_ms BIGINT NULL
 );
 
 CREATE INDEX IF NOT EXISTS chat_messages_session_created_idx ON chat_messages(session_id, created_at);
@@ -79,6 +80,9 @@ ALTER TABLE chat_sessions
 
 ALTER TABLE chat_sessions
     ADD COLUMN IF NOT EXISTS belief_memory_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE chat_messages
+    ADD COLUMN IF NOT EXISTS duration_ms BIGINT NULL;
 
 ALTER TABLE chat_sessions
     ALTER COLUMN memory_enabled SET DEFAULT FALSE;

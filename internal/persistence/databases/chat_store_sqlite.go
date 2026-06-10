@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -55,13 +56,17 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 	session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
 	role TEXT NOT NULL,
 	content TEXT NOT NULL,
-	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+	created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+	duration_ms INTEGER NULL
 );
 CREATE INDEX IF NOT EXISTS chat_messages_session_created_idx ON chat_messages(session_id, created_at);
 CREATE INDEX IF NOT EXISTS chat_sessions_user_updated_idx ON chat_sessions(user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS chat_sessions_user_created_idx ON chat_sessions(user_id, created_at DESC);
 `)
-	return err
+	if err != nil {
+		return err
+	}
+	return ensureSQLiteColumn(ctx, s.db, "chat_messages", "duration_ms", "INTEGER NULL")
 }
 
 func (s *sqliteChatStore) EnsureSession(ctx context.Context, userID *int64, id string, name string) (persistence.ChatSession, error) {
@@ -99,7 +104,10 @@ func (s *sqliteChatStore) ListSessionsByKind(ctx context.Context, userID *int64,
 		return nil, err
 	}
 	kind = normalizeSessionKind(kind)
-	query := `SELECT id, name, kind, user_id, created_at, updated_at, last_message_preview, model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled FROM chat_sessions WHERE kind = ?`
+	query := `SELECT id, name, kind, user_id, created_at, updated_at, last_message_preview,
+		(SELECT COUNT(*) FROM chat_messages m WHERE m.session_id = chat_sessions.id) AS message_count,
+		model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled
+		FROM chat_sessions WHERE kind = ?`
 	args := []any{kind}
 	if userID != nil {
 		query += ` AND user_id = ?`
@@ -126,7 +134,10 @@ func (s *sqliteChatStore) GetSession(ctx context.Context, userID *int64, id stri
 	if err := s.Init(ctx); err != nil {
 		return persistence.ChatSession{}, err
 	}
-	query := `SELECT id, name, kind, user_id, created_at, updated_at, last_message_preview, model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled FROM chat_sessions WHERE id = ?`
+	query := `SELECT id, name, kind, user_id, created_at, updated_at, last_message_preview,
+		(SELECT COUNT(*) FROM chat_messages m WHERE m.session_id = chat_sessions.id) AS message_count,
+		model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled
+		FROM chat_sessions WHERE id = ?`
 	args := []any{id}
 	if userID != nil {
 		query += ` AND user_id = ?`
@@ -213,11 +224,11 @@ func (s *sqliteChatStore) ListMessages(ctx context.Context, userID *int64, sessi
 	if _, err := s.GetSession(ctx, userID, sessionID); err != nil {
 		return nil, err
 	}
-	query := `SELECT id, session_id, role, content, created_at FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC, id ASC`
+	query := `SELECT id, session_id, role, content, created_at, duration_ms FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC, id ASC`
 	args := []any{sessionID}
 	if limit > 0 {
-		query = `SELECT id, session_id, role, content, created_at FROM (
-			SELECT id, session_id, role, content, created_at
+		query = `SELECT id, session_id, role, content, created_at, duration_ms FROM (
+			SELECT id, session_id, role, content, created_at, duration_ms
 			FROM chat_messages
 			WHERE session_id = ?
 			ORDER BY created_at DESC, id DESC
@@ -234,10 +245,12 @@ func (s *sqliteChatStore) ListMessages(ctx context.Context, userID *int64, sessi
 	for rows.Next() {
 		var msg persistence.ChatMessage
 		var createdAt sqliteTime
-		if err := rows.Scan(&msg.ID, &msg.SessionID, &msg.Role, &msg.Content, &createdAt); err != nil {
+		var duration sql.NullInt64
+		if err := rows.Scan(&msg.ID, &msg.SessionID, &msg.Role, &msg.Content, &createdAt, &duration); err != nil {
 			return nil, err
 		}
 		msg.CreatedAt = createdAt.Time
+		msg.DurationMs = int64PtrFromNull(duration)
 		out = append(out, msg)
 	}
 	return out, rows.Err()
@@ -339,11 +352,11 @@ func (s *sqliteChatStore) appendMessages(ctx context.Context, req sqliteChatAppe
 		if createdAt.IsZero() {
 			createdAt = time.Now().UTC()
 		}
-		stmt := `INSERT INTO chat_messages(id, session_id, role, content, created_at) VALUES(?, ?, ?, ?, ?)`
+		stmt := `INSERT INTO chat_messages(id, session_id, role, content, created_at, duration_ms) VALUES(?, ?, ?, ?, ?, ?)`
 		if req.SkipExisting {
-			stmt = `INSERT OR IGNORE INTO chat_messages(id, session_id, role, content, created_at) VALUES(?, ?, ?, ?, ?)`
+			stmt = `INSERT OR IGNORE INTO chat_messages(id, session_id, role, content, created_at, duration_ms) VALUES(?, ?, ?, ?, ?, ?)`
 		}
-		if _, err := tx.ExecContext(ctx, stmt, id, req.SessionID, message.Role, message.Content, createdAt); err != nil {
+		if _, err := tx.ExecContext(ctx, stmt, id, req.SessionID, message.Role, message.Content, createdAt, nullableInt64Value(message.DurationMs)); err != nil {
 			return err
 		}
 	}
@@ -357,6 +370,35 @@ WHERE id = ?`, req.Preview, model, model, req.SessionID); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+func ensureSQLiteColumn(ctx context.Context, db *sql.DB, table, column, definition string) error {
+	rows, err := db.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_info(%s)`, table))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var (
+			cid          int
+			name         string
+			columnType   string
+			notNull      int
+			defaultValue any
+			pk           int
+		)
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if name == column {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, table, column, definition))
+	return err
 }
 
 func (s *sqliteChatStore) updateSessionReturning(ctx context.Context, userID *int64, id, assignments string, args ...any) (persistence.ChatSession, error) {
@@ -476,7 +518,7 @@ func scanSQLiteChatSession(row interface {
 	var owner sql.NullInt64
 	var createdAt sqliteTime
 	var updatedAt sqliteTime
-	if err := row.Scan(&session.ID, &session.Name, &session.Kind, &owner, &createdAt, &updatedAt, &session.LastMessagePreview, &session.Model, &session.Summary, &session.SummarizedCount, &session.ProjectID, &session.MemoryEnabled, &session.EvolvingMemoryEnabled, &session.BeliefMemoryEnabled); err != nil {
+	if err := row.Scan(&session.ID, &session.Name, &session.Kind, &owner, &createdAt, &updatedAt, &session.LastMessagePreview, &session.MessageCount, &session.Model, &session.Summary, &session.SummarizedCount, &session.ProjectID, &session.MemoryEnabled, &session.EvolvingMemoryEnabled, &session.BeliefMemoryEnabled); err != nil {
 		return persistence.ChatSession{}, err
 	}
 	session.CreatedAt = createdAt.Time

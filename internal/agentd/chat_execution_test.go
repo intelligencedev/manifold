@@ -61,6 +61,16 @@ func TestBuildChatStreamFinalPayloadOmitsMatrixMessagesWhenDisabled(t *testing.T
 	}
 }
 
+func TestBuildChatStreamFinalPayloadIncludesDuration(t *testing.T) {
+	t.Parallel()
+
+	payload := buildChatStreamFinalPayload("done", context.Background(), false, 12437)
+
+	if payload["durationMs"] != int64(12437) {
+		t.Fatalf("expected durationMs in payload, got %#v", payload)
+	}
+}
+
 func TestChatTurnCollectorResultTextAppendsImageSummary(t *testing.T) {
 	t.Parallel()
 

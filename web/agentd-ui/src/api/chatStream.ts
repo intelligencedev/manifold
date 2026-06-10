@@ -68,6 +68,7 @@ export interface ChatStreamEvent {
   token_estimate?: number;
   truncated?: boolean;
   duration_ms?: number;
+  durationMs?: number;
   lanes?: Record<string, ChatMemoryContextLane>;
   phase?: string;
   context_window?: number;
@@ -266,7 +267,12 @@ export async function streamChatRunEvents(options: {
     cache: "no-store",
     signal,
   });
-  await streamAgentResponse(response, new TextDecoder(), onEvent, "chat run events");
+  await streamAgentResponse(
+    response,
+    new TextDecoder(),
+    onEvent,
+    "chat run events",
+  );
 }
 
 export async function cancelChatRun(runId: string): Promise<void> {
@@ -290,7 +296,9 @@ export async function resumeChatRun(
   );
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(text.trim() || `chat run resume failed (${response.status})`);
+    throw new Error(
+      text.trim() || `chat run resume failed (${response.status})`,
+    );
   }
   return (await response.json()) as ChatRunResumeResponse;
 }
@@ -474,7 +482,19 @@ async function emitJSONFinal(
     typeof body.result === "string"
       ? body.result
       : "";
-  onEvent({ type: "final", data: result });
+  const durationMs =
+    body && typeof body === "object"
+      ? (numericDuration((body as Record<string, unknown>).durationMs) ??
+        numericDuration((body as Record<string, unknown>).duration_ms))
+      : undefined;
+  const event: ChatStreamEvent = { type: "final", data: result };
+  if (durationMs !== undefined) event.durationMs = durationMs;
+  onEvent(event);
+}
+
+function numericDuration(value: unknown) {
+  const duration = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(duration) && duration >= 0 ? duration : undefined;
 }
 
 async function readEventStream(

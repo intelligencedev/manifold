@@ -2,6 +2,7 @@ package databases
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"strings"
 	"time"
@@ -140,15 +141,15 @@ func (s *pgChatStore) ListMessages(ctx context.Context, userID *int64, sessionID
 	}
 	log.Debug().Str("session_id", sessionID).Msg("list_messages_session_ok")
 	query := `
-SELECT id, session_id, role, content, created_at
+SELECT id, session_id, role, content, created_at, duration_ms
 FROM chat_messages
 WHERE session_id = $1
 ORDER BY created_at ASC, id ASC`
 	args := []any{sessionID}
 	if limit > 0 {
 		query = `
-SELECT id, session_id, role, content, created_at FROM (
-    SELECT id, session_id, role, content, created_at
+SELECT id, session_id, role, content, created_at, duration_ms FROM (
+    SELECT id, session_id, role, content, created_at, duration_ms
     FROM chat_messages
     WHERE session_id = $1
     ORDER BY created_at DESC, id DESC
@@ -165,9 +166,11 @@ ORDER BY created_at ASC, id ASC`
 	var out []persistence.ChatMessage
 	for rows.Next() {
 		var msg persistence.ChatMessage
-		if err := rows.Scan(&msg.ID, &msg.SessionID, &msg.Role, &msg.Content, &msg.CreatedAt); err != nil {
+		var duration sql.NullInt64
+		if err := rows.Scan(&msg.ID, &msg.SessionID, &msg.Role, &msg.Content, &msg.CreatedAt, &duration); err != nil {
 			return nil, err
 		}
+		msg.DurationMs = int64PtrFromNull(duration)
 		out = append(out, msg)
 	}
 	if out == nil {
@@ -211,13 +214,13 @@ func (s *pgChatStore) appendMessages(req chatAppendMessagesRequest) error {
 			createdAt = time.Now().UTC()
 		}
 		query := `
-	INSERT INTO chat_messages (id, session_id, role, content, created_at)
-	VALUES ($1, $2, $3, $4, $5)`
+		INSERT INTO chat_messages (id, session_id, role, content, created_at, duration_ms)
+	VALUES ($1, $2, $3, $4, $5, $6)`
 		if req.skipExisting {
 			query += `
 	ON CONFLICT (id) DO NOTHING`
 		}
-		if _, err := tx.Exec(ctx, query, id, req.sessionID, message.Role, message.Content, createdAt); err != nil {
+		if _, err := tx.Exec(ctx, query, id, req.sessionID, message.Role, message.Content, createdAt, nullableInt64Value(message.DurationMs)); err != nil {
 			return err
 		}
 	}

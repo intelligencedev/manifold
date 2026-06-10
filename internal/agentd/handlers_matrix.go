@@ -45,27 +45,32 @@ type matrixRoomResponse struct {
 }
 
 type matrixTaskResponse struct {
-	ID                string    `json:"id"`
-	RoomID            string    `json:"roomId"`
-	RouteTarget       string    `json:"routeTarget,omitempty"`
-	Title             string    `json:"title"`
-	Prompt            string    `json:"prompt"`
-	ScheduleType      string    `json:"scheduleType"`
-	ScheduleLabel     string    `json:"scheduleLabel"`
-	IntervalSeconds   int       `json:"intervalSeconds"`
-	IntervalHuman     string    `json:"intervalHuman"`
-	SpecificTime      string    `json:"specificTime,omitempty"`
-	SpecificAt        time.Time `json:"specificAt"`
-	Enabled           bool      `json:"enabled"`
-	RoomEnabled       bool      `json:"roomEnabled"`
-	Due               bool      `json:"due"`
-	LastRunAt         time.Time `json:"lastRunAt"`
-	LastRunHuman      string    `json:"lastRunHuman,omitempty"`
-	NextRunAt         time.Time `json:"nextRunAt"`
-	NextRunHuman      string    `json:"nextRunHuman,omitempty"`
-	LastResultSummary string    `json:"lastResultSummary,omitempty"`
-	CreatedAt         time.Time `json:"createdAt"`
-	UpdatedAt         time.Time `json:"updatedAt"`
+	ID                string     `json:"id"`
+	RoomID            string     `json:"roomId"`
+	RouteTarget       string     `json:"routeTarget,omitempty"`
+	Title             string     `json:"title"`
+	Prompt            string     `json:"prompt"`
+	ScheduleType      string     `json:"scheduleType"`
+	ScheduleLabel     string     `json:"scheduleLabel"`
+	IntervalSeconds   int        `json:"intervalSeconds"`
+	IntervalHuman     string     `json:"intervalHuman"`
+	SpecificTime      string     `json:"specificTime,omitempty"`
+	SpecificAt        time.Time  `json:"specificAt"`
+	Enabled           bool       `json:"enabled"`
+	RoomEnabled       bool       `json:"roomEnabled"`
+	Due               bool       `json:"due"`
+	LastRunAt         time.Time  `json:"lastRunAt"`
+	LastRunHuman      string     `json:"lastRunHuman,omitempty"`
+	NextRunAt         time.Time  `json:"nextRunAt"`
+	NextRunHuman      string     `json:"nextRunHuman,omitempty"`
+	LastResultSummary string     `json:"lastResultSummary,omitempty"`
+	ActiveRunID       string     `json:"activeRunId,omitempty"`
+	ActiveRunStatus   string     `json:"activeRunStatus,omitempty"`
+	ActiveRunQueuedAt *time.Time `json:"activeRunQueuedAt,omitempty"`
+	LastRunID         string     `json:"lastRunId,omitempty"`
+	LastRunStatus     string     `json:"lastRunStatus,omitempty"`
+	CreatedAt         time.Time  `json:"createdAt"`
+	UpdatedAt         time.Time  `json:"updatedAt"`
 }
 
 type matrixTaskUpsertRequest struct {
@@ -227,6 +232,7 @@ func (a *app) handleMatrixRoomTaskDetail(w http.ResponseWriter, r *http.Request,
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusAccepted)
 			_ = json.NewEncoder(w).Encode(task)
 			return
 		case "enable":
@@ -419,6 +425,7 @@ func (a *app) matrixTaskResponses(ctx context.Context, roomID string) ([]matrixT
 				response.NextRunAt = status.NextRunAt
 				response.NextRunHuman = status.NextRunAt.Format(time.RFC3339)
 			}
+			a.applyMatrixTaskRunState(ctx, &response, status.Task)
 			out = append(out, response)
 		}
 	}

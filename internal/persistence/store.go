@@ -76,20 +76,22 @@ type PulseRoom struct {
 
 // PulseTask stores a recurring automated task for a Matrix room.
 type PulseTask struct {
-	ID                string    `json:"id"`
-	RoomID            string    `json:"roomId"`
-	RouteTarget       string    `json:"routeTarget,omitempty"`
-	Title             string    `json:"title"`
-	Prompt            string    `json:"prompt"`
-	ScheduleType      string    `json:"scheduleType,omitempty"`
-	IntervalSeconds   int       `json:"intervalSeconds"`
-	SpecificTime      string    `json:"specificTime,omitempty"`
-	SpecificAt        time.Time `json:"specificAt"`
-	Enabled           bool      `json:"enabled"`
-	LastRunAt         time.Time `json:"lastRunAt"`
-	LastResultSummary string    `json:"lastResultSummary,omitempty"`
-	CreatedAt         time.Time `json:"createdAt"`
-	UpdatedAt         time.Time `json:"updatedAt"`
+	ID                  string    `json:"id"`
+	RoomID              string    `json:"roomId"`
+	RouteTarget         string    `json:"routeTarget,omitempty"`
+	Title               string    `json:"title"`
+	Prompt              string    `json:"prompt"`
+	ScheduleType        string    `json:"scheduleType,omitempty"`
+	IntervalSeconds     int       `json:"intervalSeconds"`
+	SpecificTime        string    `json:"specificTime,omitempty"`
+	SpecificAt          time.Time `json:"specificAt"`
+	Enabled             bool      `json:"enabled"`
+	LastRunAt           time.Time `json:"lastRunAt"`
+	LastResultSummary   string    `json:"lastResultSummary,omitempty"`
+	ActiveDurableTaskID string    `json:"activeDurableTaskId,omitempty"`
+	LastDurableTaskID   string    `json:"lastDurableTaskId,omitempty"`
+	CreatedAt           time.Time `json:"createdAt"`
+	UpdatedAt           time.Time `json:"updatedAt"`
 }
 
 // ReactiveClaim stores a short-lived room-scoped lease for chat responses.
@@ -103,13 +105,14 @@ type ReactiveClaim struct {
 }
 
 type RoomPulseCompletion struct {
-	RoomID      string
-	RouteTarget string
-	Token       string
-	CompletedAt time.Time
-	Summary     string
-	Error       string
-	DueTaskIDs  []string
+	RoomID        string
+	RouteTarget   string
+	Token         string
+	DurableTaskID string
+	CompletedAt   time.Time
+	Summary       string
+	Error         string
+	DueTaskIDs    []string
 }
 
 // PulseStore persists room-scoped automation tasks used by the Matrix pulse loop.
@@ -121,6 +124,7 @@ type PulseStore interface {
 	UpsertRoom(ctx context.Context, room PulseRoom) (PulseRoom, error)
 	ListTasks(ctx context.Context, roomID, routeTarget string) ([]PulseTask, error)
 	UpsertTask(ctx context.Context, task PulseTask) (PulseTask, error)
+	MarkTaskRunQueued(ctx context.Context, roomID, routeTarget, taskID, durableTaskID string) (PulseTask, error)
 	DeleteTask(ctx context.Context, roomID, routeTarget, taskID string) error
 	ClaimRoom(ctx context.Context, roomID, routeTarget, token string, leaseUntil time.Time) (bool, error)
 	ClearRoomClaim(ctx context.Context, roomID, routeTarget string) error

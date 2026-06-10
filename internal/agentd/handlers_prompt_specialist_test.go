@@ -15,6 +15,7 @@ import (
 	"manifold/internal/agent"
 	"manifold/internal/agent/memory"
 	"manifold/internal/config"
+	"manifold/internal/durable"
 	"manifold/internal/llm"
 	"manifold/internal/persistence"
 	"manifold/internal/persistence/databases"
@@ -571,11 +572,17 @@ func newSpecialistTestApp(t *testing.T, baseURL string, specs []config.Specialis
 		},
 	}
 	projectsService := projects.NewService(workdir, "")
+	durableStore := durable.NewMemoryStore()
+	durableClient := durable.NewClient(durableStore)
+	durableRegistry := durable.NewRegistry()
 
-	return &app{
+	a := &app{
 		cfg:                &cfg,
 		llm:                baseProvider,
 		baseToolRegistry:   baseTools,
+		durableStore:       durableStore,
+		durableClient:      durableClient,
+		durableRegistry:    durableRegistry,
 		specRegistry:       specialists.NewRegistry(cfg.LLMClient, specs, http.DefaultClient, baseTools),
 		chatStore:          chatStore,
 		matrixMessageStore: databases.NewMatrixMessageStore(nil),
@@ -589,4 +596,6 @@ func newSpecialistTestApp(t *testing.T, baseURL string, specs []config.Specialis
 			Model: "orchestrator-model",
 		},
 	}
+	a.registerDurableHandlers()
+	return a
 }

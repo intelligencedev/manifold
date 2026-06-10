@@ -12,12 +12,13 @@ import (
 	"time"
 
 	"manifold/internal/config"
+	"manifold/internal/durable"
 	"manifold/internal/matrixgw"
 	"manifold/internal/persistence"
 	"manifold/internal/persistence/databases"
 )
 
-func TestPulseRuntimePollOnceRunsDueTaskWithoutPostingFinalReply(t *testing.T) {
+func TestPulseRuntimePollOnceEnqueuesDurableTaskAndWorkerCompletesWithoutPostingFinalReply(t *testing.T) {
 	t.Parallel()
 
 	specialistServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -73,6 +74,32 @@ func TestPulseRuntimePollOnceRunsDueTaskWithoutPostingFinalReply(t *testing.T) {
 		t.Fatalf("pollOnce() error = %v", err)
 	}
 
+	queued := listPulseDurableTasks(t, a)
+	if len(queued) != 1 {
+		t.Fatalf("expected one durable pulse task, got %#v", queued)
+	}
+	if queued[0].Status != durable.TaskStatusQueued {
+		t.Fatalf("expected queued durable task, got %#v", queued[0])
+	}
+	queuedTasks, err := store.ListTasks(ctx, room.RoomID, room.RouteTarget)
+	if err != nil {
+		t.Fatalf("ListTasks() error = %v", err)
+	}
+	if queuedTasks[0].ActiveDurableTaskID != queued[0].ID {
+		t.Fatalf("expected active durable task id %q, got %#v", queued[0].ID, queuedTasks[0])
+	}
+	if len(client.sentHTML) != 0 || len(client.sentText) != 0 {
+		t.Fatalf("expected no Matrix send before durable execution, got html=%#v text=%#v", client.sentHTML, client.sentText)
+	}
+	if err := runtime.pollOnce(ctx); err != nil {
+		t.Fatalf("second pollOnce() error = %v", err)
+	}
+	if duplicateQueued := listPulseDurableTasks(t, a); len(duplicateQueued) != 1 {
+		t.Fatalf("expected active durable run to prevent duplicate enqueue, got %#v", duplicateQueued)
+	}
+
+	runPulseDurableWorkerOnce(t, a)
+
 	updatedRoom, err := store.GetRoom(ctx, room.RoomID, room.RouteTarget)
 	if err != nil {
 		t.Fatalf("GetRoom() error = %v", err)
@@ -98,6 +125,13 @@ func TestPulseRuntimePollOnceRunsDueTaskWithoutPostingFinalReply(t *testing.T) {
 	}
 	if got := storeMessages[len(storeMessages)-1].Content; got != "specialist response" {
 		t.Fatalf("expected stored pulse assistant response, got %q", got)
+	}
+	completedTasks, err := store.ListTasks(ctx, room.RoomID, room.RouteTarget)
+	if err != nil {
+		t.Fatalf("ListTasks(completed) error = %v", err)
+	}
+	if completedTasks[0].ActiveDurableTaskID != "" || completedTasks[0].LastDurableTaskID != queued[0].ID {
+		t.Fatalf("expected completed durable linkage, got %#v", completedTasks[0])
 	}
 }
 
@@ -193,6 +227,13 @@ func TestPulseRuntimeRunsSameSpecialistTasksSeparatelyAndSequentially(t *testing
 	if err := runtime.pollOnce(ctx); err != nil {
 		t.Fatalf("pollOnce() error = %v", err)
 	}
+	queued := listPulseDurableTasks(t, a)
+	if len(queued) != 2 {
+		t.Fatalf("expected two queued durable pulse tasks, got %#v", queued)
+	}
+
+	runPulseDurableWorkerOnce(t, a)
+	runPulseDurableWorkerOnce(t, a)
 
 	mu.Lock()
 	bodies := append([]string(nil), requestBodies...)
@@ -225,15 +266,11 @@ func TestPulseRuntimeRunsSameSpecialistTasksSeparatelyAndSequentially(t *testing
 	}
 }
 
-func TestPulseRuntimeRunsDifferentSpecialistsConcurrently(t *testing.T) {
+func TestPulseRuntimeEnqueuesDifferentSpecialistTasks(t *testing.T) {
 	t.Parallel()
 
 	var mu sync.Mutex
-	var waitTimedOut bool
 	var requestBodies []string
-	var started int
-	bothStarted := make(chan struct{})
-	var closeBothStarted sync.Once
 	specialistServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -242,22 +279,8 @@ func TestPulseRuntimeRunsDifferentSpecialistsConcurrently(t *testing.T) {
 		}
 
 		mu.Lock()
-		started++
 		requestBodies = append(requestBodies, string(body))
-		if started == 2 {
-			closeBothStarted.Do(func() { close(bothStarted) })
-		}
 		mu.Unlock()
-
-		select {
-		case <-bothStarted:
-		case <-time.After(5 * time.Second):
-			mu.Lock()
-			waitTimedOut = true
-			mu.Unlock()
-			http.Error(w, "timed out waiting for concurrent specialist requests", http.StatusGatewayTimeout)
-			return
-		}
 
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"specialist response","tool_calls":[]}}]}`))
@@ -334,16 +357,46 @@ func TestPulseRuntimeRunsDifferentSpecialistsConcurrently(t *testing.T) {
 		t.Fatalf("pollOnce() error = %v", err)
 	}
 
+	queued := listPulseDurableTasks(t, a)
+	if len(queued) != 2 {
+		t.Fatalf("expected two queued durable pulse tasks, got %#v", queued)
+	}
+	for _, task := range queued {
+		if task.Status != durable.TaskStatusQueued {
+			t.Fatalf("expected queued durable task, got %#v", task)
+		}
+	}
+	runPulseDurableWorkerOnce(t, a)
+	runPulseDurableWorkerOnce(t, a)
+
 	mu.Lock()
 	bodies := append([]string(nil), requestBodies...)
-	timedOut := waitTimedOut
 	mu.Unlock()
 
-	if timedOut {
-		t.Fatalf("expected tasks assigned to different specialists to run concurrently")
-	}
 	if len(bodies) != 2 {
 		t.Fatalf("expected two specialist requests, got %d", len(bodies))
+	}
+}
+
+func listPulseDurableTasks(t *testing.T, a *app) []durable.Task {
+	t.Helper()
+	tasks, err := a.durableClient.ListTasks(context.Background(), systemUserID, durable.TaskListFilter{
+		Queue: durablePulseQueue,
+		Name:  durablePulseRunTaskName,
+	})
+	if err != nil {
+		t.Fatalf("ListTasks() error = %v", err)
+	}
+	return tasks
+}
+
+func runPulseDurableWorkerOnce(t *testing.T, a *app) {
+	t.Helper()
+	worker := durable.NewWorker(a.durableStore, a.durableClient, a.durableRegistry, durable.WorkerOptions{
+		WorkerID: "pulse-test-worker",
+	})
+	if err := worker.RunOnce(context.Background()); err != nil {
+		t.Fatalf("RunOnce() error = %v", err)
 	}
 }
 

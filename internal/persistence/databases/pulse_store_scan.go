@@ -10,7 +10,7 @@ import (
 
 func (s *pgPulseStore) getTask(ctx context.Context, roomID, routeTarget, taskID string) (persistence.PulseTask, error) {
 	rows, err := s.pool.Query(ctx, `
-SELECT id, room_id, route_target, title, prompt, schedule_type, interval_seconds, specific_time, specific_at, enabled, last_run_at, last_result_summary, created_at, updated_at
+SELECT id, room_id, route_target, title, prompt, schedule_type, interval_seconds, specific_time, specific_at, enabled, last_run_at, last_result_summary, active_durable_task_id, last_durable_task_id, created_at, updated_at
 FROM pulse_tasks
 WHERE room_id = $1 AND route_target = $2 AND id = $3
 `, strings.TrimSpace(roomID), strings.TrimSpace(routeTarget), strings.TrimSpace(taskID))
@@ -74,6 +74,8 @@ func scanPulseTask(rows interface{ Scan(...any) error }) (persistence.PulseTask,
 	var specificAt *time.Time
 	var lastRunAt *time.Time
 	var lastSummary *string
+	var activeDurableTaskID *string
+	var lastDurableTaskID *string
 	if err := rows.Scan(
 		&task.ID,
 		&task.RoomID,
@@ -87,6 +89,8 @@ func scanPulseTask(rows interface{ Scan(...any) error }) (persistence.PulseTask,
 		&task.Enabled,
 		&lastRunAt,
 		&lastSummary,
+		&activeDurableTaskID,
+		&lastDurableTaskID,
 		&task.CreatedAt,
 		&task.UpdatedAt,
 	); err != nil {
@@ -101,6 +105,12 @@ func scanPulseTask(rows interface{ Scan(...any) error }) (persistence.PulseTask,
 	if lastSummary != nil {
 		task.LastResultSummary = *lastSummary
 	}
+	if activeDurableTaskID != nil {
+		task.ActiveDurableTaskID = *activeDurableTaskID
+	}
+	if lastDurableTaskID != nil {
+		task.LastDurableTaskID = *lastDurableTaskID
+	}
 	normalized, err := pulsecore.NormalizeTaskSchedule(task)
 	if err != nil {
 		return task, nil
@@ -113,6 +123,8 @@ func scanPulseTask(rows interface{ Scan(...any) error }) (persistence.PulseTask,
 	normalized.Enabled = task.Enabled
 	normalized.LastRunAt = task.LastRunAt
 	normalized.LastResultSummary = task.LastResultSummary
+	normalized.ActiveDurableTaskID = task.ActiveDurableTaskID
+	normalized.LastDurableTaskID = task.LastDurableTaskID
 	normalized.CreatedAt = task.CreatedAt
 	normalized.UpdatedAt = task.UpdatedAt
 	return normalized, nil

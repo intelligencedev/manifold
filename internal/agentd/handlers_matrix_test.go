@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"manifold/internal/config"
+	"manifold/internal/durable"
 	"manifold/internal/persistence"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/projects"
@@ -154,6 +155,57 @@ func TestMatrixTaskHandlersCreatePatchAndList(t *testing.T) {
 	}
 	if len(relisted.Tasks) != 1 || relisted.Tasks[0].RouteTarget != "ops-team" {
 		t.Fatalf("expected moved task without duplication, got %#v", relisted.Tasks)
+	}
+}
+
+func TestMatrixTaskRunNowEnqueuesDurablePulseTask(t *testing.T) {
+	t.Parallel()
+	a := newSpecialistTestApp(t, "http://example.test", nil)
+	a.cfg.Matrix = config.MatrixConfig{
+		Enabled: true,
+		Rooms: []config.MatrixRoomConfig{{
+			RoomID:        "!room:test",
+			DefaultTarget: "orchestrator",
+		}},
+	}
+	pulseStore := databases.NewPulseStore(nil)
+	a.pulseRuntime = newPulseRuntime(a, pulseStore)
+
+	createReq := httptest.NewRequest(http.MethodPost, "/api/matrix/rooms/%21room%3Atest/tasks", strings.NewReader(`{"routeTarget":"openai","title":"Daily digest","prompt":"Summarize status","intervalSeconds":900,"enabled":true}`))
+	createReq.Header.Set("Content-Type", "application/json")
+	createResp := httptest.NewRecorder()
+	a.matrixRoomDetailHandler().ServeHTTP(createResp, createReq)
+	if createResp.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", createResp.Code, createResp.Body.String())
+	}
+	var created matrixTaskResponse
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+
+	runReq := httptest.NewRequest(http.MethodPost, "/api/matrix/rooms/%21room%3Atest/tasks/"+created.ID+"/run-now", nil)
+	runResp := httptest.NewRecorder()
+	a.matrixRoomDetailHandler().ServeHTTP(runResp, runReq)
+	if runResp.Code != http.StatusAccepted {
+		t.Fatalf("run status = %d, body = %s", runResp.Code, runResp.Body.String())
+	}
+	var runTask matrixTaskResponse
+	if err := json.NewDecoder(runResp.Body).Decode(&runTask); err != nil {
+		t.Fatalf("decode run response: %v", err)
+	}
+	if runTask.ActiveRunID == "" || runTask.ActiveRunStatus != string(durable.TaskStatusQueued) {
+		t.Fatalf("expected queued active durable run, got %#v", runTask)
+	}
+
+	tasks, err := a.durableClient.ListTasks(context.Background(), systemUserID, durable.TaskListFilter{
+		Queue: durablePulseQueue,
+		Name:  durablePulseRunTaskName,
+	})
+	if err != nil {
+		t.Fatalf("list durable tasks: %v", err)
+	}
+	if len(tasks) != 1 || tasks[0].ID != runTask.ActiveRunID {
+		t.Fatalf("expected durable pulse task %q, got %#v", runTask.ActiveRunID, tasks)
 	}
 }
 

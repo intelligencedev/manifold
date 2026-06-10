@@ -271,6 +271,7 @@ type ChatSession struct {
 	CreatedAt             time.Time `json:"createdAt"`
 	UpdatedAt             time.Time `json:"updatedAt"`
 	LastMessagePreview    string    `json:"lastMessagePreview"`
+	MessageCount          int       `json:"messageCount"`
 	Model                 string    `json:"model"`
 	Summary               string    `json:"summary"`
 	SummarizedCount       int       `json:"summarizedCount"`
@@ -283,11 +284,12 @@ type ChatSession struct {
 
 // ChatMessage is a single turn within a chat session.
 type ChatMessage struct {
-	ID        string    `json:"id"`
-	SessionID string    `json:"sessionId"`
-	Role      string    `json:"role"`
-	Content   string    `json:"content"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID         string    `json:"id"`
+	SessionID  string    `json:"sessionId"`
+	Role       string    `json:"role"`
+	Content    string    `json:"content"`
+	CreatedAt  time.Time `json:"createdAt"`
+	DurationMs *int64    `json:"durationMs,omitempty"`
 	// Optional, not persisted: used to hydrate tool calls for the UI.
 	Title    string `json:"title,omitempty"`
 	ToolArgs string `json:"toolArgs,omitempty"`

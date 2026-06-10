@@ -18,6 +18,22 @@ function makeSSEStream(chunks: string[]) {
   });
 }
 
+function makeStartRunResponse(runId = "run-1", sessionId = "abc") {
+  return new Response(
+    JSON.stringify({
+      run_id: runId,
+      session_id: sessionId,
+      user_message_id: "user-1",
+      assistant_message_id: "assistant-1",
+      status: "running",
+    }),
+    {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    },
+  );
+}
+
 describe("extractEventPayload", () => {
   it("parses a simple SSE payload", () => {
     const raw = 'data: {"type":"delta","data":"hi"}';
@@ -47,7 +63,10 @@ describe("streamAgentRun", () => {
       headers: { "Content-Type": "text/event-stream" },
     });
 
-    const fetchMock = vi.fn().mockResolvedValue(response);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(makeStartRunResponse())
+      .mockResolvedValueOnce(response);
     const received: ChatStreamEvent[] = [];
 
     await streamAgentRun({
@@ -58,6 +77,7 @@ describe("streamAgentRun", () => {
     });
 
     expect(received).toEqual([
+      { type: "run_started", run_id: "run-1", session_id: "abc" },
       { type: "delta", data: "Hello" },
       { type: "final", data: "Hello world" },
     ]);
@@ -69,7 +89,10 @@ describe("streamAgentRun", () => {
       headers: { "Content-Type": "application/json" },
     });
 
-    const fetchMock = vi.fn().mockResolvedValue(response);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(makeStartRunResponse("run-json", ""))
+      .mockResolvedValueOnce(response);
     const received: ChatStreamEvent[] = [];
 
     await streamAgentRun({
@@ -78,7 +101,37 @@ describe("streamAgentRun", () => {
       fetchImpl: fetchMock,
     });
 
-    expect(received).toEqual([{ type: "final", data: "done" }]);
+    expect(received).toEqual([
+      { type: "run_started", run_id: "run-json", session_id: "" },
+      { type: "final", data: "done" },
+    ]);
+  });
+
+  it("preserves duration from non-streaming JSON responses", async () => {
+    const response = new Response(
+      JSON.stringify({ result: "done", durationMs: 12437 }),
+      {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      },
+    );
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(makeStartRunResponse("run-duration", ""))
+      .mockResolvedValueOnce(response);
+    const received: ChatStreamEvent[] = [];
+
+    await streamAgentRun({
+      prompt: "hello",
+      onEvent: (event) => received.push(event),
+      fetchImpl: fetchMock,
+    });
+
+    expect(received).toEqual([
+      { type: "run_started", run_id: "run-duration", session_id: "" },
+      { type: "final", data: "done", durationMs: 12437 },
+    ]);
   });
 
   it("includes memory settings in the run payload", async () => {
@@ -86,7 +139,10 @@ describe("streamAgentRun", () => {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
-    const fetchMock = vi.fn().mockResolvedValue(response);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(makeStartRunResponse())
+      .mockResolvedValueOnce(response);
 
     await streamAgentRun({
       prompt: "hello",
@@ -109,7 +165,10 @@ describe("streamAgentRun", () => {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
-    const fetchMock = vi.fn().mockResolvedValue(response);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(makeStartRunResponse())
+      .mockResolvedValueOnce(response);
 
     await streamAgentRun({
       prompt: "hello",
@@ -118,6 +177,8 @@ describe("streamAgentRun", () => {
       fetchImpl: fetchMock,
     });
 
-    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("/agent/run?team=ops");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "/api/chat/runs?team=ops",
+    );
   });
 });

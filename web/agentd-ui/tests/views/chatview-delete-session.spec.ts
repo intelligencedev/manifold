@@ -116,7 +116,9 @@ describe("ChatView conversation delete", () => {
   });
 
   it("shows cancel/delete confirmation before deleting a conversation", async () => {
-    const { findByRole, getByRole } = render(ChatView);
+    const { findByRole, findByText, getByRole } = render(ChatView);
+
+    expect(await findByText("1 msg")).toBeTruthy();
 
     const openDeleteDialog = await findByRole("button", {
       name: /Delete conversation Roadmap Chat/i,

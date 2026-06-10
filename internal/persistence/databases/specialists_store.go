@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 
 	"manifold/internal/persistence"
+	"manifold/internal/secrets"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -21,8 +23,16 @@ func NewSpecialistsStore(pool *pgxpool.Pool) persistence.SpecialistsStore {
 	return &pgSpecStore{pool: pool}
 }
 
+func NewSpecialistsStoreWithCodec(pool *pgxpool.Pool, codec secrets.Codec) persistence.SpecialistsStore {
+	if pool == nil {
+		return &memSpecStore{m: map[int64]map[string]persistence.Specialist{}}
+	}
+	return &pgSpecStore{pool: pool, codec: codec}
+}
+
 type sqliteSpecStore struct {
 	db       *sql.DB
+	codec    secrets.Codec
 	initOnce sync.Once
 	initErr  error
 }
@@ -31,15 +41,32 @@ func NewSQLiteSpecialistsStore(db *sql.DB) persistence.SpecialistsStore {
 	return &sqliteSpecStore{db: db}
 }
 
+func NewSQLiteSpecialistsStoreWithCodec(db *sql.DB, codec secrets.Codec) persistence.SpecialistsStore {
+	return &sqliteSpecStore{db: db, codec: codec}
+}
+
+func (s *sqliteSpecStore) ensureCodec() (secrets.Codec, error) {
+	codec, err := databaseSecretCodec(s.codec)
+	if err != nil {
+		return nil, err
+	}
+	s.codec = codec
+	return codec, nil
+}
+
 func (s *sqliteSpecStore) Init(ctx context.Context) error {
 	if s.db == nil {
 		return errors.New("sqlite specialists store requires db")
 	}
+	codec, err := s.ensureCodec()
+	if err != nil {
+		return err
+	}
 	s.initOnce.Do(func() {
-		_, s.initErr = s.db.ExecContext(ctx, `
-CREATE TABLE IF NOT EXISTS specialists (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	user_id INTEGER NOT NULL DEFAULT 0,
+		if _, err := s.db.ExecContext(ctx, `
+	CREATE TABLE IF NOT EXISTS specialists (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		user_id INTEGER NOT NULL DEFAULT 0,
 	name TEXT NOT NULL,
 	description TEXT NOT NULL DEFAULT '',
 	base_url TEXT NOT NULL DEFAULT '',
@@ -59,9 +86,13 @@ CREATE TABLE IF NOT EXISTS specialists (
 	harness TEXT DEFAULT NULL,
 	provider TEXT NOT NULL DEFAULT '',
 	UNIQUE(user_id, name)
-);
-CREATE INDEX IF NOT EXISTS specialists_user_name_idx ON specialists(user_id, name);
-`)
+	);
+	CREATE INDEX IF NOT EXISTS specialists_user_name_idx ON specialists(user_id, name);
+	`); err != nil {
+			s.initErr = err
+			return
+		}
+		s.initErr = backfillSQLiteSpecialistSecrets(ctx, s.db, codec)
 	})
 	return s.initErr
 }
@@ -78,6 +109,10 @@ func (s *sqliteSpecStore) List(ctx context.Context, userID int64) ([]persistence
 	out := []persistence.Specialist{}
 	for rows.Next() {
 		sp, err := scanSQLiteSpecialist(rows)
+		if err != nil {
+			return nil, err
+		}
+		sp, err = decryptSpecialistFromStore(s.codec, sp)
 		if err != nil {
 			return nil, err
 		}
@@ -98,6 +133,10 @@ func (s *sqliteSpecStore) GetByName(ctx context.Context, userID int64, name stri
 	if err != nil {
 		return persistence.Specialist{}, false, err
 	}
+	sp, err = decryptSpecialistFromStore(s.codec, sp)
+	if err != nil {
+		return persistence.Specialist{}, false, err
+	}
 	return sp, true, nil
 }
 
@@ -108,8 +147,12 @@ func (s *sqliteSpecStore) Upsert(ctx context.Context, userID int64, sp persisten
 	if err := s.Init(ctx); err != nil {
 		return persistence.Specialist{}, err
 	}
+	toStore, err := encryptSpecialistForStore(s.codec, userID, sp)
+	if err != nil {
+		return persistence.Specialist{}, err
+	}
 	allow, _ := json.Marshal(sp.AllowTools)
-	headers, _ := json.Marshal(sp.ExtraHeaders)
+	headers, _ := json.Marshal(toStore.ExtraHeaders)
 	params, _ := json.Marshal(sp.ExtraParams)
 	harness := encodeSpecialistHarness(sp.Harness)
 	row := s.db.QueryRowContext(ctx, `
@@ -133,15 +176,15 @@ ON CONFLICT(user_id, name) DO UPDATE SET
 	reasoning_effort=excluded.reasoning_effort,
 	system=excluded.system,
 	extra_headers=excluded.extra_headers,
-	extra_params=excluded.extra_params,
-	harness=excluded.harness,
-	provider=excluded.provider
-RETURNING id, api_key`, userID, sp.Name, sp.Description, sp.BaseURL, sp.APIKey, sp.Model, sp.SummaryContextWindowTokens, sp.EnableTools, nullableBool(sp.RequestInfoEnabled), sp.ImageGeneration, nullableBool(sp.AutoDiscover), sp.Paused, string(allow), sp.ReasoningEffort, sp.System, string(headers), string(params), nullableJSON(harness), sp.Provider)
+		extra_params=excluded.extra_params,
+		harness=excluded.harness,
+		provider=excluded.provider
+	RETURNING id, api_key`, userID, sp.Name, sp.Description, sp.BaseURL, toStore.APIKey, sp.Model, sp.SummaryContextWindowTokens, sp.EnableTools, nullableBool(sp.RequestInfoEnabled), sp.ImageGeneration, nullableBool(sp.AutoDiscover), sp.Paused, string(allow), sp.ReasoningEffort, sp.System, string(headers), string(params), nullableJSON(harness), sp.Provider)
 	if err := row.Scan(&sp.ID, &sp.APIKey); err != nil {
 		return persistence.Specialist{}, err
 	}
 	sp.UserID = userID
-	return sp, nil
+	return decryptSpecialistFromStore(s.codec, sp)
 }
 
 func boolPtr(value bool) *bool {
@@ -250,12 +293,18 @@ func (s *memSpecStore) Delete(ctx context.Context, userID int64, name string) er
 }
 
 type pgSpecStore struct {
-	pool *pgxpool.Pool
+	pool  *pgxpool.Pool
+	codec secrets.Codec
 }
 
 func (s *pgSpecStore) Init(ctx context.Context) error {
-	_, err := s.pool.Exec(ctx, `
-CREATE TABLE IF NOT EXISTS specialists (
+	codec, err := databaseSecretCodec(s.codec)
+	if err != nil {
+		return err
+	}
+	s.codec = codec
+	_, err = s.pool.Exec(ctx, `
+	CREATE TABLE IF NOT EXISTS specialists (
 	id SERIAL PRIMARY KEY,
 	user_id BIGINT NOT NULL DEFAULT 0,
 	name TEXT NOT NULL,
@@ -305,12 +354,20 @@ ALTER TABLE specialists
 ALTER TABLE specialists
 	DROP CONSTRAINT IF EXISTS specialists_name_key;
 
-CREATE UNIQUE INDEX IF NOT EXISTS specialists_user_name_idx ON specialists(user_id, name);
-`)
-	return err
+	CREATE UNIQUE INDEX IF NOT EXISTS specialists_user_name_idx ON specialists(user_id, name);
+	`)
+	if err != nil {
+		return err
+	}
+	return backfillPostgresSpecialistSecrets(ctx, s.pool, codec)
 }
 
 func (s *pgSpecStore) List(ctx context.Context, userID int64) ([]persistence.Specialist, error) {
+	codec, err := databaseSecretCodec(s.codec)
+	if err != nil {
+		return nil, err
+	}
+	s.codec = codec
 	rows, err := s.pool.Query(ctx, `SELECT id,user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,request_info_enabled,image_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,harness,provider FROM specialists WHERE user_id=$1 ORDER BY LOWER(name)`, userID)
 	if err != nil {
 		return nil, err
@@ -327,12 +384,21 @@ func (s *pgSpecStore) List(ctx context.Context, userID int64) ([]persistence.Spe
 		_ = json.Unmarshal(headers, &sp.ExtraHeaders)
 		_ = json.Unmarshal(params, &sp.ExtraParams)
 		sp.Harness = decodeSpecialistHarness(harness)
+		sp, err = decryptSpecialistFromStore(codec, sp)
+		if err != nil {
+			return nil, err
+		}
 		out = append(out, sp)
 	}
 	return out, rows.Err()
 }
 
 func (s *pgSpecStore) GetByName(ctx context.Context, userID int64, name string) (persistence.Specialist, bool, error) {
+	codec, err := databaseSecretCodec(s.codec)
+	if err != nil {
+		return persistence.Specialist{}, false, err
+	}
+	s.codec = codec
 	row := s.pool.QueryRow(ctx, `SELECT id,user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,request_info_enabled,image_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,harness,provider FROM specialists WHERE user_id=$1 AND name=$2`, userID, name)
 	var sp persistence.Specialist
 	var allow, headers, params, harness []byte
@@ -343,6 +409,10 @@ func (s *pgSpecStore) GetByName(ctx context.Context, userID int64, name string) 
 	_ = json.Unmarshal(headers, &sp.ExtraHeaders)
 	_ = json.Unmarshal(params, &sp.ExtraParams)
 	sp.Harness = decodeSpecialistHarness(harness)
+	sp, err = decryptSpecialistFromStore(codec, sp)
+	if err != nil {
+		return persistence.Specialist{}, false, err
+	}
 	return sp, true, nil
 }
 
@@ -350,27 +420,36 @@ func (s *pgSpecStore) Upsert(ctx context.Context, userID int64, sp persistence.S
 	if strings.TrimSpace(sp.Name) == "" {
 		return persistence.Specialist{}, errors.New("name required")
 	}
+	codec, err := databaseSecretCodec(s.codec)
+	if err != nil {
+		return persistence.Specialist{}, err
+	}
+	s.codec = codec
+	toStore, err := encryptSpecialistForStore(s.codec, userID, sp)
+	if err != nil {
+		return persistence.Specialist{}, err
+	}
 	allow, _ := json.Marshal(sp.AllowTools)
-	headers, _ := json.Marshal(sp.ExtraHeaders)
+	headers, _ := json.Marshal(toStore.ExtraHeaders)
 	params, _ := json.Marshal(sp.ExtraParams)
 	harness := encodeSpecialistHarness(sp.Harness)
 	row := s.pool.QueryRow(ctx, `
 INSERT INTO specialists(user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,request_info_enabled,image_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,harness,provider)
 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
-	ON CONFLICT (user_id, name) DO UPDATE SET description=EXCLUDED.description, base_url=EXCLUDED.base_url,
+		ON CONFLICT (user_id, name) DO UPDATE SET description=EXCLUDED.description, base_url=EXCLUDED.base_url,
 		api_key=CASE
 			WHEN NULLIF(BTRIM(EXCLUDED.api_key), '') IS NULL THEN specialists.api_key
 			ELSE EXCLUDED.api_key
 		END,
 		model=EXCLUDED.model,
-	summary_context_window_tokens=EXCLUDED.summary_context_window_tokens, enable_tools=EXCLUDED.enable_tools, request_info_enabled=EXCLUDED.request_info_enabled, image_generation=EXCLUDED.image_generation, auto_discover=EXCLUDED.auto_discover, paused=EXCLUDED.paused, allow_tools=EXCLUDED.allow_tools,
-	reasoning_effort=EXCLUDED.reasoning_effort, system=EXCLUDED.system, extra_headers=EXCLUDED.extra_headers, extra_params=EXCLUDED.extra_params, harness=EXCLUDED.harness, provider=EXCLUDED.provider
-RETURNING id;`, userID, sp.Name, sp.Description, sp.BaseURL, sp.APIKey, sp.Model, sp.SummaryContextWindowTokens, sp.EnableTools, sp.RequestInfoEnabled, sp.ImageGeneration, sp.AutoDiscover, sp.Paused, allow, sp.ReasoningEffort, sp.System, headers, params, harness, sp.Provider)
-	if err := row.Scan(&sp.ID); err != nil {
+		summary_context_window_tokens=EXCLUDED.summary_context_window_tokens, enable_tools=EXCLUDED.enable_tools, request_info_enabled=EXCLUDED.request_info_enabled, image_generation=EXCLUDED.image_generation, auto_discover=EXCLUDED.auto_discover, paused=EXCLUDED.paused, allow_tools=EXCLUDED.allow_tools,
+		reasoning_effort=EXCLUDED.reasoning_effort, system=EXCLUDED.system, extra_headers=EXCLUDED.extra_headers, extra_params=EXCLUDED.extra_params, harness=EXCLUDED.harness, provider=EXCLUDED.provider
+	RETURNING id, api_key;`, userID, sp.Name, sp.Description, sp.BaseURL, toStore.APIKey, sp.Model, sp.SummaryContextWindowTokens, sp.EnableTools, sp.RequestInfoEnabled, sp.ImageGeneration, sp.AutoDiscover, sp.Paused, allow, sp.ReasoningEffort, sp.System, headers, params, harness, sp.Provider)
+	if err := row.Scan(&sp.ID, &sp.APIKey); err != nil {
 		return persistence.Specialist{}, err
 	}
 	sp.UserID = userID
-	return sp, nil
+	return decryptSpecialistFromStore(s.codec, sp)
 }
 
 func decodeSpecialistHarness(data []byte) *persistence.SpecialistHarness {
@@ -398,4 +477,122 @@ func encodeSpecialistHarness(cfg *persistence.SpecialistHarness) []byte {
 func (s *pgSpecStore) Delete(ctx context.Context, userID int64, name string) error {
 	_, err := s.pool.Exec(ctx, `DELETE FROM specialists WHERE user_id=$1 AND name=$2`, userID, name)
 	return err
+}
+
+type specialistSecretRecord struct {
+	ID           int64
+	UserID       int64
+	Name         string
+	APIKey       string
+	ExtraHeaders map[string]string
+}
+
+func backfillSQLiteSpecialistSecrets(ctx context.Context, db *sql.DB, codec secrets.Codec) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	rows, err := tx.QueryContext(ctx, `SELECT id, user_id, name, api_key, extra_headers FROM specialists`)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	records, err := scanSpecialistSecretRecords(rows)
+	if err != nil {
+		return err
+	}
+
+	for _, record := range records {
+		if !specialistRecordNeedsBackfill(codec, record) {
+			continue
+		}
+		encrypted, err := encryptSpecialistForStore(codec, record.UserID, persistence.Specialist{
+			UserID:       record.UserID,
+			Name:         record.Name,
+			APIKey:       record.APIKey,
+			ExtraHeaders: record.ExtraHeaders,
+		})
+		if err != nil {
+			return fmt.Errorf("backfill specialist secrets id=%d: %w", record.ID, err)
+		}
+		headers, _ := json.Marshal(encrypted.ExtraHeaders)
+		if _, err := tx.ExecContext(ctx, `UPDATE specialists SET api_key = ?, extra_headers = ? WHERE id = ?`, encrypted.APIKey, string(headers), record.ID); err != nil {
+			return fmt.Errorf("update specialist secret backfill id=%d: %w", record.ID, err)
+		}
+	}
+	return tx.Commit()
+}
+
+func backfillPostgresSpecialistSecrets(ctx context.Context, pool *pgxpool.Pool, codec secrets.Codec) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	rows, err := tx.Query(ctx, `SELECT id, user_id, name, api_key, extra_headers FROM specialists`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	records, err := scanSpecialistSecretRecords(rows)
+	if err != nil {
+		return err
+	}
+
+	for _, record := range records {
+		if !specialistRecordNeedsBackfill(codec, record) {
+			continue
+		}
+		encrypted, err := encryptSpecialistForStore(codec, record.UserID, persistence.Specialist{
+			UserID:       record.UserID,
+			Name:         record.Name,
+			APIKey:       record.APIKey,
+			ExtraHeaders: record.ExtraHeaders,
+		})
+		if err != nil {
+			return fmt.Errorf("backfill specialist secrets id=%d: %w", record.ID, err)
+		}
+		headers, _ := json.Marshal(encrypted.ExtraHeaders)
+		if _, err := tx.Exec(ctx, `UPDATE specialists SET api_key = $1, extra_headers = $2 WHERE id = $3`, encrypted.APIKey, headers, record.ID); err != nil {
+			return fmt.Errorf("update specialist secret backfill id=%d: %w", record.ID, err)
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func scanSpecialistSecretRecords(rows interface {
+	Next() bool
+	Scan(dest ...any) error
+	Err() error
+}) ([]specialistSecretRecord, error) {
+	var records []specialistSecretRecord
+	for rows.Next() {
+		var record specialistSecretRecord
+		var headers []byte
+		if err := rows.Scan(&record.ID, &record.UserID, &record.Name, &record.APIKey, &headers); err != nil {
+			return nil, err
+		}
+		if len(headers) > 0 {
+			if err := json.Unmarshal(headers, &record.ExtraHeaders); err != nil {
+				return nil, fmt.Errorf("specialist extra_headers id=%d: %w", record.ID, err)
+			}
+		}
+		records = append(records, record)
+	}
+	return records, rows.Err()
+}
+
+func specialistRecordNeedsBackfill(codec secrets.Codec, record specialistSecretRecord) bool {
+	if record.APIKey != "" && !codec.IsSealed(record.APIKey) {
+		return true
+	}
+	for _, value := range record.ExtraHeaders {
+		if value != "" && !codec.IsSealed(value) {
+			return true
+		}
+	}
+	return false
 }

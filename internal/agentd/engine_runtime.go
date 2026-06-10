@@ -4,7 +4,10 @@ import (
 	"context"
 	"manifold/internal/agent"
 	"manifold/internal/agent/memory"
+	"manifold/internal/agent/memory/artifact"
+	artifactconnectors "manifold/internal/agent/memory/artifact/connectors"
 	"manifold/internal/agent/memory/belief"
+	"manifold/internal/agent/memory/decision"
 	"manifold/internal/agent/memory/magma"
 	"manifold/internal/config"
 	"manifold/internal/embedding"
@@ -265,6 +268,7 @@ func (a *app) configureBeliefRunState(eng *agent.Engine, userID int64, sessionID
 		} else {
 			eng.BeliefMagmaSink = nil
 		}
+		a.configureArchaeologyRunState(eng)
 	} else {
 		eng.BeliefStore = nil
 		eng.BeliefDistiller = nil
@@ -279,8 +283,79 @@ func (a *app) configureBeliefRunState(eng *agent.Engine, userID int64, sessionID
 		eng.BeliefEnforcementPolicy = belief.EnforcementPolicy{}
 		eng.BeliefPolicySink = nil
 		eng.BeliefMagmaSink = nil
+		eng.DecisionStore = nil
+		eng.DecisionDistiller = nil
+		eng.ArtifactCapture = nil
 		eng.PolicyEnforcer = nil
 	}
+}
+
+func (a *app) configureArchaeologyRunState(eng *agent.Engine) {
+	if a == nil || a.cfg == nil || a.mgr.Decision == nil || !a.cfg.Archaeology.Enabled {
+		eng.DecisionStore = nil
+		eng.DecisionDistiller = nil
+		eng.ArtifactCapture = nil
+		return
+	}
+	eng.DecisionStore = a.mgr.Decision
+	if a.cfg.Archaeology.DecisionDistiller {
+		eng.DecisionDistiller = a.newDecisionDistiller()
+	}
+	if a.mgr.Artifact != nil {
+		connectors := []artifact.Connector{artifactconnectors.GitConnector{}}
+		if a.mgr.Chat != nil {
+			connectors = append(connectors, artifactconnectors.ChatConnector{Store: a.mgr.Chat})
+		}
+		if a.mgr.Transit != nil {
+			connectors = append(connectors, artifactconnectors.TransitConnector{Store: a.mgr.Transit})
+		}
+		eng.ArtifactCapture = &artifact.CaptureManager{
+			Store:      a.mgr.Artifact,
+			Connectors: connectors,
+			Timeout:    10 * time.Second,
+			OnError: func(kind artifact.ArtifactKind, err error) {
+				log.Debug().Err(err).Str("kind", string(kind)).Msg("artifact_capture_skipped")
+			},
+		}
+	}
+	service := &decision.Service{Store: a.mgr.Decision, Belief: eng.BeliefStore}
+	reactor := &decision.Reactor{
+		Decisions: service,
+		Beliefs:   eng.BeliefStore,
+		Config: decision.ReactorConfig{
+			ConfidenceFloor:     a.cfg.Archaeology.Reactor.ConfidenceFloor,
+			ConfidenceDropDelta: a.cfg.Archaeology.Reactor.ConfidenceDropDelta,
+		},
+	}
+	if notifying, ok := eng.BeliefStore.(*belief.NotifyingStore); ok {
+		notifying.RegisterListener(reactor)
+		return
+	}
+	if eng.BeliefStore != nil {
+		notifying := belief.NewNotifyingStore(eng.BeliefStore, 256)
+		notifying.RegisterListener(reactor)
+		eng.BeliefStore = notifying
+	}
+}
+
+func (a *app) newDecisionDistiller() decision.Distiller {
+	var embed decision.EmbedFunc
+	cfg := a.cfg.Embedding
+	if strings.TrimSpace(cfg.BaseURL) != "" && strings.TrimSpace(cfg.Model) != "" {
+		embed = func(ctx context.Context, texts []string) ([][]float32, error) {
+			return embedding.EmbedText(ctx, cfg, texts)
+		}
+	}
+	if a.beliefLLM != nil {
+		return decision.LLMDistiller{Config: decision.LLMDistillerConfig{
+			LLM:                    a.beliefLLM,
+			Model:                  a.beliefModel,
+			MaxCandidates:          a.cfg.BeliefMemory.Distillation.MaxCandidatesPerEpisode,
+			MinCandidateConfidence: a.cfg.BeliefMemory.Distillation.MinCandidateConfidence,
+			Embed:                  embed,
+		}}
+	}
+	return decision.SimpleDistiller{Embed: embed}
 }
 
 func (a *app) newBeliefDistiller() belief.Distiller {

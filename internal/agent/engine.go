@@ -5,7 +5,9 @@ import (
 
 	"manifold/internal/agent/harness"
 	"manifold/internal/agent/memory"
+	"manifold/internal/agent/memory/artifact"
 	"manifold/internal/agent/memory/belief"
+	"manifold/internal/agent/memory/decision"
 	"manifold/internal/llm"
 	"manifold/internal/policy"
 	"manifold/internal/tools"
@@ -48,6 +50,9 @@ type Engine struct {
 	BeliefLifecyclePolicy        belief.PromotionPolicy
 	BeliefPolicySink             belief.PolicySink
 	BeliefMagmaSink              BeliefMagmaSink
+	DecisionStore                decision.Store
+	DecisionDistiller            decision.Distiller
+	ArtifactCapture              *artifact.CaptureManager
 	BeliefEnforcementPolicy      belief.EnforcementPolicy
 	PolicyEnforcer               policy.Enforcer
 	// MaxToolParallelism controls how many tool calls may run concurrently within a single step.

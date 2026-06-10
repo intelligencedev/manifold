@@ -17,6 +17,7 @@ func (em *EvolvingMemory) relevanceBasedPrune(ctx context.Context) {
 	filtered := make([]*MemoryEntry, 0, len(em.entries))
 	protected := make([]*MemoryEntry, 0)
 	removedIDs := make([]string, 0)
+	removedEntries := make([]*MemoryEntry, 0)
 	for _, e := range em.entries {
 		if em.isProtectedByQualityFloor(e) {
 			protected = append(protected, e)
@@ -27,6 +28,7 @@ func (em *EvolvingMemory) relevanceBasedPrune(ctx context.Context) {
 			filtered = append(filtered, e)
 		} else {
 			removedIDs = append(removedIDs, e.ID)
+			removedEntries = append(removedEntries, cloneEntry(e))
 		}
 	}
 	em.entries = append(protected, filtered...)
@@ -48,8 +50,10 @@ func (em *EvolvingMemory) relevanceBasedPrune(ctx context.Context) {
 	}
 	for i := 0; i < toRemove; i++ {
 		removedIDs = append(removedIDs, filtered[i].ID)
+		removedEntries = append(removedEntries, cloneEntry(filtered[i]))
 	}
 	em.entries = append(protected, filtered[toRemove:]...)
+	em.archivePruned(ctx, removedEntries, "relevance")
 	em.markDeletedLocked(removedIDs)
 
 	// Re-sort by creation time to maintain temporal order
@@ -63,6 +67,19 @@ func (em *EvolvingMemory) relevanceBasedPrune(ctx context.Context) {
 		Msg("evolving_memory_relevance_pruned")
 	if em.metrics != nil && len(removedIDs) > 0 {
 		em.metrics.RecordPruned(ctx, "relevance", len(removedIDs))
+	}
+}
+
+func (em *EvolvingMemory) archivePruned(ctx context.Context, entries []*MemoryEntry, reason string) {
+	if em == nil || len(entries) == 0 || em.store == nil {
+		return
+	}
+	archive, ok := em.store.(EvolvingMemoryArchiveStore)
+	if !ok {
+		return
+	}
+	if err := archive.Archive(ctx, em.userID, em.sessionID, entries, reason); err != nil {
+		observability.LoggerWithTrace(ctx).Warn().Err(err).Str("reason", reason).Msg("evolving_memory_archive_failed")
 	}
 }
 

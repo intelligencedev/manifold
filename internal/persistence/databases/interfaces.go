@@ -6,7 +6,9 @@ import (
 	"reflect"
 
 	"manifold/internal/agent/memory"
+	"manifold/internal/agent/memory/artifact"
 	"manifold/internal/agent/memory/belief"
+	"manifold/internal/agent/memory/decision"
 	"manifold/internal/durable"
 	"manifold/internal/persistence"
 	"manifold/internal/transit"
@@ -82,6 +84,8 @@ type Manager struct {
 	MatrixMessages     persistence.MatrixMessageStore
 	Transit            transit.Store
 	Belief             belief.Store
+	Decision           decision.Store
+	Artifact           artifact.Store
 }
 
 // Close attempts to close any underlying pools. It's a no-op for memory backends.
@@ -106,6 +110,8 @@ func (m Manager) Close() {
 	closeIfPossible(m.MatrixMessages)
 	closeIfPossible(m.Transit)
 	closeIfPossible(m.Belief)
+	closeIfPossible(m.Decision)
+	closeIfPossible(m.Artifact)
 }
 
 func closeIfPossible(value any) {

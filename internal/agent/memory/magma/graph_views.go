@@ -2,6 +2,7 @@ package magma
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -243,12 +244,55 @@ func (s *Store) DeleteEvent(ctx context.Context, id string) error {
 	return maintenance.DeleteMagmaEvent(ctx, id)
 }
 
+func (s *Store) ArchiveEvent(ctx context.Context, event EventNode, reason string) error {
+	if s == nil || s.graph == nil || strings.TrimSpace(event.ID) == "" {
+		return nil
+	}
+	archivedAt := time.Now().UTC()
+	props := map[string]any{
+		"archive_kind": "event",
+		"original_id":  event.ID,
+		"tenant":       event.Tenant,
+		"session":      event.Session,
+		"reason":       strings.TrimSpace(reason),
+		"payload":      mustJSON(event),
+		"archived_at":  archivedAt.Format(time.RFC3339Nano),
+	}
+	return s.graph.UpsertNode(ctx, magmaArchiveID("event", event.ID, archivedAt), []string{"MagmaArchive"}, props)
+}
+
+func (s *Store) ArchiveEdge(ctx context.Context, edge Edge, reason string) error {
+	if s == nil || s.graph == nil || strings.TrimSpace(edge.Source) == "" || strings.TrimSpace(edge.Target) == "" {
+		return nil
+	}
+	archivedAt := time.Now().UTC()
+	selector := selectorForEdge(edge)
+	originalID := strings.Join([]string{selector.Source, string(selector.GraphType), selector.Rel, selector.Target}, "\x00")
+	props := map[string]any{
+		"archive_kind": "edge",
+		"original_id":  originalID,
+		"source":       edge.Source,
+		"graph_type":   string(edge.GraphType),
+		"rel":          edge.Rel,
+		"target":       edge.Target,
+		"reason":       strings.TrimSpace(reason),
+		"payload":      mustJSON(edge),
+		"archived_at":  archivedAt.Format(time.RFC3339Nano),
+	}
+	return s.graph.UpsertNode(ctx, magmaArchiveID("edge", originalID, archivedAt), []string{"MagmaArchive"}, props)
+}
+
 func (s *Store) MaintenanceEnabled() bool {
 	if s == nil || s.graph == nil {
 		return false
 	}
 	_, ok := s.graph.(databases.MagmaGraphMaintenanceDB)
 	return ok
+}
+
+func magmaArchiveID(kind, original string, archivedAt time.Time) string {
+	sum := sha256.Sum256([]byte(kind + "\x00" + original + "\x00" + archivedAt.Format(time.RFC3339Nano)))
+	return fmt.Sprintf("magma_archive:%s:%x", kind, sum[:12])
 }
 
 func eventFromNode(node databases.Node) EventNode {

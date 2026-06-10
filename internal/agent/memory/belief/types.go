@@ -78,6 +78,7 @@ const (
 	SourceKindRAGChunk      SourceKind = "rag_chunk"
 	SourceKindTransit       SourceKind = "transit"
 	SourceKindBelief        SourceKind = "belief"
+	SourceKindArtifact      SourceKind = "artifact"
 )
 
 // Scope normalizes the scope hierarchy used by belief memory.

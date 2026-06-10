@@ -3,8 +3,11 @@ package agent
 import (
 	"context"
 	"manifold/internal/agent/memory"
+	"manifold/internal/agent/memory/artifact"
 	"manifold/internal/agent/memory/belief"
+	"manifold/internal/agent/memory/decision"
 	"manifold/internal/observability"
+	"os"
 	"strings"
 	"time"
 
@@ -112,7 +115,90 @@ func (e *Engine) recordRunEpisode(ctx context.Context, record runEpisodeRecord) 
 		observability.LoggerWithTrace(ctx).Warn().Err(err).Msg("belief_episode_store_failed")
 		return
 	}
+	captured := e.captureArtifacts(ctx, episode)
 	e.distillBeliefs(ctx, episode, record.userInput, record.final, record.reasoningTrace)
+	e.distillDecisions(ctx, episode, record.userInput, record.final, record.reasoningTrace, captured)
+}
+
+func (e *Engine) captureArtifacts(ctx context.Context, episode belief.Episode) []artifact.Artifact {
+	if e == nil || e.ArtifactCapture == nil {
+		return nil
+	}
+	hints := map[string]string{
+		"sessionID": strings.TrimSpace(episode.SessionID),
+		"since":     episode.StartedAt.Format(time.RFC3339),
+	}
+	if episode.EndedAt != nil && !episode.EndedAt.IsZero() {
+		hints["until"] = episode.EndedAt.Format(time.RFC3339)
+	}
+	if info, err := os.Stat(e.ProjectID); err == nil && info.IsDir() {
+		hints["repoPath"] = e.ProjectID
+	}
+	return e.ArtifactCapture.Capture(ctx, artifact.CaptureRequest{
+		TenantID:  episode.TenantID,
+		ScopeID:   episode.ScopeID,
+		EpisodeID: episode.ID,
+		Hints:     hints,
+	})
+}
+
+func (e *Engine) distillDecisions(ctx context.Context, episode belief.Episode, userInput, final string, reasoningTrace []string, artifacts []artifact.Artifact) {
+	if e == nil || e.DisableBeliefMemory || e.DecisionStore == nil || e.DecisionDistiller == nil {
+		return
+	}
+	refs := make([]decision.ArtifactRef, 0, len(artifacts))
+	for _, item := range artifacts {
+		refs = append(refs, decision.ArtifactRef{
+			ID:         item.ID,
+			Kind:       string(item.Kind),
+			ExternalID: item.ExternalID,
+			URI:        item.URI,
+			Title:      item.Title,
+			Excerpt:    item.Excerpt,
+		})
+	}
+	input := decision.DistillationInput{
+		Episode:        episode,
+		UserRequest:    userInput,
+		FinalAnswer:    final,
+		Summary:        final,
+		ReasoningTrace: append([]string(nil), reasoningTrace...),
+		Artifacts:      refs,
+	}
+	var candidates []decision.Candidate
+	var audit []decision.Candidate
+	if distiller, ok := e.DecisionDistiller.(decision.AuditDistiller); ok {
+		result, err := distiller.DistillWithAudit(ctx, input)
+		if err != nil {
+			observability.LoggerWithTrace(ctx).Warn().Err(err).Str("episode_id", episode.ID).Msg("decision_distillation_failed")
+			return
+		}
+		candidates = result.Candidates
+		audit = result.Audit
+	} else {
+		var err error
+		candidates, err = e.DecisionDistiller.Distill(ctx, input)
+		if err != nil {
+			observability.LoggerWithTrace(ctx).Warn().Err(err).Str("episode_id", episode.ID).Msg("decision_distillation_failed")
+			return
+		}
+		audit = candidates
+	}
+	for _, record := range audit {
+		if record.TenantID == 0 {
+			record.TenantID = episode.TenantID
+		}
+		if record.EpisodeID == "" {
+			record.EpisodeID = episode.ID
+		}
+		if record.ScopeID == "" {
+			record.ScopeID = episode.ScopeID
+		}
+		if _, err := e.DecisionStore.RecordCandidate(ctx, record); err != nil {
+			observability.LoggerWithTrace(ctx).Warn().Err(err).Str("episode_id", episode.ID).Msg("decision_candidate_audit_failed")
+		}
+	}
+	observability.LoggerWithTrace(ctx).Info().Int("candidate_count", len(candidates)).Str("episode_id", episode.ID).Msg("decision_distillation_queued")
 }
 
 func (e *Engine) distillBeliefs(ctx context.Context, episode belief.Episode, userInput, final string, reasoningTrace []string) {

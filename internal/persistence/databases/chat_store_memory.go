@@ -51,6 +51,11 @@ func copyUserID(id *int64) *int64 {
 	return &v
 }
 
+func (s *memChatStore) sessionWithMessageCountLocked(sess persistence.ChatSession) persistence.ChatSession {
+	sess.MessageCount = len(s.messages[sess.ID])
+	return sess
+}
+
 func normalizeChatSessionKind(kind string) string {
 	kind = strings.TrimSpace(kind)
 	if kind == "" {
@@ -81,13 +86,13 @@ func (s *memChatStore) EnsureSessionKind(ctx context.Context, userID *int64, id,
 			sess.Kind = persistence.ChatSessionKindChat
 			s.sessions[id] = sess
 		}
-		return sess, nil
+		return s.sessionWithMessageCountLocked(sess), nil
 	}
 	now := time.Now().UTC()
 	sess := newChatSession(id, userID, name, kind, now)
 	s.sessions[id] = sess
 	s.messages[id] = nil
-	return sess, nil
+	return s.sessionWithMessageCountLocked(sess), nil
 }
 
 func (s *memChatStore) ListSessions(ctx context.Context, userID *int64) ([]persistence.ChatSession, error) {
@@ -106,7 +111,7 @@ func (s *memChatStore) ListSessionsByKind(ctx context.Context, userID *int64, ki
 		if normalizeChatSessionKind(sess.Kind) != kind {
 			continue
 		}
-		out = append(out, sess)
+		out = append(out, s.sessionWithMessageCountLocked(sess))
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
@@ -127,7 +132,7 @@ func (s *memChatStore) GetSession(ctx context.Context, userID *int64, id string)
 	if !hasAccess(userID, sess.UserID) {
 		return persistence.ChatSession{}, persistence.ErrForbidden
 	}
-	return sess, nil
+	return s.sessionWithMessageCountLocked(sess), nil
 }
 
 func (s *memChatStore) CreateSession(ctx context.Context, userID *int64, name string) (persistence.ChatSession, error) {
@@ -146,7 +151,7 @@ func (s *memChatStore) CreateSessionKind(ctx context.Context, userID *int64, nam
 	sess := newChatSession(id, userID, name, kind, now)
 	s.sessions[id] = sess
 	s.messages[id] = nil
-	return sess, nil
+	return s.sessionWithMessageCountLocked(sess), nil
 }
 
 func (s *memChatStore) RenameSession(ctx context.Context, userID *int64, id, name string) (persistence.ChatSession, error) {
@@ -165,7 +170,7 @@ func (s *memChatStore) RenameSession(ctx context.Context, userID *int64, id, nam
 	sess.Name = name
 	sess.UpdatedAt = time.Now().UTC()
 	s.sessions[id] = sess
-	return sess, nil
+	return s.sessionWithMessageCountLocked(sess), nil
 }
 
 func (s *memChatStore) SetSessionProject(ctx context.Context, userID *int64, id, projectID string) (persistence.ChatSession, error) {
@@ -181,7 +186,7 @@ func (s *memChatStore) SetSessionProject(ctx context.Context, userID *int64, id,
 	sess.ProjectID = strings.TrimSpace(projectID)
 	sess.UpdatedAt = time.Now().UTC()
 	s.sessions[id] = sess
-	return sess, nil
+	return s.sessionWithMessageCountLocked(sess), nil
 }
 
 func (s *memChatStore) SetSessionMemorySettings(ctx context.Context, userID *int64, id string, memoryEnabled bool, evolvingMemoryEnabled bool, beliefMemoryEnabled bool) (persistence.ChatSession, error) {
@@ -199,7 +204,7 @@ func (s *memChatStore) SetSessionMemorySettings(ctx context.Context, userID *int
 	sess.BeliefMemoryEnabled = memoryEnabled
 	sess.UpdatedAt = time.Now().UTC()
 	s.sessions[id] = sess
-	return sess, nil
+	return s.sessionWithMessageCountLocked(sess), nil
 }
 
 func (s *memChatStore) DeleteSession(ctx context.Context, userID *int64, id string) error {

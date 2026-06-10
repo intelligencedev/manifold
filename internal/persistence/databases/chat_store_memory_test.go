@@ -23,6 +23,9 @@ func TestMemChatStoreLifecycle(t *testing.T) {
 	if sess.ID != "session-1" {
 		t.Fatalf("unexpected session id: %s", sess.ID)
 	}
+	if sess.MessageCount != 0 {
+		t.Fatalf("new session should have 0 messages, got %d", sess.MessageCount)
+	}
 	if sess.MemoryEnabled || sess.EvolvingMemoryEnabled || sess.BeliefMemoryEnabled {
 		t.Fatalf("new sessions should default unified memory off, got memory=%v evolving=%v belief=%v", sess.MemoryEnabled, sess.EvolvingMemoryEnabled, sess.BeliefMemoryEnabled)
 	}
@@ -31,9 +34,10 @@ func TestMemChatStoreLifecycle(t *testing.T) {
 		t.Fatalf("AppendMessages with empty slice: %v", err)
 	}
 
+	durationMs := int64(1200)
 	if err := store.AppendMessages(ctx, nil, "session-1", []persistence.ChatMessage{
 		{Role: "user", Content: "Hello", CreatedAt: time.Now()},
-		{Role: "assistant", Content: "Hi there", CreatedAt: time.Now().Add(time.Second)},
+		{Role: "assistant", Content: "Hi there", CreatedAt: time.Now().Add(time.Second), DurationMs: &durationMs},
 	}, "Hi there", "test-model"); err != nil {
 		t.Fatalf("AppendMessages: %v", err)
 	}
@@ -47,6 +51,9 @@ func TestMemChatStoreLifecycle(t *testing.T) {
 	}
 	if msgs[0].Role != "user" || msgs[1].Role != "assistant" {
 		t.Fatalf("unexpected roles: %#v", msgs)
+	}
+	if msgs[1].DurationMs == nil || *msgs[1].DurationMs != durationMs {
+		t.Fatalf("expected assistant duration to round trip, got %#v", msgs[1].DurationMs)
 	}
 	limited, err := store.ListMessages(ctx, nil, "session-1", 1)
 	if err != nil {
@@ -65,6 +72,9 @@ func TestMemChatStoreLifecycle(t *testing.T) {
 	if updated.Summary != "summary" || updated.SummarizedCount != 2 {
 		t.Fatalf("unexpected summary state: %#v", updated)
 	}
+	if updated.MessageCount != 2 {
+		t.Fatalf("expected message count 2 after append, got %d", updated.MessageCount)
+	}
 
 	sessions, err := store.ListSessions(ctx, nil)
 	if err != nil {
@@ -76,12 +86,23 @@ func TestMemChatStoreLifecycle(t *testing.T) {
 	if sessions[0].LastMessagePreview != "Hi there" {
 		t.Fatalf("unexpected preview: %s", sessions[0].LastMessagePreview)
 	}
+	if sessions[0].MessageCount != 2 {
+		t.Fatalf("expected listed message count 2, got %d", sessions[0].MessageCount)
+	}
 
-	if _, err := store.RenameSession(ctx, nil, "session-1", "Updated"); err != nil {
+	renamed, err := store.RenameSession(ctx, nil, "session-1", "Updated")
+	if err != nil {
 		t.Fatalf("RenameSession: %v", err)
 	}
-	if _, err := store.SetSessionProject(ctx, nil, "session-1", "project-1"); err != nil {
+	if renamed.MessageCount != 2 {
+		t.Fatalf("expected renamed session message count 2, got %d", renamed.MessageCount)
+	}
+	projectSession, err := store.SetSessionProject(ctx, nil, "session-1", "project-1")
+	if err != nil {
 		t.Fatalf("SetSessionProject: %v", err)
+	}
+	if projectSession.MessageCount != 2 {
+		t.Fatalf("expected project session message count 2, got %d", projectSession.MessageCount)
 	}
 	locked, err := store.GetSession(ctx, nil, "session-1")
 	if err != nil {
@@ -142,8 +163,16 @@ func TestMemChatStoreOwnership(t *testing.T) {
 		t.Fatalf("expected ErrForbidden list messages, got %v", err)
 	}
 
-	if _, err := store.GetSession(ctx, nil, sess.ID); err != nil {
+	if err := store.AppendMessages(ctx, user1, sess.ID, []persistence.ChatMessage{{Role: "user", Content: "owned"}}, "owned", ""); err != nil {
+		t.Fatalf("AppendMessages owner: %v", err)
+	}
+
+	adminSession, err := store.GetSession(ctx, nil, sess.ID)
+	if err != nil {
 		t.Fatalf("admin (nil user) should access session: %v", err)
+	}
+	if adminSession.MessageCount != 1 {
+		t.Fatalf("expected admin to see owner message count 1, got %d", adminSession.MessageCount)
 	}
 }
 
@@ -233,6 +262,9 @@ func TestMemChatStoreDeleteMessageWithRelated(t *testing.T) {
 	}
 	if sess.Summary != "" || sess.SummarizedCount != 0 {
 		t.Fatalf("expected cleared summary, got %#v", sess)
+	}
+	if sess.MessageCount != 2 {
+		t.Fatalf("expected message count 2 after related delete, got %d", sess.MessageCount)
 	}
 	if sess.LastMessagePreview != "done" {
 		t.Fatalf("expected preview to follow remaining tail, got %q", sess.LastMessagePreview)

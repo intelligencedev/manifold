@@ -93,6 +93,7 @@ export interface ChatMessage {
   role: ChatRole;
   content: string;
   createdAt: string;
+  durationMs?: number;
   streaming?: boolean;
   title?: string;
   error?: string;

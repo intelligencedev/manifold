@@ -2,6 +2,7 @@ package databases
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"manifold/internal/agent/memory"
@@ -192,6 +193,39 @@ func (s *pgEvolvingMemoryStore) Delete(ctx context.Context, userID int64, sessio
 DELETE FROM evolving_memories
 WHERE user_id = $1 AND session_id = $2 AND id = ANY($3::uuid[])`, userID, sessionID, parsedIDs)
 	return err
+}
+
+func (s *pgEvolvingMemoryStore) Archive(ctx context.Context, userID int64, sessionID string, entries []*memory.MemoryEntry, reason string) error {
+	if s.pool == nil {
+		return errors.New("postgres evolving memory store requires pool")
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	sessionID = normalizeMemorySessionID(sessionID)
+	reason = strings.TrimSpace(reason)
+	archivedAt := time.Now().UTC()
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	for _, entry := range entries {
+		if entry == nil || strings.TrimSpace(entry.ID) == "" {
+			continue
+		}
+		payload, err := json.Marshal(entry)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+INSERT INTO evolving_memory_archive(id, original_id, user_id, session_id, reason, payload, archived_at)
+VALUES($1, $2, $3, $4, $5, $6::jsonb, $7)
+`, uuid.New(), strings.TrimSpace(entry.ID), userID, sessionID, reason, string(payload), archivedAt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 // TouchAccess increments access counters for memory entries after retrieval.

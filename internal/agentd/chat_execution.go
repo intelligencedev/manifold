@@ -153,8 +153,11 @@ func buildChatJSONPayload(result string, images []savedImage, ctx context.Contex
 	return payload
 }
 
-func buildChatStreamFinalPayload(result string, ctx context.Context, includeMatrixMessages bool) map[string]any {
+func buildChatStreamFinalPayload(result string, ctx context.Context, includeMatrixMessages bool, durationMs ...int64) map[string]any {
 	payload := map[string]any{"type": "final", "data": result}
+	if len(durationMs) > 0 && durationMs[0] >= 0 {
+		payload["durationMs"] = durationMs[0]
+	}
 	if includeMatrixMessages {
 		if outbox, ok := sandbox.MatrixOutboxFromContext(ctx); ok {
 			if messages := outbox.Messages(); len(messages) > 0 {
@@ -518,7 +521,9 @@ func (a *app) executeStreamChat(w http.ResponseWriter, r *http.Request, exec cha
 	collector := newChatTurnCollector(sandbox.ResolveBaseDir(ctx, a.cfg.Workdir), req.ProjectID, stream)
 	collector.attach(eng)
 
+	assistantStartedAt := time.Now()
 	result, err := eng.RunStream(ctx, req.Prompt, history)
+	durationMs := time.Since(assistantStartedAt).Milliseconds()
 	if err != nil {
 		a.handleStreamChatError(ctx, r, stream, checkedOutWorkspace, streamChatErrorRequest{
 			RunID:   runID,
@@ -530,14 +535,15 @@ func (a *app) executeStreamChat(w http.ResponseWriter, r *http.Request, exec cha
 		return
 	}
 	a.finishStreamChatSuccess(stream, collector, eng, streamChatSuccessRequest{
-		Context:   ctx,
-		StoreCtx:  r.Context(),
-		RunID:     runID,
-		Request:   req,
-		UserID:    userID,
-		Options:   opts,
-		Result:    result,
-		Workspace: checkedOutWorkspace,
+		Context:    ctx,
+		StoreCtx:   r.Context(),
+		RunID:      runID,
+		Request:    req,
+		UserID:     userID,
+		Options:    opts,
+		Result:     result,
+		DurationMs: durationMs,
+		Workspace:  checkedOutWorkspace,
 	})
 }
 
@@ -584,7 +590,9 @@ func (a *app) executeInternalJSONChat(storeCtx context.Context, exec chatExecuti
 	collector := newChatTurnCollector(sandbox.ResolveBaseDir(ctx, a.cfg.Workdir), req.ProjectID, nil)
 	collector.attach(eng)
 
+	assistantStartedAt := time.Now()
 	result, err := eng.Run(ctx, req.Prompt, history)
+	durationMs := time.Since(assistantStartedAt).Milliseconds()
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			log.Warn().Err(err).Msg("agent run cancelled")
@@ -612,6 +620,7 @@ func (a *app) executeInternalJSONChat(storeCtx context.Context, exec chatExecuti
 		TurnMessages:       collector.turnMessages,
 		FinalContent:       result,
 		AssistantMessageID: req.AssistantMessageID,
+		DurationMs:         &durationMs,
 		Model:              chatStoreModel(eng, opts.StoreModel),
 	}); err != nil {
 		log.Error().Err(err).Str("session", req.SessionID).Msg("store_chat_turn")

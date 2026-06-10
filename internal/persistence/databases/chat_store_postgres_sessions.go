@@ -26,7 +26,7 @@ func hasAccess(userID *int64, owner *int64) bool {
 func (s *pgChatStore) scanSession(row pgx.Row) (persistence.ChatSession, error) {
 	var cs persistence.ChatSession
 	var owner sql.NullInt64
-	if err := row.Scan(&cs.ID, &cs.Name, &cs.Kind, &owner, &cs.CreatedAt, &cs.UpdatedAt, &cs.LastMessagePreview, &cs.Model, &cs.Summary, &cs.SummarizedCount, &cs.ProjectID, &cs.MemoryEnabled, &cs.EvolvingMemoryEnabled, &cs.BeliefMemoryEnabled); err != nil {
+	if err := row.Scan(&cs.ID, &cs.Name, &cs.Kind, &owner, &cs.CreatedAt, &cs.UpdatedAt, &cs.LastMessagePreview, &cs.MessageCount, &cs.Model, &cs.Summary, &cs.SummarizedCount, &cs.ProjectID, &cs.MemoryEnabled, &cs.EvolvingMemoryEnabled, &cs.BeliefMemoryEnabled); err != nil {
 		return persistence.ChatSession{}, err
 	}
 	if cs.Kind == "" {
@@ -84,11 +84,14 @@ WITH ins AS (
   INSERT INTO chat_sessions (id, user_id, name, kind)
   VALUES ($1, $2, $3, $4)
   ON CONFLICT (id) DO NOTHING
-  RETURNING id, name, kind, user_id, created_at, updated_at, last_message_preview, model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled
+  RETURNING id, name, kind, user_id, created_at, updated_at, last_message_preview, 0::int AS message_count, model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled
 )
-SELECT id, name, kind, user_id, created_at, updated_at, last_message_preview, model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled FROM ins
+SELECT id, name, kind, user_id, created_at, updated_at, last_message_preview, message_count, model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled FROM ins
 UNION ALL
-SELECT id, name, kind, user_id, created_at, updated_at, last_message_preview, model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled FROM chat_sessions WHERE id = $1
+SELECT id, name, kind, user_id, created_at, updated_at, last_message_preview,
+	(SELECT COUNT(*)::int FROM chat_messages m WHERE m.session_id = chat_sessions.id) AS message_count,
+	model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled
+FROM chat_sessions WHERE id = $1
 LIMIT 1`, id, uid, name, kind)
 	cs, err := s.scanSession(row)
 	if err != nil {
@@ -107,7 +110,9 @@ func (s *pgChatStore) ListSessions(ctx context.Context, userID *int64) ([]persis
 func (s *pgChatStore) ListSessionsByKind(ctx context.Context, userID *int64, kind string) ([]persistence.ChatSession, error) {
 	kind = normalizeSessionKind(kind)
 	query := `
-	SELECT id, name, kind, user_id, created_at, updated_at, last_message_preview, model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled
+	SELECT id, name, kind, user_id, created_at, updated_at, last_message_preview,
+		(SELECT COUNT(*)::int FROM chat_messages m WHERE m.session_id = chat_sessions.id) AS message_count,
+		model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled
 	FROM chat_sessions
 	WHERE kind = $1`
 	args := []any{kind}
@@ -145,7 +150,9 @@ ORDER BY updated_at DESC, created_at DESC`
 func (s *pgChatStore) GetSession(ctx context.Context, userID *int64, id string) (persistence.ChatSession, error) {
 	log := observability.LoggerWithTrace(ctx)
 	query := `
-SELECT id, name, kind, user_id, created_at, updated_at, last_message_preview, model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled
+SELECT id, name, kind, user_id, created_at, updated_at, last_message_preview,
+	(SELECT COUNT(*)::int FROM chat_messages m WHERE m.session_id = chat_sessions.id) AS message_count,
+	model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled
 FROM chat_sessions
 WHERE id = $1`
 	args := []any{id}
@@ -197,7 +204,7 @@ func (s *pgChatStore) CreateSessionKind(ctx context.Context, userID *int64, name
 	row := s.pool.QueryRow(ctx, `
 	INSERT INTO chat_sessions (id, user_id, name, kind)
 	VALUES ($1, $2, $3, $4)
-	RETURNING id, name, kind, user_id, created_at, updated_at, last_message_preview, model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled`, id, uid, name, kind)
+	RETURNING id, name, kind, user_id, created_at, updated_at, last_message_preview, 0::int AS message_count, model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled`, id, uid, name, kind)
 	return s.scanSession(row)
 }
 
@@ -215,7 +222,9 @@ WHERE id = $1`
 		args = append(args, *userID)
 	}
 	query += `
-RETURNING id, name, kind, user_id, created_at, updated_at, last_message_preview, model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled`
+RETURNING id, name, kind, user_id, created_at, updated_at, last_message_preview,
+	(SELECT COUNT(*)::int FROM chat_messages m WHERE m.session_id = chat_sessions.id) AS message_count,
+	model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled`
 	row := s.pool.QueryRow(ctx, query, args...)
 	cs, err := s.scanSession(row)
 	if err == nil {
@@ -249,7 +258,9 @@ WHERE id = $1`
 		args = append(args, *userID)
 	}
 	query += `
-RETURNING id, name, kind, user_id, created_at, updated_at, last_message_preview, model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled`
+RETURNING id, name, kind, user_id, created_at, updated_at, last_message_preview,
+	(SELECT COUNT(*)::int FROM chat_messages m WHERE m.session_id = chat_sessions.id) AS message_count,
+	model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled`
 	row := s.pool.QueryRow(ctx, query, args...)
 	cs, err := s.scanSession(row)
 	if err == nil {
@@ -282,7 +293,9 @@ WHERE id = $1`
 		args = append(args, *userID)
 	}
 	query += `
-RETURNING id, name, kind, user_id, created_at, updated_at, last_message_preview, model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled`
+RETURNING id, name, kind, user_id, created_at, updated_at, last_message_preview,
+	(SELECT COUNT(*)::int FROM chat_messages m WHERE m.session_id = chat_sessions.id) AS message_count,
+	model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled`
 	row := s.pool.QueryRow(ctx, query, args...)
 	cs, err := s.scanSession(row)
 	if err == nil {

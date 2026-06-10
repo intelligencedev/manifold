@@ -8,6 +8,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	decisionmem "manifold/internal/agent/memory/decision"
 	appcodeqa "manifold/internal/codeqa"
 	codeqaservice "manifold/internal/codeqa/service"
 	codeqastore "manifold/internal/codeqa/store"
@@ -22,6 +23,7 @@ import (
 	"manifold/internal/tools/cli"
 	codeevolvetool "manifold/internal/tools/codeevolve"
 	codeqatool "manifold/internal/tools/codeqa"
+	decisiontools "manifold/internal/tools/decision"
 	"manifold/internal/tools/filetool"
 	"manifold/internal/tools/imagetool"
 	"manifold/internal/tools/llmparallel"
@@ -80,6 +82,7 @@ func initAppTooling(ctx context.Context, cfg *config.Config, httpClient *http.Cl
 	toolRegistry.Register(codeqatool.NewRun(cfg, codeQAService))
 	toolRegistry.Register(codeqatool.NewOptimize(cfg, codeQAService))
 	transitSvc := initTransitService(cfg, mgr, runtimeRAGService, toolRegistry)
+	registerDecisionTools(cfg, mgr, toolRegistry)
 	registerImageTool(cfg, httpClient, llm, toolRegistry)
 
 	return appTooling{
@@ -233,6 +236,17 @@ func initTransitService(cfg *config.Config, mgr databases.Manager, runtimeRAGSer
 	toolRegistry.Register(transittools.NewListKeysTool(transitSvc))
 	toolRegistry.Register(transittools.NewListRecentTool(transitSvc))
 	return transitSvc
+}
+
+func registerDecisionTools(cfg *config.Config, mgr databases.Manager, toolRegistry tools.Registry) {
+	if cfg == nil || !cfg.Archaeology.Enabled || mgr.Decision == nil {
+		return
+	}
+	service := &decisionmem.Service{Store: mgr.Decision, Belief: mgr.Belief}
+	toolRegistry.Register(decisiontools.NewSearchTool(mgr.Decision))
+	toolRegistry.Register(decisiontools.NewReconstructTool(service, mgr.Belief, mgr.Artifact))
+	toolRegistry.Register(decisiontools.NewRecordTool(service))
+	toolRegistry.Register(decisiontools.NewReviewTool(service))
 }
 
 func registerImageTool(cfg *config.Config, httpClient *http.Client, llm llmpkg.Provider, toolRegistry tools.Registry) {

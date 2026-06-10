@@ -387,7 +387,7 @@
                       : 'Response time'
                   "
                 >
-                  {{ formatDuration(responseElapsedMs(message.id)) }}
+                  {{ formatDuration(responseElapsedMs(message)) }}
                 </span>
                 <span
                   v-if="message.streaming"
@@ -2310,7 +2310,8 @@ const sessionMessageCounts = computed<Record<string, number>>(() => {
   const counts: Record<string, number> = {};
   for (const session of sessions.value) {
     const local = messagesBySession.value[session.id];
-    const metaCount = session.messageCount ?? 0;
+    const metaCount =
+      typeof session.messageCount === "number" ? session.messageCount : 0;
     if (Array.isArray(local) && local.length) {
       counts[session.id] = local.length;
     } else {
@@ -2361,8 +2362,6 @@ function sessionRowClasses(sessionId: string) {
 }
 
 // --- Response timer (elapsed while streaming; frozen when stream completes) ---
-// Note: historical messages loaded from the server won't have timing info; we only
-// show timers for messages created/streamed during this UI session.
 const responseStartMsByMessageId = new Map<string, number>();
 const responseElapsedMsByMessageId = ref<Record<string, number>>({});
 const responseIntervalByMessageId = new Map<string, number>();
@@ -2372,8 +2371,18 @@ function safeParseIsoMs(iso: string) {
   return Number.isFinite(ms) ? ms : null;
 }
 
-function responseElapsedMs(messageId: string) {
-  return responseElapsedMsByMessageId.value[messageId] ?? 0;
+function persistedResponseDurationMs(message: ChatMessage) {
+  const duration =
+    typeof message.durationMs === "number" ? message.durationMs : Number.NaN;
+  return Number.isFinite(duration) && duration >= 0 ? duration : undefined;
+}
+
+function responseElapsedMs(message: ChatMessage) {
+  if (!message.streaming) {
+    const persisted = persistedResponseDurationMs(message);
+    if (persisted !== undefined) return persisted;
+  }
+  return responseElapsedMsByMessageId.value[message.id] ?? 0;
 }
 
 function formatDuration(ms: number) {
@@ -2394,7 +2403,7 @@ function ensureResponseTimer(message: ChatMessage) {
     const start =
       typeof previousElapsed === "number" && previousElapsed > 0
         ? Date.now() - previousElapsed
-        : safeParseIsoMs(message.createdAt) ?? Date.now();
+        : (safeParseIsoMs(message.createdAt) ?? Date.now());
     responseStartMsByMessageId.set(id, start);
   }
 
@@ -2413,7 +2422,7 @@ function ensureResponseTimer(message: ChatMessage) {
   }
 }
 
-function stopResponseTimer(messageId: string, pause = false) {
+function updateLocalResponseElapsed(messageId: string) {
   const start = responseStartMsByMessageId.get(messageId);
   if (start) {
     responseElapsedMsByMessageId.value[messageId] = Math.max(
@@ -2421,9 +2430,9 @@ function stopResponseTimer(messageId: string, pause = false) {
       Date.now() - start,
     );
   }
-  if (pause) {
-    responseStartMsByMessageId.delete(messageId);
-  }
+}
+
+function clearResponseTimerInterval(messageId: string) {
   const handle = responseIntervalByMessageId.get(messageId);
   if (handle != null) {
     if (isBrowser) window.clearInterval(handle);
@@ -2431,16 +2440,39 @@ function stopResponseTimer(messageId: string, pause = false) {
   }
 }
 
+function suspendResponseTimer(messageId: string) {
+  updateLocalResponseElapsed(messageId);
+  clearResponseTimerInterval(messageId);
+}
+
+function pauseResponseTimer(messageId: string) {
+  updateLocalResponseElapsed(messageId);
+  responseStartMsByMessageId.delete(messageId);
+  clearResponseTimerInterval(messageId);
+}
+
+function finalizeResponseTimer(message: ChatMessage) {
+  const persisted = persistedResponseDurationMs(message);
+  if (persisted !== undefined) {
+    responseElapsedMsByMessageId.value[message.id] = persisted;
+  } else {
+    updateLocalResponseElapsed(message.id);
+  }
+  responseStartMsByMessageId.delete(message.id);
+  clearResponseTimerInterval(message.id);
+}
+
 function stopAllResponseTimers() {
-  // Iterate a snapshot since stopResponseTimer mutates the map.
+  // Iterate a snapshot since suspending mutates the interval map.
   for (const id of Array.from(responseIntervalByMessageId.keys())) {
-    stopResponseTimer(id);
+    suspendResponseTimer(id);
   }
 }
 
 function shouldShowResponseTimer(message: ChatMessage) {
   if (message.role !== "assistant") return false;
   if (message.streaming) return true;
+  if (persistedResponseDurationMs(message) !== undefined) return true;
   return message.id in responseElapsedMsByMessageId.value;
 }
 
@@ -3156,14 +3188,12 @@ function teamOrchestratorModel(team: SpecialistTeam) {
   const orchestrator = teamOrchestratorName(team);
   if (orchestrator) {
     return (
-      (specialistsByName.value.get(orchestrator.toLowerCase())?.model || "")
-        .trim() || ""
+      (
+        specialistsByName.value.get(orchestrator.toLowerCase())?.model || ""
+      ).trim() || ""
     );
   }
-  return (
-    sessionAgentDefaults.value.model ||
-    ""
-  );
+  return sessionAgentDefaults.value.model || "";
 }
 
 function teamOrchestratorParticipant(team: SpecialistTeam): Participant | null {
@@ -3271,8 +3301,7 @@ function participantIsActive(participant: Participant) {
       : "";
     const liveKey =
       liveTeam &&
-      (liveAgent === liveTeamOrchestrator ||
-        liveAgent === "orchestrator")
+      (liveAgent === liveTeamOrchestrator || liveAgent === "orchestrator")
         ? `team:${liveTeam.toLowerCase()}:orchestrator`
         : `specialist:${(
             liveAgent ||
@@ -3461,13 +3490,20 @@ watch(
 // Keep response timers in sync with streaming lifecycle.
 watch(
   () =>
-    activeMessages.value.map((m) => `${m.id}:${m.role}:${m.streaming ? 1 : 0}`),
+    activeMessages.value.map(
+      (m) => `${m.id}:${m.role}:${m.streaming ? 1 : 0}:${m.durationMs ?? ""}`,
+    ),
   () => {
     for (const msg of activeMessages.value) {
       if (msg.role !== "assistant") continue;
       if (msg.streaming) ensureResponseTimer(msg);
-      else if (msg.id in responseElapsedMsByMessageId.value)
-        stopResponseTimer(msg.id, Boolean(msg.error));
+      else if (
+        persistedResponseDurationMs(msg) !== undefined ||
+        msg.id in responseElapsedMsByMessageId.value
+      ) {
+        if (msg.error) pauseResponseTimer(msg.id);
+        else finalizeResponseTimer(msg);
+      }
     }
   },
   { flush: "post" },
@@ -3862,10 +3898,10 @@ function stopStreaming() {
 function canResumeDurableRun(message: ChatMessage) {
   return Boolean(
     message.role === "assistant" &&
-      message.error &&
-      message.runId &&
-      !message.streaming &&
-      !isStreaming.value,
+    message.error &&
+    message.runId &&
+    !message.streaming &&
+    !isStreaming.value,
   );
 }
 

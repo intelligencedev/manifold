@@ -75,6 +75,18 @@ CREATE INDEX IF NOT EXISTS evolving_memories_user_scope_created_idx
 CREATE INDEX IF NOT EXISTS evolving_memories_expires_at_idx
 	ON evolving_memories(expires_at)
 	WHERE expires_at IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS evolving_memory_archive (
+	id UUID PRIMARY KEY,
+	original_id TEXT NOT NULL,
+	user_id BIGINT NOT NULL,
+	session_id TEXT NOT NULL,
+	reason TEXT NOT NULL DEFAULT '',
+	payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+	archived_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS evolving_memory_archive_user_session_idx
+	ON evolving_memory_archive(user_id, session_id, archived_at DESC);
 `)
 	if err != nil {
 		return err

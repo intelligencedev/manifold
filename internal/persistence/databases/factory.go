@@ -9,10 +9,12 @@ import (
 	"time"
 
 	"manifold/internal/agent/memory/belief"
+	"manifold/internal/agent/memory/decision"
 	"manifold/internal/config"
 	"manifold/internal/durable"
 	"manifold/internal/persistence"
 	sqlitep "manifold/internal/persistence/sqlite"
+	"manifold/internal/secrets"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -340,7 +342,10 @@ func initializeDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfi
 	if err := initializeRuntimeDefaultStores(ctx, m, cfg, defaultBackend); err != nil {
 		return err
 	}
-	return initializeBeliefDefaultStore(ctx, m, cfg, defaultBackend)
+	if err := initializeBeliefDefaultStore(ctx, m, cfg, defaultBackend); err != nil {
+		return err
+	}
+	return initializeArchaeologyDefaultStores(ctx, m, cfg, defaultBackend)
 }
 
 func initializeMemoryDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfig, defaultBackend string) error {
@@ -390,17 +395,29 @@ func initializePlaygroundDefaultStore(ctx context.Context, m *Manager, cfg confi
 }
 
 func initializeConfigDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfig, defaultBackend string) error {
+	var codec secrets.Codec
+	if defaultBackend == "sqlite" || strings.TrimSpace(cfg.DefaultDSN) != "" {
+		var err error
+		codec, err = databaseSecretCodec(nil)
+		if err != nil {
+			return err
+		}
+	}
 	if defaultBackend == "sqlite" {
-		m.Specialists = NewSQLiteSpecialistsStore(m.SQLite)
+		m.Specialists = NewSQLiteSpecialistsStoreWithCodec(m.SQLite, codec)
 		m.SpecialistTeams = NewSQLiteSpecialistTeamsStore(m.SQLite)
-		m.MCP = NewSQLiteMCPStore(m.SQLite)
+		m.MCP = NewSQLiteMCPStoreWithCodec(m.SQLite, codec)
 		m.Projects = NewSQLiteProjectsStore(m.SQLite)
 		m.UserPreferences = NewSQLiteUserPreferencesStore(m.SQLite)
 		m.CommandPolicy = NewSQLiteCommandPolicyStore(m.SQLite)
 	} else {
-		m.Specialists = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewSpecialistsStore)
+		m.Specialists = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, func(pool *pgxpool.Pool) persistence.SpecialistsStore {
+			return NewSpecialistsStoreWithCodec(pool, codec)
+		})
 		m.SpecialistTeams = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewSpecialistTeamsStore)
-		m.MCP = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewMCPStore)
+		m.MCP = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, func(pool *pgxpool.Pool) persistence.MCPStore {
+			return NewMCPStoreWithCodec(pool, codec)
+		})
 		m.Projects = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPostgresProjectsStore)
 		m.UserPreferences = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewUserPreferencesStore)
 		m.CommandPolicy = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewCommandPolicyStore)
@@ -451,6 +468,22 @@ func initializeBeliefDefaultStore(ctx context.Context, m *Manager, cfg config.DB
 		})
 	}
 	return initStore(ctx, "belief store", m.Belief)
+}
+
+func initializeArchaeologyDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfig, defaultBackend string) error {
+	if defaultBackend == "sqlite" {
+		m.Decision = NewSQLiteDecisionStore(m.SQLite)
+		m.Artifact = NewSQLiteArtifactStore(m.SQLite)
+	} else {
+		m.Decision = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, func(pool *pgxpool.Pool) decision.Store {
+			return NewPostgresDecisionStoreWithDimensions(pool, cfg.Vector.Dimensions)
+		})
+		m.Artifact = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPostgresArtifactStore)
+	}
+	if err := initStore(ctx, "decision store", m.Decision); err != nil {
+		return err
+	}
+	return initStore(ctx, "artifact store", m.Artifact)
 }
 
 func resolveDefaultStoreBackend(cfg config.DBConfig, sqliteAvailable bool) string {

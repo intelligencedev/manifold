@@ -387,7 +387,7 @@ func TestPostgresMagmaEventDeleteStatementsArePreparedSafe(t *testing.T) {
 }
 
 func TestFactory_DefaultsAndNone(t *testing.T) {
-	t.Parallel()
+	t.Setenv("MANIFOLD_SECRETS_KEY", testSecretsKey(t))
 	ctx := context.Background()
 	// Defaults should create SQLite-backed local backends.
 	mgr, err := NewManager(ctx, config.DBConfig{SQLite: config.SQLiteConfig{Path: t.TempDir() + "/manifold.db"}})
@@ -411,7 +411,7 @@ func TestFactory_DefaultsAndNone(t *testing.T) {
 }
 
 func TestFactory_DefaultSQLitePersistsSpecialistsAcrossManagers(t *testing.T) {
-	t.Parallel()
+	t.Setenv("MANIFOLD_SECRETS_KEY", testSecretsKey(t))
 
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "manifold.db")
@@ -449,7 +449,7 @@ func TestFactory_DefaultSQLitePersistsSpecialistsAcrossManagers(t *testing.T) {
 }
 
 func TestFactory_DefaultSQLitePersistsTeamsAcrossManagers(t *testing.T) {
-	t.Parallel()
+	t.Setenv("MANIFOLD_SECRETS_KEY", testSecretsKey(t))
 
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "manifold.db")
@@ -504,7 +504,7 @@ func TestFactory_DefaultSQLitePersistsTeamsAcrossManagers(t *testing.T) {
 }
 
 func TestSQLiteTeamStoreListDoesNotDeadlockWithSingleConnection(t *testing.T) {
-	t.Parallel()
+	t.Setenv("MANIFOLD_SECRETS_KEY", testSecretsKey(t))
 
 	ctx := context.Background()
 	mgr, err := NewManager(ctx, config.DBConfig{

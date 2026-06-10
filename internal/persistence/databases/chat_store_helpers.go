@@ -2,6 +2,7 @@ package databases
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 
 	"manifold/internal/persistence"
@@ -27,4 +28,19 @@ func snippetForPreview(content string) string {
 		return trimmed
 	}
 	return trimmed[:maxLen]
+}
+
+func nullableInt64Value(value *int64) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func int64PtrFromNull(value sql.NullInt64) *int64 {
+	if !value.Valid {
+		return nil
+	}
+	out := value.Int64
+	return &out
 }

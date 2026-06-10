@@ -291,6 +291,11 @@ auth:
     disablePKCE: false
 
 # Database backends.
+# SQLite and Postgres DB-backed specialist/MCP secrets require
+# MANIFOLD_SECRETS_KEY in the process environment. Generate it once with:
+#   openssl rand -base64 32
+# Keep the same key after backup/restore; losing it makes encrypted DB secrets
+# unrecoverable. Do not put the key in this YAML file.
 databases:
   # SQLite is the default durable backend. It lets Manifold run as a single
   # binary with no DATABASE_URL. Set backend=postgres and defaultDSN below for
@@ -519,6 +524,18 @@ memory:
       minSemanticWeight: 0.45
       lowConfidenceThreshold: 0.65
       requireReviewApproval: false
+      archiveBeforeDelete: true
+      requireCausalGrounding: false
+
+# Decision lineage and provenance memory. Disabled by default for rollout.
+archaeology:
+  enabled: false
+  archive_before_delete: true
+  decision_distiller: true
+  causal_grounding_required: true
+  reactor:
+    confidence_floor: 0.35
+    confidence_drop_delta: 0.30
 
 # Shared durable memory.
 transit:

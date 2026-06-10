@@ -654,11 +654,13 @@ func (a *app) runDurableChatTask(ctx context.Context, params map[string]any) (ma
 	stopHeartbeat := startDurableChatHeartbeat(exec.runCtx)
 	defer stopHeartbeat()
 
+	assistantStartedAt := time.Now()
 	result, err := exec.run()
+	durationMs := time.Since(assistantStartedAt).Milliseconds()
 	if err != nil {
 		return a.handleDurableChatRunError(exec, err)
 	}
-	return a.completeDurableChatRun(context.WithoutCancel(ctx), exec, result), nil
+	return a.completeDurableChatRun(context.WithoutCancel(ctx), exec, result, durationMs), nil
 }
 
 func (a *app) newDurableChatExecution(ctx context.Context, params map[string]any) (durableChatExecution, error) {
@@ -745,27 +747,28 @@ func (a *app) handleDurableChatRunError(exec durableChatExecution, err error) (m
 	return nil, err
 }
 
-func (a *app) completeDurableChatRun(storeCtx context.Context, exec durableChatExecution, result string) map[string]any {
+func (a *app) completeDurableChatRun(storeCtx context.Context, exec durableChatExecution, result string, durationMs int64) map[string]any {
 	result = exec.collector.resultText(result)
 	req := exec.prepared.exec.RunRequest
-	exec.writer.write(buildChatStreamFinalPayload(result, exec.runCtx, exec.prepared.streamOpts.IncludeMatrixMessages))
+	exec.writer.write(buildChatStreamFinalPayload(result, exec.runCtx, exec.prepared.streamOpts.IncludeMatrixMessages, durationMs))
 	a.runs.updateStatus(exec.task.ID, "completed", 0)
 	a.publishChatRunEvent(fleet.EventRunFinished, exec.task.ID, req, exec.prepared.exec.UserID, result)
 	a.storeStreamChatTurn(storeCtx, exec.collector, exec.prepared.exec.Engine, streamChatSuccessRequest{
-		Context:   exec.runCtx,
-		StoreCtx:  storeCtx,
-		RunID:     exec.task.ID,
-		Request:   req,
-		UserID:    exec.prepared.exec.UserID,
-		Options:   exec.prepared.streamOpts,
-		Result:    result,
-		Workspace: exec.prepared.exec.CheckedOutWorkspace,
+		Context:    exec.runCtx,
+		StoreCtx:   storeCtx,
+		RunID:      exec.task.ID,
+		Request:    req,
+		UserID:     exec.prepared.exec.UserID,
+		Options:    exec.prepared.streamOpts,
+		Result:     result,
+		DurationMs: durationMs,
+		Workspace:  exec.prepared.exec.CheckedOutWorkspace,
 	}, result)
 	a.commitWorkspace(exec.runCtx, exec.prepared.exec.CheckedOutWorkspace)
-	return durableChatResultPayload(exec.task.ID, req, result)
+	return durableChatResultPayload(exec.task.ID, req, result, durationMs)
 }
 
-func durableChatResultPayload(runID string, req chatRunRequest, result string) map[string]any {
+func durableChatResultPayload(runID string, req chatRunRequest, result string, durationMs int64) map[string]any {
 	return map[string]any{
 		"ok":                   true,
 		"run_id":               runID,
@@ -773,6 +776,7 @@ func durableChatResultPayload(runID string, req chatRunRequest, result string) m
 		"user_message_id":      req.UserMessageID,
 		"assistant_message_id": req.AssistantMessageID,
 		"result":               result,
+		"durationMs":           durationMs,
 	}
 }
 

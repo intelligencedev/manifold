@@ -134,6 +134,7 @@ type chatTurnRecord struct {
 	SessionID        string
 	UserContent      string
 	AssistantContent string
+	DurationMs       *int64
 	Model            string
 }
 
@@ -150,10 +151,11 @@ func storeChatTurn(ctx context.Context, store persist.ChatStore, record chatTurn
 	}
 	if strings.TrimSpace(record.AssistantContent) != "" {
 		messages = append(messages, persist.ChatMessage{
-			SessionID: record.SessionID,
-			Role:      "assistant",
-			Content:   record.AssistantContent,
-			CreatedAt: now.Add(2 * time.Millisecond),
+			SessionID:  record.SessionID,
+			Role:       "assistant",
+			Content:    record.AssistantContent,
+			CreatedAt:  now.Add(2 * time.Millisecond),
+			DurationMs: record.DurationMs,
 		})
 	}
 	if len(messages) == 0 {
@@ -176,6 +178,7 @@ type chatTurnHistoryRecord struct {
 	TurnMessages       []llm.Message
 	FinalContent       string
 	AssistantMessageID string
+	DurationMs         *int64
 	Model              string
 }
 
@@ -240,11 +243,12 @@ func storeChatTurnWithHistory(ctx context.Context, store persist.ChatStore, reco
 			messageID = stableTurnMessageID(record, msg.Role, i)
 		}
 		messages = append(messages, persist.ChatMessage{
-			ID:        messageID,
-			SessionID: record.SessionID,
-			Role:      msg.Role,
-			Content:   content,
-			CreatedAt: now.Add(time.Duration(i+1) * 10 * time.Millisecond),
+			ID:         messageID,
+			SessionID:  record.SessionID,
+			Role:       msg.Role,
+			Content:    content,
+			CreatedAt:  now.Add(time.Duration(i+1) * 10 * time.Millisecond),
+			DurationMs: durationForTurnMessage(record, msg.Role, i, lastAssistantIndex),
 		})
 	}
 
@@ -260,6 +264,13 @@ func storeChatTurnWithHistory(ctx context.Context, store persist.ChatStore, reco
 		preview = previewSnippet(record.UserContent)
 	}
 	return store.AppendMessagesOnce(ctx, record.UserID, record.SessionID, messages, preview, record.Model)
+}
+
+func durationForTurnMessage(record chatTurnHistoryRecord, role string, index, lastAssistantIndex int) *int64 {
+	if role != "assistant" || index != lastAssistantIndex {
+		return nil
+	}
+	return record.DurationMs
 }
 
 func stableTurnMessageID(record chatTurnHistoryRecord, role string, index int) string {

@@ -1096,6 +1096,34 @@ func TestService_PruneExpiresEventsAndDeletesVector(t *testing.T) {
 	}
 }
 
+func TestService_PruneArchivesExpiredEventsBeforeDelete(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := NewService(databases.NewMemoryGraph(), nil, embedder.NewDeterministic(32, true, 0))
+	old := EventNode{ID: "event:t1:old", Tenant: "t1", Text: "old", CreatedAt: time.Now().Add(-48 * time.Hour)}
+	newer := EventNode{ID: "event:t1:new", Tenant: "t1", Text: "new", CreatedAt: time.Now()}
+	if err := svc.store.StoreEvent(ctx, old); err != nil {
+		t.Fatalf("StoreEvent(old) error = %v", err)
+	}
+	if err := svc.store.StoreEvent(ctx, newer); err != nil {
+		t.Fatalf("StoreEvent(new) error = %v", err)
+	}
+	if err := svc.store.UpsertEdge(ctx, Edge{Source: old.ID, GraphType: GraphSemantic, Rel: "SIMILAR_TO", Target: newer.ID, Weight: 0.9}); err != nil {
+		t.Fatalf("UpsertEdge() error = %v", err)
+	}
+
+	stats, err := svc.Prune(ctx, LifecyclePolicy{EventTTL: 24 * time.Hour, ArchiveBeforeDelete: true})
+	if err != nil {
+		t.Fatalf("Prune() error = %v", err)
+	}
+	if stats.EventsDeleted != 1 || stats.EventsArchived != 1 || stats.EdgesArchived != 1 {
+		t.Fatalf("expected event and incident edge archive before delete, got %#v", stats)
+	}
+	if _, ok := svc.Event(ctx, old.ID); ok {
+		t.Fatalf("expected old event to be deleted")
+	}
+}
+
 func TestService_PruneEdgesByWeightAndFanout(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -1130,6 +1158,29 @@ func TestService_PruneEdgesByWeightAndFanout(t *testing.T) {
 	}
 	if len(neighbors) != 1 || neighbors[0] != "event:t1:keep" {
 		t.Fatalf("expected only strongest edge to remain, got %#v", neighbors)
+	}
+}
+
+func TestService_PruneArchivesEdgesBeforeDelete(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	svc := NewServiceWithConfig(databases.NewMemoryGraph(), nil, embedder.NewDeterministic(32, true, 0), ServiceConfig{
+		Graphs: GraphConfig{Semantic: true},
+	})
+	for _, id := range []string{"source", "drop"} {
+		if err := svc.store.StoreEvent(ctx, EventNode{ID: "event:t1:" + id, Tenant: "t1", Text: id, CreatedAt: time.Now()}); err != nil {
+			t.Fatalf("StoreEvent(%s) error = %v", id, err)
+		}
+	}
+	if err := svc.store.UpsertEdge(ctx, Edge{Source: "event:t1:source", GraphType: GraphSemantic, Rel: "SIMILAR_TO", Target: "event:t1:drop", Weight: 0.25}); err != nil {
+		t.Fatalf("UpsertEdge() error = %v", err)
+	}
+	stats, err := svc.Prune(ctx, LifecyclePolicy{MinSemanticWeight: 0.5, ArchiveBeforeDelete: true})
+	if err != nil {
+		t.Fatalf("Prune() error = %v", err)
+	}
+	if stats.EdgesDeleted != 1 || stats.EdgesArchived != 1 {
+		t.Fatalf("expected edge archive before delete, got %#v", stats)
 	}
 }
 

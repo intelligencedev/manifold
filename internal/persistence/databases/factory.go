@@ -13,6 +13,7 @@ import (
 	"manifold/internal/durable"
 	"manifold/internal/persistence"
 	sqlitep "manifold/internal/persistence/sqlite"
+	"manifold/internal/secrets"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -390,17 +391,29 @@ func initializePlaygroundDefaultStore(ctx context.Context, m *Manager, cfg confi
 }
 
 func initializeConfigDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfig, defaultBackend string) error {
+	var codec secrets.Codec
+	if defaultBackend == "sqlite" || strings.TrimSpace(cfg.DefaultDSN) != "" {
+		var err error
+		codec, err = databaseSecretCodec(nil)
+		if err != nil {
+			return err
+		}
+	}
 	if defaultBackend == "sqlite" {
-		m.Specialists = NewSQLiteSpecialistsStore(m.SQLite)
+		m.Specialists = NewSQLiteSpecialistsStoreWithCodec(m.SQLite, codec)
 		m.SpecialistTeams = NewSQLiteSpecialistTeamsStore(m.SQLite)
-		m.MCP = NewSQLiteMCPStore(m.SQLite)
+		m.MCP = NewSQLiteMCPStoreWithCodec(m.SQLite, codec)
 		m.Projects = NewSQLiteProjectsStore(m.SQLite)
 		m.UserPreferences = NewSQLiteUserPreferencesStore(m.SQLite)
 		m.CommandPolicy = NewSQLiteCommandPolicyStore(m.SQLite)
 	} else {
-		m.Specialists = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewSpecialistsStore)
+		m.Specialists = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, func(pool *pgxpool.Pool) persistence.SpecialistsStore {
+			return NewSpecialistsStoreWithCodec(pool, codec)
+		})
 		m.SpecialistTeams = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewSpecialistTeamsStore)
-		m.MCP = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewMCPStore)
+		m.MCP = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, func(pool *pgxpool.Pool) persistence.MCPStore {
+			return NewMCPStoreWithCodec(pool, codec)
+		})
 		m.Projects = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPostgresProjectsStore)
 		m.UserPreferences = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewUserPreferencesStore)
 		m.CommandPolicy = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewCommandPolicyStore)

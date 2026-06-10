@@ -12,6 +12,7 @@ import (
 
 	"manifold/internal/config"
 	persist "manifold/internal/persistence"
+	"manifold/internal/secrets"
 	"manifold/internal/transit"
 )
 
@@ -358,19 +359,37 @@ func scanSQLiteFlowV2WorkflowRecord(row interface{ Scan(dest ...any) error }, us
 }
 
 type sqliteMCPStore struct {
-	db *sql.DB
+	db    *sql.DB
+	codec secrets.Codec
 }
 
 func NewSQLiteMCPStore(db *sql.DB) persist.MCPStore {
 	return &sqliteMCPStore{db: db}
 }
 
+func NewSQLiteMCPStoreWithCodec(db *sql.DB, codec secrets.Codec) persist.MCPStore {
+	return &sqliteMCPStore{db: db, codec: codec}
+}
+
+func (s *sqliteMCPStore) ensureCodec() (secrets.Codec, error) {
+	codec, err := databaseSecretCodec(s.codec)
+	if err != nil {
+		return nil, err
+	}
+	s.codec = codec
+	return codec, nil
+}
+
 func (s *sqliteMCPStore) Init(ctx context.Context) error {
 	if s.db == nil {
 		return errors.New("sqlite mcp store requires db")
 	}
-	_, err := s.db.ExecContext(ctx, `
-CREATE TABLE IF NOT EXISTS mcp_servers (
+	codec, err := s.ensureCodec()
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
+	CREATE TABLE IF NOT EXISTS mcp_servers (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	user_id INTEGER NOT NULL DEFAULT 0,
 	name TEXT NOT NULL,
@@ -392,9 +411,12 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
 	oauth_expires_at DATETIME,
 	oauth_scopes TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(oauth_scopes)),
 	UNIQUE(user_id, name)
-);
-`)
-	return err
+	);
+	`)
+	if err != nil {
+		return err
+	}
+	return backfillSQLiteMCPSecrets(ctx, s.db, codec)
 }
 
 func (s *sqliteMCPStore) List(ctx context.Context, userID int64) ([]persist.MCPServer, error) {
@@ -414,6 +436,10 @@ ORDER BY name ASC`, userID)
 	out := []persist.MCPServer{}
 	for rows.Next() {
 		srv, err := scanSQLiteMCPServer(rows)
+		if err != nil {
+			return nil, err
+		}
+		srv, err = decryptMCPServerFromStore(s.codec, srv)
 		if err != nil {
 			return nil, err
 		}
@@ -438,6 +464,10 @@ WHERE user_id = ? AND name = ?`, userID, name)
 	if err != nil {
 		return persist.MCPServer{}, false, err
 	}
+	srv, err = decryptMCPServerFromStore(s.codec, srv)
+	if err != nil {
+		return persist.MCPServer{}, false, err
+	}
 	return srv, true, nil
 }
 
@@ -446,6 +476,10 @@ func (s *sqliteMCPStore) Upsert(ctx context.Context, userID int64, srv persist.M
 		return persist.MCPServer{}, errors.New("name required")
 	}
 	if err := s.Init(ctx); err != nil {
+		return persist.MCPServer{}, err
+	}
+	toStore, err := encryptMCPServerForStore(s.codec, userID, srv)
+	if err != nil {
 		return persist.MCPServer{}, err
 	}
 	var expiresAt any
@@ -473,11 +507,11 @@ ON CONFLICT(user_id, name) DO UPDATE SET
 	oauth_access_token = excluded.oauth_access_token,
 	oauth_refresh_token = excluded.oauth_refresh_token,
 	oauth_expires_at = excluded.oauth_expires_at,
-	oauth_scopes = excluded.oauth_scopes
-RETURNING id
-`, userID, srv.Name, srv.Command, encodeJSON(srv.Args, "[]"), encodeJSON(srv.Env, "{}"), srv.URL, encodeJSON(srv.Headers, "{}"),
-		srv.BearerToken, srv.Origin, srv.ProtocolVersion, srv.KeepAliveSeconds, srv.Disabled, srv.OAuthProvider, srv.OAuthClientID, srv.OAuthClientSecret,
-		srv.OAuthAccessToken, srv.OAuthRefreshToken, expiresAt, encodeJSON(srv.OAuthScopes, "[]"))
+		oauth_scopes = excluded.oauth_scopes
+	RETURNING id
+	`, userID, srv.Name, srv.Command, encodeJSON(srv.Args, "[]"), encodeJSON(toStore.Env, "{}"), srv.URL, encodeJSON(toStore.Headers, "{}"),
+		toStore.BearerToken, srv.Origin, srv.ProtocolVersion, srv.KeepAliveSeconds, srv.Disabled, srv.OAuthProvider, srv.OAuthClientID, toStore.OAuthClientSecret,
+		toStore.OAuthAccessToken, toStore.OAuthRefreshToken, expiresAt, encodeJSON(srv.OAuthScopes, "[]"))
 	if err := row.Scan(&srv.ID); err != nil {
 		return persist.MCPServer{}, err
 	}

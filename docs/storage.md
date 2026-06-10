@@ -7,6 +7,18 @@ No `DATABASE_URL` is required for local or single-binary deployments.
 
 ## Durable Database
 
+SQLite and Postgres DB-backed specialist/MCP secrets are encrypted at the
+application layer. Set `MANIFOLD_SECRETS_KEY` in the process environment before
+starting Manifold:
+
+```bash
+MANIFOLD_SECRETS_KEY=$(openssl rand -base64 32)
+```
+
+Generate this value once per deployment and keep it with your operational
+secrets. The same key is required after backup/restore. If the key is lost,
+encrypted database secrets cannot be recovered.
+
 The default database configuration is:
 
 ```yaml

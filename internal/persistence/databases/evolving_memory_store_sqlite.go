@@ -3,6 +3,7 @@ package databases
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -60,6 +61,18 @@ CREATE INDEX IF NOT EXISTS evolving_memories_user_scope_idx
 	ON evolving_memories(user_id, scope);
 CREATE INDEX IF NOT EXISTS evolving_memories_expires_idx
 	ON evolving_memories(expires_at);
+
+CREATE TABLE IF NOT EXISTS evolving_memory_archive (
+	id TEXT PRIMARY KEY,
+	original_id TEXT NOT NULL,
+	user_id INTEGER NOT NULL,
+	session_id TEXT NOT NULL,
+	reason TEXT NOT NULL DEFAULT '',
+	payload TEXT NOT NULL CHECK(json_valid(payload)),
+	archived_at DATETIME NOT NULL
+);
+CREATE INDEX IF NOT EXISTS evolving_memory_archive_user_session_idx
+	ON evolving_memory_archive(user_id, session_id, archived_at);
 `)
 	return err
 }
@@ -184,6 +197,39 @@ func (s *sqliteEvolvingMemoryStore) Delete(ctx context.Context, userID int64, se
 DELETE FROM evolving_memories
 WHERE user_id = ? AND session_id = ? AND id IN (%s)`, inSQL), args...)
 	return err
+}
+
+func (s *sqliteEvolvingMemoryStore) Archive(ctx context.Context, userID int64, sessionID string, entries []*memory.MemoryEntry, reason string) error {
+	if err := s.Init(ctx); err != nil {
+		return err
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	sessionID = normalizeMemorySessionID(sessionID)
+	reason = strings.TrimSpace(reason)
+	archivedAt := time.Now().UTC()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer rollbackQuietly(tx)
+	for _, entry := range entries {
+		if entry == nil || strings.TrimSpace(entry.ID) == "" {
+			continue
+		}
+		payload, err := json.Marshal(entry)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO evolving_memory_archive(id, original_id, user_id, session_id, reason, payload, archived_at)
+VALUES(?, ?, ?, ?, ?, ?, ?)
+`, uuid.NewString(), strings.TrimSpace(entry.ID), userID, sessionID, reason, string(payload), archivedAt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *sqliteEvolvingMemoryStore) TouchAccess(ctx context.Context, ids []string, at time.Time) error {

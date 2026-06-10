@@ -103,11 +103,14 @@ type LifecyclePolicy struct {
 	MinSemanticWeight      float64
 	LowConfidenceThreshold float64
 	RequireReviewApproval  bool
+	ArchiveBeforeDelete    bool
 }
 
 type LifecycleStats struct {
 	EventsDeleted       int
 	EdgesDeleted        int
+	EventsArchived      int
+	EdgesArchived       int
 	EdgesFlaggedReview  int
 	EdgesSkippedReview  int
 	MaintenanceDisabled bool
@@ -214,17 +217,24 @@ type ServiceStats struct {
 }
 
 type ServiceConfig struct {
-	QueueSize           int
-	BatchSize           int
-	SemanticTopK        int
-	SimilarityThreshold float64
-	CausalThreshold     float64
-	LLM                 llm.Provider
-	Model               string
-	Prompts             PromptConfig
-	Graphs              GraphConfig
-	Lifecycle           LifecyclePolicy
-	Observer            Observer
+	QueueSize              int
+	BatchSize              int
+	SemanticTopK           int
+	SimilarityThreshold    float64
+	CausalThreshold        float64
+	LLM                    llm.Provider
+	Model                  string
+	Prompts                PromptConfig
+	Graphs                 GraphConfig
+	Lifecycle              LifecyclePolicy
+	RequireCausalGrounding bool
+	Observer               Observer
+}
+
+// EvidenceRef identifies evidence that grounds a graph edge.
+type EvidenceRef struct {
+	SourceKind string `json:"sourceKind"`
+	SourceID   string `json:"sourceId"`
 }
 
 type PromptConfig struct {

@@ -207,6 +207,12 @@ type EvolvingMemoryDeltaStore interface {
 	TouchAccess(ctx context.Context, ids []string, at time.Time) error
 }
 
+// EvolvingMemoryArchiveStore is an optional extension for stores that preserve
+// entries before pruning removes them from the hot set.
+type EvolvingMemoryArchiveStore interface {
+	Archive(ctx context.Context, userID int64, sessionID string, entries []*MemoryEntry, reason string) error
+}
+
 // EvolvingMemorySearchStore is an optional extension for stores that can run
 // vector retrieval close to the data instead of requiring an in-process scan.
 type EvolvingMemorySearchStore interface {

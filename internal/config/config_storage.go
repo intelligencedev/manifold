@@ -208,6 +208,8 @@ type MagmaLifecycleConfig struct {
 	MinSemanticWeight      float64 `yaml:"minSemanticWeight" json:"minSemanticWeight"`
 	LowConfidenceThreshold float64 `yaml:"lowConfidenceThreshold" json:"lowConfidenceThreshold"`
 	RequireReviewApproval  bool    `yaml:"requireReviewApproval" json:"requireReviewApproval"`
+	ArchiveBeforeDelete    bool    `yaml:"archiveBeforeDelete" json:"archiveBeforeDelete"`
+	RequireCausalGrounding bool    `yaml:"requireCausalGrounding" json:"requireCausalGrounding"`
 }
 
 // EmbeddingInstructionConfig configures query-side embedding instructions.

@@ -84,11 +84,19 @@ func (s *Service) extractWithLLM(ctx context.Context, event EventNode) (llmExtra
 			Target:    event.ID,
 			Props: map[string]any{
 				"confidence":  confidence,
+				"origin":      "llm_consolidation",
+				"model":       s.cfg.Model,
 				"extractor":   "llm",
 				"cause_text":  cause,
 				"effect_text": effect,
 			},
 		})
+		if s.cfg.RequireCausalGrounding {
+			edge := &extracted.CausalEdges[len(extracted.CausalEdges)-1]
+			edge.Props["review_state"] = "needs_review"
+			edge.Props["review_reason"] = "ungrounded_causal"
+			edge.Props["flagged_at"] = time.Now().UTC().Format(time.RFC3339Nano)
+		}
 	}
 	return extracted, extracted.TemporalAttrs != (TemporalAttrs{}) || len(extracted.Entities) > 0 || len(extracted.CausalEdges) > 0
 }

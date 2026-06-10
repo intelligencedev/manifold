@@ -475,7 +475,9 @@ func magmaServiceConfig(cfg config.MagmaConfig, observer magma.Observer, provide
 			MinSemanticWeight:      cfg.Lifecycle.MinSemanticWeight,
 			LowConfidenceThreshold: cfg.Lifecycle.LowConfidenceThreshold,
 			RequireReviewApproval:  cfg.Lifecycle.RequireReviewApproval,
+			ArchiveBeforeDelete:    cfg.Lifecycle.ArchiveBeforeDelete,
 		},
+		RequireCausalGrounding: cfg.Lifecycle.RequireCausalGrounding,
 		Graphs: magma.GraphConfig{
 			Semantic:    cfg.Graphs.Semantic.Enabled,
 			Temporal:    cfg.Graphs.Temporal.Enabled,

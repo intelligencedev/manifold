@@ -524,6 +524,18 @@ memory:
       minSemanticWeight: 0.45
       lowConfidenceThreshold: 0.65
       requireReviewApproval: false
+      archiveBeforeDelete: true
+      requireCausalGrounding: false
+
+# Decision lineage and provenance memory. Disabled by default for rollout.
+archaeology:
+  enabled: false
+  archive_before_delete: true
+  decision_distiller: true
+  causal_grounding_required: true
+  reactor:
+    confidence_floor: 0.35
+    confidence_drop_delta: 0.30
 
 # Shared durable memory.
 transit:

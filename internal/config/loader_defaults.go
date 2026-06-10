@@ -13,12 +13,27 @@ func applyDefaults(cfg *Config) {
 	applyRuntimeDefaults(cfg)
 	applyCodeQADefaults(cfg)
 	applyBeliefDefaults(cfg)
+	applyArchaeologyDefaults(cfg)
 	applyCodeQAFallbackDefaults(cfg)
 	applyTimeoutAndTokenDefaults(cfg)
 	applyEmbeddingAndRerankingDefaults(cfg)
 	applyMCPAndDatabaseDefaults(cfg)
 	applyAuthAndTransitDefaults(cfg)
 	syncUnifiedMemoryConfig(cfg)
+}
+
+func applyArchaeologyDefaults(cfg *Config) {
+	if cfg.Archaeology.Reactor.ConfidenceFloor <= 0 {
+		cfg.Archaeology.Reactor.ConfidenceFloor = 0.35
+	}
+	if cfg.Archaeology.Reactor.ConfidenceDropDelta <= 0 {
+		cfg.Archaeology.Reactor.ConfidenceDropDelta = 0.30
+	}
+	if cfg.Archaeology.Enabled {
+		cfg.Archaeology.ArchiveBeforeDelete = true
+		cfg.Archaeology.DecisionDistiller = true
+		cfg.Archaeology.CausalGroundingRequired = true
+	}
 }
 
 func applyUnifiedMemoryAliases(cfg *Config) {
@@ -537,5 +552,9 @@ func applyMagmaDefaults(cfg *Config) {
 	}
 	if cfg.Magma.Lifecycle.LowConfidenceThreshold <= 0 {
 		cfg.Magma.Lifecycle.LowConfidenceThreshold = 0.6
+	}
+	if cfg.Archaeology.Enabled {
+		cfg.Magma.Lifecycle.ArchiveBeforeDelete = cfg.Archaeology.ArchiveBeforeDelete
+		cfg.Magma.Lifecycle.RequireCausalGrounding = cfg.Archaeology.CausalGroundingRequired
 	}
 }

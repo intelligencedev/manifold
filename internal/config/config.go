@@ -98,6 +98,8 @@ type Config struct {
 	Reranking RerankingConfig `yaml:"reranking" json:"reranking"`
 	// Magma configures optional multi-graph agentic memory support for RAG.
 	Magma MagmaConfig `yaml:"magma" json:"magma"`
+	// Archaeology configures decision lineage, artifact capture, and provenance.
+	Archaeology ArchaeologyConfig `yaml:"archaeology" json:"archaeology"`
 	// Memory coordinates evolving memory, belief memory, and MAGMA behind a
 	// single runtime toggle. The legacy top-level memory blocks remain accepted
 	// as aliases for compatibility.
@@ -165,6 +167,21 @@ type MemoryLLMClientsConfig struct {
 	Evolving           LLMClientConfig `yaml:"evolving" json:"evolving"`
 	BeliefDistillation LLMClientConfig `yaml:"beliefDistillation" json:"beliefDistillation"`
 	MagmaConsolidation LLMClientConfig `yaml:"magmaConsolidation" json:"magmaConsolidation"`
+}
+
+// ArchaeologyConfig controls context-archaeology memory features.
+type ArchaeologyConfig struct {
+	Enabled                 bool                     `yaml:"enabled" json:"enabled"`
+	ArchiveBeforeDelete     bool                     `yaml:"archive_before_delete" json:"archiveBeforeDelete"`
+	DecisionDistiller       bool                     `yaml:"decision_distiller" json:"decisionDistiller"`
+	CausalGroundingRequired bool                     `yaml:"causal_grounding_required" json:"causalGroundingRequired"`
+	Reactor                 ArchaeologyReactorConfig `yaml:"reactor" json:"reactor"`
+}
+
+// ArchaeologyReactorConfig tunes belief-to-decision stale detection.
+type ArchaeologyReactorConfig struct {
+	ConfidenceFloor     float64 `yaml:"confidence_floor" json:"confidenceFloor"`
+	ConfidenceDropDelta float64 `yaml:"confidence_drop_delta" json:"confidenceDropDelta"`
 }
 
 // PromptOverridesConfig customizes built-in prompt blocks.

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"manifold/internal/agent/memory/belief"
+	"manifold/internal/agent/memory/decision"
 	"manifold/internal/config"
 	"manifold/internal/durable"
 	"manifold/internal/persistence"
@@ -341,7 +342,10 @@ func initializeDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfi
 	if err := initializeRuntimeDefaultStores(ctx, m, cfg, defaultBackend); err != nil {
 		return err
 	}
-	return initializeBeliefDefaultStore(ctx, m, cfg, defaultBackend)
+	if err := initializeBeliefDefaultStore(ctx, m, cfg, defaultBackend); err != nil {
+		return err
+	}
+	return initializeArchaeologyDefaultStores(ctx, m, cfg, defaultBackend)
 }
 
 func initializeMemoryDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfig, defaultBackend string) error {
@@ -464,6 +468,22 @@ func initializeBeliefDefaultStore(ctx context.Context, m *Manager, cfg config.DB
 		})
 	}
 	return initStore(ctx, "belief store", m.Belief)
+}
+
+func initializeArchaeologyDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfig, defaultBackend string) error {
+	if defaultBackend == "sqlite" {
+		m.Decision = NewSQLiteDecisionStore(m.SQLite)
+		m.Artifact = NewSQLiteArtifactStore(m.SQLite)
+	} else {
+		m.Decision = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, func(pool *pgxpool.Pool) decision.Store {
+			return NewPostgresDecisionStoreWithDimensions(pool, cfg.Vector.Dimensions)
+		})
+		m.Artifact = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPostgresArtifactStore)
+	}
+	if err := initStore(ctx, "decision store", m.Decision); err != nil {
+		return err
+	}
+	return initStore(ctx, "artifact store", m.Artifact)
 }
 
 func resolveDefaultStoreBackend(cfg config.DBConfig, sqliteAvailable bool) string {

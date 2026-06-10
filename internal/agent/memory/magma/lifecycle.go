@@ -16,6 +16,7 @@ func (s *Service) Prune(ctx context.Context, policy LifecyclePolicy) (stats Life
 		attribute.Int("magma.lifecycle.max_edges_per_source_rel", policy.MaxEdgesPerSourceRel),
 		attribute.Float64("magma.lifecycle.min_semantic_weight", policy.MinSemanticWeight),
 		attribute.Float64("magma.lifecycle.low_confidence_threshold", policy.LowConfidenceThreshold),
+		attribute.Bool("magma.lifecycle.archive_before_delete", policy.ArchiveBeforeDelete),
 	)
 	defer endSpan(span, &err)
 
@@ -82,12 +83,43 @@ func (s *Service) ApproveEdge(ctx context.Context, selector EdgeSelector, review
 		}
 		edge.Props["review_state"] = "approved"
 		edge.Props["reviewed_at"] = time.Now().UTC().Format(time.RFC3339Nano)
+		edge.Props["approved_at"] = edge.Props["reviewed_at"]
 		if strings.TrimSpace(reviewer) != "" {
 			edge.Props["reviewed_by"] = strings.TrimSpace(reviewer)
+			edge.Props["approved_by"] = strings.TrimSpace(reviewer)
 		}
 		return edge
 	})
 	return err
+}
+
+// GroundEdge appends evidence to a selected edge and clears grounding-only review flags.
+func (s *Service) GroundEdge(ctx context.Context, selector EdgeSelector, evidence []EvidenceRef) error {
+	if len(evidence) == 0 {
+		return nil
+	}
+	return s.updateSelectedEdge(ctx, selector, func(edge Edge) Edge {
+		if edge.Props == nil {
+			edge.Props = map[string]any{}
+		}
+		existing := evidenceList(edge.Props["evidence"])
+		for _, ref := range evidence {
+			if strings.TrimSpace(ref.SourceKind) == "" || strings.TrimSpace(ref.SourceID) == "" {
+				continue
+			}
+			existing = append(existing, map[string]string{
+				"sourceKind": strings.TrimSpace(ref.SourceKind),
+				"sourceId":   strings.TrimSpace(ref.SourceID),
+			})
+		}
+		edge.Props["evidence"] = existing
+		if stringProp(edge.Props, "review_state") == "needs_review" && stringProp(edge.Props, "review_reason") == "ungrounded_causal" {
+			delete(edge.Props, "review_state")
+			delete(edge.Props, "review_reason")
+			delete(edge.Props, "flagged_at")
+		}
+		return edge
+	})
 }
 
 func (s *Service) RetractEdge(ctx context.Context, selector EdgeSelector, reason string) error {
@@ -99,6 +131,17 @@ func (s *Service) RetractEdge(ctx context.Context, selector EdgeSelector, reason
 	defer endSpan(span, &err)
 	if s == nil || s.store == nil {
 		return errors.New("magma service is not configured")
+	}
+	if s.cfg.Lifecycle.ArchiveBeforeDelete {
+		edge, ok, err := s.selectedEdge(ctx, selector)
+		if err != nil {
+			return err
+		}
+		if ok {
+			if err := s.store.ArchiveEdge(ctx, edge, firstNonEmpty(strings.TrimSpace(reason), "manual_retraction")); err != nil {
+				return err
+			}
+		}
 	}
 	if err := s.store.DeleteEdge(ctx, selector); err != nil {
 		return err
@@ -124,8 +167,14 @@ func (s *Service) DeleteEvent(ctx context.Context, id string) (bool, error) {
 		err = errors.New("magma event id is required")
 		return false, err
 	}
-	if _, ok := s.store.GetEvent(ctx, id); !ok {
+	event, ok := s.store.GetEvent(ctx, id)
+	if !ok {
 		return false, nil
+	}
+	if s.cfg.Lifecycle.ArchiveBeforeDelete {
+		if err = s.archiveEventCascade(ctx, event, "manual_deletion", nil); err != nil {
+			return true, err
+		}
 	}
 	if err = s.store.DeleteEvent(ctx, id); err != nil {
 		return true, err
@@ -152,6 +201,11 @@ func (s *Service) pruneExpiredEvents(ctx context.Context, policy LifecyclePolicy
 		if event.CreatedAt.IsZero() || !event.CreatedAt.Before(cutoff) {
 			continue
 		}
+		if policy.ArchiveBeforeDelete {
+			if err := s.archiveEventCascade(ctx, event, "expired", stats); err != nil {
+				return err
+			}
+		}
 		if err := s.store.DeleteEvent(ctx, event.ID); err != nil {
 			return err
 		}
@@ -171,6 +225,11 @@ func (s *Service) pruneEdges(ctx context.Context, policy LifecyclePolicy, stats 
 	grouped := make(map[string][]Edge)
 	for _, edge := range edges {
 		if shouldDeleteByWeight(edge, policy) {
+			if policy.ArchiveBeforeDelete {
+				if err := s.archiveEdgeBeforeDelete(ctx, edge, "low_weight", stats); err != nil {
+					return err
+				}
+			}
 			if err := s.store.DeleteEdge(ctx, selectorForEdge(edge)); err != nil {
 				return err
 			}
@@ -203,6 +262,11 @@ func (s *Service) pruneEdges(ctx context.Context, policy LifecyclePolicy, stats 
 		}
 		sort.SliceStable(group, func(i, j int) bool { return edgeRank(group[i]) > edgeRank(group[j]) })
 		for _, edge := range group[policy.MaxEdgesPerSourceRel:] {
+			if policy.ArchiveBeforeDelete {
+				if err := s.archiveEdgeBeforeDelete(ctx, edge, "fanout", stats); err != nil {
+					return err
+				}
+			}
 			if err := s.store.DeleteEdge(ctx, selectorForEdge(edge)); err != nil {
 				return err
 			}
@@ -210,6 +274,63 @@ func (s *Service) pruneEdges(ctx context.Context, policy LifecyclePolicy, stats 
 		}
 	}
 	return nil
+}
+
+func (s *Service) archiveEventCascade(ctx context.Context, event EventNode, reason string, stats *LifecycleStats) error {
+	if s == nil || s.store == nil {
+		return errors.New("magma service is not configured")
+	}
+	edges, err := s.store.ListEdges(ctx)
+	if err != nil {
+		return err
+	}
+	for _, edge := range edges {
+		if edge.Source != event.ID && edge.Target != event.ID {
+			continue
+		}
+		if err := s.store.ArchiveEdge(ctx, edge, reason+"_incident_edge"); err != nil {
+			return err
+		}
+		if stats != nil {
+			stats.EdgesArchived++
+		}
+	}
+	if err := s.store.ArchiveEvent(ctx, event, reason); err != nil {
+		return err
+	}
+	if stats != nil {
+		stats.EventsArchived++
+	}
+	return nil
+}
+
+func (s *Service) archiveEdgeBeforeDelete(ctx context.Context, edge Edge, reason string, stats *LifecycleStats) error {
+	if s == nil || s.store == nil {
+		return errors.New("magma service is not configured")
+	}
+	if err := s.store.ArchiveEdge(ctx, edge, reason); err != nil {
+		return err
+	}
+	if stats != nil {
+		stats.EdgesArchived++
+	}
+	return nil
+}
+
+func (s *Service) selectedEdge(ctx context.Context, selector EdgeSelector) (Edge, bool, error) {
+	if s == nil || s.store == nil {
+		return Edge{}, false, errors.New("magma service is not configured")
+	}
+	edges, err := s.store.ListEdges(ctx)
+	if err != nil {
+		return Edge{}, false, err
+	}
+	for _, edge := range edges {
+		if selectorForEdge(edge) == selector {
+			return edge, true, nil
+		}
+	}
+	return Edge{}, false, nil
 }
 
 func (s *Service) updateSelectedEdge(ctx context.Context, selector EdgeSelector, update func(Edge) Edge) error {
@@ -257,6 +378,41 @@ func edgeConfidence(edge Edge) float64 {
 
 func edgeReviewState(edge Edge) string {
 	return stringProp(edge.Props, "review_state")
+}
+
+func evidenceList(raw any) []map[string]string {
+	out := []map[string]string{}
+	switch values := raw.(type) {
+	case []map[string]string:
+		return append(out, values...)
+	case []map[string]any:
+		for _, value := range values {
+			out = append(out, map[string]string{
+				"sourceKind": stringFromAny(value["sourceKind"]),
+				"sourceId":   stringFromAny(value["sourceId"]),
+			})
+		}
+	case []any:
+		for _, item := range values {
+			if m, ok := item.(map[string]any); ok {
+				out = append(out, map[string]string{
+					"sourceKind": stringFromAny(m["sourceKind"]),
+					"sourceId":   stringFromAny(m["sourceId"]),
+				})
+			}
+		}
+	}
+	return out
+}
+
+func stringFromAny(value any) string {
+	if value == nil {
+		return ""
+	}
+	if s, ok := value.(string); ok {
+		return s
+	}
+	return ""
 }
 
 func stringProp(props map[string]any, key string) string {

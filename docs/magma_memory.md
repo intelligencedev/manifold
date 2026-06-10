@@ -48,6 +48,7 @@ magma:
     minSemanticWeight: 0
     lowConfidenceThreshold: 0.6
     requireReviewApproval: false
+    requireCausalGrounding: false
 ```
 
 Lifecycle defaults are conservative:
@@ -58,6 +59,20 @@ Lifecycle defaults are conservative:
 - `minSemanticWeight: 0` disables semantic edge pruning by weight.
 - `lowConfidenceThreshold` controls which edges are flagged as `needs_review` during lifecycle pruning.
 - `requireReviewApproval: true` makes retrieval ignore review-flagged edges until they are approved.
+- `requireCausalGrounding: true` marks ungrounded LLM causal edges as `needs_review`.
+
+## Causal Edge Provenance
+
+Causal edges standardize these `Edge.Props` keys:
+
+- `origin`: `llm_consolidation`, `operator`, `distiller`, or `import`.
+- `model`: the model name when the edge came from an LLM.
+- `confidence`: extraction confidence.
+- `evidence`: a list of `{sourceKind, sourceId}` references.
+- `approved_at` and `approved_by`: operator approval metadata.
+
+`GroundEdge` appends evidence references and clears `review_state=needs_review`
+when the only review reason was `ungrounded_causal`.
 
 ## Write Path
 

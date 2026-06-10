@@ -2,10 +2,10 @@ package agentd
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
 	"manifold/internal/persistence"
@@ -33,13 +33,17 @@ type pulseTaskRun struct {
 }
 
 func newPulseRuntime(app *app, store persistence.PulseStore) *pulseRuntime {
-	return &pulseRuntime{
+	runtime := &pulseRuntime{
 		app:      app,
 		store:    store,
 		service:  pulsecore.NewService(),
 		interval: defaultMatrixPulsePollInterval,
 		lease:    defaultMatrixPulseLease,
 	}
+	if app != nil && app.pulseRuntime == nil {
+		app.pulseRuntime = runtime
+	}
+	return runtime
 }
 
 func (r *pulseRuntime) Start(ctx context.Context) error {
@@ -144,32 +148,11 @@ func (r *pulseRuntime) pollOnce(ctx context.Context) error {
 func (r *pulseRuntime) runPulseTask(ctx context.Context, now time.Time, target string, job pulseTaskRun) {
 	room := job.room
 	task := job.task
-	claimToken := uuid.NewString()
-	claimed, err := r.store.ClaimRoom(ctx, room.RoomID, room.RouteTarget, claimToken, now.Add(r.lease))
+	if strings.TrimSpace(target) != "" {
+		task.RouteTarget = target
+	}
+	_, err := r.app.enqueuePulseTaskRun(ctx, room, task, pulseRunReasonScheduled, now)
 	if err != nil {
-		log.Warn().Str("room_id", room.RoomID).Str("target", room.RouteTarget).Str("task_id", task.ID).Err(err).Msg("matrix_pulse_claim_failed")
-		return
-	}
-	if !claimed {
-		return
-	}
-
-	plan := r.service.EvaluateRoom(now, room, []persistence.PulseTask{task}, room.RouteTarget)
-	prompt := r.service.BuildPrompt(now, plan, r.interval)
-	result, runErr := r.app.handlePulseRoom(ctx, room.RoomID, target, room.ProjectID, prompt)
-	pulseErr := ""
-	if runErr != nil {
-		pulseErr = runErr.Error()
-	}
-	if err := r.store.CompleteRoomPulse(ctx, persistence.RoomPulseCompletion{
-		RoomID:      room.RoomID,
-		RouteTarget: room.RouteTarget,
-		Token:       claimToken,
-		CompletedAt: time.Now().UTC(),
-		Summary:     result,
-		Error:       pulseErr,
-		DueTaskIDs:  []string{task.ID},
-	}); err != nil {
-		log.Warn().Str("room_id", room.RoomID).Str("target", room.RouteTarget).Str("task_id", task.ID).Err(err).Msg("matrix_pulse_complete_failed")
+		log.Warn().Str("room_id", room.RoomID).Str("target", room.RouteTarget).Str("task_id", task.ID).Err(err).Msg("matrix_pulse_enqueue_failed")
 	}
 }

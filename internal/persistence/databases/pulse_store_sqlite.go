@@ -57,6 +57,8 @@ CREATE TABLE IF NOT EXISTS pulse_tasks (
 	enabled INTEGER NOT NULL DEFAULT 1,
 	last_run_at DATETIME,
 	last_result_summary TEXT,
+	active_durable_task_id TEXT,
+	last_durable_task_id TEXT,
 	created_at DATETIME NOT NULL,
 	updated_at DATETIME NOT NULL,
 	FOREIGN KEY(room_id, route_target) REFERENCES pulse_rooms(room_id, route_target) ON DELETE CASCADE
@@ -67,6 +69,17 @@ CREATE INDEX IF NOT EXISTS idx_pulse_rooms_route_target_room ON pulse_rooms(rout
 CREATE INDEX IF NOT EXISTS idx_pulse_tasks_room_id ON pulse_tasks(room_id, route_target);
 CREATE INDEX IF NOT EXISTS idx_pulse_tasks_enabled ON pulse_tasks(room_id, route_target, enabled);
 `)
+	if err != nil {
+		return err
+	}
+	for _, statement := range []string{
+		`ALTER TABLE pulse_tasks ADD COLUMN active_durable_task_id TEXT`,
+		`ALTER TABLE pulse_tasks ADD COLUMN last_durable_task_id TEXT`,
+	} {
+		if _, alterErr := s.db.ExecContext(ctx, statement); alterErr != nil && !strings.Contains(strings.ToLower(alterErr.Error()), "duplicate column") {
+			return alterErr
+		}
+	}
 	return err
 }
 
@@ -213,9 +226,9 @@ func (s *sqlitePulseStore) UpsertTask(ctx context.Context, task persistence.Puls
 	_, err = s.db.ExecContext(ctx, `
 INSERT INTO pulse_tasks (
 	id, room_id, route_target, bot_id, title, prompt, schedule_type, interval_seconds, specific_time,
-	specific_at, enabled, last_run_at, last_result_summary, created_at, updated_at
+	specific_at, enabled, last_run_at, last_result_summary, active_durable_task_id, last_durable_task_id, created_at, updated_at
 )
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?)
 ON CONFLICT(id) DO UPDATE SET
 	room_id = excluded.room_id,
 	route_target = excluded.route_target,
@@ -229,13 +242,40 @@ ON CONFLICT(id) DO UPDATE SET
 	enabled = excluded.enabled,
 	last_run_at = COALESCE(excluded.last_run_at, pulse_tasks.last_run_at),
 	last_result_summary = COALESCE(excluded.last_result_summary, pulse_tasks.last_result_summary),
+	active_durable_task_id = COALESCE(excluded.active_durable_task_id, pulse_tasks.active_durable_task_id),
+	last_durable_task_id = COALESCE(excluded.last_durable_task_id, pulse_tasks.last_durable_task_id),
 	updated_at = excluded.updated_at
 `, task.ID, roomID, routeTarget, routeTarget, strings.TrimSpace(task.Title), strings.TrimSpace(task.Prompt), task.ScheduleType, task.IntervalSeconds, task.SpecificTime,
-		nullTime(task.SpecificAt), task.Enabled, nullTime(task.LastRunAt), task.LastResultSummary, now, now)
+		nullTime(task.SpecificAt), task.Enabled, nullTime(task.LastRunAt), task.LastResultSummary, task.ActiveDurableTaskID, task.LastDurableTaskID, now, now)
 	if err != nil {
 		return persistence.PulseTask{}, err
 	}
 	return s.getTask(ctx, roomID, routeTarget, task.ID)
+}
+
+func (s *sqlitePulseStore) MarkTaskRunQueued(ctx context.Context, roomID, routeTarget, taskID, durableTaskID string) (persistence.PulseTask, error) {
+	if err := s.Init(ctx); err != nil {
+		return persistence.PulseTask{}, err
+	}
+	roomID = strings.TrimSpace(roomID)
+	routeTarget = strings.TrimSpace(routeTarget)
+	taskID = strings.TrimSpace(taskID)
+	durableTaskID = strings.TrimSpace(durableTaskID)
+	if roomID == "" || taskID == "" || durableTaskID == "" {
+		return persistence.PulseTask{}, persistence.ErrNotFound
+	}
+	result, err := s.db.ExecContext(ctx, `
+UPDATE pulse_tasks
+SET active_durable_task_id = ?,
+	updated_at = ?
+WHERE room_id = ? AND route_target = ? AND id = ?`, durableTaskID, time.Now().UTC(), roomID, routeTarget, taskID)
+	if err != nil {
+		return persistence.PulseTask{}, err
+	}
+	if rows, _ := result.RowsAffected(); rows == 0 {
+		return persistence.PulseTask{}, persistence.ErrNotFound
+	}
+	return s.getTask(ctx, roomID, routeTarget, taskID)
 }
 
 func (s *sqlitePulseStore) DeleteTask(ctx context.Context, roomID, routeTarget, taskID string) error {
@@ -310,15 +350,15 @@ func (s *sqlitePulseStore) CompleteRoomPulse(ctx context.Context, completion per
 	completedAt := completion.CompletedAt.UTC()
 	result, err := tx.ExecContext(ctx, `
 UPDATE pulse_rooms
-SET active_claim_token = NULL,
-	active_claim_until = NULL,
+SET active_claim_token = CASE WHEN ? = '' THEN active_claim_token ELSE NULL END,
+	active_claim_until = CASE WHEN ? = '' THEN active_claim_until ELSE NULL END,
 	last_pulse_completed_at = ?,
 	last_pulse_summary = NULLIF(?, ''),
 	last_pulse_error = NULLIF(?, ''),
 	updated_at = ?,
 	revision = revision + 1
-WHERE room_id = ? AND route_target = ? AND active_claim_token = ?
-`, completedAt, completion.Summary, completion.Error, time.Now().UTC(), strings.TrimSpace(completion.RoomID), strings.TrimSpace(completion.RouteTarget), strings.TrimSpace(completion.Token))
+WHERE room_id = ? AND route_target = ? AND (? = '' OR active_claim_token = ?)
+`, strings.TrimSpace(completion.Token), strings.TrimSpace(completion.Token), completedAt, completion.Summary, completion.Error, time.Now().UTC(), strings.TrimSpace(completion.RoomID), strings.TrimSpace(completion.RouteTarget), strings.TrimSpace(completion.Token), strings.TrimSpace(completion.Token))
 	if err != nil {
 		return err
 	}
@@ -330,9 +370,17 @@ WHERE room_id = ? AND route_target = ? AND active_claim_token = ?
 UPDATE pulse_tasks
 SET last_run_at = ?,
 	last_result_summary = NULLIF(?, ''),
+	active_durable_task_id = CASE
+		WHEN ? = '' OR active_durable_task_id = ? THEN NULL
+		ELSE active_durable_task_id
+	END,
+	last_durable_task_id = CASE
+		WHEN ? = '' THEN last_durable_task_id
+		ELSE ?
+	END,
 	updated_at = ?
 WHERE room_id = ? AND route_target = ? AND id = ?
-`, completedAt, completion.Summary, completedAt, strings.TrimSpace(completion.RoomID), strings.TrimSpace(completion.RouteTarget), strings.TrimSpace(taskID)); err != nil {
+`, completedAt, completion.Summary, strings.TrimSpace(completion.DurableTaskID), strings.TrimSpace(completion.DurableTaskID), strings.TrimSpace(completion.DurableTaskID), strings.TrimSpace(completion.DurableTaskID), completedAt, strings.TrimSpace(completion.RoomID), strings.TrimSpace(completion.RouteTarget), strings.TrimSpace(taskID)); err != nil {
 			return err
 		}
 	}
@@ -360,6 +408,6 @@ FROM pulse_rooms
 
 const sqlitePulseTaskSelectSQL = `
 SELECT id, room_id, route_target, title, prompt, schedule_type, interval_seconds, specific_time, specific_at,
-	enabled, last_run_at, last_result_summary, created_at, updated_at
+	enabled, last_run_at, last_result_summary, active_durable_task_id, last_durable_task_id, created_at, updated_at
 FROM pulse_tasks
 `

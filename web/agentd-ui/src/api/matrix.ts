@@ -71,6 +71,11 @@ export interface MatrixTask {
   nextRunAt?: string;
   nextRunHuman?: string;
   lastResultSummary?: string;
+  activeRunId?: string;
+  activeRunStatus?: "queued" | "running" | "waiting" | "completed" | "failed" | "cancelled";
+  activeRunQueuedAt?: string;
+  lastRunId?: string;
+  lastRunStatus?: "queued" | "running" | "waiting" | "completed" | "failed" | "cancelled";
   createdAt: string;
   updatedAt: string;
 }

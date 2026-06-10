@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS pulse_tasks (
     enabled BOOLEAN NOT NULL DEFAULT TRUE,
     last_run_at TIMESTAMPTZ,
     last_result_summary TEXT,
+	active_durable_task_id TEXT,
+	last_durable_task_id TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	CONSTRAINT pulse_tasks_room_id_route_target_fkey
@@ -64,6 +66,8 @@ ALTER TABLE pulse_tasks ADD COLUMN IF NOT EXISTS bot_id TEXT NOT NULL DEFAULT ''
 ALTER TABLE pulse_tasks ADD COLUMN IF NOT EXISTS schedule_type TEXT NOT NULL DEFAULT 'interval';
 ALTER TABLE pulse_tasks ADD COLUMN IF NOT EXISTS specific_time TEXT NOT NULL DEFAULT '';
 ALTER TABLE pulse_tasks ADD COLUMN IF NOT EXISTS specific_at TIMESTAMPTZ;
+ALTER TABLE pulse_tasks ADD COLUMN IF NOT EXISTS active_durable_task_id TEXT;
+ALTER TABLE pulse_tasks ADD COLUMN IF NOT EXISTS last_durable_task_id TEXT;
 UPDATE pulse_tasks
 SET route_target = COALESCE(NULLIF(route_target, ''), bot_id, '')
 WHERE route_target IS NULL OR route_target = '';
@@ -309,7 +313,7 @@ ON CONFLICT (room_id, route_target) DO UPDATE SET
 
 func (s *pgPulseStore) ListTasks(ctx context.Context, roomID, routeTarget string) ([]persistence.PulseTask, error) {
 	rows, err := s.pool.Query(ctx, `
-SELECT id, room_id, route_target, title, prompt, schedule_type, interval_seconds, specific_time, specific_at, enabled, last_run_at, last_result_summary, created_at, updated_at
+SELECT id, room_id, route_target, title, prompt, schedule_type, interval_seconds, specific_time, specific_at, enabled, last_run_at, last_result_summary, active_durable_task_id, last_durable_task_id, created_at, updated_at
 FROM pulse_tasks
 WHERE room_id = $1 AND route_target = $2
 ORDER BY created_at ASC, id ASC
@@ -349,9 +353,9 @@ func (s *pgPulseStore) UpsertTask(ctx context.Context, task persistence.PulseTas
 	}
 	_, err = s.pool.Exec(ctx, `
 INSERT INTO pulse_tasks (
-	id, room_id, route_target, bot_id, title, prompt, schedule_type, interval_seconds, specific_time, specific_at, enabled, last_run_at, last_result_summary, created_at, updated_at
+	id, room_id, route_target, bot_id, title, prompt, schedule_type, interval_seconds, specific_time, specific_at, enabled, last_run_at, last_result_summary, active_durable_task_id, last_durable_task_id, created_at, updated_at
 )
-VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULLIF($12, ''), NOW(), NOW())
+VALUES ($1, $2, $3, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULLIF($12, ''), NULLIF($13, ''), NULLIF($14, ''), NOW(), NOW())
 ON CONFLICT (id) DO UPDATE SET
     room_id = EXCLUDED.room_id,
 	route_target = EXCLUDED.route_target,
@@ -365,12 +369,37 @@ ON CONFLICT (id) DO UPDATE SET
     enabled = EXCLUDED.enabled,
     last_run_at = COALESCE(EXCLUDED.last_run_at, pulse_tasks.last_run_at),
     last_result_summary = COALESCE(EXCLUDED.last_result_summary, pulse_tasks.last_result_summary),
+    active_durable_task_id = COALESCE(EXCLUDED.active_durable_task_id, pulse_tasks.active_durable_task_id),
+    last_durable_task_id = COALESCE(EXCLUDED.last_durable_task_id, pulse_tasks.last_durable_task_id),
     updated_at = NOW()
-`, task.ID, roomID, routeTarget, strings.TrimSpace(task.Title), strings.TrimSpace(task.Prompt), task.ScheduleType, task.IntervalSeconds, task.SpecificTime, nullTime(task.SpecificAt), task.Enabled, nullTime(task.LastRunAt), emptyToNil(task.LastResultSummary))
+`, task.ID, roomID, routeTarget, strings.TrimSpace(task.Title), strings.TrimSpace(task.Prompt), task.ScheduleType, task.IntervalSeconds, task.SpecificTime, nullTime(task.SpecificAt), task.Enabled, nullTime(task.LastRunAt), emptyToNil(task.LastResultSummary), emptyToNil(task.ActiveDurableTaskID), emptyToNil(task.LastDurableTaskID))
 	if err != nil {
 		return persistence.PulseTask{}, err
 	}
 	return s.getTask(ctx, roomID, routeTarget, task.ID)
+}
+
+func (s *pgPulseStore) MarkTaskRunQueued(ctx context.Context, roomID, routeTarget, taskID, durableTaskID string) (persistence.PulseTask, error) {
+	roomID = strings.TrimSpace(roomID)
+	routeTarget = strings.TrimSpace(routeTarget)
+	taskID = strings.TrimSpace(taskID)
+	durableTaskID = strings.TrimSpace(durableTaskID)
+	if roomID == "" || taskID == "" || durableTaskID == "" {
+		return persistence.PulseTask{}, persistence.ErrNotFound
+	}
+	cmd, err := s.pool.Exec(ctx, `
+UPDATE pulse_tasks
+SET active_durable_task_id = $4,
+    updated_at = NOW()
+WHERE room_id = $1 AND route_target = $2 AND id = $3
+`, roomID, routeTarget, taskID, durableTaskID)
+	if err != nil {
+		return persistence.PulseTask{}, err
+	}
+	if cmd.RowsAffected() == 0 {
+		return persistence.PulseTask{}, persistence.ErrNotFound
+	}
+	return s.getTask(ctx, roomID, routeTarget, taskID)
 }
 
 func (s *pgPulseStore) DeleteTask(ctx context.Context, roomID, routeTarget, taskID string) error {
@@ -432,14 +461,14 @@ func (s *pgPulseStore) CompleteRoomPulse(ctx context.Context, completion persist
 
 	cmd, err := tx.Exec(ctx, `
 UPDATE pulse_rooms
-SET active_claim_token = NULL,
-    active_claim_until = NULL,
+SET active_claim_token = CASE WHEN $2 = '' THEN active_claim_token ELSE NULL END,
+    active_claim_until = CASE WHEN $2 = '' THEN active_claim_until ELSE NULL END,
     last_pulse_completed_at = $3,
     last_pulse_summary = NULLIF($4, ''),
     last_pulse_error = NULLIF($5, ''),
     updated_at = NOW(),
     revision = revision + 1
-WHERE room_id = $1 AND route_target = $6 AND active_claim_token = $2
+WHERE room_id = $1 AND route_target = $6 AND ($2 = '' OR active_claim_token = $2)
 `, strings.TrimSpace(completion.RoomID), strings.TrimSpace(completion.Token), completion.CompletedAt.UTC(), completion.Summary, completion.Error, strings.TrimSpace(completion.RouteTarget))
 	if err != nil {
 		return err
@@ -452,9 +481,17 @@ WHERE room_id = $1 AND route_target = $6 AND active_claim_token = $2
 UPDATE pulse_tasks
 SET last_run_at = $3,
     last_result_summary = NULLIF($4, ''),
+    active_durable_task_id = CASE
+        WHEN $6 = '' OR active_durable_task_id = $6 THEN NULL
+        ELSE active_durable_task_id
+    END,
+    last_durable_task_id = CASE
+        WHEN $6 = '' THEN last_durable_task_id
+        ELSE $6
+    END,
     updated_at = NOW()
 WHERE room_id = $1 AND route_target = $5 AND id = ANY($2)
-`, strings.TrimSpace(completion.RoomID), completion.DueTaskIDs, completion.CompletedAt.UTC(), completion.Summary, strings.TrimSpace(completion.RouteTarget)); err != nil {
+`, strings.TrimSpace(completion.RoomID), completion.DueTaskIDs, completion.CompletedAt.UTC(), completion.Summary, strings.TrimSpace(completion.RouteTarget), strings.TrimSpace(completion.DurableTaskID)); err != nil {
 			return err
 		}
 	}

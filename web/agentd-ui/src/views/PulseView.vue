@@ -99,12 +99,69 @@ function isImage(mime?: string) {
 }
 
 // ── tasks ──────────────────────────────────────────────────────────────────
+type MatrixTaskRunStatus = NonNullable<MatrixTask["activeRunStatus"]>;
+
+const ACTIVE_PULSE_RUN_STATUSES = new Set<MatrixTaskRunStatus>([
+  "queued",
+  "running",
+  "waiting",
+]);
+
+const fastTaskPolling = ref(false);
+
+function isPulseRunActive(task: MatrixTask) {
+  if (!task.activeRunId) return false;
+  if (!task.activeRunStatus) return true;
+  return ACTIVE_PULSE_RUN_STATUSES.has(task.activeRunStatus);
+}
+
+function taskStateLabel(task: MatrixTask) {
+  if (!task.enabled) return "disabled";
+  if (isPulseRunActive(task)) return task.activeRunStatus || "queued";
+  if (task.due) return "due";
+  if (task.lastRunStatus) return task.lastRunStatus;
+  return "waiting";
+}
+
+function taskStateTone(
+  task: MatrixTask,
+): "accent" | "neutral" | "success" | "danger" | "warning" | "info" {
+  const state = taskStateLabel(task);
+  if (state === "running") return "accent";
+  if (state === "queued" || state === "waiting") return "info";
+  if (state === "due") return "warning";
+  if (state === "completed") return "success";
+  if (state === "failed") return "danger";
+  return "neutral";
+}
+
+function taskRunButtonLabel(task: MatrixTask) {
+  if (isPulseRunActive(task)) {
+    if (task.activeRunStatus === "running") return "Running…";
+    if (task.activeRunStatus === "waiting") return "Waiting…";
+    return "Queued…";
+  }
+  return "Run now";
+}
+
+function taskDurableRunId(task: MatrixTask) {
+  return task.activeRunId || task.lastRunId || "";
+}
+
 const { data: tasks, isPending: tasksLoading } = useQuery({
   queryKey: computed(() => ["matrix-tasks", selectedRoomId.value]),
   queryFn: () => listMatrixRoomTasks(selectedRoomId.value!),
   enabled: computed(() => !!selectedRoomId.value),
-  refetchInterval: 10_000,
+  refetchInterval: computed(() => (fastTaskPolling.value ? 2_000 : 10_000)),
 });
+
+watch(
+  tasks,
+  (list) => {
+    fastTaskPolling.value = !!list?.some(isPulseRunActive);
+  },
+  { immediate: true },
+);
 
 // task form state
 const showNewTask = ref(false);
@@ -817,11 +874,13 @@ async function doDelete(id: string) {
                   <div
                     :class="[
                       'h-2.5 w-2.5 rounded-full',
-                      task.enabled
+                      isPulseRunActive(task)
+                        ? 'animate-pulse bg-accent text-accent'
+                        : task.enabled
                         ? 'bg-success text-success'
                         : 'bg-subtle-foreground/30',
                     ]"
-                    :title="task.enabled ? 'enabled' : 'disabled'"
+                    :title="taskStateLabel(task)"
                   />
                 </div>
                 <div class="min-w-0 flex-1">
@@ -842,7 +901,9 @@ async function doDelete(id: string) {
                 <Pill v-if="task.routeTarget" tone="info" size="sm"
                   >→ {{ task.routeTarget }}</Pill
                 >
-                <Pill v-if="task.due" tone="warning" size="sm">due</Pill>
+                <Pill :tone="taskStateTone(task)" size="sm">
+                  {{ taskStateLabel(task) }}
+                </Pill>
               </div>
 
               <!-- timing row -->
@@ -875,6 +936,21 @@ async function doDelete(id: string) {
                 </p>
               </div>
 
+              <div
+                v-if="taskDurableRunId(task)"
+                class="border-t border-border/30 px-4 py-2"
+              >
+                <RouterLink
+                  :to="{
+                    name: 'durable-task',
+                    params: { taskId: taskDurableRunId(task) },
+                  }"
+                  class="truncate text-[11px] font-semibold text-accent transition hover:text-accent/80"
+                >
+                  Durable run: {{ taskDurableRunId(task) }}
+                </RouterLink>
+              </div>
+
               <!-- action row -->
               <div
                 class="flex items-center gap-1.5 border-t border-border/30 px-4 py-2.5"
@@ -901,10 +977,14 @@ async function doDelete(id: string) {
                 <button
                   type="button"
                   class="rounded-md border border-border/50 px-2.5 py-1 text-[11px] font-semibold text-subtle-foreground transition hover:border-accent/50 hover:text-accent"
-                  :disabled="runMutation.isPending.value"
+                  :disabled="
+                    runMutation.isPending.value ||
+                    isPulseRunActive(task) ||
+                    !task.enabled
+                  "
                   @click="runMutation.mutate(task.id)"
                 >
-                  Run now
+                  {{ taskRunButtonLabel(task) }}
                 </button>
 
                 <div class="flex-1" />

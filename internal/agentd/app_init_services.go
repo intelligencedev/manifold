@@ -189,7 +189,8 @@ func newAppShell(deps appShellDeps) *app {
 		Lease:        5 * time.Minute,
 		PollInterval: 500 * time.Millisecond,
 		QueueConcurrency: map[string]int{
-			durableChatQueue: durableChatWorkerConcurrency,
+			durableChatQueue:  durableChatWorkerConcurrency,
+			durablePulseQueue: 1,
 		},
 	})
 	return a

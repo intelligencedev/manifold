@@ -178,12 +178,7 @@ func (a *app) forceMatrixTaskRunNow(ctx context.Context, roomID, taskID string) 
 	if err != nil {
 		return matrixTaskResponse{}, err
 	}
-	interval := time.Duration(task.IntervalSeconds) * time.Second
-	if interval <= 0 {
-		interval = 48 * time.Hour
-	}
-	task.LastRunAt = time.Now().UTC().Add(-interval - time.Second)
-	stored, err := a.pulseRuntime.store.UpsertTask(ctx, task)
+	stored, err := a.enqueuePulseTaskRun(ctx, room, task, pulseRunReasonManual, time.Now().UTC())
 	if err != nil {
 		return matrixTaskResponse{}, err
 	}
@@ -252,6 +247,7 @@ func (a *app) matrixTaskResponseFor(ctx context.Context, room persistence.PulseR
 		response.NextRunAt = status.NextRunAt
 		response.NextRunHuman = status.NextRunAt.Format(time.RFC3339)
 	}
+	a.applyMatrixTaskRunState(ctx, &response, status.Task)
 	return response, nil
 }
 

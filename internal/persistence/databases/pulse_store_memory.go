@@ -170,6 +170,12 @@ func (s *memPulseStore) UpsertTask(ctx context.Context, task persistence.PulseTa
 		if task.LastResultSummary == "" {
 			task.LastResultSummary = existing.LastResultSummary
 		}
+		if task.ActiveDurableTaskID == "" {
+			task.ActiveDurableTaskID = existing.ActiveDurableTaskID
+		}
+		if task.LastDurableTaskID == "" {
+			task.LastDurableTaskID = existing.LastDurableTaskID
+		}
 	} else {
 		task.CreatedAt = now
 	}
@@ -180,6 +186,25 @@ func (s *memPulseStore) UpsertTask(ctx context.Context, task persistence.PulseTa
 	}
 	task.UpdatedAt = now
 	s.tasks[scopeKey][task.ID] = task
+	return clonePulseTask(task), nil
+}
+
+func (s *memPulseStore) MarkTaskRunQueued(ctx context.Context, roomID, routeTarget, taskID, durableTaskID string) (persistence.PulseTask, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	scopeKey := pulseScopeKey(roomID, routeTarget)
+	taskID = strings.TrimSpace(taskID)
+	durableTaskID = strings.TrimSpace(durableTaskID)
+	if taskID == "" || durableTaskID == "" {
+		return persistence.PulseTask{}, persistence.ErrNotFound
+	}
+	task, ok := s.tasks[scopeKey][taskID]
+	if !ok {
+		return persistence.PulseTask{}, persistence.ErrNotFound
+	}
+	task.ActiveDurableTaskID = durableTaskID
+	task.UpdatedAt = time.Now().UTC()
+	s.tasks[scopeKey][taskID] = task
 	return clonePulseTask(task), nil
 }
 
@@ -241,12 +266,14 @@ func (s *memPulseStore) CompleteRoomPulse(ctx context.Context, completion persis
 	if !ok {
 		return persistence.ErrNotFound
 	}
-	if room.ActiveClaimToken != completion.Token {
+	if completion.Token != "" && room.ActiveClaimToken != completion.Token {
 		return persistence.ErrRevisionConflict
 	}
 	completedAt := completion.CompletedAt.UTC()
-	room.ActiveClaimToken = ""
-	room.ActiveClaimUntil = time.Time{}
+	if completion.Token != "" {
+		room.ActiveClaimToken = ""
+		room.ActiveClaimUntil = time.Time{}
+	}
 	room.LastPulseCompletedAt = completedAt
 	room.LastPulseSummary = completion.Summary
 	room.LastPulseError = completion.Error
@@ -263,6 +290,12 @@ func (s *memPulseStore) CompleteRoomPulse(ctx context.Context, completion persis
 		}
 		task.LastRunAt = completedAt
 		task.LastResultSummary = completion.Summary
+		if completion.DurableTaskID == "" || task.ActiveDurableTaskID == completion.DurableTaskID {
+			task.ActiveDurableTaskID = ""
+		}
+		if completion.DurableTaskID != "" {
+			task.LastDurableTaskID = completion.DurableTaskID
+		}
 		task.UpdatedAt = completedAt
 		s.tasks[scopeKey][taskID] = task
 	}

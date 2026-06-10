@@ -21,6 +21,7 @@ func (a *app) registerDurableHandlers() {
 	}
 	a.durableRegistry.Register(durableFlowQueue, durableFlowRunTaskName, a.runDurableFlowV2Task)
 	a.durableRegistry.Register(durableChatQueue, durableChatRunTaskName, a.runDurableChatTask)
+	a.durableRegistry.Register(durablePulseQueue, durablePulseRunTaskName, a.runDurablePulseTask)
 }
 
 func (a *app) runDurableFlowV2Task(ctx context.Context, params map[string]any) (map[string]any, error) {

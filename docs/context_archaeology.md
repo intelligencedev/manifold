@@ -65,7 +65,8 @@ When archaeology is enabled, the agent tool registry exposes:
 - `decision_record` for recording an explicit decision with optional evidence,
   assumption links, and rejected alternatives.
 - `decision_review` for accepting/rejecting extracted candidates and updating
-  lifecycle state (`reaffirm`, `revoke`, `mark_stale`, `needs_review`).
+  lifecycle state (`reaffirm`, `revoke`, `mark_stale`, `needs_review`,
+  `supersede`).
 
 ## Archival
 

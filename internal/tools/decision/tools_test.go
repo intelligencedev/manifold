@@ -109,3 +109,107 @@ func TestReviewToolAcceptsAndRejectsCandidates(t *testing.T) {
 		t.Fatalf("unexpected rejected candidate: %#v", rejectedRecord)
 	}
 }
+
+func TestReviewToolSupersedesWithReplacementPayload(t *testing.T) {
+	t.Parallel()
+	ctx := auth.WithUser(context.Background(), &auth.User{ID: 7})
+	store := databases.NewMemoryDecisionStore()
+	service := &decisionmem.Service{Store: store}
+	old, err := service.CreateDecision(ctx, decisionmem.Decision{
+		TenantID:   7,
+		ScopeID:    "scope-1",
+		Statement:  "Use the old memory retrieval implementation.",
+		Status:     decisionmem.DecisionStatusActive,
+		Confidence: 0.8,
+	})
+	if err != nil {
+		t.Fatalf("CreateDecision() error = %v", err)
+	}
+
+	result, err := NewReviewTool(service).Call(ctx, json.RawMessage(`{
+		"action":"supersede",
+		"decisionId":"`+old.ID+`",
+		"reason":"new deterministic decision lane is in place",
+		"replacement":{
+			"scopeId":"scope-1",
+			"statement":"Use deterministic decision retrieval for active memory context.",
+			"rationale":"Active decisions now enter prompt context without tool calls.",
+			"confidence":0.92,
+			"evidence":[{"sourceKind":"artifact","sourceId":"commit-685a93a","polarity":"for"}],
+			"alternatives":[{"statement":"Keep decision retrieval manual","rejectionReason":"active decisions would be easy to miss"}]
+		}
+	}`))
+	if err != nil {
+		t.Fatalf("supersede with replacement error = %v", err)
+	}
+	payload := result.(map[string]any)
+	updated := payload["decision"].(decisionmem.Decision)
+	replacement := payload["replacement"].(decisionmem.Decision)
+	if updated.Status != decisionmem.DecisionStatusSuperseded || updated.SupersededBy != replacement.ID {
+		t.Fatalf("unexpected superseded decision: %#v replacement=%#v", updated, replacement)
+	}
+	if replacement.Status != decisionmem.DecisionStatusActive || replacement.ReviewState != decisionmem.ReviewStateOperatorApproved || replacement.DecidedBy != "human:7" {
+		t.Fatalf("unexpected replacement decision: %#v", replacement)
+	}
+	lineage, ok, err := service.LoadLineage(ctx, 7, replacement.ID)
+	if err != nil || !ok {
+		t.Fatalf("LoadLineage() ok=%v error=%v", ok, err)
+	}
+	if len(lineage.Evidence) != 1 || len(lineage.Alternatives) != 1 {
+		t.Fatalf("expected replacement context, got %#v", lineage)
+	}
+	transitions, err := store.ListTransitions(ctx, decisionmem.TransitionQuery{TenantID: 7, DecisionID: old.ID})
+	if err != nil {
+		t.Fatalf("ListTransitions() error = %v", err)
+	}
+	if len(transitions) != 2 || transitions[1].TriggerKind != decisionmem.TriggerSupersession || transitions[1].TriggerID != replacement.ID {
+		t.Fatalf("expected supersession transition, got %#v", transitions)
+	}
+}
+
+func TestReviewToolSupersedesWithExistingDecision(t *testing.T) {
+	t.Parallel()
+	ctx := auth.WithUser(context.Background(), &auth.User{ID: 7})
+	store := databases.NewMemoryDecisionStore()
+	service := &decisionmem.Service{Store: store}
+	old, err := service.CreateDecision(ctx, decisionmem.Decision{
+		TenantID:   7,
+		ScopeID:    "scope-1",
+		Statement:  "Use manual decision lookup before each implementation.",
+		Status:     decisionmem.DecisionStatusActive,
+		Confidence: 0.8,
+	})
+	if err != nil {
+		t.Fatalf("CreateDecision(old) error = %v", err)
+	}
+	replacement, err := service.CreateDecision(ctx, decisionmem.Decision{
+		TenantID:    7,
+		ScopeID:     "scope-1",
+		Statement:   "Use the recorded decision lane for active decision context.",
+		Status:      decisionmem.DecisionStatusActive,
+		ReviewState: decisionmem.ReviewStateOperatorApproved,
+		Confidence:  0.9,
+	})
+	if err != nil {
+		t.Fatalf("CreateDecision(replacement) error = %v", err)
+	}
+
+	result, err := NewReviewTool(service).Call(ctx, json.RawMessage(`{
+		"action":"supersede",
+		"decisionId":"`+old.ID+`",
+		"supersededBy":"`+replacement.ID+`",
+		"reason":"replacement already recorded"
+	}`))
+	if err != nil {
+		t.Fatalf("supersede with existing decision error = %v", err)
+	}
+	payload := result.(map[string]any)
+	updated := payload["decision"].(decisionmem.Decision)
+	gotReplacement := payload["replacement"].(decisionmem.Decision)
+	if updated.Status != decisionmem.DecisionStatusSuperseded || updated.SupersededBy != replacement.ID {
+		t.Fatalf("unexpected superseded decision: %#v", updated)
+	}
+	if gotReplacement.ID != replacement.ID {
+		t.Fatalf("expected existing replacement %s, got %#v", replacement.ID, gotReplacement)
+	}
+}

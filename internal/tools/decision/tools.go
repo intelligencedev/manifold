@@ -140,13 +140,14 @@ func (t *reviewTool) JSONSchema() map[string]any {
 			"properties": map[string]any{
 				"action": map[string]any{
 					"type": "string",
-					"enum": []any{"accept_candidate", "reject_candidate", "reaffirm", "revoke", "mark_stale", "needs_review"},
+					"enum": []any{"accept_candidate", "reject_candidate", "reaffirm", "revoke", "mark_stale", "needs_review", "supersede"},
 				},
 				"candidateId":  map[string]any{"type": "string"},
 				"decisionId":   map[string]any{"type": "string"},
 				"reason":       map[string]any{"type": "string"},
 				"triggerId":    map[string]any{"type": "string"},
 				"supersededBy": map[string]any{"type": "string"},
+				"replacement":  decisionReplacementSchema(),
 			},
 		},
 	}
@@ -188,6 +189,34 @@ func assumptionArraySchema() map[string]any {
 			"belief_confidence_at_link": map[string]any{"type": "number"},
 		},
 	}}
+}
+
+func decisionReplacementSchema() map[string]any {
+	return map[string]any{
+		"type":     "object",
+		"required": []string{"scopeId", "statement"},
+		"properties": map[string]any{
+			"scopeId":     map[string]any{"type": "string"},
+			"episodeId":   map[string]any{"type": "string"},
+			"title":       map[string]any{"type": "string"},
+			"statement":   map[string]any{"type": "string"},
+			"rationale":   map[string]any{"type": "string"},
+			"status":      decisionStatusSchema(),
+			"reviewState": reviewStateSchema(),
+			"confidence":  map[string]any{"type": "number", "minimum": 0, "maximum": 1},
+			"evidence":    evidenceArraySchema(),
+			"assumptions": assumptionArraySchema(),
+			"alternatives": map[string]any{"type": "array", "items": map[string]any{
+				"type":     "object",
+				"required": []string{"statement"},
+				"properties": map[string]any{
+					"statement":       map[string]any{"type": "string"},
+					"rejectionReason": map[string]any{"type": "string"},
+				},
+			}},
+			"metadata": map[string]any{"type": "object"},
+		},
+	}
 }
 
 func (t *searchTool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -351,12 +380,13 @@ func (t *reviewTool) Call(ctx context.Context, raw json.RawMessage) (any, error)
 		return nil, decisionmem.ErrStoreRequired
 	}
 	var args struct {
-		Action       string `json:"action"`
-		CandidateID  string `json:"candidateId"`
-		DecisionID   string `json:"decisionId"`
-		Reason       string `json:"reason"`
-		TriggerID    string `json:"triggerId"`
-		SupersededBy string `json:"supersededBy"`
+		Action       string      `json:"action"`
+		CandidateID  string      `json:"candidateId"`
+		DecisionID   string      `json:"decisionId"`
+		Reason       string      `json:"reason"`
+		TriggerID    string      `json:"triggerId"`
+		SupersededBy string      `json:"supersededBy"`
+		Replacement  *recordArgs `json:"replacement"`
 	}
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return nil, err
@@ -382,9 +412,110 @@ func (t *reviewTool) Call(ctx context.Context, raw json.RawMessage) (any, error)
 		})
 	case "needs_review":
 		return t.service.MarkNeedsReview(ctx, tenantID, args.DecisionID, args.Reason, args.TriggerID)
+	case "supersede":
+		return t.supersede(ctx, supersedeRequest{
+			TenantID:     tenantID,
+			Actor:        actor,
+			DecisionID:   args.DecisionID,
+			SupersededBy: args.SupersededBy,
+			Reason:       args.Reason,
+			Replacement:  args.Replacement,
+		})
 	default:
 		return nil, errors.New("unsupported decision review action")
 	}
+}
+
+type supersedeRequest struct {
+	TenantID     int64
+	Actor        *int64
+	DecisionID   string
+	SupersededBy string
+	Reason       string
+	Replacement  *recordArgs
+}
+
+func (t *reviewTool) supersede(ctx context.Context, req supersedeRequest) (any, error) {
+	replacementID := strings.TrimSpace(req.SupersededBy)
+	hasReplacement := req.Replacement != nil
+	hasReplacementID := replacementID != ""
+	switch {
+	case !hasReplacement && !hasReplacementID:
+		return nil, errors.New("supersede requires replacement or supersededBy")
+	case hasReplacement && hasReplacementID:
+		return nil, errors.New("supersede requires exactly one of replacement or supersededBy")
+	case hasReplacement:
+		return t.supersedeWithReplacement(ctx, req.TenantID, req.Actor, req.DecisionID, req.Reason, *req.Replacement)
+	default:
+		return t.supersedeWithExistingDecision(ctx, req.TenantID, req.Actor, req.DecisionID, replacementID, req.Reason)
+	}
+}
+
+func (t *reviewTool) supersedeWithReplacement(ctx context.Context, tenantID int64, actor *int64, decisionID, reason string, replacement recordArgs) (any, error) {
+	if strings.TrimSpace(replacement.ScopeID) == "" {
+		return nil, errors.New("replacement scopeId is required")
+	}
+	if strings.TrimSpace(replacement.Statement) == "" {
+		return nil, errors.New("replacement statement is required")
+	}
+	reviewState := replacement.ReviewState
+	if reviewState == "" {
+		reviewState = decisionmem.ReviewStateOperatorApproved
+	}
+	old, created, err := t.service.Supersede(ctx, tenantID, decisionID, decisionmem.Decision{
+		ScopeID:     strings.TrimSpace(replacement.ScopeID),
+		EpisodeID:   strings.TrimSpace(replacement.EpisodeID),
+		Title:       strings.TrimSpace(replacement.Title),
+		Statement:   strings.TrimSpace(replacement.Statement),
+		Rationale:   strings.TrimSpace(replacement.Rationale),
+		DecidedBy:   decidedBy(actor),
+		Status:      decisionmem.NormalizeDecisionStatus(replacement.Status),
+		ReviewState: decisionmem.NormalizeReviewState(reviewState),
+		Confidence:  replacement.Confidence,
+		Metadata:    replacement.Metadata,
+	}, reason, actor)
+	if err != nil {
+		return nil, err
+	}
+	evidence, assumptions, alternatives, err := (&recordTool{service: t.service}).attachContext(ctx, tenantID, created.ID, replacement)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"decision":     old,
+		"replacement":  created,
+		"evidence":     evidence,
+		"assumptions":  assumptions,
+		"alternatives": alternatives,
+	}, nil
+}
+
+func (t *reviewTool) supersedeWithExistingDecision(ctx context.Context, tenantID int64, actor *int64, decisionID, replacementID, reason string) (any, error) {
+	replacement, ok, err := t.service.Store.GetDecision(ctx, tenantID, replacementID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, errors.New("replacement decision not found")
+	}
+	replacementStatus := decisionmem.NormalizeDecisionStatus(replacement.Status)
+	if replacementStatus != decisionmem.DecisionStatusActive && replacementStatus != decisionmem.DecisionStatusProposed {
+		return nil, errors.New("replacement decision must be active or proposed")
+	}
+	old, err := t.service.TransitionDecision(ctx, tenantID, decisionID, decisionmem.DecisionStatusSuperseded, decisionmem.TransitionRequest{
+		Reason:       reason,
+		TriggerKind:  decisionmem.TriggerSupersession,
+		TriggerID:    replacementID,
+		ActorUserID:  actor,
+		SupersededBy: replacementID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"decision":    old,
+		"replacement": replacement,
+	}, nil
 }
 
 func (t *reviewTool) rejectCandidate(ctx context.Context, tenantID int64, candidateID, reason string) (decisionmem.Candidate, error) {

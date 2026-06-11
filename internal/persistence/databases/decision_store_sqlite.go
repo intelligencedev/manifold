@@ -211,7 +211,6 @@ func (s *sqliteDecisionStore) SearchDecisions(ctx context.Context, query decisio
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	scopeSet := stringSet(query.ScopeIDs)
 	statusSet := map[decision.DecisionStatus]bool{}
 	for _, status := range query.Statuses {
 		statusSet[decision.NormalizeDecisionStatus(status)] = true
@@ -227,7 +226,7 @@ func (s *sqliteDecisionStore) SearchDecisions(ctx context.Context, query decisio
 		if err != nil {
 			return nil, err
 		}
-		if len(scopeSet) > 0 && !scopeSet[item.ScopeID] {
+		if !query.MatchesScope(item.ScopeID) {
 			continue
 		}
 		if len(statusSet) > 0 && !statusSet[decision.NormalizeDecisionStatus(item.Status)] {

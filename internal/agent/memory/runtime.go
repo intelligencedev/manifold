@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"manifold/internal/agent/memory/belief"
+	"manifold/internal/agent/memory/decision"
 	"manifold/internal/llm"
 	"manifold/internal/policy"
 )
@@ -27,6 +28,10 @@ type Runtime struct {
 	Belief         belief.Retriever
 	PolicyProvider policy.ContextProvider
 	Magma          MagmaRetriever
+	// Decision is the deterministic decision lane: in-force decisions are
+	// retrieved with plain store reads (no LLM or tool calls) and injected
+	// into prompt context alongside the other memory lanes.
+	Decision decision.Retriever
 
 	BeliefMaxBeliefs          int
 	BeliefPromptTokenBudget   int
@@ -36,6 +41,13 @@ type Runtime struct {
 	MagmaContextFormat        string
 	MagmaMaxHops              int
 	MagmaMaxNodes             int
+	// DecisionMaxPerPrompt bounds how many decisions the decision lane renders.
+	DecisionMaxPerPrompt int
+	// DecisionPromptTokenBudget bounds the rendered decision lane in tokens.
+	DecisionPromptTokenBudget int
+	// DecisionTimeout optionally tightens the decision lane below the shared
+	// lane timeout. Zero means the shared timeout applies.
+	DecisionTimeout time.Duration
 
 	RecordEvolving func(ctx context.Context, record EpisodeRecord) (string, error)
 	RecordBeliefs  func(ctx context.Context, record EpisodeRecord, evolvingEntryID string) error
@@ -159,10 +171,13 @@ func (r *Runtime) PrepareContext(ctx context.Context, req Request) (ContextBlock
 }
 
 func (r *Runtime) collectContextSections(ctx context.Context, req Request, timeout time.Duration, diag *Diagnostics) map[string]string {
-	results := make(chan runtimeLaneResult, 5)
+	results := make(chan runtimeLaneResult, 6)
 	var wg sync.WaitGroup
 	r.startRuntimeLane(runtimeLaneStart{ctx: ctx, timeout: timeout, wg: &wg, results: results, diag: diag, name: "policy", enabled: r.PolicyProvider != nil, fn: func(laneCtx context.Context) (string, int, error) {
 		return r.retrievePolicyContext(laneCtx, req)
+	}})
+	r.startRuntimeLane(runtimeLaneStart{ctx: ctx, timeout: timeout, wg: &wg, results: results, diag: diag, name: "decision", enabled: r.Decision != nil, fn: func(laneCtx context.Context) (string, int, error) {
+		return r.retrieveDecisionContext(laneCtx, req)
 	}})
 	r.startRuntimeLane(runtimeLaneStart{ctx: ctx, timeout: timeout, wg: &wg, results: results, diag: diag, name: "belief", enabled: r.Belief != nil, fn: func(laneCtx context.Context) (string, int, error) {
 		return r.retrieveBeliefContext(laneCtx, req)
@@ -220,6 +235,7 @@ func collectRuntimeSections(results <-chan runtimeLaneResult, diag *Diagnostics)
 func orderedRuntimeSections(sections map[string]string) []string {
 	return []string{
 		sections["policy"],
+		sections["decision"],
 		sections["belief"],
 		sections["magma"],
 		sections["evolving"],
@@ -232,6 +248,32 @@ func (r *Runtime) laneTimeout() time.Duration {
 		return r.Config.Timeout
 	}
 	return defaultRuntimeTimeout
+}
+
+func (r *Runtime) retrieveDecisionContext(ctx context.Context, req Request) (string, int, error) {
+	if r.DecisionTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, r.DecisionTimeout)
+		defer cancel()
+	}
+	results, err := r.Decision.Retrieve(ctx, decision.RetrievalRequest{
+		TenantID:    req.UserID,
+		UserID:      req.UserID,
+		ProjectID:   req.ProjectID,
+		ObjectiveID: req.ObjectiveID,
+		SessionID:   req.SessionID,
+		Role:        req.Role,
+		Query:       req.UserInput,
+		Limit:       firstPositive(r.DecisionMaxPerPrompt, 5),
+	})
+	if err != nil {
+		return "", 0, err
+	}
+	block := decision.BuildPromptSection(results, decision.PromptOptions{
+		MaxDecisions: firstPositive(r.DecisionMaxPerPrompt, 5),
+		MaxTokens:    firstPositive(r.DecisionPromptTokenBudget, 600),
+	})
+	return block.Text, len(block.Selected), nil
 }
 
 func (r *Runtime) retrievePolicyContext(ctx context.Context, req Request) (string, int, error) {

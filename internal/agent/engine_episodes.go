@@ -184,6 +184,7 @@ func (e *Engine) distillDecisions(ctx context.Context, episode belief.Episode, u
 		}
 		audit = candidates
 	}
+	recorded := make([]decision.Candidate, 0, len(audit))
 	for _, record := range audit {
 		if record.TenantID == 0 {
 			record.TenantID = episode.TenantID
@@ -194,11 +195,42 @@ func (e *Engine) distillDecisions(ctx context.Context, episode belief.Episode, u
 		if record.ScopeID == "" {
 			record.ScopeID = episode.ScopeID
 		}
-		if _, err := e.DecisionStore.RecordCandidate(ctx, record); err != nil {
+		stored, err := e.DecisionStore.RecordCandidate(ctx, record)
+		if err != nil {
 			observability.LoggerWithTrace(ctx).Warn().Err(err).Str("episode_id", episode.ID).Msg("decision_candidate_audit_failed")
+			continue
 		}
+		recorded = append(recorded, stored)
 	}
 	observability.LoggerWithTrace(ctx).Info().Int("candidate_count", len(candidates)).Str("episode_id", episode.ID).Msg("decision_distillation_queued")
+	e.autoActivateDecisionCandidates(ctx, episode, recorded)
+}
+
+// autoActivateDecisionCandidates applies the deterministic confidence-gated
+// auto-activation policy to freshly recorded candidates. Conflicting active
+// decisions are flagged needs_review; lifecycle reviews (reaffirm, revoke,
+// supersede, stale->active) always stay deliberate via decision_review.
+func (e *Engine) autoActivateDecisionCandidates(ctx context.Context, episode belief.Episode, candidates []decision.Candidate) {
+	if e == nil || e.DisableBeliefMemory || e.DecisionService == nil || len(candidates) == 0 {
+		return
+	}
+	outcomes, err := e.DecisionService.AutoAcceptCandidates(ctx, episode.TenantID, candidates)
+	if err != nil {
+		observability.LoggerWithTrace(ctx).Warn().Err(err).Str("episode_id", episode.ID).Msg("decision_auto_activation_failed")
+		return
+	}
+	for _, outcome := range outcomes {
+		event := observability.LoggerWithTrace(ctx).Info()
+		if !outcome.Accepted {
+			event = observability.LoggerWithTrace(ctx).Debug()
+		}
+		event.Str("episode_id", episode.ID).
+			Str("candidate_id", outcome.CandidateID).
+			Bool("accepted", outcome.Accepted).
+			Str("decision_id", outcome.Decision.ID).
+			Str("reason", outcome.Reason).
+			Msg("decision_auto_activation")
+	}
 }
 
 func (e *Engine) distillBeliefs(ctx context.Context, episode belief.Episode, userInput, final string, reasoningTrace []string) {

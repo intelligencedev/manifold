@@ -536,6 +536,14 @@ archaeology:
   reactor:
     confidence_floor: 0.35
     confidence_drop_delta: 0.30
+  retrieval:
+    max_decisions_per_prompt: 5
+    max_tokens_per_prompt: 600
+    timeout_ms: 0
+  auto_activate:
+    enabled: false
+    min_confidence: 0.85
+    conflict_similarity_floor: 0.50
 
 # Shared durable memory.
 transit:

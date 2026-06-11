@@ -227,17 +227,29 @@ func (s *pgDecisionStore) SearchDecisions(ctx context.Context, query decision.Se
 	for _, status := range query.Statuses {
 		statuses = append(statuses, string(decision.NormalizeDecisionStatus(status)))
 	}
+	scopeIDs := query.ScopeIDs
+	if scopeIDs == nil {
+		scopeIDs = []string{}
+	}
+	scopePrefixes := query.ScopePrefixes
+	if scopePrefixes == nil {
+		scopePrefixes = []string{}
+	}
 	rows, err := s.pool.Query(ctx, `
 SELECT payload,
-	confidence + CASE WHEN $4 = '' THEN 0 ELSE ts_rank(search_tsv, plainto_tsquery('simple', $4)) END AS score
+	confidence + CASE WHEN $5 = '' THEN 0 ELSE ts_rank(search_tsv, plainto_tsquery('simple', $5)) END AS score
 FROM decision_records
 WHERE tenant_id = $1
-	AND (cardinality($2::text[]) = 0 OR scope_id = ANY($2::text[]))
-	AND (cardinality($3::text[]) = 0 OR status = ANY($3::text[]))
-	AND ($4 = '' OR search_tsv @@ plainto_tsquery('simple', $4) OR statement ILIKE '%' || $4 || '%' OR title ILIKE '%' || $4 || '%' OR rationale ILIKE '%' || $4 || '%')
+	AND (
+		(cardinality($2::text[]) = 0 AND cardinality($3::text[]) = 0)
+		OR scope_id = ANY($2::text[])
+		OR EXISTS (SELECT 1 FROM unnest($3::text[]) AS prefix WHERE left(scope_id, length(prefix)) = prefix)
+	)
+	AND (cardinality($4::text[]) = 0 OR status = ANY($4::text[]))
+	AND ($5 = '' OR search_tsv @@ plainto_tsquery('simple', $5) OR statement ILIKE '%' || $5 || '%' OR title ILIKE '%' || $5 || '%' OR rationale ILIKE '%' || $5 || '%')
 ORDER BY score DESC, updated_at DESC
-LIMIT $5
-`, normalizeTenantID(query.TenantID), query.ScopeIDs, statuses, strings.TrimSpace(query.Query), limit)
+LIMIT $6
+`, normalizeTenantID(query.TenantID), scopeIDs, scopePrefixes, statuses, strings.TrimSpace(query.Query), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -252,7 +264,6 @@ LIMIT $5
 	}
 	return out, rows.Err()
 }
-
 func (s *pgDecisionStore) AddAssumption(ctx context.Context, link decision.AssumptionLink) (decision.AssumptionLink, error) {
 	link.TenantID = normalizeTenantID(link.TenantID)
 	if strings.TrimSpace(link.ID) == "" {

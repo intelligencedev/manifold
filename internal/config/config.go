@@ -171,17 +171,45 @@ type MemoryLLMClientsConfig struct {
 
 // ArchaeologyConfig controls context-archaeology memory features.
 type ArchaeologyConfig struct {
-	Enabled                 bool                     `yaml:"enabled" json:"enabled"`
-	ArchiveBeforeDelete     bool                     `yaml:"archive_before_delete" json:"archiveBeforeDelete"`
-	DecisionDistiller       bool                     `yaml:"decision_distiller" json:"decisionDistiller"`
-	CausalGroundingRequired bool                     `yaml:"causal_grounding_required" json:"causalGroundingRequired"`
-	Reactor                 ArchaeologyReactorConfig `yaml:"reactor" json:"reactor"`
+	Enabled                 bool                          `yaml:"enabled" json:"enabled"`
+	ArchiveBeforeDelete     bool                          `yaml:"archive_before_delete" json:"archiveBeforeDelete"`
+	DecisionDistiller       bool                          `yaml:"decision_distiller" json:"decisionDistiller"`
+	CausalGroundingRequired bool                          `yaml:"causal_grounding_required" json:"causalGroundingRequired"`
+	Reactor                 ArchaeologyReactorConfig      `yaml:"reactor" json:"reactor"`
+	Retrieval               ArchaeologyRetrievalConfig    `yaml:"retrieval" json:"retrieval"`
+	AutoActivate            ArchaeologyAutoActivateConfig `yaml:"auto_activate" json:"autoActivate"`
 }
 
 // ArchaeologyReactorConfig tunes belief-to-decision stale detection.
 type ArchaeologyReactorConfig struct {
 	ConfidenceFloor     float64 `yaml:"confidence_floor" json:"confidenceFloor"`
 	ConfidenceDropDelta float64 `yaml:"confidence_drop_delta" json:"confidenceDropDelta"`
+}
+
+// ArchaeologyRetrievalConfig bounds the deterministic decision lane injected
+// into the unified memory prompt context. The lane only activates when
+// archaeology is enabled and the session memory toggle is on.
+type ArchaeologyRetrievalConfig struct {
+	// MaxDecisionsPerPrompt bounds how many decisions are rendered (default 5).
+	MaxDecisionsPerPrompt int `yaml:"max_decisions_per_prompt" json:"maxDecisionsPerPrompt"`
+	// MaxTokensPerPrompt bounds the rendered decision lane (default 600).
+	MaxTokensPerPrompt int `yaml:"max_tokens_per_prompt" json:"maxTokensPerPrompt"`
+	// TimeoutMs optionally tightens the decision lane below the shared memory
+	// lane timeout. 0 means the shared timeout applies.
+	TimeoutMs int `yaml:"timeout_ms" json:"timeoutMs"`
+}
+
+// ArchaeologyAutoActivateConfig gates deterministic candidate auto-activation.
+// Lifecycle actions (reaffirm, revoke, supersede, stale->active) always stay
+// deliberate operator/agent actions via decision_review.
+type ArchaeologyAutoActivateConfig struct {
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// MinConfidence is the auto-activation floor (default 0.85; the LLM
+	// distiller caps candidate confidence at 0.90).
+	MinConfidence float64 `yaml:"min_confidence" json:"minConfidence"`
+	// ConflictSimilarityFloor is the token-overlap similarity at which an
+	// active in-scope decision is treated as conflicting (default 0.50).
+	ConflictSimilarityFloor float64 `yaml:"conflict_similarity_floor" json:"conflictSimilarityFloor"`
 }
 
 // PromptOverridesConfig customizes built-in prompt blocks.

@@ -280,6 +280,7 @@ type ChatSession struct {
 	EvolvingMemoryEnabled bool      `json:"evolvingMemoryEnabled"`
 	BeliefMemoryEnabled   bool      `json:"beliefMemoryEnabled"`
 	CommandPolicyAllowAll bool      `json:"commandPolicyAllowAll"`
+	Pinned                bool      `json:"pinned"`
 }
 
 // ChatMessage is a single turn within a chat session.
@@ -318,6 +319,7 @@ type ChatStore interface {
 	RenameSession(ctx context.Context, userID *int64, id, name string) (ChatSession, error)
 	SetSessionProject(ctx context.Context, userID *int64, id, projectID string) (ChatSession, error)
 	SetSessionMemorySettings(ctx context.Context, userID *int64, id string, memoryEnabled bool, evolvingMemoryEnabled bool, beliefMemoryEnabled bool) (ChatSession, error)
+	SetSessionPinned(ctx context.Context, userID *int64, id string, pinned bool) (ChatSession, error)
 	DeleteSession(ctx context.Context, userID *int64, id string) error
 	ListMessages(ctx context.Context, userID *int64, sessionID string, limit int) ([]ChatMessage, error)
 	DeleteMessage(ctx context.Context, userID *int64, sessionID string, messageID string) error

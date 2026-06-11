@@ -34,6 +34,15 @@ const chatApiMocks = vi.hoisted(() => ({
       beliefMemoryEnabled: settings.memoryEnabled ?? true,
     }),
   ),
+  updateChatSessionPinned: vi.fn(async (id: string, pinned: boolean) => ({
+    id,
+    name: "Session",
+    projectId: "proj-1",
+    pinned,
+    memoryEnabled: true,
+    evolvingMemoryEnabled: true,
+    beliefMemoryEnabled: true,
+  })),
 }));
 
 vi.mock("@/api/client", () => ({
@@ -88,6 +97,19 @@ vi.mock("@/api/chat", () => ({
     beliefMemoryEnabled: true,
   }),
   updateChatSessionMemorySettings: chatApiMocks.updateChatSessionMemorySettings,
+  updateChatSessionCommandPolicyAllowAll: async (
+    id: string,
+    allow: boolean,
+  ) => ({
+    id,
+    name: "Session",
+    projectId: "proj-1",
+    commandPolicyAllowAll: allow,
+    memoryEnabled: true,
+    evolvingMemoryEnabled: true,
+    beliefMemoryEnabled: true,
+  }),
+  updateChatSessionPinned: chatApiMocks.updateChatSessionPinned,
   generateChatSessionTitle: async () => ({
     id: "session-1",
     name: "Session",
@@ -117,6 +139,7 @@ beforeEach(() => {
   ];
   chatApiMocks.streamAgentRun.mockClear();
   chatApiMocks.updateChatSessionMemorySettings.mockClear();
+  chatApiMocks.updateChatSessionPinned.mockClear();
   vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
     if (String(input).includes("/api/me")) {
       return new Response(JSON.stringify({ name: "Test User" }), {

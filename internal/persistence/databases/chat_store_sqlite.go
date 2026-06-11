@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
 	project_id TEXT NOT NULL DEFAULT '',
 	memory_enabled BOOLEAN NOT NULL DEFAULT FALSE,
 	evolving_memory_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-	belief_memory_enabled BOOLEAN NOT NULL DEFAULT FALSE
+	belief_memory_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+	pinned BOOLEAN NOT NULL DEFAULT FALSE
 );
 CREATE TABLE IF NOT EXISTS chat_messages (
 	id TEXT PRIMARY KEY,
@@ -66,7 +67,10 @@ CREATE INDEX IF NOT EXISTS chat_sessions_user_created_idx ON chat_sessions(user_
 	if err != nil {
 		return err
 	}
-	return ensureSQLiteColumn(ctx, s.db, "chat_messages", "duration_ms", "INTEGER NULL")
+	if err := ensureSQLiteColumn(ctx, s.db, "chat_messages", "duration_ms", "INTEGER NULL"); err != nil {
+		return err
+	}
+	return ensureSQLiteColumn(ctx, s.db, "chat_sessions", "pinned", "BOOLEAN NOT NULL DEFAULT FALSE")
 }
 
 func (s *sqliteChatStore) EnsureSession(ctx context.Context, userID *int64, id string, name string) (persistence.ChatSession, error) {
@@ -106,14 +110,14 @@ func (s *sqliteChatStore) ListSessionsByKind(ctx context.Context, userID *int64,
 	kind = normalizeSessionKind(kind)
 	query := `SELECT id, name, kind, user_id, created_at, updated_at, last_message_preview,
 		(SELECT COUNT(*) FROM chat_messages m WHERE m.session_id = chat_sessions.id) AS message_count,
-		model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled
+		model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled, pinned
 		FROM chat_sessions WHERE kind = ?`
 	args := []any{kind}
 	if userID != nil {
 		query += ` AND user_id = ?`
 		args = append(args, *userID)
 	}
-	query += ` ORDER BY updated_at DESC, created_at DESC`
+	query += ` ORDER BY pinned DESC, updated_at DESC, created_at DESC`
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -136,7 +140,7 @@ func (s *sqliteChatStore) GetSession(ctx context.Context, userID *int64, id stri
 	}
 	query := `SELECT id, name, kind, user_id, created_at, updated_at, last_message_preview,
 		(SELECT COUNT(*) FROM chat_messages m WHERE m.session_id = chat_sessions.id) AS message_count,
-		model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled
+		model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled, pinned
 		FROM chat_sessions WHERE id = ?`
 	args := []any{id}
 	if userID != nil {
@@ -188,6 +192,10 @@ func (s *sqliteChatStore) SetSessionProject(ctx context.Context, userID *int64, 
 
 func (s *sqliteChatStore) SetSessionMemorySettings(ctx context.Context, userID *int64, id string, memoryEnabled bool, evolvingMemoryEnabled bool, beliefMemoryEnabled bool) (persistence.ChatSession, error) {
 	return s.updateSessionReturning(ctx, userID, id, `memory_enabled = ?, evolving_memory_enabled = ?, belief_memory_enabled = ?, updated_at = CURRENT_TIMESTAMP`, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled)
+}
+
+func (s *sqliteChatStore) SetSessionPinned(ctx context.Context, userID *int64, id string, pinned bool) (persistence.ChatSession, error) {
+	return s.updateSessionReturning(ctx, userID, id, `pinned = ?`, pinned)
 }
 
 func (s *sqliteChatStore) DeleteSession(ctx context.Context, userID *int64, id string) error {
@@ -518,7 +526,7 @@ func scanSQLiteChatSession(row interface {
 	var owner sql.NullInt64
 	var createdAt sqliteTime
 	var updatedAt sqliteTime
-	if err := row.Scan(&session.ID, &session.Name, &session.Kind, &owner, &createdAt, &updatedAt, &session.LastMessagePreview, &session.MessageCount, &session.Model, &session.Summary, &session.SummarizedCount, &session.ProjectID, &session.MemoryEnabled, &session.EvolvingMemoryEnabled, &session.BeliefMemoryEnabled); err != nil {
+	if err := row.Scan(&session.ID, &session.Name, &session.Kind, &owner, &createdAt, &updatedAt, &session.LastMessagePreview, &session.MessageCount, &session.Model, &session.Summary, &session.SummarizedCount, &session.ProjectID, &session.MemoryEnabled, &session.EvolvingMemoryEnabled, &session.BeliefMemoryEnabled, &session.Pinned); err != nil {
 		return persistence.ChatSession{}, err
 	}
 	session.CreatedAt = createdAt.Time

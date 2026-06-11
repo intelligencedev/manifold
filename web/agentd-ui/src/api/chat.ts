@@ -90,6 +90,17 @@ export async function updateChatSessionCommandPolicyAllowAll(
   return data;
 }
 
+export async function updateChatSessionPinned(
+  id: string,
+  pinned: boolean,
+): Promise<ChatSessionMeta> {
+  const { data } = await apiClient.patch<ChatSessionMeta>(
+    `/chat/sessions/${encodeURIComponent(id)}`,
+    { pinned },
+  );
+  return data;
+}
+
 export async function deleteChatSession(id: string): Promise<void> {
   await apiClient.delete(`/chat/sessions/${encodeURIComponent(id)}`);
 }

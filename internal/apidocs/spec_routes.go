@@ -227,7 +227,7 @@ func routeCatalogPart6() []routeSpec {
 		}},
 		{path: "/api/chat/sessions/{session_id}", operations: []operationSpec{
 			jsonOp(http.MethodGet, "Chat", "Get chat session", true),
-			jsonOp(http.MethodPatch, "Chat", "Rename chat session", true, withRequestBody("json"), withSuccess(http.StatusOK)),
+			jsonOp(http.MethodPatch, "Chat", "Update chat session", true, withRequestBody("json"), withSuccess(http.StatusOK)),
 			jsonOp(http.MethodDelete, "Chat", "Delete chat session", true, withSuccess(http.StatusNoContent), withResponseMode("none")),
 		}},
 		{path: "/api/chat/sessions/{session_id}/messages", operations: []operationSpec{

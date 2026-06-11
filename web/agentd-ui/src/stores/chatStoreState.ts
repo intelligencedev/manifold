@@ -8,6 +8,7 @@ import type {
 import {
   agentThreadKey,
   normalizeSessionMeta,
+  sortChatSessions,
   snippet,
 } from "@/stores/chatHelpers";
 import { createStreamStateActions } from "@/stores/chatStreamState";
@@ -337,7 +338,7 @@ function touchSession(
   };
   const clone = [...refs.sessions.value];
   clone.splice(idx, 1, updated);
-  refs.sessions.value = clone;
+  refs.sessions.value = sortChatSessions(clone);
 }
 
 function ensureSession(
@@ -358,7 +359,7 @@ function upsertSessionMeta(refs: ChatStoreRefs, meta: ChatSessionMeta) {
   const merged = normalizeSessionMeta({ ...existing, ...meta });
   const clone = [...refs.sessions.value];
   clone.splice(idx, 1, merged);
-  refs.sessions.value = clone;
+  refs.sessions.value = sortChatSessions(clone);
 }
 
 export function createChatStoreState() {

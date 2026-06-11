@@ -114,6 +114,9 @@ func (s *memChatStore) ListSessionsByKind(ctx context.Context, userID *int64, ki
 		out = append(out, s.sessionWithMessageCountLocked(sess))
 	}
 	sort.Slice(out, func(i, j int) bool {
+		if out[i].Pinned != out[j].Pinned {
+			return out[i].Pinned
+		}
 		if out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
 			return out[i].CreatedAt.After(out[j].CreatedAt)
 		}
@@ -203,6 +206,21 @@ func (s *memChatStore) SetSessionMemorySettings(ctx context.Context, userID *int
 	sess.EvolvingMemoryEnabled = memoryEnabled
 	sess.BeliefMemoryEnabled = memoryEnabled
 	sess.UpdatedAt = time.Now().UTC()
+	s.sessions[id] = sess
+	return s.sessionWithMessageCountLocked(sess), nil
+}
+
+func (s *memChatStore) SetSessionPinned(ctx context.Context, userID *int64, id string, pinned bool) (persistence.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[id]
+	if !ok {
+		return persistence.ChatSession{}, persistence.ErrNotFound
+	}
+	if !hasAccess(userID, sess.UserID) {
+		return persistence.ChatSession{}, persistence.ErrForbidden
+	}
+	sess.Pinned = pinned
 	s.sessions[id] = sess
 	return s.sessionWithMessageCountLocked(sess), nil
 }

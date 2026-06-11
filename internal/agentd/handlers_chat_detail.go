@@ -443,9 +443,10 @@ type patchChatSessionRequest struct {
 	BeliefMemoryEnabled         *bool   `json:"beliefMemoryEnabled"`
 	LegacyBeliefMemoryEnabled   *bool   `json:"belief_memory_enabled"`
 	CommandPolicyAllowAll       *bool   `json:"commandPolicyAllowAll"`
+	Pinned                      *bool   `json:"pinned"`
 }
 
-func (b patchChatSessionRequest) normalized() (*string, *bool, *bool, *bool, *bool) {
+func (b patchChatSessionRequest) normalized() (*string, *bool, *bool, *bool, *bool, *bool) {
 	projectID := b.ProjectID
 	if projectID == nil {
 		projectID = b.LegacyProjectID
@@ -462,7 +463,7 @@ func (b patchChatSessionRequest) normalized() (*string, *bool, *bool, *bool, *bo
 	if beliefMemoryEnabled == nil {
 		beliefMemoryEnabled = b.LegacyBeliefMemoryEnabled
 	}
-	return projectID, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled, b.CommandPolicyAllowAll
+	return projectID, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled, b.CommandPolicyAllowAll, b.Pinned
 }
 
 func (a *app) patchChatSession(
@@ -478,8 +479,8 @@ func (a *app) patchChatSession(
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	projectID, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled, commandPolicyAllowAll := body.normalized()
-	if body.Name == nil && projectID == nil && memoryEnabled == nil && evolvingMemoryEnabled == nil && beliefMemoryEnabled == nil && commandPolicyAllowAll == nil {
+	projectID, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled, commandPolicyAllowAll, pinned := body.normalized()
+	if body.Name == nil && projectID == nil && memoryEnabled == nil && evolvingMemoryEnabled == nil && beliefMemoryEnabled == nil && commandPolicyAllowAll == nil && pinned == nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -492,6 +493,14 @@ func (a *app) patchChatSession(
 		sess, err = a.patchChatSessionMemorySettings(r.Context(), userID, sessionID, sess, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled)
 		if err != nil {
 			writeChatDetailStoreError(w, r, err, sessionID, "set_chat_session_memory_settings")
+			return
+		}
+	}
+	if pinned != nil {
+		var err error
+		sess, err = a.chatStore.SetSessionPinned(r.Context(), userID, sessionID, *pinned)
+		if err != nil {
+			writeChatDetailStoreError(w, r, err, sessionID, "set_chat_session_pinned")
 			return
 		}
 	}

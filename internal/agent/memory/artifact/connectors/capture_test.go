@@ -113,6 +113,9 @@ func (f *fakeChatStore) SetSessionProject(context.Context, *int64, string, strin
 func (f *fakeChatStore) SetSessionMemorySettings(context.Context, *int64, string, bool, bool, bool) (persistence.ChatSession, error) {
 	return persistence.ChatSession{}, nil
 }
+func (f *fakeChatStore) SetSessionPinned(context.Context, *int64, string, bool) (persistence.ChatSession, error) {
+	return persistence.ChatSession{}, nil
+}
 func (f *fakeChatStore) DeleteSession(context.Context, *int64, string) error { return nil }
 func (f *fakeChatStore) ListMessages(_ context.Context, _ *int64, sessionID string, limit int) ([]persistence.ChatMessage, error) {
 	out := []persistence.ChatMessage{}

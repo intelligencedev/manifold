@@ -26,7 +26,7 @@ func hasAccess(userID *int64, owner *int64) bool {
 func (s *pgChatStore) scanSession(row pgx.Row) (persistence.ChatSession, error) {
 	var cs persistence.ChatSession
 	var owner sql.NullInt64
-	if err := row.Scan(&cs.ID, &cs.Name, &cs.Kind, &owner, &cs.CreatedAt, &cs.UpdatedAt, &cs.LastMessagePreview, &cs.MessageCount, &cs.Model, &cs.Summary, &cs.SummarizedCount, &cs.ProjectID, &cs.MemoryEnabled, &cs.EvolvingMemoryEnabled, &cs.BeliefMemoryEnabled); err != nil {
+	if err := row.Scan(&cs.ID, &cs.Name, &cs.Kind, &owner, &cs.CreatedAt, &cs.UpdatedAt, &cs.LastMessagePreview, &cs.MessageCount, &cs.Model, &cs.Summary, &cs.SummarizedCount, &cs.ProjectID, &cs.MemoryEnabled, &cs.EvolvingMemoryEnabled, &cs.BeliefMemoryEnabled, &cs.Pinned); err != nil {
 		return persistence.ChatSession{}, err
 	}
 	if cs.Kind == "" {
@@ -84,13 +84,13 @@ WITH ins AS (
   INSERT INTO chat_sessions (id, user_id, name, kind)
   VALUES ($1, $2, $3, $4)
   ON CONFLICT (id) DO NOTHING
-  RETURNING id, name, kind, user_id, created_at, updated_at, last_message_preview, 0::int AS message_count, model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled
+  RETURNING id, name, kind, user_id, created_at, updated_at, last_message_preview, 0::int AS message_count, model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled, pinned
 )
-SELECT id, name, kind, user_id, created_at, updated_at, last_message_preview, message_count, model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled FROM ins
+SELECT id, name, kind, user_id, created_at, updated_at, last_message_preview, message_count, model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled, pinned FROM ins
 UNION ALL
 SELECT id, name, kind, user_id, created_at, updated_at, last_message_preview,
 	(SELECT COUNT(*)::int FROM chat_messages m WHERE m.session_id = chat_sessions.id) AS message_count,
-	model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled
+	model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled, pinned
 FROM chat_sessions WHERE id = $1
 LIMIT 1`, id, uid, name, kind)
 	cs, err := s.scanSession(row)
@@ -112,7 +112,7 @@ func (s *pgChatStore) ListSessionsByKind(ctx context.Context, userID *int64, kin
 	query := `
 	SELECT id, name, kind, user_id, created_at, updated_at, last_message_preview,
 		(SELECT COUNT(*)::int FROM chat_messages m WHERE m.session_id = chat_sessions.id) AS message_count,
-		model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled
+		model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled, pinned
 	FROM chat_sessions
 	WHERE kind = $1`
 	args := []any{kind}
@@ -122,7 +122,7 @@ func (s *pgChatStore) ListSessionsByKind(ctx context.Context, userID *int64, kin
 		args = append(args, *userID)
 	}
 	query += `
-ORDER BY updated_at DESC, created_at DESC`
+ORDER BY pinned DESC, updated_at DESC, created_at DESC`
 
 	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -152,7 +152,7 @@ func (s *pgChatStore) GetSession(ctx context.Context, userID *int64, id string) 
 	query := `
 SELECT id, name, kind, user_id, created_at, updated_at, last_message_preview,
 	(SELECT COUNT(*)::int FROM chat_messages m WHERE m.session_id = chat_sessions.id) AS message_count,
-	model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled
+	model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled, pinned
 FROM chat_sessions
 WHERE id = $1`
 	args := []any{id}
@@ -204,7 +204,7 @@ func (s *pgChatStore) CreateSessionKind(ctx context.Context, userID *int64, name
 	row := s.pool.QueryRow(ctx, `
 	INSERT INTO chat_sessions (id, user_id, name, kind)
 	VALUES ($1, $2, $3, $4)
-	RETURNING id, name, kind, user_id, created_at, updated_at, last_message_preview, 0::int AS message_count, model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled`, id, uid, name, kind)
+	RETURNING id, name, kind, user_id, created_at, updated_at, last_message_preview, 0::int AS message_count, model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled, pinned`, id, uid, name, kind)
 	return s.scanSession(row)
 }
 
@@ -224,7 +224,7 @@ WHERE id = $1`
 	query += `
 RETURNING id, name, kind, user_id, created_at, updated_at, last_message_preview,
 	(SELECT COUNT(*)::int FROM chat_messages m WHERE m.session_id = chat_sessions.id) AS message_count,
-	model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled`
+	model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled, pinned`
 	row := s.pool.QueryRow(ctx, query, args...)
 	cs, err := s.scanSession(row)
 	if err == nil {
@@ -260,7 +260,7 @@ WHERE id = $1`
 	query += `
 RETURNING id, name, kind, user_id, created_at, updated_at, last_message_preview,
 	(SELECT COUNT(*)::int FROM chat_messages m WHERE m.session_id = chat_sessions.id) AS message_count,
-	model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled`
+	model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled, pinned`
 	row := s.pool.QueryRow(ctx, query, args...)
 	cs, err := s.scanSession(row)
 	if err == nil {
@@ -295,7 +295,42 @@ WHERE id = $1`
 	query += `
 RETURNING id, name, kind, user_id, created_at, updated_at, last_message_preview,
 	(SELECT COUNT(*)::int FROM chat_messages m WHERE m.session_id = chat_sessions.id) AS message_count,
-	model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled`
+	model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled, pinned`
+	row := s.pool.QueryRow(ctx, query, args...)
+	cs, err := s.scanSession(row)
+	if err == nil {
+		return cs, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return persistence.ChatSession{}, err
+	}
+	if userID == nil {
+		return persistence.ChatSession{}, persistence.ErrNotFound
+	}
+	owner, ownerErr := s.lookupSessionOwner(ctx, id)
+	if ownerErr != nil {
+		return persistence.ChatSession{}, ownerErr
+	}
+	if !hasAccess(userID, owner) {
+		return persistence.ChatSession{}, persistence.ErrForbidden
+	}
+	return persistence.ChatSession{}, persistence.ErrNotFound
+}
+
+func (s *pgChatStore) SetSessionPinned(ctx context.Context, userID *int64, id string, pinned bool) (persistence.ChatSession, error) {
+	query := `
+UPDATE chat_sessions
+SET pinned = $2
+WHERE id = $1`
+	args := []any{id, pinned}
+	if userID != nil {
+		query += ` AND user_id = $3`
+		args = append(args, *userID)
+	}
+	query += `
+RETURNING id, name, kind, user_id, created_at, updated_at, last_message_preview,
+	(SELECT COUNT(*)::int FROM chat_messages m WHERE m.session_id = chat_sessions.id) AS message_count,
+	model, summary, summarized_count, project_id, memory_enabled, evolving_memory_enabled, belief_memory_enabled, pinned`
 	row := s.pool.QueryRow(ctx, query, args...)
 	cs, err := s.scanSession(row)
 	if err == nil {

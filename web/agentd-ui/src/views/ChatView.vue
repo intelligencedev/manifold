@@ -103,16 +103,43 @@
                 />
               </template>
               <template v-else>
-                <p class="truncate font-medium text-foreground">
+                <p class="min-w-0 flex-1 truncate font-medium text-foreground">
                   {{ session.name }}
                 </p>
-                <button
-                  type="button"
-                  class="rounded px-2 py-1 text-[10px] text-faint-foreground opacity-0 transition group-hover:opacity-100 hover:text-accent"
-                  @click.stop="startRename(session)"
-                >
-                  Rename
-                </button>
+                <div class="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    class="rounded px-2 py-1 text-[10px] text-faint-foreground opacity-0 transition group-hover:opacity-100 hover:text-accent"
+                    @click.stop="startRename(session)"
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex h-6 w-6 items-center justify-center rounded text-subtle-foreground transition disabled:cursor-wait"
+                    :class="[
+                      session.pinned
+                        ? 'text-accent opacity-100 hover:text-accent/80'
+                        : 'opacity-0 group-hover:opacity-100 hover:text-accent',
+                      sessionPinPending(session.id) ? 'opacity-60' : '',
+                    ]"
+                    :title="
+                      session.pinned
+                        ? `Unpin conversation ${session.name}`
+                        : `Pin conversation ${session.name}`
+                    "
+                    :aria-label="
+                      session.pinned
+                        ? `Unpin conversation ${session.name}`
+                        : `Pin conversation ${session.name}`
+                    "
+                    :aria-pressed="Boolean(session.pinned)"
+                    :disabled="sessionPinPending(session.id)"
+                    @click.stop="toggleSessionPinned(session)"
+                  >
+                    <SolarPinBold class="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </template>
             </div>
             <p class="mt-1 truncate text-xs text-subtle-foreground">
@@ -1598,6 +1625,7 @@ import SolarCopyIcon from "@/components/icons/SolarCopy.vue";
 import SolarTrashIcon from "@/components/icons/SolarTrash.vue";
 import SolarRefreshIcon from "@/components/icons/SolarRefresh.vue";
 import SolarDownloadIcon from "@/components/icons/SolarDownload.vue";
+import SolarPinBold from "@/components/icons/SolarPinBold.vue";
 import Camera from "@/components/icons/Camera.vue";
 import TokenGaugeRail from "@/components/chat/TokenGaugeRail.vue";
 import DropdownSelect from "@/components/DropdownSelect.vue";
@@ -1785,6 +1813,7 @@ const showDeleteSessionDialog = ref(false);
 const deleteSessionTarget = ref<ChatSessionMeta | null>(null);
 const deleteSessionPending = ref(false);
 const deleteSessionError = ref("");
+const pinningSessionIds = ref<Record<string, boolean>>({});
 const canConfirmDeleteSession = computed(
   () => !!deleteSessionTarget.value?.id && !deleteSessionPending.value,
 );
@@ -3438,6 +3467,18 @@ watch(
       }
     }
     if (projectChanged) selectedProjectBySession.value = projectPruned;
+
+    const pinningCurrent = pinningSessionIds.value;
+    let pinningChanged = false;
+    const pinningPruned: Record<string, boolean> = {};
+    for (const [id, value] of Object.entries(pinningCurrent)) {
+      if (keep.has(id)) {
+        pinningPruned[id] = value;
+      } else {
+        pinningChanged = true;
+      }
+    }
+    if (pinningChanged) pinningSessionIds.value = pinningPruned;
   },
   { immediate: true },
 );
@@ -3593,6 +3634,30 @@ function toggleSessionSelection(id: string) {
     selectedSessionIds.value.splice(idx, 1);
   } else {
     selectedSessionIds.value.push(id);
+  }
+}
+
+function sessionPinPending(sessionId: string) {
+  return Boolean(pinningSessionIds.value[sessionId]);
+}
+
+function setSessionPinPending(sessionId: string, pending: boolean) {
+  const next = { ...pinningSessionIds.value };
+  if (pending) next[sessionId] = true;
+  else delete next[sessionId];
+  pinningSessionIds.value = next;
+}
+
+async function toggleSessionPinned(session: ChatSessionMeta) {
+  if (!session?.id || sessionPinPending(session.id)) return;
+  const nextPinned = !Boolean(session.pinned);
+  setSessionPinPending(session.id, true);
+  try {
+    await chat.updateSessionPinned(session.id, nextPinned);
+  } catch (error) {
+    console.warn("Failed to update conversation pin state", error);
+  } finally {
+    setSessionPinPending(session.id, false);
   }
 }
 

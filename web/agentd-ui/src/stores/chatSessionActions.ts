@@ -13,9 +13,14 @@ import {
   streamChatRunEvents,
   updateChatSessionCommandPolicyAllowAll as apiUpdateChatSessionCommandPolicyAllowAll,
   updateChatSessionMemorySettings as apiUpdateChatSessionMemorySettings,
+  updateChatSessionPinned as apiUpdateChatSessionPinned,
   updateChatSessionProject as apiUpdateChatSessionProject,
 } from "@/api/chat";
-import { httpStatus, normalizeSessionMeta } from "@/stores/chatHelpers";
+import {
+  httpStatus,
+  normalizeSessionMeta,
+  sortChatSessions,
+} from "@/stores/chatHelpers";
 import { handleStreamEvent } from "@/stores/chatStreamEvents";
 import type { ChatStoreState } from "@/stores/chatStoreState";
 import { createId } from "@/utils/uuid";
@@ -57,15 +62,16 @@ function createSessionLoadActions(state: ChatStoreState) {
     if (!initial) state.sessionsError.value = null;
     try {
       const remote = await normalizedRemoteSessions(initial);
+      const ordered = sortChatSessions(remote);
       state.sessionsError.value = null;
-      state.sessions.value = remote;
-      reconcileSessionMessages(state, remote);
-      if (!remote.length) {
+      state.sessions.value = ordered;
+      reconcileSessionMessages(state, ordered);
+      if (!ordered.length) {
         state.activeSessionId.value = "";
         return;
       }
-      if (!remote.some((s) => s.id === state.activeSessionId.value)) {
-        state.activeSessionId.value = remote[0].id;
+      if (!ordered.some((s) => s.id === state.activeSessionId.value)) {
+        state.activeSessionId.value = ordered[0].id;
       }
       if (state.activeSessionId.value) {
         await loadMessagesFromServer(state.activeSessionId.value, {
@@ -145,7 +151,8 @@ async function recoverActiveChatRun(state: ChatStoreState, sessionId: string) {
       runId: run.run_id,
       streaming: running,
       error: running ? undefined : run.error || message.error || "Run failed",
-      lastRunSequence: Math.max(message.lastRunSequence || 0, lastSequence) || undefined,
+      lastRunSequence:
+        Math.max(message.lastRunSequence || 0, lastSequence) || undefined,
     }));
   }
   if (!running) return;
@@ -180,7 +187,8 @@ async function recoverActiveChatRun(state: ChatStoreState, sessionId: string) {
       state.updateMessage(sessionId, assistantId, (message) => ({
         ...message,
         streaming: false,
-        error: error instanceof Error ? error.message : "Stream recovery failed",
+        error:
+          error instanceof Error ? error.message : "Stream recovery failed",
       }));
     }
   } finally {
@@ -257,7 +265,10 @@ function createSessionCrudActions(
     if (!session) return;
     const normalized = normalizeSessionMeta(session);
     state.sessionsError.value = null;
-    state.sessions.value = [normalized, ...state.sessions.value];
+    state.sessions.value = sortChatSessions([
+      normalized,
+      ...state.sessions.value,
+    ]);
     state.setMessages(normalized.id, []);
     state.fetchedMessageSessions.delete(normalized.id);
     state.activeSessionId.value = normalized.id;
@@ -372,10 +383,23 @@ function createSessionSettingsActions(state: ChatStoreState) {
     return normalized;
   }
 
+  async function updateSessionPinned(sessionId: string, pinned: boolean) {
+    const existing = state.sessions.value.find((s) => s.id === sessionId);
+    if (existing && (existing.pinned ?? false) === pinned) {
+      return existing;
+    }
+    const updated = await apiUpdateChatSessionPinned(sessionId, pinned);
+    state.sessionsError.value = null;
+    const normalized = normalizeSessionMeta(updated);
+    state.upsertSessionMeta(normalized);
+    return normalized;
+  }
+
   return {
     updateSessionProject,
     updateSessionMemorySettings,
     updateSessionCommandPolicyAllowAll,
+    updateSessionPinned,
   };
 }
 

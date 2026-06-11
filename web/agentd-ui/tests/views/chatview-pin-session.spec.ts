@@ -3,7 +3,34 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ChatView from "@/views/ChatView.vue";
 
 const chatApiMocks = vi.hoisted(() => ({
-  deleteChatSession: vi.fn(async () => {}),
+  sessions: [
+    {
+      id: "recent",
+      name: "Recent Chat",
+      createdAt: "2026-02-14T12:00:00Z",
+      updatedAt: "2026-02-14T12:00:00Z",
+      lastMessagePreview: "Latest work",
+      messageCount: 2,
+      projectId: "proj-1",
+      pinned: false,
+    },
+    {
+      id: "pinned",
+      name: "Pinned Chat",
+      createdAt: "2026-02-13T12:00:00Z",
+      updatedAt: "2026-02-13T12:00:00Z",
+      lastMessagePreview: "Important",
+      messageCount: 1,
+      projectId: "proj-1",
+      pinned: true,
+    },
+  ],
+  updateChatSessionPinned: vi.fn(async (id: string, pinned: boolean) => {
+    const session =
+      chatApiMocks.sessions.find((candidate) => candidate.id === id) ??
+      chatApiMocks.sessions[0];
+    return { ...session, pinned };
+  }),
 }));
 
 vi.mock("@/api/client", () => ({
@@ -45,42 +72,31 @@ vi.mock("@/api/client", () => ({
 }));
 
 vi.mock("@/api/chat", () => ({
-  listChatSessions: async () => [
-    {
-      id: "session-1",
-      name: "Roadmap Chat",
-      createdAt: "2026-02-14T10:00:00Z",
-      updatedAt: "2026-02-14T10:00:00Z",
-      lastMessagePreview: "Hello",
-      messageCount: 1,
-      projectId: "proj-1",
-    },
-  ],
+  listChatSessions: async () => chatApiMocks.sessions,
   fetchChatMessages: async () => [],
   fetchChatActivities: async () => [],
   createChatSession: async () => ({
-    id: "session-2",
+    id: "new-session",
     name: "New Chat",
-    createdAt: "2026-02-14T10:01:00Z",
-    updatedAt: "2026-02-14T10:01:00Z",
+    createdAt: "2026-02-14T12:05:00Z",
+    updatedAt: "2026-02-14T12:05:00Z",
     messageCount: 0,
     projectId: "proj-1",
+    pinned: false,
   }),
-  deleteChatSession: chatApiMocks.deleteChatSession,
+  deleteChatSession: async () => {},
   renameChatSession: async (id: string, name: string) => ({
     id,
     name,
-    createdAt: "2026-02-14T10:00:00Z",
-    updatedAt: "2026-02-14T10:02:00Z",
-    messageCount: 1,
+    createdAt: "2026-02-14T12:00:00Z",
+    updatedAt: "2026-02-14T12:00:00Z",
+    messageCount: 2,
     projectId: "proj-1",
+    pinned: id === "pinned",
   }),
   updateChatSessionProject: async (id: string, projectId: string) => ({
     id,
-    name: "Roadmap Chat",
-    createdAt: "2026-02-14T10:00:00Z",
-    updatedAt: "2026-02-14T10:02:00Z",
-    messageCount: 1,
+    name: id === "pinned" ? "Pinned Chat" : "Recent Chat",
     projectId,
   }),
   updateChatSessionMemorySettings: async (
@@ -88,7 +104,6 @@ vi.mock("@/api/chat", () => ({
     settings: { memoryEnabled?: boolean },
   ) => ({
     id,
-    name: "Roadmap Chat",
     memoryEnabled: settings.memoryEnabled ?? true,
     evolvingMemoryEnabled: settings.memoryEnabled ?? true,
     beliefMemoryEnabled: settings.memoryEnabled ?? true,
@@ -98,31 +113,34 @@ vi.mock("@/api/chat", () => ({
     allow: boolean,
   ) => ({
     id,
-    name: "Roadmap Chat",
     commandPolicyAllowAll: allow,
   }),
-  updateChatSessionPinned: async (id: string, pinned: boolean) => ({
-    id,
-    name: "Roadmap Chat",
-    pinned,
-  }),
+  updateChatSessionPinned: chatApiMocks.updateChatSessionPinned,
   listActiveChatRuns: async () => [],
   deleteChatMessage: async () => {},
   deleteChatMessagesAfter: async () => {},
-  generateChatSessionTitle: async () => ({
-    id: "session-1",
-    name: "Roadmap Chat",
-    createdAt: "2026-02-14T10:00:00Z",
-    updatedAt: "2026-02-14T10:00:00Z",
-    messageCount: 1,
-  }),
+  generateChatSessionTitle: async () => chatApiMocks.sessions[0],
   streamAgentRun: async function* () {},
   streamAgentVisionRun: async function* () {},
 }));
 
-describe("ChatView conversation delete", () => {
+function appearsBefore(first: Element, second: Element) {
+  return Boolean(
+    first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING,
+  );
+}
+
+function conversationRowFor(button: HTMLElement) {
+  const row = button.closest(".conversation-session-row");
+  if (!(row instanceof HTMLElement)) {
+    throw new Error("Expected conversation row");
+  }
+  return row;
+}
+
+describe("ChatView conversation pinning", () => {
   beforeEach(() => {
-    chatApiMocks.deleteChatSession.mockClear();
+    chatApiMocks.updateChatSessionPinned.mockClear();
     vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
       if (String(input).includes("/api/me")) {
         return new Response(JSON.stringify({ name: "Test User" }), {
@@ -138,36 +156,45 @@ describe("ChatView conversation delete", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows cancel/delete confirmation before deleting a conversation", async () => {
-    const { findByRole, findByText, getByRole } = render(ChatView);
+  it("keeps pinned conversations above regular conversations", async () => {
+    const { findByRole, getByRole } = render(ChatView);
 
-    expect(await findByText("1 msg")).toBeTruthy();
-
-    const openDeleteDialog = await findByRole("button", {
-      name: /Delete conversation Roadmap Chat/i,
+    const pinnedButton = await findByRole("button", {
+      name: /Unpin conversation Pinned Chat/i,
     });
-    await fireEvent.click(openDeleteDialog);
+    const recentButton = await findByRole("button", {
+      name: /Pin conversation Recent Chat/i,
+    });
+    expect(
+      appearsBefore(
+        conversationRowFor(pinnedButton),
+        conversationRowFor(recentButton),
+      ),
+    ).toBe(true);
 
-    const deleteButton = getByRole("button", {
-      name: /^Delete Conversation$/i,
-    }) as HTMLButtonElement;
-    const cancelButton = getByRole("button", {
-      name: /^Cancel$/i,
-    }) as HTMLButtonElement;
+    await fireEvent.click(recentButton);
 
-    expect(deleteButton.disabled).toBe(false);
-
-    await fireEvent.click(cancelButton);
-    expect(chatApiMocks.deleteChatSession).toHaveBeenCalledTimes(0);
-
-    await fireEvent.click(openDeleteDialog);
-    const confirmDeleteButton = getByRole("button", {
-      name: /^Delete Conversation$/i,
-    }) as HTMLButtonElement;
-    await fireEvent.click(confirmDeleteButton);
     await waitFor(() => {
-      expect(chatApiMocks.deleteChatSession).toHaveBeenCalledTimes(1);
-      expect(chatApiMocks.deleteChatSession).toHaveBeenCalledWith("session-1");
+      expect(chatApiMocks.updateChatSessionPinned).toHaveBeenCalledWith(
+        "recent",
+        true,
+      );
+    });
+    await waitFor(() => {
+      expect(
+        appearsBefore(
+          conversationRowFor(
+            getByRole("button", {
+              name: /Unpin conversation Recent Chat/i,
+            }),
+          ),
+          conversationRowFor(
+            getByRole("button", {
+              name: /Unpin conversation Pinned Chat/i,
+            }),
+          ),
+        ),
+      ).toBe(true);
     });
   });
 });

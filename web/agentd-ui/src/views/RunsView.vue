@@ -38,7 +38,7 @@ const search = ref("");
 
 const { data } = useQuery({
   queryKey: ["agent-runs"],
-  queryFn: fetchAgentRuns,
+  queryFn: () => fetchAgentRuns(),
   staleTime: 15_000,
 });
 

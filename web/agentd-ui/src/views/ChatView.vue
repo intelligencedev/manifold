@@ -1595,6 +1595,7 @@ import {
   ref,
   watch,
 } from "vue";
+import type { ComponentPublicInstance } from "vue";
 import { useRouter } from "vue-router";
 import axios from "axios";
 import type {
@@ -3595,8 +3596,8 @@ onBeforeUnmount(() => {
 
 watch(draft, () => autoSizeComposer());
 
-function setRenameInput(el: HTMLInputElement | null) {
-  renameInput.value = el;
+function setRenameInput(el: Element | ComponentPublicInstance | null) {
+  renameInput.value = el instanceof HTMLInputElement ? el : null;
 }
 
 function selectSession(sessionId: string) {

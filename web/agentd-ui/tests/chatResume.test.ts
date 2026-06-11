@@ -5,6 +5,7 @@ import type { ChatStreamEvent } from "@/api/chat";
 
 const chatApiMocks = vi.hoisted(() => ({
   resumeChatRun: vi.fn(),
+  startChatRun: vi.fn(),
   streamChatRunEvents: vi.fn(),
 }));
 
@@ -15,7 +16,7 @@ vi.mock("@/api/chat", () => ({
     name: "Session",
   })),
   resumeChatRun: chatApiMocks.resumeChatRun,
-  streamAgentRun: vi.fn(async () => {}),
+  startChatRun: chatApiMocks.startChatRun,
   streamAgentVisionRun: vi.fn(async () => {}),
   streamChatRunEvents: chatApiMocks.streamChatRunEvents,
 }));
@@ -23,6 +24,7 @@ vi.mock("@/api/chat", () => ({
 describe("chat durable resume", () => {
   beforeEach(() => {
     chatApiMocks.resumeChatRun.mockReset();
+    chatApiMocks.startChatRun.mockReset();
     chatApiMocks.streamChatRunEvents.mockReset();
   });
 
@@ -87,5 +89,74 @@ describe("chat durable resume", () => {
     expect(message.content).toBe("old work resumed");
     expect(message.durationMs).toBe(1234);
     expect(message.lastRunSequence).toBe(10);
+  });
+
+  it("reconnects a started run after the event stream drops", async () => {
+    const state = createChatStoreState();
+    state.sessions.value = [
+      {
+        id: "session-1",
+        name: "Session",
+        createdAt: "2026-06-02T12:00:00.000Z",
+        updatedAt: "2026-06-02T12:00:00.000Z",
+      },
+    ];
+    state.activeSessionId.value = "session-1";
+    chatApiMocks.startChatRun.mockResolvedValue({
+      run_id: "run-1",
+      session_id: "session-1",
+      user_message_id: "user-1",
+      assistant_message_id: "assistant-1",
+      status: "running",
+    });
+    chatApiMocks.resumeChatRun.mockResolvedValue({
+      run_id: "run-1",
+      status: "running",
+      retried: false,
+    });
+    chatApiMocks.streamChatRunEvents
+      .mockImplementationOnce(
+        async (options: {
+          after?: number;
+          onEvent: (event: ChatStreamEvent) => void;
+        }) => {
+          expect(options.after).toBe(0);
+          options.onEvent({ type: "delta", data: "partial", sequence: 1 });
+          throw new TypeError("network error");
+        },
+      )
+      .mockImplementationOnce(
+        async (options: {
+          after?: number;
+          onEvent: (event: ChatStreamEvent) => void;
+        }) => {
+          expect(options.after).toBe(1);
+          options.onEvent({ type: "delta", data: " done", sequence: 2 });
+          options.onEvent({
+            type: "final",
+            data: "partial done",
+            sequence: 3,
+          });
+        },
+      );
+
+    const actions = createChatStreamActions(
+      state,
+      { invalidateQueries: vi.fn() },
+      {} as any,
+    );
+    const started = actions.sendPrompt("hello");
+    await new Promise((resolve) => window.setTimeout(resolve, 550));
+    await started;
+
+    expect(chatApiMocks.resumeChatRun).toHaveBeenCalledWith("run-1");
+    expect(chatApiMocks.streamChatRunEvents).toHaveBeenCalledTimes(2);
+    const assistant = state.messagesBySession.value["session-1"].find(
+      (message) => message.role === "assistant",
+    );
+    expect(assistant?.streaming).toBe(false);
+    expect(assistant?.error).toBeUndefined();
+    expect(assistant?.content).toBe("partial done");
+    expect(assistant?.lastRunSequence).toBe(3);
   });
 });

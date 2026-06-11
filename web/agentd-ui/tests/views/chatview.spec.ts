@@ -1,7 +1,7 @@
 import { render, fireEvent, waitFor } from "@testing-library/vue";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import ChatView from "@/views/ChatView.vue";
-import type { StreamAgentRunOptions } from "@/api/chat";
+import type { ChatStreamEvent, StreamAgentRunOptions } from "@/api/chat";
 
 const chatApiMocks = vi.hoisted(() => ({
   specialists: [
@@ -16,7 +16,18 @@ const chatApiMocks = vi.hoisted(() => ({
       members: ["orchestrator-max", "ops"],
     },
   ],
-  streamAgentRun: vi.fn(async (_options: StreamAgentRunOptions) => {}),
+  startChatRun: vi.fn(async (_options: StreamAgentRunOptions) => ({
+    run_id: "run-1",
+    session_id: "session-1",
+    user_message_id: "user-1",
+    assistant_message_id: "assistant-1",
+    status: "running",
+  })),
+  streamChatRunEvents: vi.fn(
+    async (options: { onEvent: (event: ChatStreamEvent) => void }) => {
+      options.onEvent({ type: "final", data: "done", sequence: 1 });
+    },
+  ),
   updateChatSessionMemorySettings: vi.fn(
     async (
       id: string,
@@ -120,7 +131,8 @@ vi.mock("@/api/chat", () => ({
   }),
   listActiveChatRuns: async () => [],
   resumeChatRun: vi.fn(async () => {}),
-  streamAgentRun: chatApiMocks.streamAgentRun,
+  startChatRun: chatApiMocks.startChatRun,
+  streamChatRunEvents: chatApiMocks.streamChatRunEvents,
   streamAgentVisionRun: vi.fn(async () => {}),
 }));
 
@@ -137,7 +149,8 @@ beforeEach(() => {
       members: ["orchestrator-max", "ops"],
     },
   ];
-  chatApiMocks.streamAgentRun.mockClear();
+  chatApiMocks.startChatRun.mockClear();
+  chatApiMocks.streamChatRunEvents.mockClear();
   chatApiMocks.updateChatSessionMemorySettings.mockClear();
   chatApiMocks.updateChatSessionPinned.mockClear();
   vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
@@ -231,9 +244,9 @@ describe("ChatView", () => {
     await fireEvent.submit(input.form as HTMLFormElement);
 
     await waitFor(() => {
-      expect(chatApiMocks.streamAgentRun).toHaveBeenCalled();
+      expect(chatApiMocks.startChatRun).toHaveBeenCalled();
     });
-    const args = chatApiMocks.streamAgentRun.mock.calls.at(-1)?.[0];
+    const args = chatApiMocks.startChatRun.mock.calls.at(-1)?.[0];
     expect(args?.specialist).toBe("orchestrator-max");
     expect(args?.projectId).toBe("proj-1");
     expect(args?.prompt).toBe("write a haiku");
@@ -252,9 +265,9 @@ describe("ChatView", () => {
     await fireEvent.submit(input.form as HTMLFormElement);
 
     await waitFor(() => {
-      expect(chatApiMocks.streamAgentRun).toHaveBeenCalled();
+      expect(chatApiMocks.startChatRun).toHaveBeenCalled();
     });
-    const args = chatApiMocks.streamAgentRun.mock.calls.at(-1)?.[0];
+    const args = chatApiMocks.startChatRun.mock.calls.at(-1)?.[0];
     expect(args?.teamName).toBe("ops");
     expect(args?.specialist).toBeUndefined();
     expect(args?.prompt).toBe("write a rollout plan");
@@ -277,9 +290,9 @@ describe("ChatView", () => {
     await fireEvent.submit(input.form as HTMLFormElement);
 
     await waitFor(() => {
-      expect(chatApiMocks.streamAgentRun).toHaveBeenCalled();
+      expect(chatApiMocks.startChatRun).toHaveBeenCalled();
     });
-    const args = chatApiMocks.streamAgentRun.mock.calls.at(-1)?.[0];
+    const args = chatApiMocks.startChatRun.mock.calls.at(-1)?.[0];
     expect(args?.teamName).toBe("ops");
     expect(args?.specialist).toBeUndefined();
     expect(args?.prompt).toBe("inspect the incident");
@@ -300,9 +313,9 @@ describe("ChatView", () => {
     await fireEvent.submit(input.form as HTMLFormElement);
 
     await waitFor(() => {
-      expect(chatApiMocks.streamAgentRun).toHaveBeenCalled();
+      expect(chatApiMocks.startChatRun).toHaveBeenCalled();
     });
-    let args = chatApiMocks.streamAgentRun.mock.calls.at(-1)?.[0];
+    let args = chatApiMocks.startChatRun.mock.calls.at(-1)?.[0];
     expect(args?.teamName).toBe("ops");
     expect(args?.specialist).toBeUndefined();
 
@@ -311,9 +324,9 @@ describe("ChatView", () => {
     await fireEvent.submit(input.form as HTMLFormElement);
 
     await waitFor(() => {
-      expect(chatApiMocks.streamAgentRun).toHaveBeenCalledTimes(2);
+      expect(chatApiMocks.startChatRun).toHaveBeenCalledTimes(2);
     });
-    args = chatApiMocks.streamAgentRun.mock.calls.at(-1)?.[0];
+    args = chatApiMocks.startChatRun.mock.calls.at(-1)?.[0];
     expect(args?.teamName).toBeUndefined();
     expect(args?.specialist).toBeUndefined();
   });
@@ -362,9 +375,9 @@ describe("ChatView", () => {
     await fireEvent.submit(input.form as HTMLFormElement);
 
     await waitFor(() => {
-      expect(chatApiMocks.streamAgentRun).toHaveBeenCalled();
+      expect(chatApiMocks.startChatRun).toHaveBeenCalled();
     });
-    const args = chatApiMocks.streamAgentRun.mock.calls.at(-1)?.[0];
+    const args = chatApiMocks.startChatRun.mock.calls.at(-1)?.[0];
     expect(args?.memoryEnabled).toBe(false);
   });
 });

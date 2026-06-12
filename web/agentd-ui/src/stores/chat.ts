@@ -42,6 +42,7 @@ export const useChatStore = defineStore("chat", () => {
     updateSessionMemorySettings: sessionActions.updateSessionMemorySettings,
     updateSessionCommandPolicyAllowAll:
       sessionActions.updateSessionCommandPolicyAllowAll,
+    updateSessionActiveTarget: sessionActions.updateSessionActiveTarget,
     updateSessionPinned: sessionActions.updateSessionPinned,
     updateMessage: state.updateMessage,
     submitInputRequest: (

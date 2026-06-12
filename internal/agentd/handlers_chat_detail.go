@@ -443,10 +443,14 @@ type patchChatSessionRequest struct {
 	BeliefMemoryEnabled         *bool   `json:"beliefMemoryEnabled"`
 	LegacyBeliefMemoryEnabled   *bool   `json:"belief_memory_enabled"`
 	CommandPolicyAllowAll       *bool   `json:"commandPolicyAllowAll"`
+	ActiveSpecialist            *string `json:"activeSpecialist"`
+	LegacyActiveSpecialist      *string `json:"active_specialist"`
+	ActiveTeam                  *string `json:"activeTeam"`
+	LegacyActiveTeam            *string `json:"active_team"`
 	Pinned                      *bool   `json:"pinned"`
 }
 
-func (b patchChatSessionRequest) normalized() (*string, *bool, *bool, *bool, *bool, *bool) {
+func (b patchChatSessionRequest) normalized() (*string, *bool, *bool, *bool, *bool, *string, *string, *bool) {
 	projectID := b.ProjectID
 	if projectID == nil {
 		projectID = b.LegacyProjectID
@@ -463,7 +467,15 @@ func (b patchChatSessionRequest) normalized() (*string, *bool, *bool, *bool, *bo
 	if beliefMemoryEnabled == nil {
 		beliefMemoryEnabled = b.LegacyBeliefMemoryEnabled
 	}
-	return projectID, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled, b.CommandPolicyAllowAll, b.Pinned
+	activeSpecialist := b.ActiveSpecialist
+	if activeSpecialist == nil {
+		activeSpecialist = b.LegacyActiveSpecialist
+	}
+	activeTeam := b.ActiveTeam
+	if activeTeam == nil {
+		activeTeam = b.LegacyActiveTeam
+	}
+	return projectID, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled, b.CommandPolicyAllowAll, activeSpecialist, activeTeam, b.Pinned
 }
 
 func (a *app) patchChatSession(
@@ -479,8 +491,8 @@ func (a *app) patchChatSession(
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	projectID, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled, commandPolicyAllowAll, pinned := body.normalized()
-	if body.Name == nil && projectID == nil && memoryEnabled == nil && evolvingMemoryEnabled == nil && beliefMemoryEnabled == nil && commandPolicyAllowAll == nil && pinned == nil {
+	projectID, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled, commandPolicyAllowAll, activeSpecialist, activeTeam, pinned := body.normalized()
+	if body.Name == nil && projectID == nil && memoryEnabled == nil && evolvingMemoryEnabled == nil && beliefMemoryEnabled == nil && commandPolicyAllowAll == nil && activeSpecialist == nil && activeTeam == nil && pinned == nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -501,6 +513,30 @@ func (a *app) patchChatSession(
 		sess, err = a.chatStore.SetSessionPinned(r.Context(), userID, sessionID, *pinned)
 		if err != nil {
 			writeChatDetailStoreError(w, r, err, sessionID, "set_chat_session_pinned")
+			return
+		}
+	}
+	if activeSpecialist != nil || activeTeam != nil {
+		if sess.ID == "" {
+			var err error
+			sess, err = a.chatStore.GetSession(r.Context(), userID, sessionID)
+			if err != nil {
+				writeChatDetailStoreError(w, r, err, sessionID, "get_chat_session")
+				return
+			}
+		}
+		nextSpecialist := sess.ActiveSpecialist
+		if activeSpecialist != nil {
+			nextSpecialist = strings.TrimSpace(*activeSpecialist)
+		}
+		nextTeam := sess.ActiveTeam
+		if activeTeam != nil {
+			nextTeam = strings.TrimSpace(*activeTeam)
+		}
+		var err error
+		sess, err = a.chatStore.SetSessionActiveTarget(r.Context(), userID, sessionID, nextSpecialist, nextTeam)
+		if err != nil {
+			writeChatDetailStoreError(w, r, err, sessionID, "set_chat_session_active_target")
 			return
 		}
 	}

@@ -11,6 +11,7 @@ import {
   listChatSessions,
   renameChatSession as apiRenameChatSession,
   streamChatRunEvents,
+  updateChatSessionActiveTarget as apiUpdateChatSessionActiveTarget,
   updateChatSessionCommandPolicyAllowAll as apiUpdateChatSessionCommandPolicyAllowAll,
   updateChatSessionMemorySettings as apiUpdateChatSessionMemorySettings,
   updateChatSessionPinned as apiUpdateChatSessionPinned,
@@ -327,89 +328,133 @@ async function createReplacementSession(
 }
 
 function createSessionSettingsActions(state: ChatStoreState) {
-  async function updateSessionProject(sessionId: string, projectId: string) {
-    const cleanProjectID = (projectId || "").trim();
-    const existing = state.sessions.value.find((s) => s.id === sessionId);
-    if (existing && (existing.projectId || "") === cleanProjectID) {
-      return existing;
-    }
-    const updated = await apiUpdateChatSessionProject(
-      sessionId,
-      cleanProjectID,
-    );
-    state.sessionsError.value = null;
-    const normalized = normalizeSessionMeta(updated);
-    state.upsertSessionMeta(normalized);
-    return normalized;
-  }
-
-  async function updateSessionMemorySettings(
-    sessionId: string,
-    settings: {
-      memoryEnabled?: boolean;
-      evolvingMemoryEnabled?: boolean;
-      beliefMemoryEnabled?: boolean;
-    },
-  ) {
-    const existing = state.sessions.value.find((s) => s.id === sessionId);
-    const nextMemory = nextMemoryEnabled(existing, settings);
-    if (existing && (existing.memoryEnabled ?? false) === nextMemory) {
-      return existing;
-    }
-    const updated = await apiUpdateChatSessionMemorySettings(sessionId, {
-      memoryEnabled: nextMemory,
-    });
-    state.sessionsError.value = null;
-    const normalized = normalizeSessionMeta(updated);
-    state.upsertSessionMeta(normalized);
-    return normalized;
-  }
-
-  async function updateSessionCommandPolicyAllowAll(
-    sessionId: string,
-    allow: boolean,
-  ) {
-    const existing = state.sessions.value.find((s) => s.id === sessionId);
-    if (existing && (existing.commandPolicyAllowAll ?? false) === allow) {
-      return existing;
-    }
-    const updated = await apiUpdateChatSessionCommandPolicyAllowAll(
-      sessionId,
-      allow,
-    );
-    state.sessionsError.value = null;
-    const normalized = normalizeSessionMeta(updated);
-    state.upsertSessionMeta(normalized);
-    return normalized;
-  }
-
-  async function updateSessionPinned(sessionId: string, pinned: boolean) {
-    const existing = state.sessions.value.find((s) => s.id === sessionId);
-    if (existing && (existing.pinned ?? false) === pinned) {
-      return existing;
-    }
-    const updated = await apiUpdateChatSessionPinned(sessionId, pinned);
-    state.sessionsError.value = null;
-    const normalized = normalizeSessionMeta(updated);
-    state.upsertSessionMeta(normalized);
-    return normalized;
-  }
-
   return {
-    updateSessionProject,
-    updateSessionMemorySettings,
-    updateSessionCommandPolicyAllowAll,
-    updateSessionPinned,
+    updateSessionProject: (sessionId: string, projectId: string) =>
+      updateSessionProject(state, sessionId, projectId),
+    updateSessionMemorySettings: (
+      sessionId: string,
+      settings: SessionMemorySettings,
+    ) => updateSessionMemorySettings(state, sessionId, settings),
+    updateSessionCommandPolicyAllowAll: (sessionId: string, allow: boolean) =>
+      updateSessionCommandPolicyAllowAll(state, sessionId, allow),
+    updateSessionActiveTarget: (
+      sessionId: string,
+      activeSpecialist: string,
+      activeTeam: string,
+    ) =>
+      updateSessionActiveTarget(state, sessionId, activeSpecialist, activeTeam),
+    updateSessionPinned: (sessionId: string, pinned: boolean) =>
+      updateSessionPinned(state, sessionId, pinned),
   };
+}
+
+async function updateSessionProject(
+  state: ChatStoreState,
+  sessionId: string,
+  projectId: string,
+) {
+  const cleanProjectID = (projectId || "").trim();
+  const existing = findSession(state, sessionId);
+  if (existing && (existing.projectId || "") === cleanProjectID) {
+    return existing;
+  }
+  const updated = await apiUpdateChatSessionProject(sessionId, cleanProjectID);
+  return upsertUpdatedSession(state, updated);
+}
+
+type SessionMemorySettings = {
+  memoryEnabled?: boolean;
+  evolvingMemoryEnabled?: boolean;
+  beliefMemoryEnabled?: boolean;
+};
+
+async function updateSessionMemorySettings(
+  state: ChatStoreState,
+  sessionId: string,
+  settings: SessionMemorySettings,
+) {
+  const existing = findSession(state, sessionId);
+  const nextMemory = nextMemoryEnabled(existing, settings);
+  if (existing && (existing.memoryEnabled ?? false) === nextMemory) {
+    return existing;
+  }
+  const updated = await apiUpdateChatSessionMemorySettings(sessionId, {
+    memoryEnabled: nextMemory,
+  });
+  return upsertUpdatedSession(state, updated);
+}
+
+async function updateSessionCommandPolicyAllowAll(
+  state: ChatStoreState,
+  sessionId: string,
+  allow: boolean,
+) {
+  const existing = findSession(state, sessionId);
+  if (existing && (existing.commandPolicyAllowAll ?? false) === allow) {
+    return existing;
+  }
+  const updated = await apiUpdateChatSessionCommandPolicyAllowAll(
+    sessionId,
+    allow,
+  );
+  return upsertUpdatedSession(state, updated);
+}
+
+async function updateSessionPinned(
+  state: ChatStoreState,
+  sessionId: string,
+  pinned: boolean,
+) {
+  const existing = findSession(state, sessionId);
+  if (existing && (existing.pinned ?? false) === pinned) {
+    return existing;
+  }
+  const updated = await apiUpdateChatSessionPinned(sessionId, pinned);
+  return upsertUpdatedSession(state, updated);
+}
+
+async function updateSessionActiveTarget(
+  state: ChatStoreState,
+  sessionId: string,
+  activeSpecialist: string,
+  activeTeam: string,
+) {
+  const nextSpecialist = (activeSpecialist || "").trim();
+  const nextTeam = (activeTeam || "").trim();
+  const existing = findSession(state, sessionId);
+  const existingSpecialist =
+    (existing?.activeSpecialist || "orchestrator").trim() || "orchestrator";
+  if (
+    existing &&
+    existingSpecialist === (nextSpecialist || "orchestrator") &&
+    (existing.activeTeam || "") === nextTeam
+  ) {
+    return existing;
+  }
+  const updated = await apiUpdateChatSessionActiveTarget(sessionId, {
+    activeSpecialist: nextSpecialist,
+    activeTeam: nextTeam,
+  });
+  return upsertUpdatedSession(state, updated);
+}
+
+function findSession(state: ChatStoreState, sessionId: string) {
+  return state.sessions.value.find((s) => s.id === sessionId);
+}
+
+function upsertUpdatedSession(
+  state: ChatStoreState,
+  updated: ReturnType<typeof normalizeSessionMeta>,
+) {
+  state.sessionsError.value = null;
+  const normalized = normalizeSessionMeta(updated);
+  state.upsertSessionMeta(normalized);
+  return normalized;
 }
 
 function nextMemoryEnabled(
   existing: ReturnType<typeof normalizeSessionMeta> | undefined,
-  settings: {
-    memoryEnabled?: boolean;
-    evolvingMemoryEnabled?: boolean;
-    beliefMemoryEnabled?: boolean;
-  },
+  settings: SessionMemorySettings,
 ) {
   if (typeof settings.memoryEnabled === "boolean")
     return settings.memoryEnabled;

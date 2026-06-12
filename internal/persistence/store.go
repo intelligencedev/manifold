@@ -280,6 +280,8 @@ type ChatSession struct {
 	EvolvingMemoryEnabled bool      `json:"evolvingMemoryEnabled"`
 	BeliefMemoryEnabled   bool      `json:"beliefMemoryEnabled"`
 	CommandPolicyAllowAll bool      `json:"commandPolicyAllowAll"`
+	ActiveSpecialist      string    `json:"activeSpecialist,omitempty"`
+	ActiveTeam            string    `json:"activeTeam,omitempty"`
 	Pinned                bool      `json:"pinned"`
 }
 
@@ -319,6 +321,7 @@ type ChatStore interface {
 	RenameSession(ctx context.Context, userID *int64, id, name string) (ChatSession, error)
 	SetSessionProject(ctx context.Context, userID *int64, id, projectID string) (ChatSession, error)
 	SetSessionMemorySettings(ctx context.Context, userID *int64, id string, memoryEnabled bool, evolvingMemoryEnabled bool, beliefMemoryEnabled bool) (ChatSession, error)
+	SetSessionActiveTarget(ctx context.Context, userID *int64, id string, activeSpecialist string, activeTeam string) (ChatSession, error)
 	SetSessionPinned(ctx context.Context, userID *int64, id string, pinned bool) (ChatSession, error)
 	DeleteSession(ctx context.Context, userID *int64, id string) error
 	ListMessages(ctx context.Context, userID *int64, sessionID string, limit int) ([]ChatMessage, error)

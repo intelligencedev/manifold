@@ -329,6 +329,36 @@ func TestPatchChatSessionPinned(t *testing.T) {
 	}
 }
 
+func TestPatchChatSessionActiveTarget(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	chatStore := newPromptHandlerChatStore()
+	if _, err := chatStore.EnsureSession(ctx, nil, "sess-target-patch", "Chat"); err != nil {
+		t.Fatalf("EnsureSession: %v", err)
+	}
+	a := &app{cfg: &config.Config{}, chatStore: chatStore}
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/chat/sessions/sess-target-patch", strings.NewReader(`{"activeSpecialist":" planner ","activeTeam":" ops "}`))
+	rr := httptest.NewRecorder()
+	a.chatSessionDetailHandler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	updated := decodeChatSessionResponse(t, rr)
+	if updated.ActiveSpecialist != "planner" || updated.ActiveTeam != "ops" {
+		t.Fatalf("expected trimmed active target in response, got specialist=%q team=%q", updated.ActiveSpecialist, updated.ActiveTeam)
+	}
+
+	session, err := chatStore.GetSession(ctx, nil, "sess-target-patch")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if session.ActiveSpecialist != "planner" || session.ActiveTeam != "ops" {
+		t.Fatalf("expected active target to persist, got specialist=%q team=%q", session.ActiveSpecialist, session.ActiveTeam)
+	}
+}
+
 func decodeChatSessionResponse(t *testing.T, rr *httptest.ResponseRecorder) persist.ChatSession {
 	t.Helper()
 	var session persist.ChatSession

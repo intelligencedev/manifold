@@ -24,6 +24,13 @@ func TestSQLiteChatStoreScansTextTimestamps(t *testing.T) {
 	if session.MessageCount != 0 {
 		t.Fatalf("new session should have 0 messages, got %d", session.MessageCount)
 	}
+	targetSession, err := store.SetSessionActiveTarget(ctx, nil, "session-sqlite", "planner", "ops")
+	if err != nil {
+		t.Fatalf("SetSessionActiveTarget: %v", err)
+	}
+	if targetSession.ActiveSpecialist != "planner" || targetSession.ActiveTeam != "ops" {
+		t.Fatalf("unexpected active target: specialist=%q team=%q", targetSession.ActiveSpecialist, targetSession.ActiveTeam)
+	}
 
 	sessions, err := store.ListSessions(ctx, nil)
 	if err != nil {
@@ -34,6 +41,9 @@ func TestSQLiteChatStoreScansTextTimestamps(t *testing.T) {
 	}
 	if sessions[0].MessageCount != 0 {
 		t.Fatalf("expected listed message count 0 before append, got %d", sessions[0].MessageCount)
+	}
+	if sessions[0].ActiveSpecialist != "planner" || sessions[0].ActiveTeam != "ops" {
+		t.Fatalf("expected listed active target to round trip, got specialist=%q team=%q", sessions[0].ActiveSpecialist, sessions[0].ActiveTeam)
 	}
 
 	now := time.Now().UTC()

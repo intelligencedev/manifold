@@ -99,6 +99,8 @@ export function normalizeSessionMeta(meta: ChatSessionMeta): ChatSessionMeta {
     evolving_memory_enabled?: unknown;
     belief_memory_enabled?: unknown;
     command_policy_allow_all?: unknown;
+    active_specialist?: unknown;
+    active_team?: unknown;
     pinned?: unknown;
   };
   const wire = meta as ChatSessionMetaWire;
@@ -125,6 +127,14 @@ export function normalizeSessionMeta(meta: ChatSessionMeta): ChatSessionMeta {
       : legacyMemoryEnabled;
   const rawCommandPolicyAllowAll =
     wire.commandPolicyAllowAll ?? wire.command_policy_allow_all;
+  const rawActiveSpecialist =
+    wire.activeSpecialist ?? wire.active_specialist;
+  const activeSpecialist =
+    typeof rawActiveSpecialist === "string"
+      ? rawActiveSpecialist.trim()
+      : "";
+  const rawActiveTeam = wire.activeTeam ?? wire.active_team;
+  const activeTeam = typeof rawActiveTeam === "string" ? rawActiveTeam.trim() : "";
   const rawPinned = wire.pinned;
   return {
     ...meta,
@@ -137,6 +147,8 @@ export function normalizeSessionMeta(meta: ChatSessionMeta): ChatSessionMeta {
       typeof rawCommandPolicyAllowAll === "boolean"
         ? rawCommandPolicyAllowAll
         : false,
+    activeSpecialist,
+    activeTeam,
     pinned: typeof rawPinned === "boolean" ? rawPinned : false,
   };
 }

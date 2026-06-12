@@ -115,6 +115,14 @@ vi.mock("@/api/chat", () => ({
     id,
     commandPolicyAllowAll: allow,
   }),
+  updateChatSessionActiveTarget: async (
+    id: string,
+    target: { activeSpecialist: string; activeTeam: string },
+  ) => ({
+    id,
+    activeSpecialist: target.activeSpecialist,
+    activeTeam: target.activeTeam,
+  }),
   updateChatSessionPinned: chatApiMocks.updateChatSessionPinned,
   listActiveChatRuns: async () => [],
   deleteChatMessage: async () => {},

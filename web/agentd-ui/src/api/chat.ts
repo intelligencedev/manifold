@@ -90,6 +90,17 @@ export async function updateChatSessionCommandPolicyAllowAll(
   return data;
 }
 
+export async function updateChatSessionActiveTarget(
+  id: string,
+  target: { activeSpecialist: string; activeTeam: string },
+): Promise<ChatSessionMeta> {
+  const { data } = await apiClient.patch<ChatSessionMeta>(
+    `/chat/sessions/${encodeURIComponent(id)}`,
+    target,
+  );
+  return data;
+}
+
 export async function updateChatSessionPinned(
   id: string,
   pinned: boolean,

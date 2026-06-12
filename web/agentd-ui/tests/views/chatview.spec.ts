@@ -1,9 +1,12 @@
 import { render, fireEvent, waitFor } from "@testing-library/vue";
+import { QueryClient, VueQueryPlugin } from "@tanstack/vue-query";
+import { createPinia } from "pinia";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import ChatView from "@/views/ChatView.vue";
 import type { ChatStreamEvent, StreamAgentRunOptions } from "@/api/chat";
 
 const chatApiMocks = vi.hoisted(() => ({
+  sessions: [] as Array<Record<string, unknown>>,
   specialists: [
     { name: "orchestrator", model: "gpt-5", paused: false },
     { name: "orchestrator-max", model: "gpt-5", paused: false },
@@ -54,6 +57,21 @@ const chatApiMocks = vi.hoisted(() => ({
     evolvingMemoryEnabled: true,
     beliefMemoryEnabled: true,
   })),
+  updateChatSessionActiveTarget: vi.fn(
+    async (
+      id: string,
+      target: { activeSpecialist: string; activeTeam: string },
+    ) => ({
+      id,
+      name: "Session",
+      projectId: "proj-1",
+      activeSpecialist: target.activeSpecialist,
+      activeTeam: target.activeTeam,
+      memoryEnabled: true,
+      evolvingMemoryEnabled: true,
+      beliefMemoryEnabled: true,
+    }),
+  ),
 }));
 
 vi.mock("@/api/client", () => ({
@@ -86,7 +104,7 @@ vi.mock("@/api/client", () => ({
 }));
 
 vi.mock("@/api/chat", () => ({
-  listChatSessions: async () => [],
+  listChatSessions: async () => chatApiMocks.sessions,
   fetchChatMessages: async () => [],
   fetchChatActivities: async () => [],
   createChatSession: async () => ({
@@ -120,6 +138,7 @@ vi.mock("@/api/chat", () => ({
     evolvingMemoryEnabled: true,
     beliefMemoryEnabled: true,
   }),
+  updateChatSessionActiveTarget: chatApiMocks.updateChatSessionActiveTarget,
   updateChatSessionPinned: chatApiMocks.updateChatSessionPinned,
   generateChatSessionTitle: async () => ({
     id: "session-1",
@@ -137,6 +156,7 @@ vi.mock("@/api/chat", () => ({
 }));
 
 beforeEach(() => {
+  chatApiMocks.sessions = [];
   chatApiMocks.specialists = [
     { name: "orchestrator", model: "gpt-5", paused: false },
     { name: "orchestrator-max", model: "gpt-5", paused: false },
@@ -152,6 +172,7 @@ beforeEach(() => {
   chatApiMocks.startChatRun.mockClear();
   chatApiMocks.streamChatRunEvents.mockClear();
   chatApiMocks.updateChatSessionMemorySettings.mockClear();
+  chatApiMocks.updateChatSessionActiveTarget.mockClear();
   chatApiMocks.updateChatSessionPinned.mockClear();
   vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
     if (String(input).includes("/api/me")) {
@@ -171,6 +192,31 @@ afterEach(() => {
 // Smoke test for chat send interaction
 
 describe("ChatView", () => {
+  function renderChatView() {
+    return render(ChatView, {
+      global: {
+        plugins: [
+          createPinia(),
+          [VueQueryPlugin, { queryClient: new QueryClient() }],
+        ],
+      },
+    });
+  }
+
+  function sessionMeta(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "session-1",
+      name: "Session",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      projectId: "proj-1",
+      memoryEnabled: true,
+      evolvingMemoryEnabled: true,
+      beliefMemoryEnabled: true,
+      ...overrides,
+    };
+  }
+
   function configureOpsTeam() {
     chatApiMocks.teams = [
       {
@@ -207,13 +253,23 @@ describe("ChatView", () => {
     return teamSelect;
   }
 
-  it("sends a message and echoes", async () => {
-    const { findByLabelText, findByPlaceholderText, getByText } =
-      render(ChatView);
+  async function findComposer() {
+    await waitFor(() => {
+      expect(document.querySelector("textarea")).toBeTruthy();
+    });
+    return document.querySelector("textarea") as HTMLTextAreaElement;
+  }
 
-    const input = (await findByPlaceholderText(
-      "Message the agent...",
-    )) as HTMLTextAreaElement;
+  it("shows the active orchestrator in the prompt placeholder", async () => {
+    const { findByPlaceholderText } = renderChatView();
+
+    await findByPlaceholderText("Message orchestrator...");
+  });
+
+  it("sends a message and echoes", async () => {
+    const { findByLabelText, getByText } = renderChatView();
+
+    const input = await findComposer();
     const projectSelect = (await findByLabelText(
       "Project",
     )) as HTMLSelectElement;
@@ -229,11 +285,9 @@ describe("ChatView", () => {
   });
 
   it("routes by leading @specialist tag and strips it from provider prompt", async () => {
-    const { findByLabelText, findByPlaceholderText } = render(ChatView);
+    const { findByLabelText } = renderChatView();
 
-    const input = (await findByPlaceholderText(
-      "Message the agent...",
-    )) as HTMLTextAreaElement;
+    const input = await findComposer();
     const projectSelect = (await findByLabelText(
       "Project",
     )) as HTMLSelectElement;
@@ -250,15 +304,22 @@ describe("ChatView", () => {
     expect(args?.specialist).toBe("orchestrator-max");
     expect(args?.projectId).toBe("proj-1");
     expect(args?.prompt).toBe("write a haiku");
+    await waitFor(() => {
+      expect(chatApiMocks.updateChatSessionActiveTarget).toHaveBeenCalledWith(
+        "session-1",
+        {
+          activeSpecialist: "orchestrator-max",
+          activeTeam: "",
+        },
+      );
+    });
   });
 
   it("routes by leading @team tag and strips it from provider prompt", async () => {
     configureOpsTeam();
-    const { findByLabelText, findByPlaceholderText } = render(ChatView);
+    const { findByLabelText } = renderChatView();
 
-    const input = (await findByPlaceholderText(
-      "Message the agent...",
-    )) as HTMLTextAreaElement;
+    const input = await findComposer();
     await waitForProjectSelection(findByLabelText);
     await waitForTeamOption(findByLabelText, "ops");
     await fireEvent.update(input, "@ops write a rollout plan");
@@ -279,11 +340,9 @@ describe("ChatView", () => {
       ...chatApiMocks.specialists,
       { name: "ops", model: "gpt-specialist", paused: false },
     ];
-    const { findByLabelText, findByPlaceholderText } = render(ChatView);
+    const { findByLabelText } = renderChatView();
 
-    const input = (await findByPlaceholderText(
-      "Message the agent...",
-    )) as HTMLTextAreaElement;
+    const input = await findComposer();
     await waitForProjectSelection(findByLabelText);
     await waitForTeamOption(findByLabelText, "ops");
     await fireEvent.update(input, "@ops inspect the incident");
@@ -300,11 +359,9 @@ describe("ChatView", () => {
 
   it("routes untagged prompts through selected team and returns to default on all participants", async () => {
     configureOpsTeam();
-    const { findByLabelText, findByPlaceholderText } = render(ChatView);
+    const { findByLabelText } = renderChatView();
 
-    const input = (await findByPlaceholderText(
-      "Message the agent...",
-    )) as HTMLTextAreaElement;
+    const input = await findComposer();
     await waitForProjectSelection(findByLabelText);
     const teamSelect = await waitForTeamOption(findByLabelText, "ops");
 
@@ -318,6 +375,15 @@ describe("ChatView", () => {
     let args = chatApiMocks.startChatRun.mock.calls.at(-1)?.[0];
     expect(args?.teamName).toBe("ops");
     expect(args?.specialist).toBeUndefined();
+    await waitFor(() => {
+      expect(chatApiMocks.updateChatSessionActiveTarget).toHaveBeenCalledWith(
+        "session-1",
+        {
+          activeSpecialist: "orchestrator",
+          activeTeam: "ops",
+        },
+      );
+    });
 
     await fireEvent.update(teamSelect, "");
     await fireEvent.update(input, "default status");
@@ -333,12 +399,17 @@ describe("ChatView", () => {
 
   it("shows the selected team orchestrator instead of the default orchestrator participant", async () => {
     configureOpsTeam();
-    const { findByLabelText } = render(ChatView);
+    const { findByLabelText } = renderChatView();
 
     await waitForProjectSelection(findByLabelText);
     const teamSelect = await waitForTeamOption(findByLabelText, "ops");
     await fireEvent.update(teamSelect, "ops");
 
+    await waitFor(() => {
+      expect(document.querySelector("textarea")?.placeholder).toBe(
+        "Message orchestrator-max...",
+      );
+    });
     await waitFor(() => {
       const participantNames = Array.from(
         document.querySelectorAll(".participant-name"),
@@ -350,11 +421,9 @@ describe("ChatView", () => {
   });
 
   it("sends the active session memory toggles with a run", async () => {
-    const { findByLabelText, findByPlaceholderText } = render(ChatView);
+    const { findByLabelText } = renderChatView();
 
-    const input = (await findByPlaceholderText(
-      "Message the agent...",
-    )) as HTMLTextAreaElement;
+    const input = await findComposer();
     const projectSelect = (await findByLabelText(
       "Project",
     )) as HTMLSelectElement;
@@ -379,5 +448,13 @@ describe("ChatView", () => {
     });
     const args = chatApiMocks.startChatRun.mock.calls.at(-1)?.[0];
     expect(args?.memoryEnabled).toBe(false);
+  });
+
+  it("hydrates the prompt placeholder from the persisted active specialist", async () => {
+    chatApiMocks.sessions = [sessionMeta({ activeSpecialist: "ops" })];
+    const { findByPlaceholderText } = renderChatView();
+
+    await findByPlaceholderText("Message ops...");
+    expect(chatApiMocks.updateChatSessionActiveTarget).not.toHaveBeenCalled();
   });
 });

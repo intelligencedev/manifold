@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     memory_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     evolving_memory_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     belief_memory_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    active_specialist TEXT NOT NULL DEFAULT '',
+    active_team TEXT NOT NULL DEFAULT '',
     pinned BOOLEAN NOT NULL DEFAULT FALSE
 );
 
@@ -81,6 +83,12 @@ ALTER TABLE chat_sessions
 
 ALTER TABLE chat_sessions
     ADD COLUMN IF NOT EXISTS belief_memory_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE chat_sessions
+    ADD COLUMN IF NOT EXISTS active_specialist TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE chat_sessions
+    ADD COLUMN IF NOT EXISTS active_team TEXT NOT NULL DEFAULT '';
 
 ALTER TABLE chat_sessions
     ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT FALSE;

@@ -141,6 +141,8 @@ export interface ChatSessionMeta {
   evolvingMemoryEnabled?: boolean;
   beliefMemoryEnabled?: boolean;
   commandPolicyAllowAll?: boolean;
+  activeSpecialist?: string;
+  activeTeam?: string;
   pinned?: boolean;
 }
 

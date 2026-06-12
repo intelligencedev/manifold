@@ -210,6 +210,22 @@ func (s *memChatStore) SetSessionMemorySettings(ctx context.Context, userID *int
 	return s.sessionWithMessageCountLocked(sess), nil
 }
 
+func (s *memChatStore) SetSessionActiveTarget(ctx context.Context, userID *int64, id string, activeSpecialist string, activeTeam string) (persistence.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[id]
+	if !ok {
+		return persistence.ChatSession{}, persistence.ErrNotFound
+	}
+	if !hasAccess(userID, sess.UserID) {
+		return persistence.ChatSession{}, persistence.ErrForbidden
+	}
+	sess.ActiveSpecialist = strings.TrimSpace(activeSpecialist)
+	sess.ActiveTeam = strings.TrimSpace(activeTeam)
+	s.sessions[id] = sess
+	return s.sessionWithMessageCountLocked(sess), nil
+}
+
 func (s *memChatStore) SetSessionPinned(ctx context.Context, userID *int64, id string, pinned bool) (persistence.ChatSession, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

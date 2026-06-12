@@ -138,6 +138,19 @@ func (s *promptHandlerChatStore) SetSessionMemorySettings(_ context.Context, _ *
 	return sess, nil
 }
 
+func (s *promptHandlerChatStore) SetSessionActiveTarget(_ context.Context, _ *int64, id string, activeSpecialist string, activeTeam string) (persistence.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[id]
+	if !ok {
+		return persistence.ChatSession{}, persistence.ErrNotFound
+	}
+	sess.ActiveSpecialist = strings.TrimSpace(activeSpecialist)
+	sess.ActiveTeam = strings.TrimSpace(activeTeam)
+	s.sessions[id] = sess
+	return sess, nil
+}
+
 func (s *promptHandlerChatStore) SetSessionPinned(_ context.Context, _ *int64, id string, pinned bool) (persistence.ChatSession, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

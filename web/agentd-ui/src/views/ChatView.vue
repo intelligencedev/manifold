@@ -1059,13 +1059,7 @@
                   v-model="draft"
                   rows="1"
                   class="flex-1 min-w-0 resize-none bg-transparent py-1.5 text-sm leading-6 text-foreground outline-none placeholder:text-faint-foreground"
-                  :placeholder="
-                    hasPendingInputRequest
-                      ? 'Answer the request above to continue.'
-                      : projectSelected
-                        ? 'Message the agent...'
-                        : 'Select a project to enable the chat.'
-                  "
+                  :placeholder="composerPlaceholder"
                   :disabled="!projectSelected || hasPendingInputRequest"
                   @keydown="handleComposerKeydown"
                   @input="handleComposerInput"
@@ -1909,39 +1903,102 @@ const teamOptions = computed<DropdownOption[]>(() => {
   return [{ id: "", label: "All participants", value: "" }, ...teams];
 });
 
+const selectedTeamBySession = ref<Record<string, string>>({});
 const selectedSpecialistBySession = ref<Record<string, string>>({});
+
+type ActiveChatTarget = {
+  specialist: string;
+  team: string;
+};
+
+function hasSessionOverride(map: Record<string, string>, sessionId: string) {
+  return Object.prototype.hasOwnProperty.call(map, sessionId);
+}
+
+function normalizeSpecialistTarget(value?: string | null) {
+  return (value || "orchestrator").trim() || "orchestrator";
+}
+
+function normalizeTeamTarget(value?: string | null) {
+  return (value || "").trim();
+}
+
+function sessionMetaForID(sessionId: string) {
+  return sessions.value.find((session) => session.id === sessionId) || null;
+}
+
+function persistedSpecialistForSession(sessionId: string) {
+  return normalizeSpecialistTarget(
+    sessionMetaForID(sessionId)?.activeSpecialist,
+  );
+}
+
+function persistedTeamForSession(sessionId: string) {
+  return normalizeTeamTarget(sessionMetaForID(sessionId)?.activeTeam);
+}
+
+function persistedTargetForSession(sessionId: string): ActiveChatTarget {
+  return {
+    specialist: persistedSpecialistForSession(sessionId),
+    team: persistedTeamForSession(sessionId),
+  };
+}
+
+function targetEquals(a: ActiveChatTarget, b: ActiveChatTarget) {
+  return a.specialist === b.specialist && a.team === b.team;
+}
+
+function setSelectedSpecialistOverride(
+  sessionId: string,
+  specialist: string | null,
+) {
+  const next = { ...selectedSpecialistBySession.value };
+  if (specialist === null) delete next[sessionId];
+  else next[sessionId] = normalizeSpecialistTarget(specialist);
+  selectedSpecialistBySession.value = next;
+}
+
+function setSelectedTeamOverride(sessionId: string, team: string | null) {
+  const next = { ...selectedTeamBySession.value };
+  if (team === null) delete next[sessionId];
+  else next[sessionId] = normalizeTeamTarget(team);
+  selectedTeamBySession.value = next;
+}
+
+function currentTargetForSession(sessionId: string): ActiveChatTarget {
+  return {
+    specialist: hasSessionOverride(selectedSpecialistBySession.value, sessionId)
+      ? normalizeSpecialistTarget(selectedSpecialistBySession.value[sessionId])
+      : persistedSpecialistForSession(sessionId),
+    team: hasSessionOverride(selectedTeamBySession.value, sessionId)
+      ? normalizeTeamTarget(selectedTeamBySession.value[sessionId])
+      : persistedTeamForSession(sessionId),
+  };
+}
+
 const selectedSpecialist = computed({
   get: () => {
     const sessionId = activeSessionId.value;
     if (!sessionId) return "orchestrator";
-    return selectedSpecialistBySession.value[sessionId] || "orchestrator";
+    return currentTargetForSession(sessionId).specialist;
   },
   set: (value: string) => {
     const sessionId = activeSessionId.value;
     if (!sessionId) return;
-    const next = (value || "orchestrator").trim() || "orchestrator";
-    selectedSpecialistBySession.value = {
-      ...selectedSpecialistBySession.value,
-      [sessionId]: next,
-    };
+    setSelectedSpecialistOverride(sessionId, value);
   },
 });
 
-const selectedTeamBySession = ref<Record<string, string>>({});
 const selectedTeam = computed({
   get: () => {
     const sessionId = activeSessionId.value;
     if (!sessionId) return "";
-    return selectedTeamBySession.value[sessionId] || "";
+    return currentTargetForSession(sessionId).team;
   },
   set: (value: string) => {
     const sessionId = activeSessionId.value;
     if (!sessionId) return;
-    const next = (value || "").trim();
-    selectedTeamBySession.value = {
-      ...selectedTeamBySession.value,
-      [sessionId]: next,
-    };
+    setSelectedTeamOverride(sessionId, value);
   },
 });
 const selectedTeamConfig = computed(() => {
@@ -2076,6 +2133,7 @@ function selectMentionCandidate(participant: Participant) {
 }
 
 watch([selectedTeam, teamsData], ([teamName]) => {
+  if (!teamsData?.value) return;
   const name = (teamName || "").trim();
   if (!name) return;
   if (!teamsByName.value.has(name.toLowerCase())) {
@@ -2083,12 +2141,17 @@ watch([selectedTeam, teamsData], ([teamName]) => {
   }
 });
 
-watch(selectedTeam, () => {
+watch([activeSessionId, selectedTeam], ([sessionId], [previousSessionId]) => {
+  if (sessionId !== previousSessionId) {
+    closeParticipantActivity();
+    return;
+  }
   selectedSpecialist.value = "orchestrator";
   closeParticipantActivity();
 });
 
 watch([selectedTeam, selectedSpecialist, selectedTeamMembers], () => {
+  if (!teamsData?.value) return;
   if (!selectedTeam.value) return;
   const selected = (selectedSpecialist.value || "").trim();
   if (!selected || selected.toLowerCase() === "orchestrator") return;
@@ -2096,6 +2159,50 @@ watch([selectedTeam, selectedSpecialist, selectedTeamMembers], () => {
     selectedSpecialist.value = "orchestrator";
   }
 });
+
+watch(
+  [activeSessionId, selectedTeam, selectedSpecialist],
+  ([sessionId, team, specialist], [previousSessionId]) => {
+    if (!sessionId || sessionId !== previousSessionId) return;
+    const nextTarget: ActiveChatTarget = {
+      specialist: normalizeSpecialistTarget(specialist),
+      team: normalizeTeamTarget(team),
+    };
+    const persistedTarget = persistedTargetForSession(sessionId);
+    if (targetEquals(nextTarget, persistedTarget)) return;
+    void persistActiveTarget(sessionId, nextTarget);
+  },
+  { flush: "post" },
+);
+
+async function persistActiveTarget(
+  sessionId: string,
+  target: ActiveChatTarget,
+) {
+  try {
+    const updated = await chat.updateSessionActiveTarget(
+      sessionId,
+      target.specialist,
+      target.team,
+    );
+    const latest = currentTargetForSession(sessionId);
+    if (
+      targetEquals(latest, target) &&
+      targetEquals(
+        {
+          specialist: normalizeSpecialistTarget(updated?.activeSpecialist),
+          team: normalizeTeamTarget(updated?.activeTeam),
+        },
+        target,
+      )
+    ) {
+      setSelectedSpecialistOverride(sessionId, null);
+      setSelectedTeamOverride(sessionId, null);
+    }
+  } catch (error) {
+    console.warn("Failed to persist chat active target:", error);
+  }
+}
 const projectSelected = computed(() => Boolean(activeSessionId.value));
 const requiresProjectSelection = computed(() => false);
 
@@ -2333,6 +2440,16 @@ const toolActivityMsById = ref<Record<string, number>>({});
 const sessionAgentDefaults = computed(() =>
   parseAgentModelLabel(activeSession.value?.model || ""),
 );
+const composerPlaceholder = computed(() => {
+  if (hasPendingInputRequest.value) {
+    return "Answer the request above to continue.";
+  }
+  if (!projectSelected.value) {
+    return "Select a project to enable the chat.";
+  }
+  const { agentName } = resolveAgentContext();
+  return `Message ${agentName || "orchestrator"}...`;
+});
 const showScrollToBottom = computed(
   () => !autoScrollEnabled.value && chatMessages.value.length > 0,
 );

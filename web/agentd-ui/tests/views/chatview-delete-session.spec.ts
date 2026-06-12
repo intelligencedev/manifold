@@ -101,6 +101,15 @@ vi.mock("@/api/chat", () => ({
     name: "Roadmap Chat",
     commandPolicyAllowAll: allow,
   }),
+  updateChatSessionActiveTarget: async (
+    id: string,
+    target: { activeSpecialist: string; activeTeam: string },
+  ) => ({
+    id,
+    name: "Roadmap Chat",
+    activeSpecialist: target.activeSpecialist,
+    activeTeam: target.activeTeam,
+  }),
   updateChatSessionPinned: async (id: string, pinned: boolean) => ({
     id,
     name: "Roadmap Chat",

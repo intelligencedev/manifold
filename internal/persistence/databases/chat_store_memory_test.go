@@ -111,6 +111,20 @@ func TestMemChatStoreLifecycle(t *testing.T) {
 	if locked.ProjectID != "project-1" {
 		t.Fatalf("expected project lock, got %q", locked.ProjectID)
 	}
+	targetSession, err := store.SetSessionActiveTarget(ctx, nil, "session-1", "planner", "ops")
+	if err != nil {
+		t.Fatalf("SetSessionActiveTarget: %v", err)
+	}
+	if targetSession.ActiveSpecialist != "planner" || targetSession.ActiveTeam != "ops" {
+		t.Fatalf("unexpected active target: specialist=%q team=%q", targetSession.ActiveSpecialist, targetSession.ActiveTeam)
+	}
+	locked, err = store.GetSession(ctx, nil, "session-1")
+	if err != nil {
+		t.Fatalf("GetSession after active target: %v", err)
+	}
+	if locked.ActiveSpecialist != "planner" || locked.ActiveTeam != "ops" {
+		t.Fatalf("expected active target to persist, got specialist=%q team=%q", locked.ActiveSpecialist, locked.ActiveTeam)
+	}
 	pinned, err := store.SetSessionPinned(ctx, nil, "session-1", true)
 	if err != nil {
 		t.Fatalf("SetSessionPinned: %v", err)

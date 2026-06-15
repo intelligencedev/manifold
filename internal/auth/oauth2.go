@@ -363,12 +363,17 @@ func (o *OAuth2) LogoutHandler(cookieSecure bool, cookieDomain string) http.Hand
 func (o *OAuth2) MeHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		enc := json.NewEncoder(w)
 		if u, ok := CurrentUser(r.Context()); ok && u != nil {
-			_, _ = w.Write([]byte(`{"email":"` + u.Email + `","name":"` + u.Name + `","picture":"` + u.Picture + `"}`))
+			_ = enc.Encode(map[string]string{
+				"email":   u.Email,
+				"name":    u.Name,
+				"picture": u.Picture,
+			})
 			return
 		}
 		w.WriteHeader(http.StatusUnauthorized)
-		_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+		_ = enc.Encode(map[string]string{"error": "unauthorized"})
 	}
 }
 

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -62,6 +63,59 @@ func TestOIDCLogoutLocalWhenNoLogoutURL(t *testing.T) {
 	}
 	if got := rec.Header().Get("Location"); got != "http://example.com/signed-out" {
 		t.Fatalf("unexpected location: %q", got)
+	}
+}
+
+func TestOIDCMeHandlerEscapesUserFields(t *testing.T) {
+	t.Parallel()
+	user := &User{
+		Email:   `mike+test@example.com`,
+		Name:    `O'Brien "the Magnificent"`,
+		Picture: `https://cdn.example.com/p.jpg?q="x"`,
+	}
+	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	req = req.WithContext(WithUser(req.Context(), user))
+	rec := httptest.NewRecorder()
+
+	(&OIDC{}).MeHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Fatalf("unexpected content-type: %q", ct)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("response is not valid JSON: %v\nbody: %s", err, rec.Body.String())
+	}
+	if got["email"] != user.Email {
+		t.Fatalf("email round-trip failed: want %q got %q", user.Email, got["email"])
+	}
+	if got["name"] != user.Name {
+		t.Fatalf("name round-trip failed: want %q got %q", user.Name, got["name"])
+	}
+	if got["picture"] != user.Picture {
+		t.Fatalf("picture round-trip failed: want %q got %q", user.Picture, got["picture"])
+	}
+}
+
+func TestOIDCMeHandlerUnauthorized(t *testing.T) {
+	t.Parallel()
+	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+	rec := httptest.NewRecorder()
+
+	(&OIDC{}).MeHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rec.Code)
+	}
+	var got map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("response is not valid JSON: %v\nbody: %s", err, rec.Body.String())
+	}
+	if got["error"] != "unauthorized" {
+		t.Fatalf("expected error=unauthorized, got %v", got)
 	}
 }
 

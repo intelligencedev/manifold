@@ -62,6 +62,16 @@ func TestMemChatStoreLifecycle(t *testing.T) {
 	if len(limited) != 1 || limited[0].Role != "assistant" {
 		t.Fatalf("expected only assistant message from limited query, got %#v", limited)
 	}
+	beforeStore := store.(interface {
+		ListMessagesBefore(context.Context, *int64, string, string, int) ([]persistence.ChatMessage, error)
+	})
+	before, err := beforeStore.ListMessagesBefore(ctx, nil, "session-1", msgs[1].ID, 1)
+	if err != nil {
+		t.Fatalf("ListMessagesBefore: %v", err)
+	}
+	if len(before) != 1 || before[0].Role != "user" {
+		t.Fatalf("expected user message before assistant cursor, got %#v", before)
+	}
 	if err := store.UpdateSummary(ctx, nil, "session-1", "summary", 2); err != nil {
 		t.Fatalf("UpdateSummary: %v", err)
 	}

@@ -140,12 +140,34 @@ func (a *app) handleChatMessages(w http.ResponseWriter, r *http.Request, userID 
 		return
 	}
 	limit := chatMessageLimit(r)
-	msgs, err := a.chatStore.ListMessages(r.Context(), userID, sessionID, limit)
+	beforeID := strings.TrimSpace(r.URL.Query().Get("before"))
+	msgs, err := a.listChatMessages(r, userID, sessionID, beforeID, limit)
 	if err != nil {
 		writeChatDetailStoreError(w, r, err, sessionID, "list_chat_messages")
 		return
 	}
 	writeChatJSON(w, hydrateChatMessages(msgs), "encode_chat_messages")
+}
+
+type chatMessageBeforeLister interface {
+	ListMessagesBefore(ctx context.Context, userID *int64, sessionID string, beforeID string, limit int) ([]persist.ChatMessage, error)
+}
+
+func (a *app) listChatMessages(
+	r *http.Request,
+	userID *int64,
+	sessionID string,
+	beforeID string,
+	limit int,
+) ([]persist.ChatMessage, error) {
+	if beforeID == "" {
+		return a.chatStore.ListMessages(r.Context(), userID, sessionID, limit)
+	}
+	store, ok := a.chatStore.(chatMessageBeforeLister)
+	if !ok {
+		return nil, errors.New("chat message cursor pagination unavailable")
+	}
+	return store.ListMessagesBefore(r.Context(), userID, sessionID, beforeID, limit)
 }
 
 func chatMessageLimit(r *http.Request) int {

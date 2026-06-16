@@ -7,56 +7,39 @@ import (
 	"strings"
 	"time"
 
-	rs "github.com/openai/openai-go/v2/responses"
+	"github.com/openai/openai-go/v3/packages/param"
+	rs "github.com/openai/openai-go/v3/responses"
 
 	"manifold/internal/llm"
 	"manifold/internal/observability"
 )
-
-type responseCompactRequest struct {
-	Model              string `json:"model"`
-	Input              any    `json:"input,omitempty"`
-	Instructions       string `json:"instructions,omitempty"`
-	PreviousResponseID string `json:"previous_response_id,omitempty"`
-}
-
-type responseCompactOutput struct {
-	Type             string `json:"type"`
-	ID               string `json:"id"`
-	EncryptedContent string `json:"encrypted_content"`
-}
-
-type responseCompactResponse struct {
-	ID        string                  `json:"id"`
-	Object    string                  `json:"object"`
-	CreatedAt int64                   `json:"created_at"`
-	Output    []responseCompactOutput `json:"output"`
-}
 
 // Compact compresses conversation state using the Responses API compaction endpoint.
 func (c *Client) Compact(ctx context.Context, msgs []llm.Message, model string, previous *llm.CompactionItem) (*llm.CompactionItem, error) {
 	if c.api != "responses" {
 		return nil, fmt.Errorf("responses api required for compaction")
 	}
+	effectiveModel := firstNonEmpty(model, c.model)
 	log := observability.LoggerWithTrace(ctx)
-	ctx, span := llm.StartRequestSpan(ctx, "OpenAI Responses Compact", firstNonEmpty(model, c.model), 0, len(msgs))
+	ctx, span := llm.StartRequestSpan(ctx, "OpenAI Responses Compact", effectiveModel, 0, len(msgs))
 	defer span.End()
 	llm.LogRedactedPrompt(ctx, msgs)
 
-	policy := c.responsesContextPolicy(firstNonEmpty(model, c.model))
+	policy := c.responsesContextPolicy(effectiveModel)
 	input, instructions := buildCompactionInputWithLimit(msgs, previous, policy.ToolOutputMaxChars)
-	req := responseCompactRequest{Model: firstNonEmpty(model, c.model)}
+	req := rs.ResponseCompactParams{Model: rs.ResponseCompactParamsModel(effectiveModel)}
 	if len(input) > 0 {
-		req.Input = input
+		req.Input.OfResponseInputItemArray = input
 	}
 	if strings.TrimSpace(instructions) != "" {
-		req.Instructions = instructions
+		req.Instructions = param.NewOpt(instructions)
 	}
+	applyResponseCompactExtraFields(&req, c.extra)
 
-	var resp responseCompactResponse
 	start := time.Now()
-	if err := c.sdk.Post(ctx, "/responses/compact", req, &resp); err != nil {
-		log.Error().Err(err).Str("model", req.Model).Dur("duration", time.Since(start)).Msg("responses_compact_error")
+	resp, err := c.sdk.Responses.Compact(ctx, req)
+	if err != nil {
+		log.Error().Err(err).Str("model", effectiveModel).Dur("duration", time.Since(start)).Msg("responses_compact_error")
 		span.RecordError(err)
 		return nil, err
 	}
@@ -69,8 +52,35 @@ func (c *Client) Compact(ctx context.Context, msgs []llm.Message, model string, 
 	return nil, errors.New("responses compact returned no compaction item")
 }
 
-func buildCompactionInputWithLimit(msgs []llm.Message, previous *llm.CompactionItem, toolOutputMaxChars int) ([]any, string) {
-	items := make([]any, 0, len(msgs)+1)
+func applyResponseCompactExtraFields(params *rs.ResponseCompactParams, extra map[string]any) {
+	if params == nil || len(extra) == 0 {
+		return
+	}
+	if v, ok := compactExtraString(extra, "prompt_cache_key", "promptCacheKey"); ok {
+		params.PromptCacheKey = param.NewOpt(v)
+	}
+	if v, ok := compactExtraString(extra, "prompt_cache_retention", "promptCacheRetention"); ok {
+		params.PromptCacheRetention = rs.ResponseCompactParamsPromptCacheRetention(v)
+	}
+	if v, ok := compactExtraString(extra, "service_tier", "serviceTier"); ok {
+		params.ServiceTier = rs.ResponseCompactParamsServiceTier(v)
+	}
+}
+
+func compactExtraString(extra map[string]any, keys ...string) (string, bool) {
+	for _, key := range keys {
+		raw, ok := extra[key]
+		if !ok {
+			continue
+		}
+		value := strings.TrimSpace(fmt.Sprint(raw))
+		return value, value != ""
+	}
+	return "", false
+}
+
+func buildCompactionInputWithLimit(msgs []llm.Message, previous *llm.CompactionItem, toolOutputMaxChars int) ([]rs.ResponseInputItemUnionParam, string) {
+	items := make([]rs.ResponseInputItemUnionParam, 0, len(msgs)+1)
 	if previous != nil && strings.TrimSpace(previous.EncryptedContent) != "" {
 		items = append(items, previousCompactionPayload(previous))
 	}
@@ -101,21 +111,14 @@ func buildCompactionInputWithLimit(msgs []llm.Message, previous *llm.CompactionI
 }
 
 type compactionInputState struct {
-	items          []any
+	items          []rs.ResponseInputItemUnionParam
 	toolCallIDs    map[string]struct{}
 	toolOutputIDs  map[string]struct{}
 	assistantIndex int
 }
 
-func previousCompactionPayload(previous *llm.CompactionItem) map[string]any {
-	payload := map[string]any{
-		"type":              "compaction",
-		"encrypted_content": previous.EncryptedContent,
-	}
-	if strings.TrimSpace(previous.ID) != "" {
-		payload["id"] = previous.ID
-	}
-	return payload
+func previousCompactionPayload(previous *llm.CompactionItem) rs.ResponseInputItemUnionParam {
+	return responseCompactionItemParam(*previous)
 }
 
 func compactionToolIDs(msgs []llm.Message) (map[string]struct{}, map[string]struct{}) {

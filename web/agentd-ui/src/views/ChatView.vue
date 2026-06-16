@@ -365,6 +365,26 @@
           @click="handleMarkdownClick"
         >
           <div
+            v-if="hasOlderMessages || olderMessagesLoading"
+            class="flex justify-center pb-1"
+          >
+            <button
+              type="button"
+              class="rounded-3 border border-border bg-surface-muted px-3 py-1.5 text-xs text-subtle-foreground transition hover:bg-surface-muted/80 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+              :disabled="olderMessagesLoading"
+              @click="loadOlderMessages"
+            >
+              {{ olderMessagesLoading ? "Loading..." : "Load older messages" }}
+            </button>
+          </div>
+          <p
+            v-if="olderMessagesError"
+            class="pb-1 text-center text-xs text-danger"
+          >
+            {{ olderMessagesError }}
+          </p>
+
+          <div
             v-if="!chatMessages.length"
             class="flex h-full flex-col items-center justify-center gap-2 p-8 text-center text-sm text-muted-foreground"
           >
@@ -986,16 +1006,17 @@
 
         <button
           type="button"
-          class="absolute bottom-28 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 rounded-full bg-surface px-3 py-2 text-xs font-semibold text-foreground ring-1 ring-border/50 transform transition-all duration-200"
+          class="absolute bottom-20 right-8 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full border border-border/60 bg-surface/95 text-subtle-foreground shadow-1 transition-all duration-150 hover:border-accent/50 hover:text-accent focus-visible:shadow-outline"
           :class="
             showScrollToBottom
               ? 'pointer-events-auto opacity-100 translate-y-0'
-              : 'pointer-events-none opacity-0 translate-y-2'
+              : 'pointer-events-none opacity-0 translate-y-1'
           "
           @click="handleScrollToLatest"
+          title="Scroll to latest"
+          aria-label="Scroll to latest"
         >
-          <span class="h-2 w-2 rounded-full bg-accent"></span>
-          <span>Scroll to latest</span>
+          <SolarListArrowDownIcon class="h-4 w-4" />
         </button>
 
         <footer class="px-4 pb-4 pt-2">
@@ -1609,6 +1630,7 @@ import {
   type Specialist,
   type SpecialistTeam,
 } from "@/api/client";
+import { fetchChatMessages } from "@/api/chat";
 import { renderMarkdown } from "@/utils/markdown";
 import { resolveLeadingChatMention } from "@/utils/chatMentions";
 import "highlight.js/styles/github-dark-dimmed.css";
@@ -1621,6 +1643,7 @@ import SolarTrashIcon from "@/components/icons/SolarTrash.vue";
 import SolarRefreshIcon from "@/components/icons/SolarRefresh.vue";
 import SolarDownloadIcon from "@/components/icons/SolarDownload.vue";
 import SolarPinBold from "@/components/icons/SolarPinBold.vue";
+import SolarListArrowDownIcon from "@/components/icons/Expand.vue";
 import Camera from "@/components/icons/Camera.vue";
 import TokenGaugeRail from "@/components/chat/TokenGaugeRail.vue";
 import DropdownSelect from "@/components/DropdownSelect.vue";
@@ -1637,6 +1660,7 @@ import type { DropdownOption } from "@/types/dropdown";
 const router = useRouter();
 const isBrowser = typeof window !== "undefined";
 const SCROLL_LOCK_THRESHOLD = 80;
+const LOAD_OLDER_SCROLL_THRESHOLD = 96;
 let previousBodyOverflow: string | null = null;
 
 const chat = useChatStore();
@@ -2320,6 +2344,16 @@ function renderMarkdownOrHtml(content: string) {
 const activeSession = computed(() => chat.activeSession);
 const activeMessages = computed(() => chat.activeMessages);
 const chatMessages = computed(() => chat.chatMessages);
+const activeMessagePaging = computed(() => chat.activeMessagePaging);
+const hasOlderMessages = computed(() =>
+  Boolean(activeMessagePaging.value?.hasOlder),
+);
+const olderMessagesLoading = computed(() =>
+  Boolean(activeMessagePaging.value?.loadingOlder),
+);
+const olderMessagesError = computed(
+  () => activeMessagePaging.value?.error || "",
+);
 const activeSummaryEvent = computed(() => chat.activeSummaryEvent);
 const configuredSummaryBudget = computed(() =>
   summaryBudgetFromAgentdSettings(summarySettingsQuery.data.value),
@@ -2459,11 +2493,12 @@ const sessionMessageCounts = computed<Record<string, number>>(() => {
     const local = messagesBySession.value[session.id];
     const metaCount =
       typeof session.messageCount === "number" ? session.messageCount : 0;
-    if (Array.isArray(local) && local.length) {
-      counts[session.id] = local.length;
-    } else {
-      counts[session.id] = metaCount;
-    }
+    counts[session.id] =
+      typeof session.messageCount === "number"
+        ? metaCount
+        : Array.isArray(local)
+          ? local.length
+          : 0;
   }
   return counts;
 });
@@ -3711,8 +3746,6 @@ onBeforeUnmount(() => {
   }
 });
 
-watch(draft, () => autoSizeComposer());
-
 function setRenameInput(el: Element | ComponentPublicInstance | null) {
   renameInput.value = el instanceof HTMLInputElement ? el : null;
 }
@@ -3857,9 +3890,7 @@ async function exportSession(sessionId: string) {
   const session = sessions.value.find((s) => s.id === sessionId);
   if (!session) return;
 
-  // Load messages for the session (force refresh to ensure we have all)
-  await chat.loadMessagesFromServer(sessionId, { force: true });
-  const messages = messagesBySession.value[sessionId] || [];
+  const messages = await fetchChatMessages(sessionId);
 
   // Build export payload
   const payload = {
@@ -4012,6 +4043,7 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
 
     autoScrollEnabled.value = true;
     draft.value = options.echoUser === false ? draft.value : "";
+    nextTick(() => autoSizeComposer());
     const attachmentsToSend = [...pendingAttachments.value];
     const filesByAttachmentSnapshot = new Map(filesByAttachment);
     if (attachmentsToSend.some((att) => att.kind === "image")) {
@@ -4066,6 +4098,7 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
   } catch (error) {
     if (options.echoUser !== false) {
       draft.value = previousDraft;
+      nextTick(() => autoSizeComposer());
     }
     console.warn("Failed to send chat prompt:", error);
   } finally {
@@ -4406,6 +4439,22 @@ function scrollMessagesToBottom(options: ScrollToBottomOptions = {}) {
   });
 }
 
+async function loadOlderMessages() {
+  const sessionId = activeSessionId.value;
+  if (!sessionId || !hasOlderMessages.value || olderMessagesLoading.value) {
+    return;
+  }
+  const container = messagesPane.value;
+  const previousScrollHeight = container?.scrollHeight ?? 0;
+  const previousScrollTop = container?.scrollTop ?? 0;
+  await chat.loadOlderMessages(sessionId);
+  await nextTick();
+  if (!container) return;
+  const delta = container.scrollHeight - previousScrollHeight;
+  container.scrollTop = previousScrollTop + Math.max(delta, 0);
+  lastScrollTop.value = container.scrollTop;
+}
+
 function scrollActivityPaneToBottom(options: ScrollToBottomOptions = {}) {
   nextTick(() => {
     scrollPaneToBottom(
@@ -4475,7 +4524,11 @@ function isNearBottom(container: HTMLElement) {
 }
 
 function handleMessagesScroll(event: Event) {
+  const container = event.target as HTMLElement | null;
+  const nearTop =
+    !!container && container.scrollTop <= LOAD_OLDER_SCROLL_THRESHOLD;
   handlePaneScroll(event, autoScrollEnabled, lastScrollTop);
+  if (nearTop) void loadOlderMessages();
 }
 
 function handleActivityPaneScroll(event: Event) {

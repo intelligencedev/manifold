@@ -1,12 +1,11 @@
 package openai
 
 import (
-	"encoding/json"
 	"strings"
 
-	sdk "github.com/openai/openai-go/v2"
-	"github.com/openai/openai-go/v2/packages/param"
-	rs "github.com/openai/openai-go/v2/responses"
+	sdk "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/packages/param"
+	rs "github.com/openai/openai-go/v3/responses"
 
 	"manifold/internal/llm"
 )
@@ -185,13 +184,9 @@ func responseInputImageContentParam(dataURL string) rs.ResponseInputContentUnion
 }
 
 func responseCompactionItemParam(item llm.CompactionItem) rs.ResponseInputItemUnionParam {
-	payload := map[string]any{
-		"type":              "compaction",
-		"encrypted_content": item.EncryptedContent,
-	}
+	compaction := rs.ResponseCompactionItemParam{EncryptedContent: item.EncryptedContent}
 	if strings.TrimSpace(item.ID) != "" {
-		payload["id"] = item.ID
+		compaction.ID = param.NewOpt(item.ID)
 	}
-	raw, _ := json.Marshal(payload)
-	return param.Override[rs.ResponseInputItemUnionParam](json.RawMessage(raw))
+	return rs.ResponseInputItemUnionParam{OfCompaction: &compaction}
 }

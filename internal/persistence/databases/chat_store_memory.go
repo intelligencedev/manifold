@@ -450,6 +450,36 @@ func (s *memChatStore) ListMessages(ctx context.Context, userID *int64, sessionI
 	return out, nil
 }
 
+func (s *memChatStore) ListMessagesBefore(ctx context.Context, userID *int64, sessionID string, beforeID string, limit int) ([]persistence.ChatMessage, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	sess, ok := s.sessions[sessionID]
+	if !ok {
+		return nil, persistence.ErrNotFound
+	}
+	if !hasAccess(userID, sess.UserID) {
+		return nil, persistence.ErrForbidden
+	}
+	msgs := s.messages[sessionID]
+	cut := -1
+	for i, msg := range msgs {
+		if msg.ID == beforeID {
+			cut = i
+			break
+		}
+	}
+	if cut < 0 {
+		return []persistence.ChatMessage{}, nil
+	}
+	msgs = msgs[:cut]
+	if limit > 0 && len(msgs) > limit {
+		msgs = msgs[len(msgs)-limit:]
+	}
+	out := make([]persistence.ChatMessage, len(msgs))
+	copy(out, msgs)
+	return out, nil
+}
+
 func (s *memChatStore) AppendMessages(ctx context.Context, userID *int64, sessionID string, messages []persistence.ChatMessage, preview string, model string) error {
 	return s.appendMessages(chatAppendMessagesRequest{ctx: ctx, userID: userID, sessionID: sessionID, messages: messages, preview: preview, model: model})
 }

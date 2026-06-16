@@ -116,14 +116,28 @@ export async function deleteChatSession(id: string): Promise<void> {
   await apiClient.delete(`/chat/sessions/${encodeURIComponent(id)}`);
 }
 
+export type FetchChatMessagesOptions = {
+  limit?: number;
+  before?: string;
+};
+
 export async function fetchChatMessages(
   sessionId: string,
-  limit?: number,
+  options?: number | FetchChatMessagesOptions,
 ): Promise<ChatMessage[]> {
+  const params =
+    typeof options === "number"
+      ? options > 0
+        ? { limit: options }
+        : undefined
+      : {
+          ...(options?.limit ? { limit: options.limit } : {}),
+          ...(options?.before ? { before: options.before } : {}),
+        };
   const { data } = await apiClient.get<ChatMessage[]>(
     `/chat/sessions/${encodeURIComponent(sessionId)}/messages`,
     {
-      params: limit ? { limit } : undefined,
+      params,
     },
   );
   return data;

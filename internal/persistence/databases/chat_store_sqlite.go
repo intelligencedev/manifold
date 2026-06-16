@@ -276,6 +276,42 @@ func (s *sqliteChatStore) ListMessages(ctx context.Context, userID *int64, sessi
 	return out, rows.Err()
 }
 
+func (s *sqliteChatStore) ListMessagesBefore(ctx context.Context, userID *int64, sessionID string, beforeID string, limit int) ([]persistence.ChatMessage, error) {
+	if _, err := s.GetSession(ctx, userID, sessionID); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	query := `SELECT id, session_id, role, content, created_at, duration_ms FROM (
+		SELECT m.id, m.session_id, m.role, m.content, m.created_at, m.duration_ms
+		FROM chat_messages m
+		JOIN chat_messages cursor ON cursor.session_id = ? AND cursor.id = ?
+		WHERE m.session_id = ?
+			AND (m.created_at < cursor.created_at OR (m.created_at = cursor.created_at AND m.id < cursor.id))
+		ORDER BY m.created_at DESC, m.id DESC
+		LIMIT ?
+	) ORDER BY created_at ASC, id ASC`
+	rows, err := s.db.QueryContext(ctx, query, sessionID, beforeID, sessionID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := []persistence.ChatMessage{}
+	for rows.Next() {
+		var msg persistence.ChatMessage
+		var createdAt sqliteTime
+		var duration sql.NullInt64
+		if err := rows.Scan(&msg.ID, &msg.SessionID, &msg.Role, &msg.Content, &createdAt, &duration); err != nil {
+			return nil, err
+		}
+		msg.CreatedAt = createdAt.Time
+		msg.DurationMs = int64PtrFromNull(duration)
+		out = append(out, msg)
+	}
+	return out, rows.Err()
+}
+
 func (s *sqliteChatStore) DeleteMessage(ctx context.Context, userID *int64, sessionID string, messageID string) error {
 	return s.DeleteMessageWithRelated(ctx, userID, sessionID, messageID, nil, false)
 }

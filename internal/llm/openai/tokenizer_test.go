@@ -10,12 +10,13 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"manifold/internal/config"
 	"manifold/internal/llm"
 )
 
 func TestResponsesTokenizer_BuildInputItems_AssistantToolCallWithoutContent(t *testing.T) {
 	tokenizer := &ResponsesTokenizer{}
-	items, _ := tokenizer.buildInputItems([]llm.Message{
+	params := tokenizer.countParams([]llm.Message{
 		{
 			Role:      "assistant",
 			Content:   "",
@@ -24,12 +25,10 @@ func TestResponsesTokenizer_BuildInputItems_AssistantToolCallWithoutContent(t *t
 		{Role: "tool", Content: `{"ok":true}`, ToolID: "call_1"},
 	})
 
-	for _, item := range items {
-		obj, ok := item.(map[string]any)
-		if !ok {
-			continue
-		}
-		if obj["type"] == "message" && obj["role"] == "assistant" {
+	for _, item := range params.Input.OfResponseInputItemArray {
+		itemType := item.GetType()
+		role := item.GetRole()
+		if itemType != nil && role != nil && *itemType == "message" && *role == "assistant" {
 			t.Fatalf("unexpected assistant message without content in input_tokens payload")
 		}
 	}
@@ -58,7 +57,7 @@ func TestResponsesTokenizer_CountMessagesTokensCachesUnsupportedEndpoint(t *test
 	}))
 	defer server.Close()
 
-	client := &Client{baseURL: server.URL + "/v1", httpClient: server.Client()}
+	client := New(config.OpenAIConfig{APIKey: "test", BaseURL: server.URL + "/v1", Model: "model", API: "responses"}, server.Client())
 	tokenizer := NewResponsesTokenizer(client, "model", nil, 0)
 	msgs := []llm.Message{{Role: "user", Content: "hello world"}}
 
@@ -140,7 +139,7 @@ func TestResponsesTokenizerFallsBackToLocalTokenizerOnInputTokens404(t *testing.
 	}))
 	defer server.Close()
 
-	client := &Client{baseURL: server.URL + "/v1", httpClient: server.Client(), model: "model", api: "responses"}
+	client := New(config.OpenAIConfig{APIKey: "test", BaseURL: server.URL + "/v1", Model: "model", API: "responses"}, server.Client())
 	tokenizer := NewResponsesTokenizer(client, "model", nil, 0)
 	count, err := tokenizer.CountMessagesTokens(context.Background(), []llm.Message{{Role: "user", Content: "hello"}})
 	if err != nil {

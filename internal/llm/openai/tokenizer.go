@@ -1,17 +1,17 @@
 package openai
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
+	sdk "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/packages/param"
+	rs "github.com/openai/openai-go/v3/responses"
 	"github.com/rs/zerolog"
 
-	"manifold/internal/config"
 	"manifold/internal/llm"
 	"manifold/internal/observability"
 )
@@ -37,18 +37,6 @@ func NewResponsesTokenizer(client *Client, model string, cache *llm.TokenCache, 
 		cache:              cache,
 		toolOutputMaxChars: toolOutputMaxChars,
 	}
-}
-
-// inputTokensRequest represents the request body for /v1/responses/input_tokens
-type inputTokensRequest struct {
-	Model        string `json:"model"`
-	Input        []any  `json:"input"`
-	Instructions string `json:"instructions,omitempty"`
-}
-
-// inputTokensResponse represents the response from /v1/responses/input_tokens
-type inputTokensResponse struct {
-	TotalTokens int `json:"total_tokens"`
 }
 
 // CountTokens counts tokens for a single text string.
@@ -91,64 +79,40 @@ func (t *ResponsesTokenizer) CountMessagesTokens(ctx context.Context, msgs []llm
 
 	log := observability.LoggerWithTrace(ctx)
 
-	httpReq, err := t.newInputTokensRequest(ctx, msgs)
+	params := t.countParams(msgs)
+	result, err := t.client.sdk.Responses.InputTokens.Count(ctx, params)
 	if err != nil {
-		return 0, err
-	}
-
-	resp, err := t.client.httpClient.Do(httpReq)
-	if err != nil {
+		var apiErr *sdk.Error
+		if errors.As(err, &apiErr) {
+			return t.handleInputTokensStatus(ctx, log, apiErr.StatusCode, []byte(apiErr.RawJSON()), msgs)
+		}
 		return 0, fmt.Errorf("input_tokens request: %w", err)
 	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return 0, fmt.Errorf("read input_tokens response: %w", err)
+	if result == nil {
+		return 0, fmt.Errorf("input_tokens returned nil response")
 	}
-
-	if resp.StatusCode != http.StatusOK {
-		return t.handleInputTokensStatus(ctx, log, resp.StatusCode, respBody, msgs)
-	}
-
-	var result inputTokensResponse
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return 0, fmt.Errorf("unmarshal input_tokens response: %w", err)
-	}
+	totalTokens := int(result.InputTokens)
 
 	log.Debug().
-		Int("total_tokens", result.TotalTokens).
+		Int("total_tokens", totalTokens).
 		Int("message_count", len(msgs)).
 		Msg("input_tokens_counted")
 
-	return result.TotalTokens, nil
+	return totalTokens, nil
 }
 
-func (t *ResponsesTokenizer) newInputTokensRequest(ctx context.Context, msgs []llm.Message) (*http.Request, error) {
-	input, instructions := t.buildInputItems(msgs)
-	req := inputTokensRequest{Model: t.model, Input: input}
+func (t *ResponsesTokenizer) countParams(msgs []llm.Message) rs.InputTokenCountParams {
+	input, instructions := adaptResponsesInputWithLimit(msgs, t.toolOutputMaxChars)
+	params := rs.InputTokenCountParams{
+		Model: param.NewOpt(t.model),
+	}
+	if len(input) > 0 {
+		params.Input.OfResponseInputItemArray = input
+	}
 	if strings.TrimSpace(instructions) != "" {
-		req.Instructions = instructions
+		params.Instructions = param.NewOpt(instructions)
 	}
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("marshal input_tokens request: %w", err)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, inputTokensURL(t.client.baseURL), bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("create input_tokens request: %w", err)
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-	t.client.applyAuthHeader(httpReq)
-	return httpReq, nil
-}
-
-func inputTokensURL(baseURL string) string {
-	baseURL = strings.TrimSuffix(strings.TrimSpace(baseURL), "/")
-	if baseURL == "" {
-		baseURL = config.OpenAIAPIV1BaseURL
-	}
-	return baseURL + "/responses/input_tokens"
+	return params
 }
 
 func (t *ResponsesTokenizer) handleInputTokensStatus(ctx context.Context, log *zerolog.Logger, statusCode int, body []byte, msgs []llm.Message) (int, error) {
@@ -178,121 +142,6 @@ func (t *ResponsesTokenizer) handleUnsupportedInputTokens(ctx context.Context, l
 		Int("status", statusCode).
 		Msg("input_tokens_endpoint_unsupported_using_heuristic")
 	return llm.EstimateTokensForMessages(msgs), nil
-}
-
-// buildInputItems converts llm.Message slice to Responses API input format.
-func (t *ResponsesTokenizer) buildInputItems(msgs []llm.Message) ([]any, string) {
-	validToolCallIDs := collectValidToolCallIDs(msgs)
-	items := make([]any, 0, len(msgs))
-	var instructions string
-
-	for _, m := range msgs {
-		switch m.Role {
-		case "system":
-			instructions = m.Content
-		case "user":
-			items = append(items, userInputItem(m.Content))
-		case "assistant":
-			items = append(items, assistantInputItems(m)...)
-		case "tool":
-			if item, ok := toolOutputInputItem(m, validToolCallIDs, t.toolOutputMaxChars); ok {
-				items = append(items, item)
-			}
-		}
-	}
-
-	return items, instructions
-}
-
-func collectValidToolCallIDs(msgs []llm.Message) map[string]struct{} {
-	ids := make(map[string]struct{}, 8)
-	for _, msg := range msgs {
-		if msg.Role != "assistant" || len(msg.ToolCalls) == 0 {
-			continue
-		}
-		for _, call := range msg.ToolCalls {
-			if id := strings.TrimSpace(call.ID); id != "" {
-				ids[id] = struct{}{}
-			}
-		}
-	}
-	return ids
-}
-
-func userInputItem(content string) map[string]any {
-	content = strings.TrimSpace(content)
-	if content == "" {
-		content = " "
-	}
-	return map[string]any{
-		"type": "message",
-		"role": "user",
-		"content": []map[string]any{
-			{"type": "input_text", "text": content},
-		},
-	}
-}
-
-func assistantInputItems(msg llm.Message) []any {
-	if msg.Compaction != nil {
-		return []any{map[string]any{
-			"type":              "compaction",
-			"encrypted_content": msg.Compaction.EncryptedContent,
-		}}
-	}
-	if len(msg.ToolCalls) > 0 {
-		return assistantToolCallItems(msg)
-	}
-	if item, ok := assistantTextItem(msg.Content); ok {
-		return []any{item}
-	}
-	return nil
-}
-
-func assistantToolCallItems(msg llm.Message) []any {
-	items := make([]any, 0, len(msg.ToolCalls)+1)
-	if item, ok := assistantTextItem(msg.Content); ok {
-		items = append(items, item)
-	}
-	for _, call := range msg.ToolCalls {
-		items = append(items, map[string]any{
-			"type":      "function_call",
-			"name":      call.Name,
-			"call_id":   call.ID,
-			"arguments": string(call.Args),
-		})
-	}
-	return items
-}
-
-func assistantTextItem(content string) (map[string]any, bool) {
-	content = strings.TrimSpace(content)
-	if content == "" {
-		return nil, false
-	}
-	return map[string]any{
-		"type":   "message",
-		"role":   "assistant",
-		"status": "completed",
-		"content": []map[string]any{
-			{"type": "output_text", "text": content},
-		},
-	}, true
-}
-
-func toolOutputInputItem(msg llm.Message, validToolCallIDs map[string]struct{}, maxChars int) (map[string]any, bool) {
-	toolID := strings.TrimSpace(msg.ToolID)
-	if toolID == "" {
-		return nil, false
-	}
-	if _, ok := validToolCallIDs[toolID]; !ok {
-		return nil, false
-	}
-	return map[string]any{
-		"type":    "function_call_output",
-		"call_id": toolID,
-		"output":  boundedResponsesToolOutputWithLimit(msg.Content, maxChars),
-	}, true
 }
 
 // Ensure ResponsesTokenizer implements llm.Tokenizer

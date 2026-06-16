@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/openai/openai-go/v2/shared"
+	"github.com/openai/openai-go/v3/shared"
 
 	"manifold/internal/config"
 	"manifold/internal/llm"

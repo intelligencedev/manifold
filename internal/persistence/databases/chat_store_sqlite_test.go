@@ -66,6 +66,16 @@ func TestSQLiteChatStoreScansTextTimestamps(t *testing.T) {
 	if messages[2].DurationMs == nil || *messages[2].DurationMs != durationMs {
 		t.Fatalf("expected duration to round trip, got %#v", messages[2].DurationMs)
 	}
+	beforeStore := store.(interface {
+		ListMessagesBefore(context.Context, *int64, string, string, int) ([]persistence.ChatMessage, error)
+	})
+	before, err := beforeStore.ListMessagesBefore(ctx, nil, "session-sqlite", "m3", 1)
+	if err != nil {
+		t.Fatalf("ListMessagesBefore: %v", err)
+	}
+	if len(before) != 1 || before[0].ID != "m2" {
+		t.Fatalf("expected message m2 before m3 cursor, got %#v", before)
+	}
 	session, err = store.GetSession(ctx, nil, "session-sqlite")
 	if err != nil {
 		t.Fatalf("GetSession after append: %v", err)

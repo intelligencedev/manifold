@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	sdk "github.com/openai/openai-go/v2"
-	"github.com/openai/openai-go/v2/option"
+	sdk "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 
 	"manifold/internal/config"
 	"manifold/internal/llm"

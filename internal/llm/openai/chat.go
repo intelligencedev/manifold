@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	sdk "github.com/openai/openai-go/v2"
+	sdk "github.com/openai/openai-go/v3"
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/trace"
 

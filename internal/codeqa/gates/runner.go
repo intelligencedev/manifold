@@ -3,7 +3,6 @@ package gates
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -79,11 +78,6 @@ func (r *Runner) Evaluate(ctx context.Context, repoRoot string, baseRef string, 
 	if headRef == "" {
 		headRef = "HEAD"
 	}
-	tempRoot, err := os.MkdirTemp("", "codeqa-gates-")
-	if err != nil {
-		return nil, fmt.Errorf("create gate temp dir: %w", err)
-	}
-	defer os.RemoveAll(tempRoot)
 
 	if r.factory == nil {
 		return nil, fmt.Errorf("workspace factory is required")
@@ -91,17 +85,9 @@ func (r *Runner) Evaluate(ctx context.Context, repoRoot string, baseRef string, 
 	refs := []string{baseRef, headRef}
 	results := make([]codeqa.GateResult, 0, len(refs)*len(r.gates))
 	for _, ref := range refs {
-		prepared, err := r.factory.CheckoutRef(ctx, repoRoot, filepath.Join("gates", sanitizeRef(headRef)), ref)
-		if err != nil {
-			return nil, err
-		}
-		gateResults, err := r.evaluateRef(ctx, prepared.Path)
-		cleanupErr := prepared.Cleanup()
+		gateResults, err := r.evaluateRef(ctx, repoRoot, headRef, ref)
 		if err != nil {
 			return nil, fmt.Errorf("evaluate gates on %s: %w", ref, err)
-		}
-		if cleanupErr != nil {
-			return nil, cleanupErr
 		}
 		for _, result := range gateResults {
 			result.Ref = ref
@@ -114,7 +100,7 @@ func (r *Runner) Evaluate(ctx context.Context, repoRoot string, baseRef string, 
 	return results, nil
 }
 
-func (r *Runner) evaluateRef(ctx context.Context, dir string) ([]codeqa.GateResult, error) {
+func (r *Runner) evaluateRef(ctx context.Context, repoRoot, headRef, ref string) ([]codeqa.GateResult, error) {
 	parallelism := r.parallelism
 	if parallelism <= 0 || parallelism > len(r.gates) {
 		parallelism = len(r.gates)
@@ -133,9 +119,19 @@ func (r *Runner) evaluateRef(ctx context.Context, dir string) ([]codeqa.GateResu
 				return
 			}
 			defer func() { <-sem }()
-			result, err := gate.Run(ctx, dir, r.runner)
+			prepared, err := r.factory.CheckoutRef(ctx, repoRoot, gateRunID(headRef, ref, gate.Name()), ref)
+			if err != nil {
+				errCh <- err
+				return
+			}
+			result, err := gate.Run(ctx, prepared.Path, r.runner)
+			cleanupErr := prepared.Cleanup()
 			if err != nil {
 				errCh <- fmt.Errorf("run gate %s: %w", gate.Name(), err)
+				return
+			}
+			if cleanupErr != nil {
+				errCh <- fmt.Errorf("cleanup gate %s workspace: %w", gate.Name(), cleanupErr)
 				return
 			}
 			results[idx] = result
@@ -147,6 +143,10 @@ func (r *Runner) evaluateRef(ctx context.Context, dir string) ([]codeqa.GateResu
 		return nil, err
 	}
 	return results, nil
+}
+
+func gateRunID(headRef, ref, gateName string) string {
+	return filepath.Join("gates", sanitizeRef(headRef), sanitizeRef(ref), sanitizeRef(gateName))
 }
 
 func sanitizeRef(ref string) string {

@@ -118,6 +118,11 @@ func (e *ExecutorImpl) Run(ctx context.Context, req ExecRequest) (ExecResult, er
 	defer cancel()
 
 	c := exec.CommandContext(ctx, prepared.ExecCommand, prepared.ExecArgs...)
+	configureCommandProcess(c)
+	c.Cancel = func() error {
+		return terminateCommandProcess(c)
+	}
+	c.WaitDelay = time.Second
 	c.Dir = prepared.Dir
 	c.Env = prepared.Env
 	var stdout, stderr bytes.Buffer
@@ -136,10 +141,10 @@ func (e *ExecutorImpl) Run(ctx context.Context, req ExecRequest) (ExecResult, er
 	exit := 0
 	if err != nil {
 		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			exit = ee.ExitCode()
-		} else if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			exit = 124
+		} else if errors.As(err, &ee) {
+			exit = ee.ExitCode()
 		} else {
 			exit = 1
 		}

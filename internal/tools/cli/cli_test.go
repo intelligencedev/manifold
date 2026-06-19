@@ -3,8 +3,12 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"manifold/internal/config"
 )
@@ -52,16 +56,42 @@ func TestNormalizeCommandArgsAppendsExplicitArgs(t *testing.T) {
 func TestExecutorRunAllowsInlineCommandArgs(t *testing.T) {
 	t.Parallel()
 
-	exec := NewExecutor(testExecConfig(config.ExecCommandRule{ID: "allow-go", Decision: "allow", Pattern: []string{"go"}}), t.TempDir(), 0)
-	res, err := exec.Run(context.Background(), ExecRequest{Command: "go version"})
+	exec := NewExecutor(testExecConfig(config.ExecCommandRule{ID: "allow-printf", Decision: "allow", Pattern: []string{"printf"}}), t.TempDir(), 0)
+	res, err := exec.Run(context.Background(), ExecRequest{Command: "printf hello"})
 	if err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
 	if !res.OK {
 		t.Fatalf("expected OK result, got %#v", res)
 	}
-	if !strings.Contains(res.Stdout, "go version") {
-		t.Fatalf("stdout = %q, want substring %q", res.Stdout, "go version")
+	if res.Stdout != "hello" {
+		t.Fatalf("stdout = %q, want %q", res.Stdout, "hello")
+	}
+}
+
+func TestExecutorRunTimeoutTerminatesChildProcesses(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell process-group behavior is Unix-specific")
+	}
+
+	workdir := t.TempDir()
+	marker := filepath.Join(workdir, "child-survived")
+	exec := NewExecutor(testExecConfig(config.ExecCommandRule{ID: "allow-sh", Decision: "allow", Pattern: []string{"sh"}}), workdir, 0)
+	res, err := exec.Run(context.Background(), ExecRequest{
+		Command: "sh",
+		Args:    []string{"-c", "(sleep 1; touch child-survived) & wait"},
+		Timeout: 50 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	if res.ExitCode != 124 {
+		t.Fatalf("exit code = %d, want timeout exit 124; result=%#v", res.ExitCode, res)
+	}
+
+	time.Sleep(1200 * time.Millisecond)
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("timed-out child process was not terminated; marker stat err=%v", err)
 	}
 }
 

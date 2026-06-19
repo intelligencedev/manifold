@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 
 	"manifold/internal/codeqa"
@@ -33,12 +34,24 @@ func (f fakeRunner) LookPath(file string) (string, error) {
 	return "/usr/bin/" + file, nil
 }
 
-type fakeGate struct{ ok bool }
+type fakeGate struct {
+	name string
+	ok   bool
+	run  func(dir string)
+}
 
-func (g fakeGate) Name() string { return "fake_gate" }
+func (g fakeGate) Name() string {
+	if g.name != "" {
+		return g.name
+	}
+	return "fake_gate"
+}
 
 func (g fakeGate) Run(ctx context.Context, dir string, runner codeqa.CommandRunner) (codeqa.GateResult, error) {
-	return codeqa.GateResult{Name: "fake_gate", OK: g.ok}, nil
+	if g.run != nil {
+		g.run(dir)
+	}
+	return codeqa.GateResult{Name: g.Name(), OK: g.ok}, nil
 }
 
 func TestGoFmtGateDetectsUnformattedFiles(t *testing.T) {
@@ -175,6 +188,47 @@ func TestRunnerEvaluateMarksHeadFailureHardFail(t *testing.T) {
 	}
 	if !results[1].HardFail {
 		t.Fatalf("expected head ref to hard fail")
+	}
+}
+
+func TestRunnerEvaluateUsesIsolatedWorkspacePerGate(t *testing.T) {
+	runner := fakeRunner{run: func(ctx context.Context, dir string, req codeqa.CommandRequest) (codeqa.CommandResult, error) {
+		return codeqa.CommandResult{OK: true}, nil
+	}}
+	repo := initGitRepo(t)
+	writeTestFile(t, repo, "a.txt", "one")
+	gitCmd(t, repo, "add", ".")
+	gitCmd(t, repo, "commit", "-m", "base")
+	writeTestFile(t, repo, "a.txt", "two")
+	gitCmd(t, repo, "commit", "-am", "head")
+
+	var mu sync.Mutex
+	seen := map[string]struct{}{}
+	record := func(dir string) {
+		mu.Lock()
+		defer mu.Unlock()
+		if _, ok := seen[dir]; ok {
+			t.Errorf("workspace reused by multiple gates: %s", dir)
+		}
+		seen[dir] = struct{}{}
+	}
+
+	factory := workspace.NewFactory(codeqa.Options{ArtifactDir: t.TempDir()})
+	results, err := NewRunner(
+		runner,
+		2,
+		factory,
+		fakeGate{name: "gate_a", ok: true, run: record},
+		fakeGate{name: "gate_b", ok: true, run: record},
+	).Evaluate(t.Context(), repo, "HEAD~1", "HEAD")
+	if err != nil {
+		t.Fatalf("Evaluate() error = %v", err)
+	}
+	if len(results) != 4 {
+		t.Fatalf("expected 4 results, got %d", len(results))
+	}
+	if len(seen) != 4 {
+		t.Fatalf("expected 4 distinct workspaces, got %d: %#v", len(seen), seen)
 	}
 }
 

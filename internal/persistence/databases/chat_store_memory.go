@@ -114,6 +114,9 @@ func (s *memChatStore) ListSessionsByKind(ctx context.Context, userID *int64, ki
 		out = append(out, s.sessionWithMessageCountLocked(sess))
 	}
 	sort.Slice(out, func(i, j int) bool {
+		if out[i].Pinned != out[j].Pinned {
+			return out[i].Pinned
+		}
 		if out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
 			return out[i].CreatedAt.After(out[j].CreatedAt)
 		}
@@ -203,6 +206,37 @@ func (s *memChatStore) SetSessionMemorySettings(ctx context.Context, userID *int
 	sess.EvolvingMemoryEnabled = memoryEnabled
 	sess.BeliefMemoryEnabled = memoryEnabled
 	sess.UpdatedAt = time.Now().UTC()
+	s.sessions[id] = sess
+	return s.sessionWithMessageCountLocked(sess), nil
+}
+
+func (s *memChatStore) SetSessionActiveTarget(ctx context.Context, userID *int64, id string, activeSpecialist string, activeTeam string) (persistence.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[id]
+	if !ok {
+		return persistence.ChatSession{}, persistence.ErrNotFound
+	}
+	if !hasAccess(userID, sess.UserID) {
+		return persistence.ChatSession{}, persistence.ErrForbidden
+	}
+	sess.ActiveSpecialist = strings.TrimSpace(activeSpecialist)
+	sess.ActiveTeam = strings.TrimSpace(activeTeam)
+	s.sessions[id] = sess
+	return s.sessionWithMessageCountLocked(sess), nil
+}
+
+func (s *memChatStore) SetSessionPinned(ctx context.Context, userID *int64, id string, pinned bool) (persistence.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[id]
+	if !ok {
+		return persistence.ChatSession{}, persistence.ErrNotFound
+	}
+	if !hasAccess(userID, sess.UserID) {
+		return persistence.ChatSession{}, persistence.ErrForbidden
+	}
+	sess.Pinned = pinned
 	s.sessions[id] = sess
 	return s.sessionWithMessageCountLocked(sess), nil
 }
@@ -411,6 +445,36 @@ func (s *memChatStore) ListMessages(ctx context.Context, userID *int64, sessionI
 		msgs = msgs[len(msgs)-limit:]
 	}
 	log.Info().Str("session_id", sessionID).Int("count", len(msgs)).Msg("mem_store_list_messages")
+	out := make([]persistence.ChatMessage, len(msgs))
+	copy(out, msgs)
+	return out, nil
+}
+
+func (s *memChatStore) ListMessagesBefore(ctx context.Context, userID *int64, sessionID string, beforeID string, limit int) ([]persistence.ChatMessage, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	sess, ok := s.sessions[sessionID]
+	if !ok {
+		return nil, persistence.ErrNotFound
+	}
+	if !hasAccess(userID, sess.UserID) {
+		return nil, persistence.ErrForbidden
+	}
+	msgs := s.messages[sessionID]
+	cut := -1
+	for i, msg := range msgs {
+		if msg.ID == beforeID {
+			cut = i
+			break
+		}
+	}
+	if cut < 0 {
+		return []persistence.ChatMessage{}, nil
+	}
+	msgs = msgs[:cut]
+	if limit > 0 && len(msgs) > limit {
+		msgs = msgs[len(msgs)-limit:]
+	}
 	out := make([]persistence.ChatMessage, len(msgs))
 	copy(out, msgs)
 	return out, nil

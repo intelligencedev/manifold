@@ -103,16 +103,43 @@
                 />
               </template>
               <template v-else>
-                <p class="truncate font-medium text-foreground">
+                <p class="min-w-0 flex-1 truncate font-medium text-foreground">
                   {{ session.name }}
                 </p>
-                <button
-                  type="button"
-                  class="rounded px-2 py-1 text-[10px] text-faint-foreground opacity-0 transition group-hover:opacity-100 hover:text-accent"
-                  @click.stop="startRename(session)"
-                >
-                  Rename
-                </button>
+                <div class="flex shrink-0 items-center gap-1">
+                  <button
+                    type="button"
+                    class="rounded px-2 py-1 text-[10px] text-faint-foreground opacity-0 transition group-hover:opacity-100 hover:text-accent"
+                    @click.stop="startRename(session)"
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex h-6 w-6 items-center justify-center rounded text-subtle-foreground transition disabled:cursor-wait"
+                    :class="[
+                      session.pinned
+                        ? 'text-accent opacity-100 hover:text-accent/80'
+                        : 'opacity-0 group-hover:opacity-100 hover:text-accent',
+                      sessionPinPending(session.id) ? 'opacity-60' : '',
+                    ]"
+                    :title="
+                      session.pinned
+                        ? `Unpin conversation ${session.name}`
+                        : `Pin conversation ${session.name}`
+                    "
+                    :aria-label="
+                      session.pinned
+                        ? `Unpin conversation ${session.name}`
+                        : `Pin conversation ${session.name}`
+                    "
+                    :aria-pressed="Boolean(session.pinned)"
+                    :disabled="sessionPinPending(session.id)"
+                    @click.stop="toggleSessionPinned(session)"
+                  >
+                    <SolarPinBold class="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </template>
             </div>
             <p class="mt-1 truncate text-xs text-subtle-foreground">
@@ -337,6 +364,26 @@
           @scroll="handleMessagesScroll"
           @click="handleMarkdownClick"
         >
+          <div
+            v-if="hasOlderMessages || olderMessagesLoading"
+            class="flex justify-center pb-1"
+          >
+            <button
+              type="button"
+              class="rounded-3 border border-border bg-surface-muted px-3 py-1.5 text-xs text-subtle-foreground transition hover:bg-surface-muted/80 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+              :disabled="olderMessagesLoading"
+              @click="loadOlderMessages"
+            >
+              {{ olderMessagesLoading ? "Loading..." : "Load older messages" }}
+            </button>
+          </div>
+          <p
+            v-if="olderMessagesError"
+            class="pb-1 text-center text-xs text-danger"
+          >
+            {{ olderMessagesError }}
+          </p>
+
           <div
             v-if="!chatMessages.length"
             class="flex h-full flex-col items-center justify-center gap-2 p-8 text-center text-sm text-muted-foreground"
@@ -959,16 +1006,17 @@
 
         <button
           type="button"
-          class="absolute bottom-28 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 rounded-full bg-surface px-3 py-2 text-xs font-semibold text-foreground ring-1 ring-border/50 transform transition-all duration-200"
+          class="absolute bottom-20 right-8 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full border border-border/60 bg-surface/95 text-subtle-foreground shadow-1 transition-all duration-150 hover:border-accent/50 hover:text-accent focus-visible:shadow-outline"
           :class="
             showScrollToBottom
               ? 'pointer-events-auto opacity-100 translate-y-0'
-              : 'pointer-events-none opacity-0 translate-y-2'
+              : 'pointer-events-none opacity-0 translate-y-1'
           "
           @click="handleScrollToLatest"
+          title="Scroll to latest"
+          aria-label="Scroll to latest"
         >
-          <span class="h-2 w-2 rounded-full bg-accent"></span>
-          <span>Scroll to latest</span>
+          <SolarListArrowDownIcon class="h-4 w-4" />
         </button>
 
         <footer class="px-4 pb-4 pt-2">
@@ -1032,13 +1080,7 @@
                   v-model="draft"
                   rows="1"
                   class="flex-1 min-w-0 resize-none bg-transparent py-1.5 text-sm leading-6 text-foreground outline-none placeholder:text-faint-foreground"
-                  :placeholder="
-                    hasPendingInputRequest
-                      ? 'Answer the request above to continue.'
-                      : projectSelected
-                        ? 'Message the agent...'
-                        : 'Select a project to enable the chat.'
-                  "
+                  :placeholder="composerPlaceholder"
                   :disabled="!projectSelected || hasPendingInputRequest"
                   @keydown="handleComposerKeydown"
                   @input="handleComposerInput"
@@ -1568,6 +1610,7 @@ import {
   ref,
   watch,
 } from "vue";
+import type { ComponentPublicInstance } from "vue";
 import { useRouter } from "vue-router";
 import axios from "axios";
 import type {
@@ -1587,6 +1630,7 @@ import {
   type Specialist,
   type SpecialistTeam,
 } from "@/api/client";
+import { fetchChatMessages } from "@/api/chat";
 import { renderMarkdown } from "@/utils/markdown";
 import { resolveLeadingChatMention } from "@/utils/chatMentions";
 import "highlight.js/styles/github-dark-dimmed.css";
@@ -1598,6 +1642,8 @@ import SolarCopyIcon from "@/components/icons/SolarCopy.vue";
 import SolarTrashIcon from "@/components/icons/SolarTrash.vue";
 import SolarRefreshIcon from "@/components/icons/SolarRefresh.vue";
 import SolarDownloadIcon from "@/components/icons/SolarDownload.vue";
+import SolarPinBold from "@/components/icons/SolarPinBold.vue";
+import SolarListArrowDownIcon from "@/components/icons/Expand.vue";
 import Camera from "@/components/icons/Camera.vue";
 import TokenGaugeRail from "@/components/chat/TokenGaugeRail.vue";
 import DropdownSelect from "@/components/DropdownSelect.vue";
@@ -1614,6 +1660,7 @@ import type { DropdownOption } from "@/types/dropdown";
 const router = useRouter();
 const isBrowser = typeof window !== "undefined";
 const SCROLL_LOCK_THRESHOLD = 80;
+const LOAD_OLDER_SCROLL_THRESHOLD = 96;
 let previousBodyOverflow: string | null = null;
 
 const chat = useChatStore();
@@ -1785,6 +1832,7 @@ const showDeleteSessionDialog = ref(false);
 const deleteSessionTarget = ref<ChatSessionMeta | null>(null);
 const deleteSessionPending = ref(false);
 const deleteSessionError = ref("");
+const pinningSessionIds = ref<Record<string, boolean>>({});
 const canConfirmDeleteSession = computed(
   () => !!deleteSessionTarget.value?.id && !deleteSessionPending.value,
 );
@@ -1879,39 +1927,102 @@ const teamOptions = computed<DropdownOption[]>(() => {
   return [{ id: "", label: "All participants", value: "" }, ...teams];
 });
 
+const selectedTeamBySession = ref<Record<string, string>>({});
 const selectedSpecialistBySession = ref<Record<string, string>>({});
+
+type ActiveChatTarget = {
+  specialist: string;
+  team: string;
+};
+
+function hasSessionOverride(map: Record<string, string>, sessionId: string) {
+  return Object.prototype.hasOwnProperty.call(map, sessionId);
+}
+
+function normalizeSpecialistTarget(value?: string | null) {
+  return (value || "orchestrator").trim() || "orchestrator";
+}
+
+function normalizeTeamTarget(value?: string | null) {
+  return (value || "").trim();
+}
+
+function sessionMetaForID(sessionId: string) {
+  return sessions.value.find((session) => session.id === sessionId) || null;
+}
+
+function persistedSpecialistForSession(sessionId: string) {
+  return normalizeSpecialistTarget(
+    sessionMetaForID(sessionId)?.activeSpecialist,
+  );
+}
+
+function persistedTeamForSession(sessionId: string) {
+  return normalizeTeamTarget(sessionMetaForID(sessionId)?.activeTeam);
+}
+
+function persistedTargetForSession(sessionId: string): ActiveChatTarget {
+  return {
+    specialist: persistedSpecialistForSession(sessionId),
+    team: persistedTeamForSession(sessionId),
+  };
+}
+
+function targetEquals(a: ActiveChatTarget, b: ActiveChatTarget) {
+  return a.specialist === b.specialist && a.team === b.team;
+}
+
+function setSelectedSpecialistOverride(
+  sessionId: string,
+  specialist: string | null,
+) {
+  const next = { ...selectedSpecialistBySession.value };
+  if (specialist === null) delete next[sessionId];
+  else next[sessionId] = normalizeSpecialistTarget(specialist);
+  selectedSpecialistBySession.value = next;
+}
+
+function setSelectedTeamOverride(sessionId: string, team: string | null) {
+  const next = { ...selectedTeamBySession.value };
+  if (team === null) delete next[sessionId];
+  else next[sessionId] = normalizeTeamTarget(team);
+  selectedTeamBySession.value = next;
+}
+
+function currentTargetForSession(sessionId: string): ActiveChatTarget {
+  return {
+    specialist: hasSessionOverride(selectedSpecialistBySession.value, sessionId)
+      ? normalizeSpecialistTarget(selectedSpecialistBySession.value[sessionId])
+      : persistedSpecialistForSession(sessionId),
+    team: hasSessionOverride(selectedTeamBySession.value, sessionId)
+      ? normalizeTeamTarget(selectedTeamBySession.value[sessionId])
+      : persistedTeamForSession(sessionId),
+  };
+}
+
 const selectedSpecialist = computed({
   get: () => {
     const sessionId = activeSessionId.value;
     if (!sessionId) return "orchestrator";
-    return selectedSpecialistBySession.value[sessionId] || "orchestrator";
+    return currentTargetForSession(sessionId).specialist;
   },
   set: (value: string) => {
     const sessionId = activeSessionId.value;
     if (!sessionId) return;
-    const next = (value || "orchestrator").trim() || "orchestrator";
-    selectedSpecialistBySession.value = {
-      ...selectedSpecialistBySession.value,
-      [sessionId]: next,
-    };
+    setSelectedSpecialistOverride(sessionId, value);
   },
 });
 
-const selectedTeamBySession = ref<Record<string, string>>({});
 const selectedTeam = computed({
   get: () => {
     const sessionId = activeSessionId.value;
     if (!sessionId) return "";
-    return selectedTeamBySession.value[sessionId] || "";
+    return currentTargetForSession(sessionId).team;
   },
   set: (value: string) => {
     const sessionId = activeSessionId.value;
     if (!sessionId) return;
-    const next = (value || "").trim();
-    selectedTeamBySession.value = {
-      ...selectedTeamBySession.value,
-      [sessionId]: next,
-    };
+    setSelectedTeamOverride(sessionId, value);
   },
 });
 const selectedTeamConfig = computed(() => {
@@ -2046,6 +2157,7 @@ function selectMentionCandidate(participant: Participant) {
 }
 
 watch([selectedTeam, teamsData], ([teamName]) => {
+  if (!teamsData?.value) return;
   const name = (teamName || "").trim();
   if (!name) return;
   if (!teamsByName.value.has(name.toLowerCase())) {
@@ -2053,12 +2165,17 @@ watch([selectedTeam, teamsData], ([teamName]) => {
   }
 });
 
-watch(selectedTeam, () => {
+watch([activeSessionId, selectedTeam], ([sessionId], [previousSessionId]) => {
+  if (sessionId !== previousSessionId) {
+    closeParticipantActivity();
+    return;
+  }
   selectedSpecialist.value = "orchestrator";
   closeParticipantActivity();
 });
 
 watch([selectedTeam, selectedSpecialist, selectedTeamMembers], () => {
+  if (!teamsData?.value) return;
   if (!selectedTeam.value) return;
   const selected = (selectedSpecialist.value || "").trim();
   if (!selected || selected.toLowerCase() === "orchestrator") return;
@@ -2066,6 +2183,50 @@ watch([selectedTeam, selectedSpecialist, selectedTeamMembers], () => {
     selectedSpecialist.value = "orchestrator";
   }
 });
+
+watch(
+  [activeSessionId, selectedTeam, selectedSpecialist],
+  ([sessionId, team, specialist], [previousSessionId]) => {
+    if (!sessionId || sessionId !== previousSessionId) return;
+    const nextTarget: ActiveChatTarget = {
+      specialist: normalizeSpecialistTarget(specialist),
+      team: normalizeTeamTarget(team),
+    };
+    const persistedTarget = persistedTargetForSession(sessionId);
+    if (targetEquals(nextTarget, persistedTarget)) return;
+    void persistActiveTarget(sessionId, nextTarget);
+  },
+  { flush: "post" },
+);
+
+async function persistActiveTarget(
+  sessionId: string,
+  target: ActiveChatTarget,
+) {
+  try {
+    const updated = await chat.updateSessionActiveTarget(
+      sessionId,
+      target.specialist,
+      target.team,
+    );
+    const latest = currentTargetForSession(sessionId);
+    if (
+      targetEquals(latest, target) &&
+      targetEquals(
+        {
+          specialist: normalizeSpecialistTarget(updated?.activeSpecialist),
+          team: normalizeTeamTarget(updated?.activeTeam),
+        },
+        target,
+      )
+    ) {
+      setSelectedSpecialistOverride(sessionId, null);
+      setSelectedTeamOverride(sessionId, null);
+    }
+  } catch (error) {
+    console.warn("Failed to persist chat active target:", error);
+  }
+}
 const projectSelected = computed(() => Boolean(activeSessionId.value));
 const requiresProjectSelection = computed(() => false);
 
@@ -2183,6 +2344,16 @@ function renderMarkdownOrHtml(content: string) {
 const activeSession = computed(() => chat.activeSession);
 const activeMessages = computed(() => chat.activeMessages);
 const chatMessages = computed(() => chat.chatMessages);
+const activeMessagePaging = computed(() => chat.activeMessagePaging);
+const hasOlderMessages = computed(() =>
+  Boolean(activeMessagePaging.value?.hasOlder),
+);
+const olderMessagesLoading = computed(() =>
+  Boolean(activeMessagePaging.value?.loadingOlder),
+);
+const olderMessagesError = computed(
+  () => activeMessagePaging.value?.error || "",
+);
 const activeSummaryEvent = computed(() => chat.activeSummaryEvent);
 const configuredSummaryBudget = computed(() =>
   summaryBudgetFromAgentdSettings(summarySettingsQuery.data.value),
@@ -2303,6 +2474,16 @@ const toolActivityMsById = ref<Record<string, number>>({});
 const sessionAgentDefaults = computed(() =>
   parseAgentModelLabel(activeSession.value?.model || ""),
 );
+const composerPlaceholder = computed(() => {
+  if (hasPendingInputRequest.value) {
+    return "Answer the request above to continue.";
+  }
+  if (!projectSelected.value) {
+    return "Select a project to enable the chat.";
+  }
+  const { agentName } = resolveAgentContext();
+  return `Message ${agentName || "orchestrator"}...`;
+});
 const showScrollToBottom = computed(
   () => !autoScrollEnabled.value && chatMessages.value.length > 0,
 );
@@ -2312,11 +2493,12 @@ const sessionMessageCounts = computed<Record<string, number>>(() => {
     const local = messagesBySession.value[session.id];
     const metaCount =
       typeof session.messageCount === "number" ? session.messageCount : 0;
-    if (Array.isArray(local) && local.length) {
-      counts[session.id] = local.length;
-    } else {
-      counts[session.id] = metaCount;
-    }
+    counts[session.id] =
+      typeof session.messageCount === "number"
+        ? metaCount
+        : Array.isArray(local)
+          ? local.length
+          : 0;
   }
   return counts;
 });
@@ -3438,6 +3620,18 @@ watch(
       }
     }
     if (projectChanged) selectedProjectBySession.value = projectPruned;
+
+    const pinningCurrent = pinningSessionIds.value;
+    let pinningChanged = false;
+    const pinningPruned: Record<string, boolean> = {};
+    for (const [id, value] of Object.entries(pinningCurrent)) {
+      if (keep.has(id)) {
+        pinningPruned[id] = value;
+      } else {
+        pinningChanged = true;
+      }
+    }
+    if (pinningChanged) pinningSessionIds.value = pinningPruned;
   },
   { immediate: true },
 );
@@ -3552,10 +3746,8 @@ onBeforeUnmount(() => {
   }
 });
 
-watch(draft, () => autoSizeComposer());
-
-function setRenameInput(el: HTMLInputElement | null) {
-  renameInput.value = el;
+function setRenameInput(el: Element | ComponentPublicInstance | null) {
+  renameInput.value = el instanceof HTMLInputElement ? el : null;
 }
 
 function selectSession(sessionId: string) {
@@ -3593,6 +3785,30 @@ function toggleSessionSelection(id: string) {
     selectedSessionIds.value.splice(idx, 1);
   } else {
     selectedSessionIds.value.push(id);
+  }
+}
+
+function sessionPinPending(sessionId: string) {
+  return Boolean(pinningSessionIds.value[sessionId]);
+}
+
+function setSessionPinPending(sessionId: string, pending: boolean) {
+  const next = { ...pinningSessionIds.value };
+  if (pending) next[sessionId] = true;
+  else delete next[sessionId];
+  pinningSessionIds.value = next;
+}
+
+async function toggleSessionPinned(session: ChatSessionMeta) {
+  if (!session?.id || sessionPinPending(session.id)) return;
+  const nextPinned = !Boolean(session.pinned);
+  setSessionPinPending(session.id, true);
+  try {
+    await chat.updateSessionPinned(session.id, nextPinned);
+  } catch (error) {
+    console.warn("Failed to update conversation pin state", error);
+  } finally {
+    setSessionPinPending(session.id, false);
   }
 }
 
@@ -3674,9 +3890,7 @@ async function exportSession(sessionId: string) {
   const session = sessions.value.find((s) => s.id === sessionId);
   if (!session) return;
 
-  // Load messages for the session (force refresh to ensure we have all)
-  await chat.loadMessagesFromServer(sessionId, { force: true });
-  const messages = messagesBySession.value[sessionId] || [];
+  const messages = await fetchChatMessages(sessionId);
 
   // Build export payload
   const payload = {
@@ -3829,6 +4043,7 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
 
     autoScrollEnabled.value = true;
     draft.value = options.echoUser === false ? draft.value : "";
+    nextTick(() => autoSizeComposer());
     const attachmentsToSend = [...pendingAttachments.value];
     const filesByAttachmentSnapshot = new Map(filesByAttachment);
     if (attachmentsToSend.some((att) => att.kind === "image")) {
@@ -3883,6 +4098,7 @@ async function sendPrompt(text: string, options: { echoUser?: boolean } = {}) {
   } catch (error) {
     if (options.echoUser !== false) {
       draft.value = previousDraft;
+      nextTick(() => autoSizeComposer());
     }
     console.warn("Failed to send chat prompt:", error);
   } finally {
@@ -4223,6 +4439,22 @@ function scrollMessagesToBottom(options: ScrollToBottomOptions = {}) {
   });
 }
 
+async function loadOlderMessages() {
+  const sessionId = activeSessionId.value;
+  if (!sessionId || !hasOlderMessages.value || olderMessagesLoading.value) {
+    return;
+  }
+  const container = messagesPane.value;
+  const previousScrollHeight = container?.scrollHeight ?? 0;
+  const previousScrollTop = container?.scrollTop ?? 0;
+  await chat.loadOlderMessages(sessionId);
+  await nextTick();
+  if (!container) return;
+  const delta = container.scrollHeight - previousScrollHeight;
+  container.scrollTop = previousScrollTop + Math.max(delta, 0);
+  lastScrollTop.value = container.scrollTop;
+}
+
 function scrollActivityPaneToBottom(options: ScrollToBottomOptions = {}) {
   nextTick(() => {
     scrollPaneToBottom(
@@ -4292,7 +4524,11 @@ function isNearBottom(container: HTMLElement) {
 }
 
 function handleMessagesScroll(event: Event) {
+  const container = event.target as HTMLElement | null;
+  const nearTop =
+    !!container && container.scrollTop <= LOAD_OLDER_SCROLL_THRESHOLD;
   handlePaneScroll(event, autoScrollEnabled, lastScrollTop);
+  if (nearTop) void loadOlderMessages();
 }
 
 function handleActivityPaneScroll(event: Event) {

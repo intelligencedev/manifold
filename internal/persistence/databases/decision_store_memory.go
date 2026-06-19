@@ -72,12 +72,6 @@ func (s *memDecisionStore) SearchDecisions(_ context.Context, query decision.Sea
 		limit = 10
 	}
 	tenantID := normalizeTenantID(query.TenantID)
-	scopeSet := map[string]bool{}
-	for _, scopeID := range query.ScopeIDs {
-		if trimmed := strings.TrimSpace(scopeID); trimmed != "" {
-			scopeSet[trimmed] = true
-		}
-	}
 	statusSet := map[decision.DecisionStatus]bool{}
 	for _, status := range query.Statuses {
 		statusSet[decision.NormalizeDecisionStatus(status)] = true
@@ -88,7 +82,7 @@ func (s *memDecisionStore) SearchDecisions(_ context.Context, query decision.Sea
 		if item.TenantID != tenantID {
 			continue
 		}
-		if len(scopeSet) > 0 && !scopeSet[item.ScopeID] {
+		if !query.MatchesScope(item.ScopeID) {
 			continue
 		}
 		if len(statusSet) > 0 && !statusSet[decision.NormalizeDecisionStatus(item.Status)] {

@@ -1,6 +1,9 @@
 package decision
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // DecisionStatus describes where a recorded decision sits in its lifecycle.
 type DecisionStatus string
@@ -191,11 +194,43 @@ type EvidenceHint struct {
 
 // SearchQuery constrains decision retrieval by tenant, scope, and status.
 type SearchQuery struct {
-	TenantID int64            `json:"tenantId"`
-	ScopeIDs []string         `json:"scopeIds,omitempty"`
-	Query    string           `json:"query,omitempty"`
-	Statuses []DecisionStatus `json:"statuses,omitempty"`
-	Limit    int              `json:"limit,omitempty"`
+	TenantID int64    `json:"tenantId"`
+	ScopeIDs []string `json:"scopeIds,omitempty"`
+	// ScopePrefixes optionally match decisions whose scope ID starts with any
+	// prefix. This lets hierarchical path-style scope IDs (for example
+	// "project/manifold/memory/archaeology") participate in scope walks.
+	ScopePrefixes []string         `json:"scopePrefixes,omitempty"`
+	Query         string           `json:"query,omitempty"`
+	Statuses      []DecisionStatus `json:"statuses,omitempty"`
+	Limit         int              `json:"limit,omitempty"`
+}
+
+// MatchesScope reports whether a decision scope ID passes the query's scope
+// filters. A query without any non-empty scope filter matches every scope.
+func (q SearchQuery) MatchesScope(scopeID string) bool {
+	scopeID = strings.TrimSpace(scopeID)
+	hasFilter := false
+	for _, id := range q.ScopeIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		hasFilter = true
+		if id == scopeID {
+			return true
+		}
+	}
+	for _, prefix := range q.ScopePrefixes {
+		prefix = strings.TrimSpace(prefix)
+		if prefix == "" {
+			continue
+		}
+		hasFilter = true
+		if strings.HasPrefix(scopeID, prefix) {
+			return true
+		}
+	}
+	return !hasFilter
 }
 
 // AssumptionQuery filters decision assumption links.

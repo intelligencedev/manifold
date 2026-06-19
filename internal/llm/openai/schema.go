@@ -3,7 +3,7 @@ package openai
 import (
 	"strings"
 
-	sdk "github.com/openai/openai-go/v2"
+	sdk "github.com/openai/openai-go/v3"
 
 	"manifold/internal/llm"
 )

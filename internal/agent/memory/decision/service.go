@@ -30,7 +30,17 @@ type Service struct {
 // ServiceConfig tunes decision candidate acceptance.
 type ServiceConfig struct {
 	AssumptionSimilarityFloor float64
-	AutoActivateCandidates    bool
+	// AutoActivateCandidates enables the deterministic auto-activation policy
+	// for distilled candidates. Lifecycle reviews (reaffirm, revoke,
+	// supersede, stale->active) always remain deliberate actions.
+	AutoActivateCandidates bool
+	// AutoActivateMinConfidence gates auto-activation; candidates below the
+	// floor stay queued for operator review. Defaults to 0.85.
+	AutoActivateMinConfidence float64
+	// ConflictSimilarityFloor is the token-overlap similarity at which an
+	// active in-scope decision counts as conflicting with a candidate.
+	// Defaults to 0.50.
+	ConflictSimilarityFloor float64
 }
 
 // CreateDecision normalizes and persists a decision.

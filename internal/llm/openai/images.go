@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	sdk "github.com/openai/openai-go/v2"
-	"github.com/openai/openai-go/v2/packages/param"
+	sdk "github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/packages/param"
 
 	"manifold/internal/llm"
 	"manifold/internal/observability"

@@ -737,8 +737,29 @@ func securePath() string {
 	if runtime.GOOS == "windows" {
 		return os.Getenv("PATH")
 	}
-	paths := []string{"/usr/local/go/bin", "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"}
+	paths := []string{"/usr/local/go/bin"}
+	if goBinDir := resolvedGoBinDir(); goBinDir != "" {
+		paths = append(paths, goBinDir)
+	}
+	paths = append(paths, "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin")
 	return strings.Join(paths, string(os.PathListSeparator))
+}
+
+func resolvedGoBinDir() string {
+	goPath, err := exec.LookPath("go")
+	if err != nil {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(goPath); err == nil {
+		goPath = resolved
+	}
+	dir := filepath.Dir(goPath)
+	if !filepath.IsAbs(dir) {
+		if abs, err := filepath.Abs(dir); err == nil {
+			dir = abs
+		}
+	}
+	return dir
 }
 
 func lookPath(command, pathValue string) (string, error) {

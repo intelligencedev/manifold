@@ -99,6 +99,9 @@ export function normalizeSessionMeta(meta: ChatSessionMeta): ChatSessionMeta {
     evolving_memory_enabled?: unknown;
     belief_memory_enabled?: unknown;
     command_policy_allow_all?: unknown;
+    active_specialist?: unknown;
+    active_team?: unknown;
+    pinned?: unknown;
   };
   const wire = meta as ChatSessionMetaWire;
   const rawCount = wire.messageCount ?? wire.message_count;
@@ -124,6 +127,15 @@ export function normalizeSessionMeta(meta: ChatSessionMeta): ChatSessionMeta {
       : legacyMemoryEnabled;
   const rawCommandPolicyAllowAll =
     wire.commandPolicyAllowAll ?? wire.command_policy_allow_all;
+  const rawActiveSpecialist =
+    wire.activeSpecialist ?? wire.active_specialist;
+  const activeSpecialist =
+    typeof rawActiveSpecialist === "string"
+      ? rawActiveSpecialist.trim()
+      : "";
+  const rawActiveTeam = wire.activeTeam ?? wire.active_team;
+  const activeTeam = typeof rawActiveTeam === "string" ? rawActiveTeam.trim() : "";
+  const rawPinned = wire.pinned;
   return {
     ...meta,
     messageCount,
@@ -135,7 +147,31 @@ export function normalizeSessionMeta(meta: ChatSessionMeta): ChatSessionMeta {
       typeof rawCommandPolicyAllowAll === "boolean"
         ? rawCommandPolicyAllowAll
         : false,
+    activeSpecialist,
+    activeTeam,
+    pinned: typeof rawPinned === "boolean" ? rawPinned : false,
   };
+}
+
+export function sortChatSessions(
+  sessions: ChatSessionMeta[],
+): ChatSessionMeta[] {
+  return [...sessions].sort((a, b) => {
+    const aPinned = Boolean(a.pinned);
+    const bPinned = Boolean(b.pinned);
+    if (aPinned !== bPinned) return aPinned ? -1 : 1;
+    const updatedDiff = timeValue(b.updatedAt) - timeValue(a.updatedAt);
+    if (updatedDiff !== 0) return updatedDiff;
+    const createdDiff = timeValue(b.createdAt) - timeValue(a.createdAt);
+    if (createdDiff !== 0) return createdDiff;
+    return a.id.localeCompare(b.id);
+  });
+}
+
+function timeValue(value?: string) {
+  if (!value) return 0;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : 0;
 }
 
 const defaultSessionNames = new Set(["", "new chat", "conversation"]);

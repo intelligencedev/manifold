@@ -83,6 +83,38 @@ vi.mock("@/api/chat", () => ({
     messageCount: 1,
     projectId,
   }),
+  updateChatSessionMemorySettings: async (
+    id: string,
+    settings: { memoryEnabled?: boolean },
+  ) => ({
+    id,
+    name: "Roadmap Chat",
+    memoryEnabled: settings.memoryEnabled ?? true,
+    evolvingMemoryEnabled: settings.memoryEnabled ?? true,
+    beliefMemoryEnabled: settings.memoryEnabled ?? true,
+  }),
+  updateChatSessionCommandPolicyAllowAll: async (
+    id: string,
+    allow: boolean,
+  ) => ({
+    id,
+    name: "Roadmap Chat",
+    commandPolicyAllowAll: allow,
+  }),
+  updateChatSessionActiveTarget: async (
+    id: string,
+    target: { activeSpecialist: string; activeTeam: string },
+  ) => ({
+    id,
+    name: "Roadmap Chat",
+    activeSpecialist: target.activeSpecialist,
+    activeTeam: target.activeTeam,
+  }),
+  updateChatSessionPinned: async (id: string, pinned: boolean) => ({
+    id,
+    name: "Roadmap Chat",
+    pinned,
+  }),
   listActiveChatRuns: async () => [],
   deleteChatMessage: async () => {},
   deleteChatMessagesAfter: async () => {},

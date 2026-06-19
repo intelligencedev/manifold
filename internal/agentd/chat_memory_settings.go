@@ -93,6 +93,13 @@ func applyChatMemorySettingsToEngine(eng *agent.Engine, settings chatMemoryRunSe
 		eng.BeliefPolicySink = nil
 		eng.BeliefMagmaSink = nil
 		eng.PolicyEnforcer = nil
+		// Archaeology rides on belief memory: when the session disables
+		// memory, decision distillation, auto-activation, and artifact
+		// capture must be disabled too.
+		eng.DecisionStore = nil
+		eng.DecisionDistiller = nil
+		eng.DecisionService = nil
+		eng.ArtifactCapture = nil
 	}
 }
 

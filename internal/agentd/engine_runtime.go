@@ -180,6 +180,14 @@ func (a *app) configureUnifiedMemoryRuntime(eng *agent.Engine, em *memory.Evolvi
 		MagmaMaxHops:              a.cfg.Magma.Retrieval.DefaultHops,
 		MagmaMaxNodes:             a.cfg.Magma.Retrieval.DefaultMaxNodes,
 	}
+	// Decision lane: deterministic store reads only, enabled when archaeology
+	// is on for the server and memory is on for this session.
+	if a.cfg.Archaeology.Enabled && a.mgr != nil && a.mgr.Decision != nil {
+		eng.Memory.Decision = decision.NewStoreRetriever(a.mgr.Decision, a.mgr.Belief)
+		eng.Memory.DecisionMaxPerPrompt = a.cfg.Archaeology.Retrieval.MaxDecisionsPerPrompt
+		eng.Memory.DecisionPromptTokenBudget = a.cfg.Archaeology.Retrieval.MaxTokensPerPrompt
+		eng.Memory.DecisionTimeout = time.Duration(a.cfg.Archaeology.Retrieval.TimeoutMs) * time.Millisecond
+	}
 }
 
 func (a *app) ragServiceMagma() *magma.Service {
@@ -285,6 +293,7 @@ func (a *app) configureBeliefRunState(eng *agent.Engine, userID int64, sessionID
 		eng.BeliefMagmaSink = nil
 		eng.DecisionStore = nil
 		eng.DecisionDistiller = nil
+		eng.DecisionService = nil
 		eng.ArtifactCapture = nil
 		eng.PolicyEnforcer = nil
 	}
@@ -294,6 +303,7 @@ func (a *app) configureArchaeologyRunState(eng *agent.Engine) {
 	if a == nil || a.cfg == nil || a.mgr.Decision == nil || !a.cfg.Archaeology.Enabled {
 		eng.DecisionStore = nil
 		eng.DecisionDistiller = nil
+		eng.DecisionService = nil
 		eng.ArtifactCapture = nil
 		return
 	}
@@ -318,7 +328,12 @@ func (a *app) configureArchaeologyRunState(eng *agent.Engine) {
 			},
 		}
 	}
-	service := &decision.Service{Store: a.mgr.Decision, Belief: eng.BeliefStore}
+	service := &decision.Service{Store: a.mgr.Decision, Belief: eng.BeliefStore, Config: decision.ServiceConfig{
+		AutoActivateCandidates:    a.cfg.Archaeology.AutoActivate.Enabled,
+		AutoActivateMinConfidence: a.cfg.Archaeology.AutoActivate.MinConfidence,
+		ConflictSimilarityFloor:   a.cfg.Archaeology.AutoActivate.ConflictSimilarityFloor,
+	}}
+	eng.DecisionService = service
 	reactor := &decision.Reactor{
 		Decisions: service,
 		Beliefs:   eng.BeliefStore,

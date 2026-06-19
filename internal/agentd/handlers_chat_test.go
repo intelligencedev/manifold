@@ -296,6 +296,69 @@ func TestPatchChatSessionCommandPolicyAllowAll(t *testing.T) {
 	}
 }
 
+func TestPatchChatSessionPinned(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	chatStore := newPromptHandlerChatStore()
+	if _, err := chatStore.EnsureSession(ctx, nil, "sess-pin-patch", "Chat"); err != nil {
+		t.Fatalf("EnsureSession: %v", err)
+	}
+	a := &app{cfg: &config.Config{}, chatStore: chatStore}
+
+	pinReq := httptest.NewRequest(http.MethodPatch, "/api/chat/sessions/sess-pin-patch", strings.NewReader(`{"pinned":true}`))
+	pinRR := httptest.NewRecorder()
+	a.chatSessionDetailHandler().ServeHTTP(pinRR, pinReq)
+	if pinRR.Code != http.StatusOK {
+		t.Fatalf("expected pin status 200, got %d: %s", pinRR.Code, pinRR.Body.String())
+	}
+	pinned := decodeChatSessionResponse(t, pinRR)
+	if !pinned.Pinned {
+		t.Fatalf("expected pinned=true in response, got %+v", pinned)
+	}
+
+	unpinReq := httptest.NewRequest(http.MethodPatch, "/api/chat/sessions/sess-pin-patch", strings.NewReader(`{"pinned":false}`))
+	unpinRR := httptest.NewRecorder()
+	a.chatSessionDetailHandler().ServeHTTP(unpinRR, unpinReq)
+	if unpinRR.Code != http.StatusOK {
+		t.Fatalf("expected unpin status 200, got %d: %s", unpinRR.Code, unpinRR.Body.String())
+	}
+	unpinned := decodeChatSessionResponse(t, unpinRR)
+	if unpinned.Pinned {
+		t.Fatalf("expected pinned=false in response, got %+v", unpinned)
+	}
+}
+
+func TestPatchChatSessionActiveTarget(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	chatStore := newPromptHandlerChatStore()
+	if _, err := chatStore.EnsureSession(ctx, nil, "sess-target-patch", "Chat"); err != nil {
+		t.Fatalf("EnsureSession: %v", err)
+	}
+	a := &app{cfg: &config.Config{}, chatStore: chatStore}
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/chat/sessions/sess-target-patch", strings.NewReader(`{"activeSpecialist":" planner ","activeTeam":" ops "}`))
+	rr := httptest.NewRecorder()
+	a.chatSessionDetailHandler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	updated := decodeChatSessionResponse(t, rr)
+	if updated.ActiveSpecialist != "planner" || updated.ActiveTeam != "ops" {
+		t.Fatalf("expected trimmed active target in response, got specialist=%q team=%q", updated.ActiveSpecialist, updated.ActiveTeam)
+	}
+
+	session, err := chatStore.GetSession(ctx, nil, "sess-target-patch")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if session.ActiveSpecialist != "planner" || session.ActiveTeam != "ops" {
+		t.Fatalf("expected active target to persist, got specialist=%q team=%q", session.ActiveSpecialist, session.ActiveTeam)
+	}
+}
+
 func decodeChatSessionResponse(t *testing.T, rr *httptest.ResponseRecorder) persist.ChatSession {
 	t.Helper()
 	var session persist.ChatSession

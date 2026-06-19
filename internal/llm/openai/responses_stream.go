@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	sdk "github.com/openai/openai-go/v2"
-	rs "github.com/openai/openai-go/v2/responses"
+	sdk "github.com/openai/openai-go/v3"
+	rs "github.com/openai/openai-go/v3/responses"
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel/trace"
 

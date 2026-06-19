@@ -90,18 +90,54 @@ export async function updateChatSessionCommandPolicyAllowAll(
   return data;
 }
 
+export async function updateChatSessionActiveTarget(
+  id: string,
+  target: { activeSpecialist: string; activeTeam: string },
+): Promise<ChatSessionMeta> {
+  const { data } = await apiClient.patch<ChatSessionMeta>(
+    `/chat/sessions/${encodeURIComponent(id)}`,
+    target,
+  );
+  return data;
+}
+
+export async function updateChatSessionPinned(
+  id: string,
+  pinned: boolean,
+): Promise<ChatSessionMeta> {
+  const { data } = await apiClient.patch<ChatSessionMeta>(
+    `/chat/sessions/${encodeURIComponent(id)}`,
+    { pinned },
+  );
+  return data;
+}
+
 export async function deleteChatSession(id: string): Promise<void> {
   await apiClient.delete(`/chat/sessions/${encodeURIComponent(id)}`);
 }
 
+export type FetchChatMessagesOptions = {
+  limit?: number;
+  before?: string;
+};
+
 export async function fetchChatMessages(
   sessionId: string,
-  limit?: number,
+  options?: number | FetchChatMessagesOptions,
 ): Promise<ChatMessage[]> {
+  const params =
+    typeof options === "number"
+      ? options > 0
+        ? { limit: options }
+        : undefined
+      : {
+          ...(options?.limit ? { limit: options.limit } : {}),
+          ...(options?.before ? { before: options.before } : {}),
+        };
   const { data } = await apiClient.get<ChatMessage[]>(
     `/chat/sessions/${encodeURIComponent(sessionId)}/messages`,
     {
-      params: limit ? { limit } : undefined,
+      params,
     },
   );
   return data;

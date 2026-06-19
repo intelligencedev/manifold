@@ -52,9 +52,13 @@ type Engine struct {
 	BeliefMagmaSink              BeliefMagmaSink
 	DecisionStore                decision.Store
 	DecisionDistiller            decision.Distiller
-	ArtifactCapture              *artifact.CaptureManager
-	BeliefEnforcementPolicy      belief.EnforcementPolicy
-	PolicyEnforcer               policy.Enforcer
+	// DecisionService applies decision lifecycle invariants and the
+	// deterministic confidence-gated auto-activation policy for distilled
+	// candidates. Lifecycle reviews remain deliberate via decision tools.
+	DecisionService         *decision.Service
+	ArtifactCapture         *artifact.CaptureManager
+	BeliefEnforcementPolicy belief.EnforcementPolicy
+	PolicyEnforcer          policy.Enforcer
 	// MaxToolParallelism controls how many tool calls may run concurrently within a single step.
 	// <= 0 means unbounded (default to len(toolCalls)); 1 preserves sequential behavior.
 	MaxToolParallelism int

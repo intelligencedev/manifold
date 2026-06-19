@@ -24,6 +24,13 @@ func TestSQLiteChatStoreScansTextTimestamps(t *testing.T) {
 	if session.MessageCount != 0 {
 		t.Fatalf("new session should have 0 messages, got %d", session.MessageCount)
 	}
+	targetSession, err := store.SetSessionActiveTarget(ctx, nil, "session-sqlite", "planner", "ops")
+	if err != nil {
+		t.Fatalf("SetSessionActiveTarget: %v", err)
+	}
+	if targetSession.ActiveSpecialist != "planner" || targetSession.ActiveTeam != "ops" {
+		t.Fatalf("unexpected active target: specialist=%q team=%q", targetSession.ActiveSpecialist, targetSession.ActiveTeam)
+	}
 
 	sessions, err := store.ListSessions(ctx, nil)
 	if err != nil {
@@ -34,6 +41,9 @@ func TestSQLiteChatStoreScansTextTimestamps(t *testing.T) {
 	}
 	if sessions[0].MessageCount != 0 {
 		t.Fatalf("expected listed message count 0 before append, got %d", sessions[0].MessageCount)
+	}
+	if sessions[0].ActiveSpecialist != "planner" || sessions[0].ActiveTeam != "ops" {
+		t.Fatalf("expected listed active target to round trip, got specialist=%q team=%q", sessions[0].ActiveSpecialist, sessions[0].ActiveTeam)
 	}
 
 	now := time.Now().UTC()
@@ -55,6 +65,16 @@ func TestSQLiteChatStoreScansTextTimestamps(t *testing.T) {
 	}
 	if messages[2].DurationMs == nil || *messages[2].DurationMs != durationMs {
 		t.Fatalf("expected duration to round trip, got %#v", messages[2].DurationMs)
+	}
+	beforeStore := store.(interface {
+		ListMessagesBefore(context.Context, *int64, string, string, int) ([]persistence.ChatMessage, error)
+	})
+	before, err := beforeStore.ListMessagesBefore(ctx, nil, "session-sqlite", "m3", 1)
+	if err != nil {
+		t.Fatalf("ListMessagesBefore: %v", err)
+	}
+	if len(before) != 1 || before[0].ID != "m2" {
+		t.Fatalf("expected message m2 before m3 cursor, got %#v", before)
 	}
 	session, err = store.GetSession(ctx, nil, "session-sqlite")
 	if err != nil {
@@ -80,5 +100,37 @@ func TestSQLiteChatStoreScansTextTimestamps(t *testing.T) {
 	}
 	if len(sessions) != 1 || sessions[0].MessageCount != 2 {
 		t.Fatalf("expected listed message count 2 after delete, got %#v", sessions)
+	}
+}
+
+func TestSQLiteChatStoreListSessionsPinsFirst(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := NewSQLiteChatStore(openTestSQLite(t))
+
+	if _, err := store.EnsureSession(ctx, nil, "sqlite-regular", "Regular"); err != nil {
+		t.Fatalf("EnsureSession regular: %v", err)
+	}
+	if _, err := store.EnsureSession(ctx, nil, "sqlite-pinned", "Pinned"); err != nil {
+		t.Fatalf("EnsureSession pinned: %v", err)
+	}
+	pinned, err := store.SetSessionPinned(ctx, nil, "sqlite-pinned", true)
+	if err != nil {
+		t.Fatalf("SetSessionPinned: %v", err)
+	}
+	if !pinned.Pinned {
+		t.Fatal("expected pinned session")
+	}
+
+	sessions, err := store.ListSessions(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	if len(sessions) != 2 {
+		t.Fatalf("expected 2 sessions, got %d", len(sessions))
+	}
+	if sessions[0].ID != "sqlite-pinned" || !sessions[0].Pinned {
+		t.Fatalf("expected pinned session first, got %#v", sessions)
 	}
 }

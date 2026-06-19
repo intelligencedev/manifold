@@ -2,7 +2,7 @@ import {
   cancelChatRun,
   generateChatSessionTitle,
   resumeChatRun,
-  streamAgentRun,
+  startChatRun,
   streamChatRunEvents,
   streamAgentVisionRun,
   type ChatStreamEvent,
@@ -173,7 +173,7 @@ export function createChatStreamActions(
           beliefMemoryEnabled: options.beliefMemoryEnabled,
         });
       } else {
-        await streamAgentRun({
+        const run = await startChatRun({
           prompt: promptToSend,
           sessionId,
           userMessageId,
@@ -188,6 +188,19 @@ export function createChatStreamActions(
           beliefMemoryEnabled: options.beliefMemoryEnabled,
           image: options.image,
           imageSize: options.imageSize,
+        });
+        onEvent({
+          type: "run_started",
+          run_id: run.run_id,
+          session_id: run.session_id,
+        });
+        await streamDurableRunEventsWithReconnect(state, {
+          sessionId,
+          assistantId,
+          streamId,
+          runId: run.run_id,
+          signal: controller.signal,
+          onEvent,
         });
       }
     } catch (error: any) {
@@ -357,10 +370,13 @@ export function createChatStreamActions(
           numericSequence(resumed.last_retry_sequence),
         );
       }
-      await streamChatRunEvents({
+      await streamDurableRunEventsWithReconnect(state, {
+        sessionId,
+        assistantId,
+        streamId,
         runId: trimmedRunId,
-        after: afterSequence,
         signal: controller.signal,
+        initialAfterSequence: afterSequence,
         onEvent: (event) =>
           handleStreamEvent(
             state,
@@ -376,7 +392,8 @@ export function createChatStreamActions(
         state.updateMessage(sessionId, assistantId, (current) => ({
           ...current,
           streaming: false,
-          error: error instanceof Error ? error.message : "Failed to resume run",
+          error:
+            error instanceof Error ? error.message : "Failed to resume run",
         }));
       }
     } finally {
@@ -429,4 +446,189 @@ export function createChatStreamActions(
 function numericSequence(value: unknown) {
   const sequence = typeof value === "number" ? value : Number(value);
   return Number.isFinite(sequence) && sequence > 0 ? sequence : 0;
+}
+
+const maxStreamReconnectFailures = 6;
+const streamReconnectBackoffMs = [500, 1000, 2000, 4000, 8000, 15000];
+
+type ReconnectingRunOptions = {
+  sessionId: string;
+  assistantId: string;
+  streamId: string;
+  runId: string;
+  signal: AbortSignal;
+  initialAfterSequence?: number;
+  onEvent: (event: ChatStreamEvent) => void;
+};
+
+async function streamDurableRunEventsWithReconnect(
+  state: ChatStoreState,
+  options: ReconnectingRunOptions,
+) {
+  const { sessionId, assistantId, streamId, runId, signal, onEvent } = options;
+  let consecutiveFailures = 0;
+  let nextAfterSequence = numericSequence(options.initialAfterSequence);
+  let needsAttach = false;
+  let lastError: unknown;
+
+  while (state.isStreamCurrent(sessionId, streamId)) {
+    throwIfAborted(signal);
+
+    if (needsAttach) {
+      const delay = reconnectDelay(consecutiveFailures);
+      await sleep(delay, signal);
+      try {
+        const resumed = await resumeChatRun(runId);
+        const retrySequence = resumed.retried
+          ? numericSequence(resumed.last_retry_sequence)
+          : 0;
+        nextAfterSequence = Math.max(
+          nextAfterSequence,
+          currentRunSequence(state, sessionId, assistantId),
+          retrySequence,
+        );
+        state.updateMessage(sessionId, assistantId, (message) => ({
+          ...message,
+          streaming: true,
+          error: undefined,
+          lastRunSequence:
+            Math.max(message.lastRunSequence || 0, retrySequence) || undefined,
+        }));
+        needsAttach = false;
+      } catch (error) {
+        if (isAbortError(error)) throw error;
+        lastError = error;
+        if (!shouldRetryStreamError(error, consecutiveFailures)) throw error;
+        consecutiveFailures += 1;
+        continue;
+      }
+    }
+
+    const beforeSequence = Math.max(
+      nextAfterSequence,
+      currentRunSequence(state, sessionId, assistantId),
+    );
+    try {
+      await streamChatRunEvents({
+        runId,
+        after: beforeSequence,
+        signal,
+        onEvent,
+      });
+      if (!assistantMessageStreaming(state, sessionId, assistantId)) return;
+      lastError = new Error("Stream closed before run completed");
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      lastError = error;
+    }
+
+    if (!state.isStreamCurrent(sessionId, streamId)) return;
+    const currentMessage = assistantMessage(state, sessionId, assistantId);
+    const afterSequence = currentRunSequence(state, sessionId, assistantId);
+    if (afterSequence > beforeSequence) {
+      consecutiveFailures = 0;
+    }
+    const retryableError = shouldRetryStreamError(
+      lastError,
+      consecutiveFailures,
+    );
+    if (
+      !currentMessage?.streaming &&
+      !(currentMessage?.error && retryableError)
+    )
+      return;
+
+    if (!retryableError) throw lastError;
+    consecutiveFailures += 1;
+    nextAfterSequence = Math.max(nextAfterSequence, afterSequence);
+    needsAttach = true;
+    state.updateMessage(sessionId, assistantId, (message) => ({
+      ...message,
+      streaming: true,
+      error: undefined,
+    }));
+  }
+}
+
+function assistantMessage(
+  state: ChatStoreState,
+  sessionId: string,
+  assistantId: string,
+) {
+  return (state.messagesBySession.value[sessionId] || []).find(
+    (message) => message.id === assistantId,
+  );
+}
+
+function assistantMessageStreaming(
+  state: ChatStoreState,
+  sessionId: string,
+  assistantId: string,
+) {
+  return Boolean(assistantMessage(state, sessionId, assistantId)?.streaming);
+}
+
+function currentRunSequence(
+  state: ChatStoreState,
+  sessionId: string,
+  assistantId: string,
+) {
+  return numericSequence(
+    assistantMessage(state, sessionId, assistantId)?.lastRunSequence,
+  );
+}
+
+function shouldRetryStreamError(error: unknown, failures: number) {
+  if (failures >= maxStreamReconnectFailures) return false;
+  if (isAbortError(error)) return false;
+  const message = error instanceof Error ? error.message : String(error || "");
+  const statusMatch = message.match(/\((\d{3})\)/);
+  if (!statusMatch) {
+    const lower = message.toLowerCase();
+    return (
+      !lower.includes("unauthorized") &&
+      !lower.includes("forbidden") &&
+      !lower.includes("not found")
+    );
+  }
+  const status = Number(statusMatch[1]);
+  return status === 408 || status === 409 || status === 429 || status >= 500;
+}
+
+function reconnectDelay(failures: number) {
+  const index = Math.max(
+    0,
+    Math.min(failures - 1, streamReconnectBackoffMs.length - 1),
+  );
+  return streamReconnectBackoffMs[index];
+}
+
+function sleep(ms: number, signal: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(abortError());
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      window.clearTimeout(timeout);
+      reject(abortError());
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+function throwIfAborted(signal: AbortSignal) {
+  if (signal.aborted) throw abortError();
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+function abortError() {
+  return new DOMException("Aborted", "AbortError");
 }

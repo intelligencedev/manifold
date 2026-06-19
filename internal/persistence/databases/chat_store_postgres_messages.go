@@ -180,6 +180,53 @@ ORDER BY created_at ASC, id ASC`
 	return out, rows.Err()
 }
 
+func (s *pgChatStore) ListMessagesBefore(ctx context.Context, userID *int64, sessionID string, beforeID string, limit int) ([]persistence.ChatMessage, error) {
+	log := observability.LoggerWithTrace(ctx)
+	log.Debug().Str("session_id", sessionID).Str("before_id", beforeID).Int("limit", limit).Msg("list_messages_before_start")
+	if _, err := s.GetSession(ctx, userID, sessionID); err != nil {
+		log.Warn().Err(err).Str("session_id", sessionID).Msg("list_messages_before_get_session_failed")
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	query := `
+WITH cursor AS (
+    SELECT id, created_at
+    FROM chat_messages
+    WHERE session_id = $1 AND id = $2
+)
+SELECT id, session_id, role, content, created_at, duration_ms FROM (
+    SELECT m.id, m.session_id, m.role, m.content, m.created_at, m.duration_ms
+    FROM chat_messages m, cursor c
+    WHERE m.session_id = $1
+      AND (m.created_at < c.created_at OR (m.created_at = c.created_at AND m.id < c.id))
+    ORDER BY m.created_at DESC, m.id DESC
+    LIMIT $3
+) sub
+ORDER BY created_at ASC, id ASC`
+	rows, err := s.pool.Query(ctx, query, sessionID, beforeID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []persistence.ChatMessage
+	for rows.Next() {
+		var msg persistence.ChatMessage
+		var duration sql.NullInt64
+		if err := rows.Scan(&msg.ID, &msg.SessionID, &msg.Role, &msg.Content, &msg.CreatedAt, &duration); err != nil {
+			return nil, err
+		}
+		msg.DurationMs = int64PtrFromNull(duration)
+		out = append(out, msg)
+	}
+	if out == nil {
+		out = make([]persistence.ChatMessage, 0)
+	}
+	log.Debug().Str("session_id", sessionID).Int("message_count", len(out)).Msg("list_messages_before_complete")
+	return out, rows.Err()
+}
+
 func (s *pgChatStore) AppendMessages(ctx context.Context, userID *int64, sessionID string, messages []persistence.ChatMessage, preview string, model string) error {
 	return s.appendMessages(chatAppendMessagesRequest{ctx: ctx, userID: userID, sessionID: sessionID, messages: messages, preview: preview, model: model})
 }

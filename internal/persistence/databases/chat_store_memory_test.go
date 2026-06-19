@@ -62,6 +62,16 @@ func TestMemChatStoreLifecycle(t *testing.T) {
 	if len(limited) != 1 || limited[0].Role != "assistant" {
 		t.Fatalf("expected only assistant message from limited query, got %#v", limited)
 	}
+	beforeStore := store.(interface {
+		ListMessagesBefore(context.Context, *int64, string, string, int) ([]persistence.ChatMessage, error)
+	})
+	before, err := beforeStore.ListMessagesBefore(ctx, nil, "session-1", msgs[1].ID, 1)
+	if err != nil {
+		t.Fatalf("ListMessagesBefore: %v", err)
+	}
+	if len(before) != 1 || before[0].Role != "user" {
+		t.Fatalf("expected user message before assistant cursor, got %#v", before)
+	}
 	if err := store.UpdateSummary(ctx, nil, "session-1", "summary", 2); err != nil {
 		t.Fatalf("UpdateSummary: %v", err)
 	}
@@ -111,6 +121,27 @@ func TestMemChatStoreLifecycle(t *testing.T) {
 	if locked.ProjectID != "project-1" {
 		t.Fatalf("expected project lock, got %q", locked.ProjectID)
 	}
+	targetSession, err := store.SetSessionActiveTarget(ctx, nil, "session-1", "planner", "ops")
+	if err != nil {
+		t.Fatalf("SetSessionActiveTarget: %v", err)
+	}
+	if targetSession.ActiveSpecialist != "planner" || targetSession.ActiveTeam != "ops" {
+		t.Fatalf("unexpected active target: specialist=%q team=%q", targetSession.ActiveSpecialist, targetSession.ActiveTeam)
+	}
+	locked, err = store.GetSession(ctx, nil, "session-1")
+	if err != nil {
+		t.Fatalf("GetSession after active target: %v", err)
+	}
+	if locked.ActiveSpecialist != "planner" || locked.ActiveTeam != "ops" {
+		t.Fatalf("expected active target to persist, got specialist=%q team=%q", locked.ActiveSpecialist, locked.ActiveTeam)
+	}
+	pinned, err := store.SetSessionPinned(ctx, nil, "session-1", true)
+	if err != nil {
+		t.Fatalf("SetSessionPinned: %v", err)
+	}
+	if !pinned.Pinned {
+		t.Fatal("expected pinned session")
+	}
 
 	if err := store.DeleteSession(ctx, nil, "session-1"); err != nil {
 		t.Fatalf("DeleteSession: %v", err)
@@ -118,6 +149,33 @@ func TestMemChatStoreLifecycle(t *testing.T) {
 
 	if _, err := store.ListMessages(ctx, nil, "session-1", 0); !errors.Is(err, persistence.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound after delete, got %v", err)
+	}
+}
+
+func TestMemChatStoreListSessionsPinsFirst(t *testing.T) {
+	store := newMemoryChatStore()
+	ctx := context.Background()
+
+	if _, err := store.EnsureSession(ctx, nil, "old-pinned", "Old pinned"); err != nil {
+		t.Fatalf("EnsureSession old-pinned: %v", err)
+	}
+	time.Sleep(time.Millisecond)
+	if _, err := store.EnsureSession(ctx, nil, "new-regular", "New regular"); err != nil {
+		t.Fatalf("EnsureSession new-regular: %v", err)
+	}
+	if _, err := store.SetSessionPinned(ctx, nil, "old-pinned", true); err != nil {
+		t.Fatalf("SetSessionPinned: %v", err)
+	}
+
+	sessions, err := store.ListSessions(ctx, nil)
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	if len(sessions) != 2 {
+		t.Fatalf("expected 2 sessions, got %d", len(sessions))
+	}
+	if sessions[0].ID != "old-pinned" || !sessions[0].Pinned {
+		t.Fatalf("expected pinned session first, got %#v", sessions)
 	}
 }
 

@@ -140,12 +140,34 @@ func (a *app) handleChatMessages(w http.ResponseWriter, r *http.Request, userID 
 		return
 	}
 	limit := chatMessageLimit(r)
-	msgs, err := a.chatStore.ListMessages(r.Context(), userID, sessionID, limit)
+	beforeID := strings.TrimSpace(r.URL.Query().Get("before"))
+	msgs, err := a.listChatMessages(r, userID, sessionID, beforeID, limit)
 	if err != nil {
 		writeChatDetailStoreError(w, r, err, sessionID, "list_chat_messages")
 		return
 	}
 	writeChatJSON(w, hydrateChatMessages(msgs), "encode_chat_messages")
+}
+
+type chatMessageBeforeLister interface {
+	ListMessagesBefore(ctx context.Context, userID *int64, sessionID string, beforeID string, limit int) ([]persist.ChatMessage, error)
+}
+
+func (a *app) listChatMessages(
+	r *http.Request,
+	userID *int64,
+	sessionID string,
+	beforeID string,
+	limit int,
+) ([]persist.ChatMessage, error) {
+	if beforeID == "" {
+		return a.chatStore.ListMessages(r.Context(), userID, sessionID, limit)
+	}
+	store, ok := a.chatStore.(chatMessageBeforeLister)
+	if !ok {
+		return nil, errors.New("chat message cursor pagination unavailable")
+	}
+	return store.ListMessagesBefore(r.Context(), userID, sessionID, beforeID, limit)
 }
 
 func chatMessageLimit(r *http.Request) int {
@@ -443,9 +465,14 @@ type patchChatSessionRequest struct {
 	BeliefMemoryEnabled         *bool   `json:"beliefMemoryEnabled"`
 	LegacyBeliefMemoryEnabled   *bool   `json:"belief_memory_enabled"`
 	CommandPolicyAllowAll       *bool   `json:"commandPolicyAllowAll"`
+	ActiveSpecialist            *string `json:"activeSpecialist"`
+	LegacyActiveSpecialist      *string `json:"active_specialist"`
+	ActiveTeam                  *string `json:"activeTeam"`
+	LegacyActiveTeam            *string `json:"active_team"`
+	Pinned                      *bool   `json:"pinned"`
 }
 
-func (b patchChatSessionRequest) normalized() (*string, *bool, *bool, *bool, *bool) {
+func (b patchChatSessionRequest) normalized() (*string, *bool, *bool, *bool, *bool, *string, *string, *bool) {
 	projectID := b.ProjectID
 	if projectID == nil {
 		projectID = b.LegacyProjectID
@@ -462,7 +489,15 @@ func (b patchChatSessionRequest) normalized() (*string, *bool, *bool, *bool, *bo
 	if beliefMemoryEnabled == nil {
 		beliefMemoryEnabled = b.LegacyBeliefMemoryEnabled
 	}
-	return projectID, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled, b.CommandPolicyAllowAll
+	activeSpecialist := b.ActiveSpecialist
+	if activeSpecialist == nil {
+		activeSpecialist = b.LegacyActiveSpecialist
+	}
+	activeTeam := b.ActiveTeam
+	if activeTeam == nil {
+		activeTeam = b.LegacyActiveTeam
+	}
+	return projectID, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled, b.CommandPolicyAllowAll, activeSpecialist, activeTeam, b.Pinned
 }
 
 func (a *app) patchChatSession(
@@ -478,8 +513,8 @@ func (a *app) patchChatSession(
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	projectID, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled, commandPolicyAllowAll := body.normalized()
-	if body.Name == nil && projectID == nil && memoryEnabled == nil && evolvingMemoryEnabled == nil && beliefMemoryEnabled == nil && commandPolicyAllowAll == nil {
+	projectID, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled, commandPolicyAllowAll, activeSpecialist, activeTeam, pinned := body.normalized()
+	if body.Name == nil && projectID == nil && memoryEnabled == nil && evolvingMemoryEnabled == nil && beliefMemoryEnabled == nil && commandPolicyAllowAll == nil && activeSpecialist == nil && activeTeam == nil && pinned == nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
@@ -492,6 +527,38 @@ func (a *app) patchChatSession(
 		sess, err = a.patchChatSessionMemorySettings(r.Context(), userID, sessionID, sess, memoryEnabled, evolvingMemoryEnabled, beliefMemoryEnabled)
 		if err != nil {
 			writeChatDetailStoreError(w, r, err, sessionID, "set_chat_session_memory_settings")
+			return
+		}
+	}
+	if pinned != nil {
+		var err error
+		sess, err = a.chatStore.SetSessionPinned(r.Context(), userID, sessionID, *pinned)
+		if err != nil {
+			writeChatDetailStoreError(w, r, err, sessionID, "set_chat_session_pinned")
+			return
+		}
+	}
+	if activeSpecialist != nil || activeTeam != nil {
+		if sess.ID == "" {
+			var err error
+			sess, err = a.chatStore.GetSession(r.Context(), userID, sessionID)
+			if err != nil {
+				writeChatDetailStoreError(w, r, err, sessionID, "get_chat_session")
+				return
+			}
+		}
+		nextSpecialist := sess.ActiveSpecialist
+		if activeSpecialist != nil {
+			nextSpecialist = strings.TrimSpace(*activeSpecialist)
+		}
+		nextTeam := sess.ActiveTeam
+		if activeTeam != nil {
+			nextTeam = strings.TrimSpace(*activeTeam)
+		}
+		var err error
+		sess, err = a.chatStore.SetSessionActiveTarget(r.Context(), userID, sessionID, nextSpecialist, nextTeam)
+		if err != nil {
+			writeChatDetailStoreError(w, r, err, sessionID, "set_chat_session_active_target")
 			return
 		}
 	}

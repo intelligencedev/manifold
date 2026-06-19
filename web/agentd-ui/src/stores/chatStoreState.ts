@@ -8,6 +8,7 @@ import type {
 import {
   agentThreadKey,
   normalizeSessionMeta,
+  sortChatSessions,
   snippet,
 } from "@/stores/chatHelpers";
 import { createStreamStateActions } from "@/stores/chatStreamState";
@@ -19,9 +20,16 @@ export type StreamState = {
   runId?: string;
 };
 
+export type MessagePageState = {
+  hasOlder: boolean;
+  loadingOlder: boolean;
+  error?: string;
+};
+
 function createChatStoreRefs() {
   const sessions = ref<ChatSessionMeta[]>([]);
   const messagesBySession = ref<Record<string, ChatMessage[]>>({});
+  const messagePagingBySession = ref<Record<string, MessagePageState>>({});
   const sessionsLoading = ref(false);
   const sessionsError = ref<string | null>(null);
   const activeSessionId = ref<string>("");
@@ -29,6 +37,7 @@ function createChatStoreRefs() {
   return {
     sessions,
     messagesBySession,
+    messagePagingBySession,
     sessionsLoading,
     sessionsError,
     fetchedMessageSessions: new Set<string>(),
@@ -69,6 +78,13 @@ function createChatComputed(refs: ChatStoreRefs) {
     ),
     toolMessages: computed(() =>
       activeMessages.value.filter((m) => m.role === "tool"),
+    ),
+    activeMessagePaging: computed(
+      () =>
+        refs.messagePagingBySession.value[refs.activeSessionId.value] || {
+          hasOlder: false,
+          loadingOlder: false,
+        },
     ),
     agentThreads: computed(
       () => refs.agentThreadsBySession.value[refs.activeSessionId.value] || [],
@@ -253,12 +269,44 @@ function createMessageActions(refs: ChatStoreRefs) {
       ...refs.messagesBySession.value,
       [sessionId]: messages,
     };
-    syncSessionMessageCount(sessionId, messages.length);
+  }
+
+  function prependMessages(sessionId: string, messages: ChatMessage[]) {
+    if (!messages.length) return;
+    const existing = refs.messagesBySession.value[sessionId] || [];
+    const seen = new Set(existing.map((message) => message.id));
+    const unique = messages.filter((message) => !seen.has(message.id));
+    if (!unique.length) return;
+    setMessages(sessionId, [...unique, ...existing]);
+  }
+
+  function setMessagePaging(
+    sessionId: string,
+    patch: Partial<MessagePageState>,
+  ) {
+    const current = refs.messagePagingBySession.value[sessionId] || {
+      hasOlder: false,
+      loadingOlder: false,
+    };
+    refs.messagePagingBySession.value = {
+      ...refs.messagePagingBySession.value,
+      [sessionId]: { ...current, ...patch },
+    };
+  }
+
+  function adjustSessionMessageCount(sessionId: string, delta: number) {
+    const idx = refs.sessions.value.findIndex((s) => s.id === sessionId);
+    if (idx === -1) return;
+    const current = refs.sessions.value[idx].messageCount ?? 0;
+    syncSessionMessageCount(sessionId, Math.max(0, current + delta));
   }
 
   return {
+    adjustSessionMessageCount,
     syncSessionMessageCount,
+    setMessagePaging,
     setMessages,
+    prependMessages,
     appendMessage: (
       sessionId: string,
       message: ChatMessage,
@@ -281,12 +329,28 @@ function appendMessage(
 ) {
   const existing = refs.messagesBySession.value[sessionId] || [];
   setMessages(sessionId, [...existing, message]);
+  adjustSessionMessageCount(refs, sessionId, 1);
   if (
     updatePreview &&
     (message.role === "assistant" || message.role === "user")
   ) {
     touchSession(refs, sessionId, snippet(message.content));
   }
+}
+
+function adjustSessionMessageCount(
+  refs: ChatStoreRefs,
+  sessionId: string,
+  delta: number,
+) {
+  const idx = refs.sessions.value.findIndex((s) => s.id === sessionId);
+  if (idx === -1) return;
+  const current = refs.sessions.value[idx].messageCount ?? 0;
+  const next = Math.max(0, current + delta);
+  if (next === current) return;
+  const clone = [...refs.sessions.value];
+  clone.splice(idx, 1, { ...clone[idx], messageCount: next });
+  refs.sessions.value = clone;
 }
 
 function updateMessage(
@@ -337,7 +401,7 @@ function touchSession(
   };
   const clone = [...refs.sessions.value];
   clone.splice(idx, 1, updated);
-  refs.sessions.value = clone;
+  refs.sessions.value = sortChatSessions(clone);
 }
 
 function ensureSession(
@@ -358,7 +422,7 @@ function upsertSessionMeta(refs: ChatStoreRefs, meta: ChatSessionMeta) {
   const merged = normalizeSessionMeta({ ...existing, ...meta });
   const clone = [...refs.sessions.value];
   clone.splice(idx, 1, merged);
-  refs.sessions.value = clone;
+  refs.sessions.value = sortChatSessions(clone);
 }
 
 export function createChatStoreState() {

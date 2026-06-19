@@ -3,6 +3,9 @@ package commandexec
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -388,4 +391,28 @@ func TestPrepareApprovalPropagatesDurableSuspension(t *testing.T) {
 	if !errors.Is(err, durable.ErrSuspended) {
 		t.Fatalf("expected durable suspension to propagate, got %v", err)
 	}
+}
+
+func TestSecurePathIncludesResolvedGoBin(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("securePath uses ambient PATH on Windows")
+	}
+	binDir := t.TempDir()
+	goPath := filepath.Join(binDir, "go")
+	if err := os.WriteFile(goPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write fake go binary: %v", err)
+	}
+	t.Setenv("PATH", binDir)
+	want := binDir
+	if resolved, err := filepath.EvalSymlinks(binDir); err == nil {
+		want = resolved
+	}
+
+	got := filepath.SplitList(securePath())
+	for _, dir := range got {
+		if dir == want {
+			return
+		}
+	}
+	t.Fatalf("securePath() = %#v, want %q", got, want)
 }

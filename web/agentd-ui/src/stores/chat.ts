@@ -18,6 +18,7 @@ export const useChatStore = defineStore("chat", () => {
   return {
     sessions: state.sessions,
     messagesBySession: state.messagesBySession,
+    messagePagingBySession: state.messagePagingBySession,
     sessionsLoading: state.sessionsLoading,
     sessionsError: state.sessionsError,
     activeSessionId: state.activeSessionId,
@@ -26,6 +27,7 @@ export const useChatStore = defineStore("chat", () => {
     activeMessages: state.activeMessages,
     chatMessages: state.chatMessages,
     toolMessages: state.toolMessages,
+    activeMessagePaging: state.activeMessagePaging,
     agentThreads: state.agentThreads,
     activeSummaryEvent: state.activeSummaryEvent,
     activeThoughtSummaries: state.activeThoughtSummaries,
@@ -33,6 +35,7 @@ export const useChatStore = defineStore("chat", () => {
     init: sessionActions.init,
     refreshSessionsFromServer: sessionActions.refreshSessionsFromServer,
     loadMessagesFromServer: sessionActions.loadMessagesFromServer,
+    loadOlderMessages: sessionActions.loadOlderMessages,
     selectSession: sessionActions.selectSession,
     createSession: sessionActions.createSession,
     deleteSession: sessionActions.deleteSession,
@@ -42,6 +45,8 @@ export const useChatStore = defineStore("chat", () => {
     updateSessionMemorySettings: sessionActions.updateSessionMemorySettings,
     updateSessionCommandPolicyAllowAll:
       sessionActions.updateSessionCommandPolicyAllowAll,
+    updateSessionActiveTarget: sessionActions.updateSessionActiveTarget,
+    updateSessionPinned: sessionActions.updateSessionPinned,
     updateMessage: state.updateMessage,
     submitInputRequest: (
       sessionId: string,

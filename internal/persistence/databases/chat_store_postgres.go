@@ -43,7 +43,10 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     project_id TEXT NOT NULL DEFAULT '',
     memory_enabled BOOLEAN NOT NULL DEFAULT FALSE,
     evolving_memory_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-    belief_memory_enabled BOOLEAN NOT NULL DEFAULT FALSE
+    belief_memory_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    active_specialist TEXT NOT NULL DEFAULT '',
+    active_team TEXT NOT NULL DEFAULT '',
+    pinned BOOLEAN NOT NULL DEFAULT FALSE
 );
 
 CREATE TABLE IF NOT EXISTS chat_messages (
@@ -81,6 +84,15 @@ ALTER TABLE chat_sessions
 ALTER TABLE chat_sessions
     ADD COLUMN IF NOT EXISTS belief_memory_enabled BOOLEAN NOT NULL DEFAULT FALSE;
 
+ALTER TABLE chat_sessions
+    ADD COLUMN IF NOT EXISTS active_specialist TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE chat_sessions
+    ADD COLUMN IF NOT EXISTS active_team TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE chat_sessions
+    ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT FALSE;
+
 ALTER TABLE chat_messages
     ADD COLUMN IF NOT EXISTS duration_ms BIGINT NULL;
 
@@ -105,6 +117,7 @@ SET kind = 'matrix'
 WHERE kind = 'chat' AND name LIKE 'Matrix Room %';
 
 CREATE INDEX IF NOT EXISTS chat_sessions_user_updated_idx ON chat_sessions(user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS chat_sessions_user_pinned_updated_idx ON chat_sessions(user_id, pinned DESC, updated_at DESC);
 CREATE INDEX IF NOT EXISTS chat_sessions_user_created_idx ON chat_sessions(user_id, created_at DESC);
 `)
 	return err

@@ -204,6 +204,27 @@ func (s *stubChatStore) SetSessionMemorySettings(ctx context.Context, userID *in
 	return persistence.ChatSession{}, nil
 }
 
+func (s *stubChatStore) SetSessionActiveTarget(ctx context.Context, userID *int64, id string, activeSpecialist string, activeTeam string) (persistence.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sess, ok := s.sessions[id]; ok {
+		sess.ActiveSpecialist = strings.TrimSpace(activeSpecialist)
+		sess.ActiveTeam = strings.TrimSpace(activeTeam)
+		return *sess, nil
+	}
+	return persistence.ChatSession{}, nil
+}
+
+func (s *stubChatStore) SetSessionPinned(ctx context.Context, userID *int64, id string, pinned bool) (persistence.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sess, ok := s.sessions[id]; ok {
+		sess.Pinned = pinned
+		return *sess, nil
+	}
+	return persistence.ChatSession{}, nil
+}
+
 func (s *stubChatStore) DeleteSession(ctx context.Context, userID *int64, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -1,0 +1,6 @@
+self-hosted-runner:
+  labels:
+    - cross-compile
+    - target-darwin-arm64
+
+config-variables: null

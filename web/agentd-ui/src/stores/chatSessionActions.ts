@@ -11,21 +11,67 @@ import {
   listChatSessions,
   renameChatSession as apiRenameChatSession,
   streamChatRunEvents,
+  updateChatSessionActiveTarget as apiUpdateChatSessionActiveTarget,
   updateChatSessionCommandPolicyAllowAll as apiUpdateChatSessionCommandPolicyAllowAll,
   updateChatSessionMemorySettings as apiUpdateChatSessionMemorySettings,
+  updateChatSessionPinned as apiUpdateChatSessionPinned,
   updateChatSessionProject as apiUpdateChatSessionProject,
 } from "@/api/chat";
-import { httpStatus, normalizeSessionMeta } from "@/stores/chatHelpers";
+import {
+  httpStatus,
+  normalizeSessionMeta,
+  sortChatSessions,
+} from "@/stores/chatHelpers";
 import { handleStreamEvent } from "@/stores/chatStreamEvents";
 import type { ChatStoreState } from "@/stores/chatStoreState";
 import { createId } from "@/utils/uuid";
+
+const chatMessagePageSize = 100;
+const chatMessageFetchLimit = chatMessagePageSize + 1;
+
+type LoadMessagesOptions = { force?: boolean };
+
+function messagePage(messages: ChatMessage[]) {
+  const hasOlder = messages.length > chatMessagePageSize;
+  return {
+    hasOlder,
+    messages: hasOlder ? messages.slice(1) : messages,
+  };
+}
+
+async function fetchLatestMessagePage(sessionId: string) {
+  return messagePage(
+    await fetchChatMessages(sessionId, { limit: chatMessageFetchLimit }),
+  );
+}
+
+function setMessagePageState(
+  state: ChatStoreState,
+  sessionId: string,
+  page: ReturnType<typeof messagePage>,
+  loadingOlder = false,
+) {
+  state.setMessagePaging(sessionId, {
+    hasOlder: page.hasOlder,
+    loadingOlder,
+    error: "",
+  });
+}
+
+async function replaceWithLatestMessagePage(
+  state: ChatStoreState,
+  sessionId: string,
+) {
+  const refreshed = await fetchLatestMessagePage(sessionId);
+  state.setMessages(sessionId, refreshed.messages);
+  setMessagePageState(state, sessionId, refreshed);
+}
 
 function createMessageDeletionActions(state: ChatStoreState) {
   async function deleteMessage(sessionId: string, messageId: string) {
     if (!sessionId || !messageId) return;
     await apiDeleteChatMessage(sessionId, messageId);
-    const refreshed = await fetchChatMessages(sessionId);
-    state.setMessages(sessionId, refreshed);
+    await replaceWithLatestMessagePage(state, sessionId);
     state.clearThoughtSummaries(sessionId);
     state.clearSummaryEvent(sessionId);
   }
@@ -37,8 +83,7 @@ function createMessageDeletionActions(state: ChatStoreState) {
   ) {
     if (!sessionId || !messageId) return;
     await apiDeleteChatMessagesAfter(sessionId, messageId, inclusive);
-    const refreshed = await fetchChatMessages(sessionId);
-    state.setMessages(sessionId, refreshed);
+    await replaceWithLatestMessagePage(state, sessionId);
     state.clearThoughtSummaries(sessionId);
     state.clearSummaryEvent(sessionId);
   }
@@ -47,73 +92,202 @@ function createMessageDeletionActions(state: ChatStoreState) {
 }
 
 function createSessionLoadActions(state: ChatStoreState) {
+  const loadingMessageSessions = new Set<string>();
+
   async function init() {
     if (state.sessions.value.length) return;
     await refreshSessionsFromServer(true);
   }
 
   async function refreshSessionsFromServer(initial = false) {
-    state.sessionsLoading.value = true;
-    if (!initial) state.sessionsError.value = null;
-    try {
-      const remote = await normalizedRemoteSessions(initial);
-      state.sessionsError.value = null;
-      state.sessions.value = remote;
-      reconcileSessionMessages(state, remote);
-      if (!remote.length) {
-        state.activeSessionId.value = "";
-        return;
-      }
-      if (!remote.some((s) => s.id === state.activeSessionId.value)) {
-        state.activeSessionId.value = remote[0].id;
-      }
-      if (state.activeSessionId.value) {
-        await loadMessagesFromServer(state.activeSessionId.value, {
-          force: true,
-        });
-      }
-    } catch (error) {
-      applySessionLoadError(state, error);
-    } finally {
-      state.sessionsLoading.value = false;
-    }
+    await refreshSessionsFromServerImpl(
+      state,
+      initial,
+      loadMessagesFromServer,
+    );
   }
 
   async function loadMessagesFromServer(
     sessionId: string,
-    options: { force?: boolean } = {},
+    options: LoadMessagesOptions = {},
   ) {
-    if (!sessionId) return;
-    if (!options.force && state.fetchedMessageSessions.has(sessionId)) return;
-    const beforeFetch = state.messagesBySession.value[sessionId] || [];
-    try {
-      const [data, activities] = await Promise.all([
-        fetchChatMessages(sessionId),
-        fetchChatActivities(sessionId),
-      ]);
-      state.fetchedMessageSessions.add(sessionId);
-      const current = state.messagesBySession.value[sessionId] || [];
-      const changedDuringFetch = current !== beforeFetch;
-      const preserveLocal =
-        changedDuringFetch &&
-        (current.some((m) => !!m.streaming) || current.length > data.length);
-      if (preserveLocal) {
-        state.syncSessionMessageCount(sessionId, current.length);
-        return;
-      }
-      state.setMessages(sessionId, data);
-      state.setAgentThreads(sessionId, activities || []);
-      void recoverActiveChatRun(state, sessionId);
-    } catch (error) {
-      const status = httpStatus(error);
-      if (status === 403) {
-        state.sessionsError.value = "Access denied for this conversation.";
-      } else if (status === 404) await refreshSessionsFromServer();
-      console.error("Failed to load chat messages", error);
-    }
+    await loadMessagesForSession(
+      state,
+      loadingMessageSessions,
+      refreshSessionsFromServer,
+      sessionId,
+      options,
+    );
   }
 
-  return { init, refreshSessionsFromServer, loadMessagesFromServer };
+  async function loadOlderMessages(sessionId: string) {
+    await loadOlderMessagesForSession(state, sessionId);
+  }
+
+  return {
+    init,
+    refreshSessionsFromServer,
+    loadMessagesFromServer,
+    loadOlderMessages,
+  };
+}
+
+async function refreshSessionsFromServerImpl(
+  state: ChatStoreState,
+  initial: boolean,
+  loadMessagesFromServer: (
+    sessionId: string,
+    options?: LoadMessagesOptions,
+  ) => Promise<void>,
+) {
+  state.sessionsLoading.value = true;
+  if (!initial) state.sessionsError.value = null;
+  try {
+    const ordered = sortChatSessions(await normalizedRemoteSessions(initial));
+    state.sessionsError.value = null;
+    state.sessions.value = ordered;
+    reconcileSessionMessages(state, ordered);
+    await loadActiveSessionMessages(state, ordered, loadMessagesFromServer);
+  } catch (error) {
+    applySessionLoadError(state, error);
+  } finally {
+    state.sessionsLoading.value = false;
+  }
+}
+
+async function loadActiveSessionMessages(
+  state: ChatStoreState,
+  ordered: ReturnType<typeof normalizeSessionMeta>[],
+  loadMessagesFromServer: (
+    sessionId: string,
+    options?: LoadMessagesOptions,
+  ) => Promise<void>,
+) {
+  if (!ordered.length) {
+    state.activeSessionId.value = "";
+    return;
+  }
+  if (!ordered.some((s) => s.id === state.activeSessionId.value)) {
+    state.activeSessionId.value = ordered[0].id;
+  }
+  if (state.activeSessionId.value) {
+    await loadMessagesFromServer(state.activeSessionId.value, { force: true });
+  }
+}
+
+async function loadMessagesForSession(
+  state: ChatStoreState,
+  loadingMessageSessions: Set<string>,
+  refreshSessionsFromServer: () => Promise<void>,
+  sessionId: string,
+  options: LoadMessagesOptions,
+) {
+  if (shouldSkipMessageLoad(state, loadingMessageSessions, sessionId, options)) {
+    return;
+  }
+  loadingMessageSessions.add(sessionId);
+  const beforeFetch = state.messagesBySession.value[sessionId] || [];
+  try {
+    await loadMessagesForSessionImpl(state, sessionId, beforeFetch);
+  } catch (error) {
+    await handleMessageLoadError(state, refreshSessionsFromServer, error);
+  } finally {
+    loadingMessageSessions.delete(sessionId);
+  }
+}
+
+function shouldSkipMessageLoad(
+  state: ChatStoreState,
+  loadingMessageSessions: Set<string>,
+  sessionId: string,
+  options: LoadMessagesOptions,
+) {
+  if (!sessionId) return true;
+  if (!options.force && state.fetchedMessageSessions.has(sessionId)) return true;
+  return loadingMessageSessions.has(sessionId);
+}
+
+async function loadMessagesForSessionImpl(
+  state: ChatStoreState,
+  sessionId: string,
+  beforeFetch: ChatMessage[],
+) {
+  const [rawMessages, activities] = await Promise.all([
+    fetchChatMessages(sessionId, { limit: chatMessageFetchLimit }),
+    fetchChatActivities(sessionId),
+  ]);
+  const page = messagePage(rawMessages);
+  state.fetchedMessageSessions.add(sessionId);
+  if (shouldPreserveLocalMessages(state, sessionId, beforeFetch)) {
+    setMessagePageState(state, sessionId, page);
+    return;
+  }
+  state.setMessages(sessionId, page.messages);
+  if (!page.hasOlder) {
+    state.syncSessionMessageCount(sessionId, page.messages.length);
+  }
+  setMessagePageState(state, sessionId, page);
+  state.setAgentThreads(sessionId, activities || []);
+  void recoverActiveChatRun(state, sessionId);
+}
+
+function shouldPreserveLocalMessages(
+  state: ChatStoreState,
+  sessionId: string,
+  beforeFetch: ChatMessage[],
+) {
+  const current = state.messagesBySession.value[sessionId] || [];
+  return current !== beforeFetch && current.some((m) => !!m.streaming);
+}
+
+async function handleMessageLoadError(
+  state: ChatStoreState,
+  refreshSessionsFromServer: () => Promise<void>,
+  error: unknown,
+) {
+  const status = httpStatus(error);
+  if (status === 403) {
+    state.sessionsError.value = "Access denied for this conversation.";
+  } else if (status === 404) {
+    await refreshSessionsFromServer();
+  }
+  console.error("Failed to load chat messages", error);
+}
+
+async function loadOlderMessagesForSession(
+  state: ChatStoreState,
+  sessionId: string,
+) {
+  const cursor = olderMessagesCursor(state, sessionId);
+  if (!cursor) return;
+  state.setMessagePaging(sessionId, { loadingOlder: true, error: "" });
+  try {
+    const page = messagePage(
+      await fetchChatMessages(sessionId, {
+        limit: chatMessageFetchLimit,
+        before: cursor,
+      }),
+    );
+    state.prependMessages(sessionId, page.messages);
+    setMessagePageState(state, sessionId, page);
+  } catch (error) {
+    state.setMessagePaging(sessionId, {
+      loadingOlder: false,
+      error: "Failed to load older messages.",
+    });
+    console.error("Failed to load older chat messages", error);
+  }
+}
+
+function olderMessagesCursor(state: ChatStoreState, sessionId: string) {
+  if (!sessionId) return "";
+  const paging = state.messagePagingBySession.value[sessionId];
+  if (!paging?.hasOlder || paging.loadingOlder) return "";
+  const cursor = state.messagesBySession.value[sessionId]?.[0]?.id || "";
+  if (!cursor) {
+    state.setMessagePaging(sessionId, { hasOlder: false });
+  }
+  return cursor;
 }
 
 async function recoverActiveChatRun(state: ChatStoreState, sessionId: string) {
@@ -145,7 +319,8 @@ async function recoverActiveChatRun(state: ChatStoreState, sessionId: string) {
       runId: run.run_id,
       streaming: running,
       error: running ? undefined : run.error || message.error || "Run failed",
-      lastRunSequence: Math.max(message.lastRunSequence || 0, lastSequence) || undefined,
+      lastRunSequence:
+        Math.max(message.lastRunSequence || 0, lastSequence) || undefined,
     }));
   }
   if (!running) return;
@@ -180,7 +355,8 @@ async function recoverActiveChatRun(state: ChatStoreState, sessionId: string) {
       state.updateMessage(sessionId, assistantId, (message) => ({
         ...message,
         streaming: false,
-        error: error instanceof Error ? error.message : "Stream recovery failed",
+        error:
+          error instanceof Error ? error.message : "Stream recovery failed",
       }));
     }
   } finally {
@@ -218,15 +394,20 @@ function reconcileSessionMessages(
   remote: ReturnType<typeof normalizeSessionMeta>[],
 ) {
   const nextMessages: Record<string, ChatMessage[]> = {};
+  const nextPaging: ChatStoreState["messagePagingBySession"]["value"] = {};
   for (const s of remote) {
     const existing = state.messagesBySession.value[s.id] || [];
     nextMessages[s.id] = existing;
-    const fallbackCount =
-      typeof s.messageCount === "number" ? s.messageCount : 0;
-    const count = existing.length ? existing.length : fallbackCount;
+    nextPaging[s.id] = state.messagePagingBySession.value[s.id] || {
+      hasOlder: false,
+      loadingOlder: false,
+    };
+    const count =
+      typeof s.messageCount === "number" ? s.messageCount : existing.length;
     state.syncSessionMessageCount(s.id, count);
   }
   state.messagesBySession.value = nextMessages;
+  state.messagePagingBySession.value = nextPaging;
   state.fetchedMessageSessions.clear();
 }
 
@@ -244,7 +425,7 @@ function createSessionCrudActions(
   state: ChatStoreState,
   loadMessagesFromServer: (
     sessionId: string,
-    options?: { force?: boolean },
+    options?: LoadMessagesOptions,
   ) => Promise<void>,
 ) {
   function selectSession(sessionId: string) {
@@ -257,8 +438,16 @@ function createSessionCrudActions(
     if (!session) return;
     const normalized = normalizeSessionMeta(session);
     state.sessionsError.value = null;
-    state.sessions.value = [normalized, ...state.sessions.value];
+    state.sessions.value = sortChatSessions([
+      normalized,
+      ...state.sessions.value,
+    ]);
     state.setMessages(normalized.id, []);
+    state.setMessagePaging(normalized.id, {
+      hasOlder: false,
+      loadingOlder: false,
+      error: "",
+    });
     state.fetchedMessageSessions.delete(normalized.id);
     state.activeSessionId.value = normalized.id;
     await loadMessagesFromServer(normalized.id, { force: true });
@@ -270,6 +459,9 @@ function createSessionCrudActions(
     const nextSessions = state.sessions.value.filter((s) => s.id !== sessionId);
     const { [sessionId]: _removed, ...rest } = state.messagesBySession.value;
     state.messagesBySession.value = rest;
+    const { [sessionId]: _removedPaging, ...restPaging } =
+      state.messagePagingBySession.value;
+    state.messagePagingBySession.value = restPaging;
     const { [sessionId]: _removedThreads, ...restThreads } =
       state.agentThreadsBySession.value;
     state.agentThreadsBySession.value = restThreads;
@@ -303,89 +495,151 @@ async function createReplacementSession(
   state: ChatStoreState,
   loadMessagesFromServer: (
     sessionId: string,
-    options?: { force?: boolean },
+    options?: LoadMessagesOptions,
   ) => Promise<void>,
 ) {
   const fresh = await apiCreateChatSession("New Chat");
   const normalizedFresh = normalizeSessionMeta(fresh);
   state.sessions.value = [normalizedFresh];
   state.setMessages(normalizedFresh.id, []);
+  state.setMessagePaging(normalizedFresh.id, {
+    hasOlder: false,
+    loadingOlder: false,
+    error: "",
+  });
   state.fetchedMessageSessions.delete(normalizedFresh.id);
   state.activeSessionId.value = normalizedFresh.id;
   await loadMessagesFromServer(normalizedFresh.id, { force: true });
 }
 
 function createSessionSettingsActions(state: ChatStoreState) {
-  async function updateSessionProject(sessionId: string, projectId: string) {
-    const cleanProjectID = (projectId || "").trim();
-    const existing = state.sessions.value.find((s) => s.id === sessionId);
-    if (existing && (existing.projectId || "") === cleanProjectID) {
-      return existing;
-    }
-    const updated = await apiUpdateChatSessionProject(
-      sessionId,
-      cleanProjectID,
-    );
-    state.sessionsError.value = null;
-    const normalized = normalizeSessionMeta(updated);
-    state.upsertSessionMeta(normalized);
-    return normalized;
-  }
-
-  async function updateSessionMemorySettings(
-    sessionId: string,
-    settings: {
-      memoryEnabled?: boolean;
-      evolvingMemoryEnabled?: boolean;
-      beliefMemoryEnabled?: boolean;
-    },
-  ) {
-    const existing = state.sessions.value.find((s) => s.id === sessionId);
-    const nextMemory = nextMemoryEnabled(existing, settings);
-    if (existing && (existing.memoryEnabled ?? false) === nextMemory) {
-      return existing;
-    }
-    const updated = await apiUpdateChatSessionMemorySettings(sessionId, {
-      memoryEnabled: nextMemory,
-    });
-    state.sessionsError.value = null;
-    const normalized = normalizeSessionMeta(updated);
-    state.upsertSessionMeta(normalized);
-    return normalized;
-  }
-
-  async function updateSessionCommandPolicyAllowAll(
-    sessionId: string,
-    allow: boolean,
-  ) {
-    const existing = state.sessions.value.find((s) => s.id === sessionId);
-    if (existing && (existing.commandPolicyAllowAll ?? false) === allow) {
-      return existing;
-    }
-    const updated = await apiUpdateChatSessionCommandPolicyAllowAll(
-      sessionId,
-      allow,
-    );
-    state.sessionsError.value = null;
-    const normalized = normalizeSessionMeta(updated);
-    state.upsertSessionMeta(normalized);
-    return normalized;
-  }
-
   return {
-    updateSessionProject,
-    updateSessionMemorySettings,
-    updateSessionCommandPolicyAllowAll,
+    updateSessionProject: (sessionId: string, projectId: string) =>
+      updateSessionProject(state, sessionId, projectId),
+    updateSessionMemorySettings: (
+      sessionId: string,
+      settings: SessionMemorySettings,
+    ) => updateSessionMemorySettings(state, sessionId, settings),
+    updateSessionCommandPolicyAllowAll: (sessionId: string, allow: boolean) =>
+      updateSessionCommandPolicyAllowAll(state, sessionId, allow),
+    updateSessionActiveTarget: (
+      sessionId: string,
+      activeSpecialist: string,
+      activeTeam: string,
+    ) =>
+      updateSessionActiveTarget(state, sessionId, activeSpecialist, activeTeam),
+    updateSessionPinned: (sessionId: string, pinned: boolean) =>
+      updateSessionPinned(state, sessionId, pinned),
   };
+}
+
+async function updateSessionProject(
+  state: ChatStoreState,
+  sessionId: string,
+  projectId: string,
+) {
+  const cleanProjectID = (projectId || "").trim();
+  const existing = findSession(state, sessionId);
+  if (existing && (existing.projectId || "") === cleanProjectID) {
+    return existing;
+  }
+  const updated = await apiUpdateChatSessionProject(sessionId, cleanProjectID);
+  return upsertUpdatedSession(state, updated);
+}
+
+type SessionMemorySettings = {
+  memoryEnabled?: boolean;
+  evolvingMemoryEnabled?: boolean;
+  beliefMemoryEnabled?: boolean;
+};
+
+async function updateSessionMemorySettings(
+  state: ChatStoreState,
+  sessionId: string,
+  settings: SessionMemorySettings,
+) {
+  const existing = findSession(state, sessionId);
+  const nextMemory = nextMemoryEnabled(existing, settings);
+  if (existing && (existing.memoryEnabled ?? false) === nextMemory) {
+    return existing;
+  }
+  const updated = await apiUpdateChatSessionMemorySettings(sessionId, {
+    memoryEnabled: nextMemory,
+  });
+  return upsertUpdatedSession(state, updated);
+}
+
+async function updateSessionCommandPolicyAllowAll(
+  state: ChatStoreState,
+  sessionId: string,
+  allow: boolean,
+) {
+  const existing = findSession(state, sessionId);
+  if (existing && (existing.commandPolicyAllowAll ?? false) === allow) {
+    return existing;
+  }
+  const updated = await apiUpdateChatSessionCommandPolicyAllowAll(
+    sessionId,
+    allow,
+  );
+  return upsertUpdatedSession(state, updated);
+}
+
+async function updateSessionPinned(
+  state: ChatStoreState,
+  sessionId: string,
+  pinned: boolean,
+) {
+  const existing = findSession(state, sessionId);
+  if (existing && (existing.pinned ?? false) === pinned) {
+    return existing;
+  }
+  const updated = await apiUpdateChatSessionPinned(sessionId, pinned);
+  return upsertUpdatedSession(state, updated);
+}
+
+async function updateSessionActiveTarget(
+  state: ChatStoreState,
+  sessionId: string,
+  activeSpecialist: string,
+  activeTeam: string,
+) {
+  const nextSpecialist = (activeSpecialist || "").trim();
+  const nextTeam = (activeTeam || "").trim();
+  const existing = findSession(state, sessionId);
+  const existingSpecialist =
+    (existing?.activeSpecialist || "orchestrator").trim() || "orchestrator";
+  if (
+    existing &&
+    existingSpecialist === (nextSpecialist || "orchestrator") &&
+    (existing.activeTeam || "") === nextTeam
+  ) {
+    return existing;
+  }
+  const updated = await apiUpdateChatSessionActiveTarget(sessionId, {
+    activeSpecialist: nextSpecialist,
+    activeTeam: nextTeam,
+  });
+  return upsertUpdatedSession(state, updated);
+}
+
+function findSession(state: ChatStoreState, sessionId: string) {
+  return state.sessions.value.find((s) => s.id === sessionId);
+}
+
+function upsertUpdatedSession(
+  state: ChatStoreState,
+  updated: ReturnType<typeof normalizeSessionMeta>,
+) {
+  state.sessionsError.value = null;
+  const normalized = normalizeSessionMeta(updated);
+  state.upsertSessionMeta(normalized);
+  return normalized;
 }
 
 function nextMemoryEnabled(
   existing: ReturnType<typeof normalizeSessionMeta> | undefined,
-  settings: {
-    memoryEnabled?: boolean;
-    evolvingMemoryEnabled?: boolean;
-    beliefMemoryEnabled?: boolean;
-  },
+  settings: SessionMemorySettings,
 ) {
   if (typeof settings.memoryEnabled === "boolean")
     return settings.memoryEnabled;

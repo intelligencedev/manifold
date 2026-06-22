@@ -40,13 +40,16 @@ func (m *Manager) ensureSummary(ctx context.Context, req summaryRequest) (string
 	logSummaryPlan(ctx, req, plan, len(chunk))
 	result := summaryResult(plan, total, len(chunk))
 
-	summary, err := m.summarizeChunk(ctx, req.Session.Summary, chunk, req.TargetCompactor, req.TargetModel)
+	summaryCtx, cancel := AuxiliarySummaryContext(ctx, m.summaryCallTimeout)
+	defer cancel()
+
+	summary, err := m.summarizeChunk(summaryCtx, req.Session.Summary, chunk, req.TargetCompactor, req.TargetModel)
 	if err != nil {
 		log.Error().Err(err).Str("session", req.Session.ID).Msg("chat_summary_failed")
 		return req.Session.Summary, summarizedCount, result
 	}
 
-	if err := m.store.UpdateSummary(ctx, req.UserID, req.Session.ID, summary, target); err != nil {
+	if err := m.store.UpdateSummary(summaryCtx, req.UserID, req.Session.ID, summary, target); err != nil {
 		log.Error().Err(err).Str("session", req.Session.ID).Msg("chat_summary_persist_failed")
 		return req.Session.Summary, summarizedCount, result
 	}

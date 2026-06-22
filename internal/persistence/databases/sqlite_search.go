@@ -31,7 +31,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS manifold_documents_fts USING fts5(
 	id UNINDEXED,
 	text,
 	metadata UNINDEXED,
-	tokenize='unicode61'
+	tokenize='porter unicode61'
 );
 CREATE TABLE IF NOT EXISTS manifold_chunks (
 	id TEXT PRIMARY KEY,
@@ -47,10 +47,114 @@ CREATE VIRTUAL TABLE IF NOT EXISTS manifold_chunks_fts USING fts5(
 	text,
 	metadata UNINDEXED,
 	lang UNINDEXED,
-	tokenize='unicode61'
+	tokenize='porter unicode61'
 );
 `)
-	return err
+	if err != nil {
+		return err
+	}
+	// Rebuild existing FTS tables if they still use the older unicode61 tokenizer.
+	if err := s.migrateTokenizerIfNeeded(ctx); err != nil {
+		// Best-effort: migration failure degrades quality but shouldn't block operation.
+		_ = err
+	}
+	return nil
+}
+
+// migrateTokenizerIfNeeded checks each fts5 table's tokenizer config and rebuilds
+// it with 'porter unicode61' if it was created with the older 'unicode61' tokenizer.
+// Data is preserved by re-inserting from the underlying base tables.
+func (s *sqliteSearch) migrateTokenizerIfNeeded(ctx context.Context) error {
+	if err := s.migrateDocsFTS(ctx); err != nil {
+		return err
+	}
+	return s.migrateChunksFTS(ctx)
+}
+
+func (s *sqliteSearch) migrateDocsFTS(ctx context.Context) error {
+	tok, err := s.fts5Tokenizer(ctx, "manifold_documents_fts")
+	if err != nil || tok == "porter unicode61" {
+		return err
+	}
+	// Rebuild docs FTS table with porter unicode61.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer rollbackQuietly(tx)
+	if _, err := tx.ExecContext(ctx, `DROP TABLE IF EXISTS manifold_documents_fts`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+CREATE VIRTUAL TABLE manifold_documents_fts USING fts5(
+	id UNINDEXED,
+	text,
+	metadata UNINDEXED,
+	tokenize='porter unicode61'
+)`); err != nil {
+		return err
+	}
+	// Repopulate from base table.
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO manifold_documents_fts(id, text, metadata)
+SELECT id, text, metadata FROM manifold_documents
+`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *sqliteSearch) migrateChunksFTS(ctx context.Context) error {
+	tok, err := s.fts5Tokenizer(ctx, "manifold_chunks_fts")
+	if err != nil || tok == "porter unicode61" {
+		return err
+	}
+	// Rebuild chunks FTS table with porter unicode61.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer rollbackQuietly(tx)
+	if _, err := tx.ExecContext(ctx, `DROP TABLE IF EXISTS manifold_chunks_fts`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+CREATE VIRTUAL TABLE manifold_chunks_fts USING fts5(
+	id UNINDEXED,
+	doc_id UNINDEXED,
+	text,
+	metadata UNINDEXED,
+	lang UNINDEXED,
+	tokenize='porter unicode61'
+)`); err != nil {
+		return err
+	}
+	// Repopulate from base table.
+	if _, err := tx.ExecContext(ctx, `
+INSERT INTO manifold_chunks_fts(id, doc_id, text, metadata, lang)
+SELECT id, doc_id, text, metadata, lang FROM manifold_chunks
+`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// fts5Tokenizer returns the tokenizer string for a given fts5 virtual table.
+// fts5 stores configuration in a <table>_config shadow table.
+// Returns "" when the table does not exist yet.
+func (s *sqliteSearch) fts5Tokenizer(ctx context.Context, table string) (string, error) {
+	var val string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT v FROM `+table+`_config WHERE k='tokenize'`,
+	).Scan(&val)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", nil
+		}
+		// Table might not exist yet (shadow table missing) — treat as no config.
+		return "", nil
+	}
+	return val, nil
 }
 
 func (s *sqliteSearch) Index(ctx context.Context, id, text string, metadata map[string]string) error {
@@ -318,12 +422,27 @@ func scanSQLiteSearchRows(rows *sql.Rows, limit int) ([]SearchResult, error) {
 	return out, rows.Err()
 }
 
+// sqliteFTSQueries builds a ranked list of fts5 MATCH expressions to try in order.
+//
+// Priority:
+//  1. Exact AND of all terms (highest precision).
+//  2. AND with prefix wildcards on terms ≥3 chars (handles morphological variants
+//     not caught by the porter stemmer, and bypasses stemmer for prefix tokens).
+//  3. OR of prefix wildcards (maximum recall — any term prefix is sufficient).
+//     Note: we use prefix terms in the OR, not exact, because the porter stemmer
+//     can change query-term stems in ways that don't match compound words (e.g.
+//     "key" stems to "kei" and no longer prefix-matches "keyphrase"). Prefix
+//     queries bypass the stemmer and match raw index tokens directly.
 func sqliteFTSQueries(query string) []string {
 	terms := sqliteFTSTerms(query)
 	if len(terms) == 0 {
 		return nil
 	}
+
+	// 1. Exact AND: "term1 term2"
 	exact := strings.Join(terms, " ")
+
+	// 2. Prefix AND: "term1* term2*" (short terms left as-is)
 	prefixTerms := make([]string, 0, len(terms))
 	for _, term := range terms {
 		if len(term) < 3 {
@@ -333,10 +452,22 @@ func sqliteFTSQueries(query string) []string {
 		prefixTerms = append(prefixTerms, term+"*")
 	}
 	prefix := strings.Join(prefixTerms, " ")
-	if prefix == exact {
-		return []string{exact}
+
+	// 3. OR of prefix terms: "term1* OR term2* OR term3*"
+	// Using prefix terms (not exact) in the OR so that the porter-stemmer
+	// bypass applies here too — giving recall even when stems diverge.
+	orQuery := strings.Join(prefixTerms, " OR ")
+
+	// Deduplicate while preserving order.
+	seen := make(map[string]bool, 3)
+	var out []string
+	for _, q := range []string{exact, prefix, orQuery} {
+		if !seen[q] {
+			seen[q] = true
+			out = append(out, q)
+		}
 	}
-	return []string{exact, prefix}
+	return out
 }
 
 func sqliteFTSQuery(query string) string {

@@ -215,10 +215,7 @@ func (d *Delegator) maxSteps(requested int) int {
 	if requested > 0 {
 		return requested
 	}
-	if d.defaultMaxStep > 0 {
-		return d.defaultMaxStep
-	}
-	return 8
+	return d.defaultMaxStep
 }
 
 func (d *Delegator) applyToolPolicy(cfg *delegateRunConfig, req agent.DelegateRequest) {

@@ -404,7 +404,10 @@ func (s *PostgresStore) appendTaskEvent(ctx context.Context, taskID string, even
 	}
 	defer tx.Rollback(ctx)
 	var queue string
-	if err := tx.QueryRow(ctx, `SELECT queue FROM durable_tasks WHERE id=$1`, taskID).Scan(&queue); err != nil {
+	// Serialize sequence allocation for events on the same task. Without this,
+	// concurrent appenders can both compute MAX(sequence)+1 and race on the
+	// durable_events_task_sequence_idx unique index.
+	if err := tx.QueryRow(ctx, `SELECT queue FROM durable_tasks WHERE id=$1 FOR UPDATE`, taskID).Scan(&queue); err != nil {
 		return Event{}, err
 	}
 	if eventKey != "" {

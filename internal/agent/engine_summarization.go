@@ -2,10 +2,13 @@ package agent
 
 import (
 	"context"
+	"errors"
+	"manifold/internal/agent/memory"
 	"manifold/internal/agent/prompts"
 	"manifold/internal/llm"
 	"manifold/internal/observability"
 	"strings"
+	"time"
 )
 
 func (e *Engine) consumeSkipInitialSummarization() bool {
@@ -232,9 +235,15 @@ func (e *Engine) buildSummarizedMessages(
 
 	summReq := prompts.BuildConversationSummaryMessages(b.String())
 	summReq = e.enforceContextBudget(ctx, summReq)
-	sumMsg, err := e.LLM.Chat(ctx, summReq, nil, e.model())
+	summaryCtx, cancel := memory.AuxiliarySummaryContext(ctx, e.summaryCallTimeout())
+	defer cancel()
+	sumMsg, err := e.LLM.Chat(summaryCtx, summReq, nil, e.model())
 	if err != nil {
-		observability.LoggerWithTrace(ctx).Error().Err(err).Msg("summary_failed")
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			observability.LoggerWithTrace(ctx).Warn().Err(err).Msg("summary_cancelled")
+		} else {
+			observability.LoggerWithTrace(ctx).Error().Err(err).Msg("summary_failed")
+		}
 		newMsgs := make([]llm.Message, 0, len(prefix)+len(toSummarize)+len(recent))
 		newMsgs = append(newMsgs, prefix...)
 		newMsgs = append(newMsgs, toSummarize...)
@@ -256,6 +265,13 @@ func (e *Engine) buildSummarizedMessages(
 		Int("new_messages", len(newMsgs)).
 		Msg("history_summarized")
 	return newMsgs
+}
+
+func (e *Engine) summaryCallTimeout() time.Duration {
+	if e != nil && e.SummaryCallTimeout > 0 {
+		return e.SummaryCallTimeout
+	}
+	return 0
 }
 
 // augmentWithMemory appends evolving memory context to the current request (ExpRAG or ExpRecent).

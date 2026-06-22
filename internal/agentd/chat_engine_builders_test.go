@@ -254,7 +254,7 @@ func TestBuildOrchestratorChatEngineUsesOverride(t *testing.T) {
 	}
 }
 
-func TestBuildOrchestratorChatEngineDefaultsMaxSteps(t *testing.T) {
+func TestBuildOrchestratorChatEnginePreservesZeroMaxSteps(t *testing.T) {
 	t.Parallel()
 
 	app := newChatEngineBuilderTestApp(t)
@@ -265,8 +265,8 @@ func TestBuildOrchestratorChatEngineDefaultsMaxSteps(t *testing.T) {
 	if result.Err != nil {
 		t.Fatalf("buildOrchestratorChatEngine: %v", result.Err)
 	}
-	if result.Engine.MaxSteps != 8 {
-		t.Fatalf("expected default max steps, got %d", result.Engine.MaxSteps)
+	if result.Engine.MaxSteps != 0 {
+		t.Fatalf("expected unbounded max steps, got %d", result.Engine.MaxSteps)
 	}
 }
 

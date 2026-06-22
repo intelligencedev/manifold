@@ -96,6 +96,24 @@ func (b *blockingLLM) ChatStream(ctx context.Context, msgs []llm.Message, tools 
 	return ctx.Err()
 }
 
+type cancelParentSummaryLLM struct {
+	cancel context.CancelFunc
+}
+
+func (c *cancelParentSummaryLLM) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string) (llm.Message, error) {
+	if c.cancel != nil {
+		c.cancel()
+	}
+	if err := ctx.Err(); err != nil {
+		return llm.Message{}, err
+	}
+	return llm.Message{Role: "assistant", Content: "summary after parent cancel"}, nil
+}
+
+func (c *cancelParentSummaryLLM) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, h llm.StreamHandler) error {
+	return nil
+}
+
 // stubChatStore is a minimal in-memory ChatStore for testing without import cycles.
 type stubChatStore struct {
 	mu       sync.Mutex
@@ -788,6 +806,52 @@ func TestBuildContextForProvider_SummaryTimeoutKeepsPriorState(t *testing.T) {
 	}
 	if session.SummarizedCount != 0 {
 		t.Fatalf("expected summarized count to remain 0 after timeout, got %d", session.SummarizedCount)
+	}
+}
+
+func TestBuildContextForProvider_SummaryIgnoresParentCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	store := newStubChatStore()
+
+	if _, err := store.EnsureSession(ctx, nil, "sess", "Chat"); err != nil {
+		t.Fatalf("EnsureSession: %v", err)
+	}
+
+	now := time.Now().UTC()
+	for i := range 3 {
+		messages := []persistence.ChatMessage{
+			{Role: "user", Content: strings.Repeat("user message with enough content to trigger summary ", 8), CreatedAt: now.Add(time.Duration(i*2) * time.Second)},
+			{Role: "assistant", Content: strings.Repeat("assistant message with enough content to trigger summary ", 8), CreatedAt: now.Add(time.Duration(i*2+1) * time.Second)},
+		}
+		if err := store.AppendMessages(ctx, nil, "sess", messages, "a", "model"); err != nil {
+			t.Fatalf("AppendMessages: %v", err)
+		}
+	}
+
+	manager := NewManager(store, &cancelParentSummaryLLM{cancel: cancel}, Config{
+		Enabled:                      true,
+		ReserveBufferTokens:          5,
+		MinKeepLastMessages:          2,
+		MaxKeepLastMessages:          2,
+		ContextWindowTokens:          5000,
+		PlainTextContextWindowTokens: 5000,
+		SummaryModel:                 "stub",
+	})
+
+	_, summaryResult, err := manager.BuildContextForProvider(ctx, nil, "sess", nil, "", SummaryPolicy{})
+	if err != nil {
+		t.Fatalf("BuildContextForProvider: %v", err)
+	}
+	if summaryResult == nil || !summaryResult.Triggered {
+		t.Fatalf("expected summary attempt metadata")
+	}
+
+	session, err := store.GetSession(context.Background(), nil, "sess")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if session.Summary != "summary after parent cancel" {
+		t.Fatalf("expected summary to persist after parent cancellation, got %q", session.Summary)
 	}
 }
 

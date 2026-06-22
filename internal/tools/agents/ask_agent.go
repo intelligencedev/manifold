@@ -132,12 +132,12 @@ func (t *AskAgentTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	logAskAgentCall(ctx, client, args.TimeoutMS, endpoint)
 	resp, err := client.Do(req)
 	if err != nil {
-		return map[string]any{"ok": false, "error": err.Error()}, nil
+		return delegatedRunErrorPayload(err), nil
 	}
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
-		return map[string]any{"ok": false, "status": resp.StatusCode, "error": string(data)}, nil
+		return delegatedRunStatusPayload(resp.StatusCode, string(data)), nil
 	}
 	payload := decodeRunPayload(data)
 	return map[string]any{"ok": true, "to": args.To, "response": payload}, nil

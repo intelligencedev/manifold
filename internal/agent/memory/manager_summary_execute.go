@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"manifold/internal/agent/prompts"
 	"manifold/internal/llm"
@@ -39,7 +40,11 @@ func (m *Manager) summarizeChunk(ctx context.Context, existingSummary string, ch
 			res, err := m.compactChunk(ctx, targetCompactor, targetModel, existing.Compaction, chunk)
 			if err != nil {
 				compactionErr = err
-				log.Warn().Err(err).Msg("compaction_summarization_failed")
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					log.Warn().Err(err).Msg("compaction_summarization_cancelled")
+				} else {
+					log.Warn().Err(err).Msg("compaction_summarization_failed")
+				}
 				return
 			}
 			compactionRes = res
@@ -51,7 +56,11 @@ func (m *Manager) summarizeChunk(ctx context.Context, existingSummary string, ch
 			res, err := m.plainSummarize(ctx, existing.Plain, chunk)
 			if err != nil {
 				plainErr = err
-				log.Warn().Err(err).Msg("plain_summarization_failed")
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					log.Warn().Err(err).Msg("plain_summarization_cancelled")
+				} else {
+					log.Warn().Err(err).Msg("plain_summarization_failed")
+				}
 				return
 			}
 			plainRes = res

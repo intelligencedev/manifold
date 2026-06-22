@@ -1,3 +1,5 @@
 package agent
 
-// Placeholder for step management (max steps, summaries). The basic loop lives in engine.go.
+func (e *Engine) stepAllowed(step int) bool {
+	return e.MaxSteps <= 0 || step < e.MaxSteps
+}

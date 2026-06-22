@@ -45,7 +45,7 @@ func main() {
 	}
 
 	q := flag.String("q", "", "User request")
-	maxSteps := flag.Int("max-steps", cfg.MaxSteps, "Max reasoning steps")
+	maxSteps := flag.Int("max-steps", cfg.MaxSteps, "Max reasoning steps; 0 means unbounded")
 	specialist := flag.String("specialist", "", "Name of specialist agent to use (inference-only; no tool calls unless enabled)")
 	flag.Parse()
 	if *q == "" {
@@ -188,7 +188,7 @@ func loadCLISpecialists(ctx context.Context, cfg *config.Config) (cliSpecialists
 }
 
 func newCLIRegistry(cfg *config.Config, specs cliSpecialists, httpClient *http.Client, registry tools.Registry) *specialists.Registry {
-	return specialists.NewRegistryFromStore(specialists.StoreRegistryRequest{
+	reg := specialists.NewRegistryFromStore(specialists.StoreRegistryRequest{
 		Base:       cfg.LLMClient,
 		Defaults:   cfg.Specialists,
 		List:       specs.list,
@@ -197,6 +197,8 @@ func newCLIRegistry(cfg *config.Config, specs cliSpecialists, httpClient *http.C
 		Tools:      registry,
 		Workdir:    cfg.Workdir,
 	})
+	reg.SetMaxSteps(cfg.MaxSteps)
+	return reg
 }
 
 func runDirectSpecialist(ctx context.Context, reg *specialists.Registry, name, query, label string) error {

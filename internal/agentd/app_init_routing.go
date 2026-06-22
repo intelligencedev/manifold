@@ -33,6 +33,7 @@ func initAppRouting(ctx context.Context, cfg *config.Config, httpClient *http.Cl
 	log.Info().Str("mode", wsMgr.Mode()).Msg("workspace_manager_initialized")
 
 	specReg := specialists.NewRegistryWithWorkdir(cfg.LLMClient, cfg.Specialists, httpClient, tooling.registry, cfg.Workdir)
+	specReg.SetMaxSteps(cfg.MaxSteps)
 	specReg.SetPromptOverrides(promptInstructionOverrides(cfg))
 	specReg.SetRequestInfoEnabled(config.RequestInfoEnabled(cfg.RequestInfoEnabled))
 	registerSpecialistTools(cfg, httpClient, tooling.registry, specReg, wsMgr)
@@ -53,6 +54,7 @@ func initAppRouting(ctx context.Context, cfg *config.Config, httpClient *http.Cl
 
 func registerSpecialistTools(cfg *config.Config, httpClient *http.Client, toolRegistry tools.Registry, specReg *specialists.Registry, wsMgr workspaces.WorkspaceManager) {
 	agentCallTool := agenttools.NewAgentCallTool(toolRegistry, specReg, wsMgr)
+	agentCallTool.SetDefaultMaxSteps(cfg.MaxSteps)
 	agentCallTool.SetDefaultTimeoutSeconds(cfg.AgentRunTimeoutSeconds)
 	toolRegistry.Register(agentCallTool)
 	toolRegistry.Register(agenttools.NewAskAgentTool(httpClient, "http://127.0.0.1:32180", cfg.AgentRunTimeoutSeconds))

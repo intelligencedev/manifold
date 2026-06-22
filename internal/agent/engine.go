@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"time"
 
 	"manifold/internal/agent/harness"
 	"manifold/internal/agent/memory"
@@ -96,6 +97,9 @@ type Engine struct {
 	// MaxSummaryChunkTokens caps the size of the summary prompt (older
 	// conversation) in tokens.
 	SummaryMaxSummaryChunkTokens int
+	// SummaryCallTimeout bounds best-effort summarization passes. When unset,
+	// the engine falls back to the summary runtime default.
+	SummaryCallTimeout time.Duration
 	// Evolving memory configuration (Search → Synthesis → Evolve)
 	Memory                *memory.Runtime         // unified memory coordinator; nil = legacy memory wiring
 	DisableMemory         bool                    // per-run override for all coordinated memory lanes

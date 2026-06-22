@@ -71,10 +71,10 @@ func sanitizeImageGenerationBuild(build chatEngineBuildResult) chatEngineBuildRe
 }
 
 func (a *app) chatMaxSteps() int {
-	if a.cfg != nil && a.cfg.MaxSteps > 0 {
+	if a.cfg != nil {
 		return a.cfg.MaxSteps
 	}
-	return 8
+	return 0
 }
 
 func (a *app) buildOrchestratorChatEngine(ctx context.Context, req chatEngineBuildRequest) chatEngineBuildResult {
@@ -83,9 +83,7 @@ func (a *app) buildOrchestratorChatEngine(ctx context.Context, req chatEngineBui
 	if eng == nil {
 		return chatEngineBuildResult{StatusCode: http.StatusServiceUnavailable, Err: fmt.Errorf("agent unavailable")}
 	}
-	if eng.MaxSteps <= 0 {
-		eng.MaxSteps = a.chatMaxSteps()
-	}
+	eng.MaxSteps = a.chatMaxSteps()
 	if override := strings.TrimSpace(req.SystemPromptOverride); override != "" {
 		eng.System = a.composeSystemPromptForUserWithOverride(ctx, req.Owner, override)
 	}
@@ -143,6 +141,7 @@ func (a *app) buildSpecialistChatEngine(ctx context.Context, req chatEngineBuild
 		SummaryReserveBufferTokens:   a.cfg.SummaryReserveBufferTokens,
 		SummaryMinKeepLastMessages:   a.cfg.SummaryMinKeepLastMessages,
 		SummaryMaxSummaryChunkTokens: a.cfg.SummaryMaxSummaryChunkTokens,
+		SummaryCallTimeout:           summaryCallTimeout(a.cfg),
 		HarnessEnabled:               harnessCfg.Enabled,
 		HarnessConfig:                harnessRunConfig(harnessCfg),
 	}
@@ -237,6 +236,7 @@ func (a *app) buildTeamChatEngine(ctx context.Context, req chatEngineBuildReques
 		SummaryReserveBufferTokens:   a.cfg.SummaryReserveBufferTokens,
 		SummaryMinKeepLastMessages:   a.cfg.SummaryMinKeepLastMessages,
 		SummaryMaxSummaryChunkTokens: a.cfg.SummaryMaxSummaryChunkTokens,
+		SummaryCallTimeout:           summaryCallTimeout(a.cfg),
 		HarnessEnabled:               harnessCfg.Enabled,
 		HarnessConfig:                harnessRunConfig(harnessCfg),
 	}
@@ -302,6 +302,7 @@ func (a *app) buildTeamRegistry(ctx context.Context, owner int64, team persist.S
 		}
 	}
 	reg := specialists.NewRegistry(baseRegCfg, specialists.ConfigsFromStore(filtered), a.httpClient, a.baseToolRegistry)
+	reg.SetMaxSteps(a.chatMaxSteps())
 	reg.SetPromptOverrides(promptInstructionOverrides(a.cfg))
 	reg.SetRequestInfoEnabled(config.RequestInfoEnabled(a.cfg.RequestInfoEnabled))
 	reg.SetToolDiscovery(a.toolIndex, a.cfg.AutoDiscover, a.cfg.MaxDiscoveredTools)

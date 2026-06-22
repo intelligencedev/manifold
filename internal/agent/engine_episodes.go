@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"manifold/internal/agent/memory"
 	"manifold/internal/agent/memory/artifact"
 	"manifold/internal/agent/memory/belief"
@@ -494,6 +495,14 @@ func (e *Engine) storeExperience(ctx context.Context, userInput, final string, r
 
 func deriveMemoryFeedback(final string, runErr error) (string, *memory.StructuredFeedback) {
 	if runErr != nil {
+		if errors.Is(runErr, ErrMaxStepsExceeded) {
+			return string(memory.FeedbackPartial), &memory.StructuredFeedback{
+				Type:         memory.FeedbackPartial,
+				Correct:      false,
+				ProgressRate: 0.5,
+				Message:      "Task ended without a complete final response: " + runErr.Error(),
+			}
+		}
 		return string(memory.FeedbackFailure), &memory.StructuredFeedback{
 			Type:         memory.FeedbackFailure,
 			Correct:      false,
@@ -501,7 +510,7 @@ func deriveMemoryFeedback(final string, runErr error) (string, *memory.Structure
 			Message:      "Task failed before completion: " + runErr.Error(),
 		}
 	}
-	if strings.TrimSpace(final) == "" || strings.Contains(final, "(no final text") {
+	if strings.TrimSpace(final) == "" {
 		return string(memory.FeedbackPartial), &memory.StructuredFeedback{
 			Type:         memory.FeedbackPartial,
 			Correct:      false,

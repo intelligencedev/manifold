@@ -236,9 +236,6 @@ func applyRuntimeDefaults(cfg *Config) {
 	if cfg.OutputTruncateByte <= 0 {
 		cfg.OutputTruncateByte = 64 * 1024
 	}
-	if cfg.MaxSteps <= 0 {
-		cfg.MaxSteps = 8
-	}
 	applyHarnessDefaults(cfg)
 	if cfg.MaxDiscoveredTools <= 0 {
 		cfg.MaxDiscoveredTools = 20

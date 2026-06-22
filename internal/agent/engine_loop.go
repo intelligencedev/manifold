@@ -10,7 +10,7 @@ func (e *Engine) runLoop(ctx context.Context, msgs []llm.Message) (string, error
 	log := observability.LoggerWithTrace(ctx)
 	var final string
 
-	for step := 0; step < e.MaxSteps; step++ {
+	for step := 0; e.stepAllowed(step); step++ {
 		log.Debug().Int("step", step).Int("history", len(msgs)).Msg("engine_step_start")
 
 		// Re-summarize if context has grown too large during tool execution
@@ -73,7 +73,7 @@ func (e *Engine) runLoop(ctx context.Context, msgs []llm.Message) (string, error
 	}
 
 	if final == "" {
-		final = "(no final text — increase max steps or check logs)"
+		return "", MaxStepsExceededError{MaxSteps: e.MaxSteps}
 	}
 
 	return final, nil
@@ -84,7 +84,7 @@ func (e *Engine) runLoop(ctx context.Context, msgs []llm.Message) (string, error
 func (e *Engine) runStreamLoop(ctx context.Context, msgs []llm.Message) (string, error) {
 	var final string
 
-	for step := 0; step < e.MaxSteps; step++ {
+	for step := 0; e.stepAllowed(step); step++ {
 		if e.SummaryEnabled && step > 0 {
 			msgs = e.maybeSummarize(ctx, msgs)
 		}
@@ -100,7 +100,7 @@ func (e *Engine) runStreamLoop(ctx context.Context, msgs []llm.Message) (string,
 	}
 
 	if final == "" {
-		final = "(no final text — increase max steps or check logs)"
+		return "", MaxStepsExceededError{MaxSteps: e.MaxSteps}
 	}
 
 	return final, nil

@@ -155,13 +155,56 @@ func TestSQLiteStoreParallelClaimsAreUnique(t *testing.T) {
 	}
 }
 
+func TestSQLiteStoreParallelTaskEventAppendsHaveUniqueSequences(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, db := newSQLiteDurableStoreWithConns(t, t.TempDir()+"/durable.db", 8)
+	t.Cleanup(func() { _ = db.Close() })
+	client := NewClient(store)
+	spawned, err := client.Spawn(ctx, SpawnRequest{Name: "parallel-events", UserID: 9})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+
+	const appends = 25
+	var wg sync.WaitGroup
+	for i := 0; i < appends; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if _, err := store.AppendTaskEvent(ctx, spawned.TaskID, "event", map[string]any{"i": i}); err != nil {
+				t.Errorf("append event %d: %v", i, err)
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	events, _, found, err := client.ListEvents(ctx, 9, spawned.TaskID, 0)
+	if err != nil || !found {
+		t.Fatalf("list events found=%v err=%v", found, err)
+	}
+	if len(events) != appends {
+		t.Fatalf("got %d events, want %d", len(events), appends)
+	}
+	for i, event := range events {
+		want := int64(i + 1)
+		if event.Sequence != want {
+			t.Fatalf("event %d sequence = %d, want %d; events=%+v", i, event.Sequence, want, events)
+		}
+	}
+}
+
 func newSQLiteDurableStore(t *testing.T, path string) (*SQLiteStore, *sql.DB) {
+	return newSQLiteDurableStoreWithConns(t, path, 1)
+}
+
+func newSQLiteDurableStoreWithConns(t *testing.T, path string, maxOpenConns int) (*SQLiteStore, *sql.DB) {
 	t.Helper()
 	db, err := sqlitep.Open(context.Background(), sqlitep.Config{
 		Path:          path,
 		WAL:           true,
 		BusyTimeoutMs: 10000,
-		MaxOpenConns:  1,
+		MaxOpenConns:  maxOpenConns,
 	})
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)

@@ -437,6 +437,31 @@ llm_client:
 	}
 }
 
+func TestLoad_PreservesZeroMaxSteps(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Chdir(tmpDir)
+	t.Setenv("OPENAI_API_KEY", "dummy")
+
+	configText := `workdir: .
+maxSteps: 0
+llm_client:
+  provider: openai
+  openai:
+    apiKey: "${OPENAI_API_KEY}"
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(configText), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.MaxSteps != 0 {
+		t.Fatalf("expected maxSteps 0 to remain unbounded, got %d", cfg.MaxSteps)
+	}
+}
+
 func TestLoad_SpecialistsFromSeparateFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)

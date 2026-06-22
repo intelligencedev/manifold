@@ -98,6 +98,51 @@ func TestAgentInferenceRefreshesToolSchemasAfterToolSearch(t *testing.T) {
 	}
 }
 
+func TestAgentInferenceZeroMaxStepsIsUnbounded(t *testing.T) {
+	t.Parallel()
+
+	reg := tools.NewRegistry()
+	reg.Register(&specialistToolSearchTestTool{name: "lookup", description: "Lookup"})
+	provider := &specialistUnboundedStepsProvider{}
+	agent := &Agent{
+		Model:       "test-model",
+		EnableTools: true,
+		MaxSteps:    0,
+		provider:    provider,
+		tools:       reg,
+	}
+
+	out, err := agent.Inference(context.Background(), "keep using tools", nil)
+	if err != nil {
+		t.Fatalf("Inference() error = %v", err)
+	}
+	if out != "done" {
+		t.Fatalf("expected final answer, got %q", out)
+	}
+	if provider.calls != 10 {
+		t.Fatalf("expected 10 model calls, got %d", provider.calls)
+	}
+}
+
+type specialistUnboundedStepsProvider struct {
+	calls int
+}
+
+func (p *specialistUnboundedStepsProvider) Chat(context.Context, []llm.Message, []llm.ToolSchema, string) (llm.Message, error) {
+	p.calls++
+	if p.calls <= 9 {
+		return llm.Message{Role: "assistant", ToolCalls: []llm.ToolCall{{
+			Name: "lookup",
+			Args: json.RawMessage(`{}`),
+		}}}, nil
+	}
+	return llm.Message{Role: "assistant", Content: "done"}, nil
+}
+
+func (p *specialistUnboundedStepsProvider) ChatStream(context.Context, []llm.Message, []llm.ToolSchema, string, llm.StreamHandler) error {
+	return nil
+}
+
 func TestAgentInferenceImageGenerationSendsOnlyPrompt(t *testing.T) {
 	t.Parallel()
 

@@ -50,7 +50,7 @@ func (e *Engine) runHarnessLoop(ctx context.Context, msgs []llm.Message) (string
 	state := newHarnessLoopState(cfg, msgs)
 	var final string
 
-	for step := 0; step < e.MaxSteps; step++ {
+	for step := 0; e.stepAllowed(step); step++ {
 		msg, err := e.runHarnessStep(ctx, state, step, false)
 		if err != nil {
 			return "", err
@@ -70,7 +70,7 @@ func (e *Engine) runHarnessLoop(ctx context.Context, msgs []llm.Message) (string
 	}
 
 	if final == "" {
-		final = "(no final text — increase max steps or check logs)"
+		return "", MaxStepsExceededError{MaxSteps: e.MaxSteps}
 	}
 	return final, nil
 }
@@ -82,7 +82,7 @@ func (e *Engine) runHarnessStreamLoop(ctx context.Context, msgs []llm.Message) (
 	state := newHarnessLoopState(cfg, msgs)
 	var final string
 
-	for step := 0; step < e.MaxSteps; step++ {
+	for step := 0; e.stepAllowed(step); step++ {
 		msg, err := e.runHarnessStep(ctx, state, step, true)
 		if err != nil {
 			return "", err
@@ -102,7 +102,7 @@ func (e *Engine) runHarnessStreamLoop(ctx context.Context, msgs []llm.Message) (
 	}
 
 	if final == "" {
-		final = "(no final text — increase max steps or check logs)"
+		return "", MaxStepsExceededError{MaxSteps: e.MaxSteps}
 	}
 	return final, nil
 }

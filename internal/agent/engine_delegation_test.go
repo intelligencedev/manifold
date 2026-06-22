@@ -77,6 +77,71 @@ func TestRunDelegatedAgentCarriesSessionID(t *testing.T) {
 	}
 }
 
+func TestRunDelegatedAgentNormalizesCancellation(t *testing.T) {
+	t.Parallel()
+
+	spy := &captureDelegator{err: context.Canceled}
+	eng := &Engine{Delegator: spy, SessionID: "sess-delegate", UserID: 7}
+	args, err := json.Marshal(map[string]any{
+		"agent_name": "writer",
+		"prompt":     "draft this",
+	})
+	if err != nil {
+		t.Fatalf("marshal args: %v", err)
+	}
+
+	payload := eng.runDelegatedAgent(context.Background(), llm.ToolCall{
+		ID:   "tool-1",
+		Name: "agent_call",
+		Args: args,
+	})
+
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if decoded["ok"] != false {
+		t.Fatalf("expected failed payload, got %#v", decoded)
+	}
+	if decoded["error"] == "context canceled" {
+		t.Fatalf("expected normalized cancellation, got %#v", decoded)
+	}
+	if decoded["error_code"] != "delegated_run_cancelled" || decoded["cancelled"] != true {
+		t.Fatalf("expected cancellation metadata, got %#v", decoded)
+	}
+}
+
+func TestRunDelegatedTeamNormalizesTimeout(t *testing.T) {
+	t.Parallel()
+
+	spy := &captureTeamDelegator{err: context.DeadlineExceeded}
+	eng := &Engine{TeamDelegator: spy, SessionID: "sess-team", UserID: 7}
+	args, err := json.Marshal(map[string]any{
+		"team":   "alpha",
+		"prompt": "coordinate this",
+	})
+	if err != nil {
+		t.Fatalf("marshal args: %v", err)
+	}
+
+	payload := eng.runDelegatedTeam(context.Background(), llm.ToolCall{
+		ID:   "team-tool-1",
+		Name: "delegate_to_team",
+		Args: args,
+	})
+
+	var decoded map[string]any
+	if err := json.Unmarshal(payload, &decoded); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if decoded["ok"] != false {
+		t.Fatalf("expected failed payload, got %#v", decoded)
+	}
+	if decoded["error_code"] != "delegated_run_timeout" || decoded["timed_out"] != true {
+		t.Fatalf("expected timeout metadata, got %#v", decoded)
+	}
+}
+
 func TestRunDelegatedTeamCarriesRunContext(t *testing.T) {
 	t.Parallel()
 

@@ -220,7 +220,7 @@ func TestDeriveMemoryFeedbackClassifiesFailuresAndPartialRuns(t *testing.T) {
 		t.Fatalf("expected failure feedback, got %q %#v", feedback, structured)
 	}
 
-	feedback, structured = deriveMemoryFeedback("(no final text — increase max steps or check logs)", nil)
+	feedback, structured = deriveMemoryFeedback("", MaxStepsExceededError{MaxSteps: 8})
 	if feedback != string(memory.FeedbackPartial) || structured == nil || structured.Type != memory.FeedbackPartial || structured.Correct {
 		t.Fatalf("expected partial feedback, got %q %#v", feedback, structured)
 	}

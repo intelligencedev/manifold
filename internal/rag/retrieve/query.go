@@ -81,9 +81,18 @@ func normalizeQuery(q string) string {
 	return b.String()
 }
 
+// detectLang returns the BCP-47 language tag for the query text.
+//
+// This is currently a stub that returns "" (unknown) until a real detector is
+// plugged in.  Returning a hardcoded tag ("english") was incorrect: it injected
+// a spurious lang=english filter into every QueryPlan, causing false negatives
+// for documents and chunks that were not indexed with a lang tag.
+//
+// The Lang field of QueryPlan is still forwarded to SearchChunks so that the
+// Postgres backend can select the correct per-chunk regconfig — the filter
+// injection only fires when lang != "", so returning "" is safe.
 func detectLang(_ string) string {
-	// Placeholder: default to english until a detector is plugged in
-	return "english"
+	return ""
 }
 
 func splitBudgets(k int, opt RetrieveOptions) (int, int) {

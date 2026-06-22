@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"manifold/internal/agent"
 	"manifold/internal/agent/prompts"
 	"manifold/internal/config"
 	"manifold/internal/llm"
@@ -38,6 +39,7 @@ type Agent struct {
 	ReasoningEffort            string // optional: "low"|"medium"|"high"
 	ExtraParams                map[string]any
 	Harness                    *config.HarnessConfig
+	MaxSteps                   int
 
 	provider llm.Provider
 	tools    tools.Registry
@@ -49,7 +51,6 @@ type chatWithOptionsProvider interface {
 
 const (
 	defaultImagePromptSize            = "1K"
-	specialistInferenceMaxToolSteps   = 8
 	specialistInferenceToolCallPrefix = "specialist-call"
 )
 
@@ -68,6 +69,7 @@ type Registry struct {
 	requestInfoEnabled   bool
 	maxDiscovered        int
 	promptOverrides      prompts.InstructionOverrides
+	maxSteps             int
 }
 
 // NewRegistry builds a registry from config.SpecialistConfig entries.
@@ -125,6 +127,13 @@ func (r *Registry) SetRequestInfoEnabled(enabled bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.requestInfoEnabled = enabled
+	r.rebuildLocked()
+}
+
+func (r *Registry) SetMaxSteps(maxSteps int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.maxSteps = maxSteps
 	r.rebuildLocked()
 }
 
@@ -286,6 +295,7 @@ func (r *Registry) rebuildLocked() {
 			ReasoningEffort:            strings.TrimSpace(sc.ReasoningEffort),
 			ExtraParams:                sc.ExtraParams,
 			Harness:                    cloneHarnessConfig(sc.Harness),
+			MaxSteps:                   r.maxSteps,
 			provider:                   prov,
 			tools:                      toolsView,
 		}
@@ -432,7 +442,7 @@ func (a *Agent) Inference(ctx context.Context, user string, history []llm.Messag
 	}
 
 	if a.EnableTools && a.tools != nil {
-		for step := 0; step < specialistInferenceMaxToolSteps; step++ {
+		for step := 0; a.inferenceStepAllowed(step); step++ {
 			msg, err := callWithOptions(ctx, msgs, a.toolSchemas())
 			if err != nil {
 				return "", err
@@ -451,7 +461,7 @@ func (a *Agent) Inference(ctx context.Context, user string, history []llm.Messag
 				msgs = append(msgs, llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID})
 			}
 		}
-		return "", errors.New("specialist inference exceeded max tool steps")
+		return "", agent.MaxStepsExceededError{MaxSteps: a.MaxSteps}
 	}
 
 	resp, err := callWithOptions(ctx, msgs, a.toolSchemas())
@@ -459,6 +469,10 @@ func (a *Agent) Inference(ctx context.Context, user string, history []llm.Messag
 		return "", err
 	}
 	return resp.Content, nil
+}
+
+func (a *Agent) inferenceStepAllowed(step int) bool {
+	return a.MaxSteps <= 0 || step < a.MaxSteps
 }
 
 func (a *Agent) toolSchemas() []llm.ToolSchema {

@@ -214,6 +214,12 @@ func TestDelegateToTeam_ParentCancellationReturnsPromptly(t *testing.T) {
 		if resp["ok"] != false {
 			t.Fatalf("expected cancelled response payload, got %#v", resp)
 		}
+		if resp["error"] == "context canceled" {
+			t.Fatalf("expected normalized cancellation, got %#v", resp)
+		}
+		if resp["error_code"] != "delegated_run_cancelled" || resp["cancelled"] != true {
+			t.Fatalf("expected cancellation metadata, got %#v", resp)
+		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected delegate_to_team call to return after cancellation")
 	}

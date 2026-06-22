@@ -293,6 +293,7 @@ func (a *app) initEngine(cfg *config.Config, llm llmpkg.Provider, toolRegistry t
 		SummaryReserveBufferTokens:   cfg.SummaryReserveBufferTokens,
 		SummaryMinKeepLastMessages:   cfg.SummaryMinKeepLastMessages,
 		SummaryMaxSummaryChunkTokens: cfg.SummaryMaxSummaryChunkTokens,
+		SummaryCallTimeout:           summaryCallTimeout(cfg),
 		HarnessEnabled:               cfg.Harness.Enabled,
 		HarnessConfig:                harnessRunConfig(cfg.Harness),
 	}

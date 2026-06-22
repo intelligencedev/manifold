@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"manifold/internal/sandbox"
 )
@@ -151,5 +152,55 @@ func TestAskAgent_UnsetSessionUsesEphemeralSession(t *testing.T) {
 	}
 	if sid, ok := gotBody["session_id"].(string); !ok || sid == "" {
 		t.Fatalf("expected generated session_id, got %#v", gotBody["session_id"])
+	}
+}
+
+func TestAskAgent_NormalizesCancellation(t *testing.T) {
+	requestStarted := make(chan struct{})
+	unblockServer := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(requestStarted)
+		<-unblockServer
+	}))
+	defer func() {
+		close(unblockServer)
+		srv.Close()
+	}()
+
+	tool := NewAskAgentTool(srv.Client(), srv.URL, 0)
+	raw, _ := json.Marshal(map[string]any{"prompt": "cancel please"})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan map[string]any, 1)
+
+	go func() {
+		out, err := tool.Call(ctx, raw)
+		if err != nil {
+			done <- map[string]any{"ok": false, "error": err.Error()}
+			return
+		}
+		resp, _ := out.(map[string]any)
+		done <- resp
+	}()
+
+	select {
+	case <-requestStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected ask_agent request to start")
+	}
+	cancel()
+
+	select {
+	case resp := <-done:
+		if resp["ok"] != false {
+			t.Fatalf("expected cancelled response payload, got %#v", resp)
+		}
+		if resp["error"] == "context canceled" {
+			t.Fatalf("expected normalized cancellation, got %#v", resp)
+		}
+		if resp["error_code"] != "delegated_run_cancelled" || resp["cancelled"] != true {
+			t.Fatalf("expected cancellation metadata, got %#v", resp)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected ask_agent call to return after cancellation")
 	}
 }

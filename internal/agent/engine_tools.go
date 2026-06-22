@@ -365,7 +365,7 @@ func (e *Engine) runDelegatedAgent(ctx context.Context, tc llm.ToolCall) []byte 
 	}
 	result, err := e.Delegator.Run(ctx, req, e.AgentTracer)
 	if err != nil {
-		return fmt.Appendf(nil, `{"ok":false,"agent":%q,"error":%q}`, req.AgentName, err.Error())
+		return delegatedRunErrorJSON("agent", req.AgentName, err)
 	}
 	out := map[string]any{"ok": true, "agent": req.AgentName, "output": result}
 	if b, err := json.Marshal(out); err == nil {
@@ -437,7 +437,7 @@ func (e *Engine) runDelegatedTeam(ctx context.Context, tc llm.ToolCall) []byte {
 	}
 	result, err := e.TeamDelegator.RunTeam(ctx, req, e.AgentTracer)
 	if err != nil {
-		return fmt.Appendf(nil, `{"ok":false,"team":%q,"error":%q}`, req.TeamName, err.Error())
+		return delegatedRunErrorJSON("team", req.TeamName, err)
 	}
 	out := map[string]any{
 		"ok":   true,
@@ -450,4 +450,28 @@ func (e *Engine) runDelegatedTeam(ctx context.Context, tc llm.ToolCall) []byte {
 		return b
 	}
 	return []byte(result)
+}
+
+func delegatedRunErrorJSON(kind, name string, err error) []byte {
+	payload := map[string]any{
+		"ok":    false,
+		kind:    name,
+		"error": err.Error(),
+	}
+	switch {
+	case errors.Is(err, context.Canceled):
+		payload["error"] = "delegated run cancelled"
+		payload["error_code"] = "delegated_run_cancelled"
+		payload["cancelled"] = true
+	case errors.Is(err, context.DeadlineExceeded):
+		payload["error_code"] = "delegated_run_timeout"
+		payload["timed_out"] = true
+	case errors.Is(err, ErrMaxStepsExceeded):
+		payload["error_code"] = "delegated_run_max_steps"
+		payload["max_steps_exceeded"] = true
+	}
+	if b, marshalErr := json.Marshal(payload); marshalErr == nil {
+		return b
+	}
+	return fmt.Appendf(nil, `{"ok":false,%q:%q,"error":%q}`, kind, name, payload["error"])
 }

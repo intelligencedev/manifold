@@ -188,6 +188,7 @@ func (a *app) refreshSummaryRuntime() error {
 		a.engine.SummaryReserveBufferTokens = firstPositiveInt(a.cfg.Summary.ReserveBufferTokens, a.cfg.SummaryReserveBufferTokens)
 		a.engine.SummaryMinKeepLastMessages = firstPositiveInt(a.cfg.Summary.MinKeepLastMessages, a.cfg.SummaryMinKeepLastMessages)
 		a.engine.SummaryMaxSummaryChunkTokens = firstPositiveInt(a.cfg.Summary.MaxSummaryChunkTokens, a.cfg.SummaryMaxSummaryChunkTokens)
+		a.engine.SummaryCallTimeout = summaryCallTimeout(a.cfg)
 	}
 	return nil
 }

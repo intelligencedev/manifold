@@ -34,6 +34,7 @@ func (a *app) specialistsRegistryForUser(ctx context.Context, userID int64) (*sp
 		Tools:      a.baseToolRegistry,
 		Workdir:    a.cfg.Workdir,
 	})
+	reg.SetMaxSteps(a.cfg.MaxSteps)
 	reg.SetPromptOverrides(promptInstructionOverrides(a.cfg))
 	reg.SetRequestInfoEnabled(config.RequestInfoEnabled(a.cfg.RequestInfoEnabled))
 	reg.SetToolDiscovery(a.toolIndex, a.cfg.AutoDiscover, a.cfg.MaxDiscoveredTools)
@@ -57,6 +58,7 @@ func (a *app) invalidateSpecialistsCache(ctx context.Context, userID int64) {
 				HTTPClient: a.httpClient,
 				Tools:      a.baseToolRegistry,
 			})
+			a.specRegistry.SetMaxSteps(a.cfg.MaxSteps)
 			a.specRegistry.SetPromptOverrides(promptInstructionOverrides(a.cfg))
 			a.specRegistry.SetRequestInfoEnabled(config.RequestInfoEnabled(a.cfg.RequestInfoEnabled))
 			a.specRegistry.SetToolDiscovery(a.toolIndex, a.cfg.AutoDiscover, a.cfg.MaxDiscoveredTools)

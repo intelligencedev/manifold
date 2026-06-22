@@ -13,6 +13,10 @@ type summaryOnlyProvider struct{}
 
 type runProvider struct{}
 
+type cancelParentEngineSummaryProvider struct {
+	cancel context.CancelFunc
+}
+
 func (p *summaryOnlyProvider) Chat(context.Context, []llm.Message, []llm.ToolSchema, string) (llm.Message, error) {
 	return llm.Message{Role: "assistant", Content: "summary"}, nil
 }
@@ -26,6 +30,20 @@ func (p *runProvider) Chat(context.Context, []llm.Message, []llm.ToolSchema, str
 }
 
 func (p *runProvider) ChatStream(context.Context, []llm.Message, []llm.ToolSchema, string, llm.StreamHandler) error {
+	return nil
+}
+
+func (p *cancelParentEngineSummaryProvider) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string) (llm.Message, error) {
+	if p.cancel != nil {
+		p.cancel()
+	}
+	if err := ctx.Err(); err != nil {
+		return llm.Message{}, err
+	}
+	return llm.Message{Role: "assistant", Content: "summary after parent cancel"}, nil
+}
+
+func (p *cancelParentEngineSummaryProvider) ChatStream(context.Context, []llm.Message, []llm.ToolSchema, string, llm.StreamHandler) error {
 	return nil
 }
 
@@ -83,6 +101,39 @@ func TestMaybeSummarizeKeepsLatestUserInRecentTail(t *testing.T) {
 	}
 	if summarized[latestUserIdx+1].Role != "assistant" || summarized[latestUserIdx+2].Role != "tool" {
 		t.Fatalf("expected assistant/tool to follow latest user, got %#v", summarized)
+	}
+}
+
+func TestMaybeSummarizeIgnoresParentCancellationDuringSummary(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	eng := &Engine{
+		LLM:                             &cancelParentEngineSummaryProvider{cancel: cancel},
+		SummaryEnabled:                  true,
+		ContextWindowTokens:             120,
+		SummaryReserveBufferTokens:      40,
+		SummaryMinKeepLastMessages:      2,
+		SummaryMaxSummaryChunkTokens:    256,
+		TokenizationFallbackToHeuristic: true,
+	}
+
+	msgs := []llm.Message{
+		{Role: "system", Content: "static system"},
+		{Role: "user", Content: historyContextPrefix + "Older request " + strings.Repeat("x", 300)},
+		{Role: "assistant", Content: "Older answer " + strings.Repeat("y", 300)},
+		{Role: "user", Content: currentRequestPrefix + "Current request"},
+		{Role: "assistant", Content: "Using a tool", ToolCalls: []llm.ToolCall{{Name: "lookup", ID: "call_1"}}},
+		{Role: "tool", ToolID: "call_1", Content: "tool result"},
+	}
+
+	summarized := eng.maybeSummarize(ctx, msgs)
+
+	if ctx.Err() == nil {
+		t.Fatalf("expected parent context to be canceled by provider")
+	}
+	if len(summarized) < 2 || !strings.Contains(summarized[1].Content, "summary after parent cancel") {
+		t.Fatalf("expected detached summary to succeed after parent cancellation, got %#v", summarized)
 	}
 }
 

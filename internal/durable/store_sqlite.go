@@ -416,6 +416,11 @@ func (s *SQLiteStore) appendTaskEvent(ctx context.Context, taskID string, eventK
 		}
 		return Event{}, err
 	}
+	// Acquire SQLite's write lock before sequence allocation so concurrent
+	// appenders cannot both compute the same MAX(sequence)+1 for this task.
+	if _, err := tx.ExecContext(ctx, `UPDATE durable_tasks SET updated_at = updated_at WHERE id = ?`, taskID); err != nil {
+		return Event{}, err
+	}
 	if eventKey != "" {
 		existing, ok, err := sqliteTaskEventByKey(ctx, tx, taskID, eventKey)
 		if err != nil {

@@ -27,7 +27,7 @@ type AgentCallTool struct {
 	specReg    *specialists.Registry
 	wsMgr      workspaces.WorkspaceManager
 	defaultSys string
-	// Max default steps if not provided in the call
+	// Default max steps if not provided in the call. A value of 0 is unbounded.
 	defaultMaxSteps int
 	// defaultTimeout, if > 0, is applied when the parent context has no deadline
 	// and the caller does not provide timeout_seconds.
@@ -46,7 +46,11 @@ type agentCallArgs struct {
 }
 
 func NewAgentCallTool(reg tools.Registry, specReg *specialists.Registry, wsMgr workspaces.WorkspaceManager) *AgentCallTool {
-	return &AgentCallTool{reg: reg, specReg: specReg, wsMgr: wsMgr, defaultSys: "You are a helpful assistant.", defaultMaxSteps: 8}
+	return &AgentCallTool{reg: reg, specReg: specReg, wsMgr: wsMgr, defaultSys: "You are a helpful assistant."}
+}
+
+func (t *AgentCallTool) SetDefaultMaxSteps(maxSteps int) {
+	t.defaultMaxSteps = maxSteps
 }
 
 // SetDefaultTimeoutSeconds sets a default timeout applied when the parent context
@@ -95,7 +99,7 @@ func (t *AgentCallTool) JSONSchema() map[string]any {
 				},
 				"max_steps": map[string]any{
 					"type":        "integer",
-					"description": "Maximum reasoning steps for the agent loop (default 8).",
+					"description": "Maximum reasoning steps for the agent loop. Defaults to configured maxSteps; 0 means unbounded.",
 				},
 				"timeout_seconds": map[string]any{
 					"type":        "integer",
@@ -187,7 +191,9 @@ func (t *AgentCallTool) callLocalAgent(ctx, dispatchCtx context.Context, args ag
 	out, err := eng.Run(runCtx, args.Prompt, args.History)
 	if err != nil {
 		observability.LoggerWithTrace(ctx).Error().Err(err).Str("agent_call", args.AgentName).Msg("agent_call_error")
-		return map[string]any{"ok": false, "agent": args.AgentName, "error": err.Error()}, nil
+		payload := delegatedRunErrorPayload(err)
+		payload["agent"] = args.AgentName
+		return payload, nil
 	}
 	return map[string]any{"ok": true, "agent": args.AgentName, "output": out}, nil
 }

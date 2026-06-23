@@ -722,7 +722,7 @@ func (a *app) validateChatSessionProject(ctx context.Context, owner int64, proje
 	if a.projectsService == nil {
 		return cleanProjectID, nil
 	}
-	projects, err := a.projectsService.ListProjects(ctx, owner)
+	projects, err := a.projectsService.ListProjectsWithUsage(ctx, owner, false)
 	if err != nil {
 		return "", err
 	}

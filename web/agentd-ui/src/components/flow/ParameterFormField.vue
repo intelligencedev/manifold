@@ -343,7 +343,7 @@ const sessionDropdownOptions = computed(() => {
 onMounted(async () => {
   if (isProjectId.value) {
     try {
-      projectItems.value = await listProjects();
+      projectItems.value = await listProjects({ includeUsage: false });
     } catch {
       // silently fail; field remains a plain string fallback
     }

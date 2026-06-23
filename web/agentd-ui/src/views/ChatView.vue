@@ -1707,7 +1707,7 @@ const displayUsername = computed(
 
 onMounted(() => {
   void loadCurrentUser();
-  void proj.refresh();
+  void proj.refresh({ includeUsage: false });
   if (isBrowser) {
     previousBodyOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";

@@ -520,7 +520,7 @@ type archiveTarget struct {
 }
 
 func (a *app) resolveArchiveTarget(ctx context.Context, userID int64, projectID, sourcePath string) (archiveTarget, error) {
-	projects, err := a.projectsService.ListProjects(ctx, userID)
+	projects, err := a.projectsService.ListProjectsWithUsage(ctx, userID, false)
 	if err != nil {
 		return archiveTarget{}, err
 	}

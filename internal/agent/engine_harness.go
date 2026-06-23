@@ -49,6 +49,7 @@ func (e *Engine) runHarnessLoop(ctx context.Context, msgs []llm.Message) (string
 	defer restoreTools()
 	state := newHarnessLoopState(cfg, msgs)
 	var final string
+	finalSet := false
 
 	for step := 0; e.stepAllowed(step); step++ {
 		msg, err := e.runHarnessStep(ctx, state, step, false)
@@ -57,19 +58,22 @@ func (e *Engine) runHarnessLoop(ctx context.Context, msgs []llm.Message) (string
 		}
 		if len(msg.ToolCalls) == 0 {
 			final = msg.Content
+			finalSet = true
 			break
 		}
 
-		final, err = e.handleHarnessTools(ctx, state, msg, step, false)
+		var terminal bool
+		final, terminal, err = e.handleHarnessTools(ctx, state, msg, step, false)
 		if err != nil {
 			return "", err
 		}
-		if final != "" {
+		if terminal {
+			finalSet = true
 			break
 		}
 	}
 
-	if final == "" {
+	if !finalSet {
 		return "", MaxStepsExceededError{MaxSteps: e.MaxSteps}
 	}
 	return final, nil
@@ -81,6 +85,7 @@ func (e *Engine) runHarnessStreamLoop(ctx context.Context, msgs []llm.Message) (
 	defer restoreTools()
 	state := newHarnessLoopState(cfg, msgs)
 	var final string
+	finalSet := false
 
 	for step := 0; e.stepAllowed(step); step++ {
 		msg, err := e.runHarnessStep(ctx, state, step, true)
@@ -89,19 +94,22 @@ func (e *Engine) runHarnessStreamLoop(ctx context.Context, msgs []llm.Message) (
 		}
 		if len(msg.ToolCalls) == 0 {
 			final = msg.Content
+			finalSet = true
 			break
 		}
 
-		final, err = e.handleHarnessTools(ctx, state, msg, step, true)
+		var terminal bool
+		final, terminal, err = e.handleHarnessTools(ctx, state, msg, step, true)
 		if err != nil {
 			return "", err
 		}
-		if final != "" {
+		if terminal {
+			finalSet = true
 			break
 		}
 	}
 
-	if final == "" {
+	if !finalSet {
 		return "", MaxStepsExceededError{MaxSteps: e.MaxSteps}
 	}
 	return final, nil
@@ -174,16 +182,16 @@ func (e *Engine) acceptHarnessResult(priorHistory []harness.HarnessMessage, resu
 	return msg
 }
 
-func (e *Engine) handleHarnessTools(ctx context.Context, state *harnessLoopState, msg llm.Message, step int, stream bool) (string, error) {
+func (e *Engine) handleHarnessTools(ctx context.Context, state *harnessLoopState, msg llm.Message, step int, stream bool) (string, bool, error) {
 	log := observability.LoggerWithTrace(ctx)
 	log.Info().Int("step", step).Int("tool_calls", len(msg.ToolCalls)).Msg(harnessToolCallsEvent(stream))
 	providerHistory := harness.SerializeMessages(state.history)
 	beforeTools := len(providerHistory)
 	providerHistory = e.dispatchTools(ctx, providerHistory, msg.ToolCalls)
 	toolMessages := providerHistory[beforeTools:]
-	final, nudges, err := processHarnessToolMessages(state, toolMessages, msg.ToolCalls, step, stream, log)
+	final, terminal, nudges, err := processHarnessToolMessages(state, toolMessages, msg.ToolCalls, step, stream, log)
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	state.history = appendHarnessToolMessages(state.history, toolMessages, msg.ToolCalls, step)
 	if len(nudges) > 0 {
@@ -191,14 +199,15 @@ func (e *Engine) handleHarnessTools(ctx context.Context, state *harnessLoopState
 		e.emitHarnessTurnMessages(nudges)
 	}
 	e.emitContextMetrics(ctx, harness.SerializeMessages(state.history), ContextMetricPhaseToolAdded, nil, 0)
-	if final != "" {
+	if terminal {
 		log.Info().Int("step", step).Int("final_len", len(final)).Msg(harnessTerminalFinalEvent(stream))
 	}
-	return final, nil
+	return final, terminal, nil
 }
 
-func processHarnessToolMessages(state *harnessLoopState, toolMessages []llm.Message, calls []llm.ToolCall, step int, stream bool, log *zerolog.Logger) (string, []harness.HarnessMessage, error) {
+func processHarnessToolMessages(state *harnessLoopState, toolMessages []llm.Message, calls []llm.ToolCall, step int, stream bool, log *zerolog.Logger) (string, bool, []harness.HarnessMessage, error) {
 	var final string
+	var terminal bool
 	var nudges []harness.HarnessMessage
 	for i, toolMessage := range toolMessages {
 		if i >= len(calls) {
@@ -208,7 +217,7 @@ func processHarnessToolMessages(state *harnessLoopState, toolMessages []llm.Mess
 		if toolErr, isToolErr := harness.DetectToolErrorPayload([]byte(toolMessage.Content)); isToolErr {
 			nudge, err := recordHarnessToolError(state, call, toolErr, step, stream, log)
 			if err != nil {
-				return "", nil, err
+				return "", false, nil, err
 			}
 			nudges = append(nudges, nudge)
 			continue
@@ -217,9 +226,10 @@ func processHarnessToolMessages(state *harnessLoopState, toolMessages []llm.Mess
 		state.tracker.RecordSuccess(call)
 		if state.cfg.Workflow.IsTerminalTool(call.Name) {
 			final = terminalResultText(toolMessage.Content)
+			terminal = true
 		}
 	}
-	return final, nudges, nil
+	return final, terminal, nudges, nil
 }
 
 func recordHarnessToolError(state *harnessLoopState, call llm.ToolCall, toolErr harness.ToolError, step int, stream bool, log *zerolog.Logger) (harness.HarnessMessage, error) {

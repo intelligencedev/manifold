@@ -406,6 +406,7 @@ type ExecCommandRule struct {
 type ExecSandboxConfig struct {
 	Enabled           *bool                    `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 	FailIfUnavailable *bool                    `yaml:"failIfUnavailable,omitempty" json:"failIfUnavailable,omitempty"`
+	ReadPaths         []string                 `yaml:"readPaths,omitempty" json:"readPaths,omitempty"`
 	Network           ExecSandboxNetworkConfig `yaml:"network" json:"network"`
 }
 

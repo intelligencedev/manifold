@@ -40,6 +40,7 @@ func macOSSandboxProfile(cfg config.ExecConfig, workdir, resolvedCommand string,
 	}
 
 	readPaths := append(macOSReadOnlyRoots(), workspacePaths...)
+	readPaths = append(readPaths, sandboxReadPaths(workdir, cfg.Sandbox.ReadPaths)...)
 	if commandDir := filepath.Dir(resolvedCommand); commandDir != "." && commandDir != string(filepath.Separator) {
 		readPaths = append(readPaths, commandDir)
 		if realCommandDir, err := filepath.EvalSymlinks(commandDir); err == nil {
@@ -86,23 +87,6 @@ func macOSReadOnlyRoots() []string {
 		"/opt",
 		"/private/var/db/dyld",
 	}
-}
-
-func compactPaths(paths []string) []string {
-	seen := make(map[string]struct{}, len(paths))
-	out := make([]string, 0, len(paths))
-	for _, path := range paths {
-		path = filepath.Clean(strings.TrimSpace(path))
-		if path == "" || path == "." {
-			continue
-		}
-		if _, ok := seen[path]; ok {
-			continue
-		}
-		seen[path] = struct{}{}
-		out = append(out, path)
-	}
-	return out
 }
 
 func boolDefault(value *bool, fallback bool) bool {

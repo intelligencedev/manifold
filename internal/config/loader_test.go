@@ -91,6 +91,12 @@ harness:
 exec:
   blockBinaries: [rm, sudo]
   maxCommandSeconds: 900
+  sandbox:
+    enabled: true
+    failIfUnavailable: true
+    readPaths:
+      - /private/etc/ssl
+      - readonly-cache
 llm_client:
   provider: openai
   openai:
@@ -386,6 +392,9 @@ tokenization:
 	}
 	if !cfg.AutoDiscover || cfg.MaxDiscoveredTools != 7 {
 		t.Fatalf("unexpected discovery config: enabled=%v max=%d", cfg.AutoDiscover, cfg.MaxDiscoveredTools)
+	}
+	if !reflect.DeepEqual(cfg.Exec.Sandbox.ReadPaths, []string{"/private/etc/ssl", "readonly-cache"}) {
+		t.Fatalf("unexpected sandbox read paths: %+v", cfg.Exec.Sandbox.ReadPaths)
 	}
 	if !cfg.BeliefMemory.Enabled || !cfg.BeliefMemory.EnableDistillation || !cfg.BeliefMemory.EnableRetrieval {
 		t.Fatalf("unexpected belief memory toggles: %+v", cfg.BeliefMemory)

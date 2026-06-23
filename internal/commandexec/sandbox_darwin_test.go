@@ -42,6 +42,29 @@ func TestMacOSSandboxProfileDeniesByDefault(t *testing.T) {
 	}
 }
 
+func TestMacOSSandboxProfileAllowsConfiguredReadPaths(t *testing.T) {
+	t.Parallel()
+
+	workdir := t.TempDir()
+	cfg := testExecConfig()
+	cfg.Sandbox.Enabled = testBool(true)
+	cfg.Sandbox.ReadPaths = []string{"/private/etc/ssl", "readonly-cache"}
+
+	profile, err := macOSSandboxProfile(cfg, workdir, "/usr/bin/python3", nil)
+	if err != nil {
+		t.Fatalf("macOSSandboxProfile error: %v", err)
+	}
+
+	for _, path := range []string{"/private/etc/ssl", filepath.Join(workdir, "readonly-cache")} {
+		if !strings.Contains(profile, fmt.Sprintf("(allow file-read* (subpath %q))", path)) {
+			t.Fatalf("profile must allow configured read path %q: %s", path, profile)
+		}
+		if strings.Contains(profile, fmt.Sprintf("(allow file-write* (subpath %q))", path)) {
+			t.Fatalf("profile must not allow configured read path writes %q: %s", path, profile)
+		}
+	}
+}
+
 func TestMacOSSandboxUnavailableFailsClosedEvenWhenConfiguredFailOpen(t *testing.T) {
 	previous := macOSSandboxExecPath
 	macOSSandboxExecPath = filepath.Join(t.TempDir(), "missing-sandbox-exec")

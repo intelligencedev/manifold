@@ -225,39 +225,12 @@ function handleImageEvent(
   sessionId: string,
   assistantId: string,
 ) {
-  const name =
-    typeof event.name === "string" && event.name.trim()
-      ? event.name.trim()
-      : "generated image";
-  const mime = typeof event.mime === "string" ? event.mime : undefined;
-  const relPath =
-    typeof event.rel_path === "string" ? event.rel_path : undefined;
-  const filePath =
-    typeof event.file_path === "string" ? event.file_path : undefined;
-  const url = typeof event.url === "string" ? event.url : undefined;
-  const dataUrl =
-    typeof event.data_url === "string" ? event.data_url : undefined;
-  const previewUrl = dataUrl || url || relPath || filePath;
-  const savedPath = relPath || filePath || url;
-  state.updateMessage(sessionId, assistantId, (m) => {
-    const attachments = [...(m.attachments || [])];
-    attachments.push({
-      id: createId(),
-      kind: "image",
-      name: name || savedPath || "image",
-      mime,
-      previewUrl: previewUrl || undefined,
-      path: savedPath,
-    });
-    let content = m.content;
-    if (savedPath && !content.includes(savedPath)) {
-      const note = `Image saved: ${savedPath}`;
-      content = content ? `${content}\n\n${note}` : note;
-    }
-    return { ...m, attachments, content };
+  appendGeneratedMediaEvent(state, event, sessionId, assistantId, {
+    kind: "image",
+    fallbackName: "generated image",
+    noteLabel: "Image",
   });
 }
-
 
 function handleVideoEvent(
   state: ChatStoreState,
@@ -265,10 +238,30 @@ function handleVideoEvent(
   sessionId: string,
   assistantId: string,
 ) {
+  appendGeneratedMediaEvent(state, event, sessionId, assistantId, {
+    kind: "video",
+    fallbackName: "generated video",
+    noteLabel: "Video",
+    includeVideoFields: true,
+  });
+}
+
+function appendGeneratedMediaEvent(
+  state: ChatStoreState,
+  event: ChatStreamEvent,
+  sessionId: string,
+  assistantId: string,
+  options: {
+    kind: "image" | "video";
+    fallbackName: string;
+    noteLabel: string;
+    includeVideoFields?: boolean;
+  },
+) {
   const name =
     typeof event.name === "string" && event.name.trim()
       ? event.name.trim()
-      : "generated video";
+      : options.fallbackName;
   const mime = typeof event.mime === "string" ? event.mime : undefined;
   const relPath =
     typeof event.rel_path === "string" ? event.rel_path : undefined;
@@ -283,16 +276,19 @@ function handleVideoEvent(
     const attachments = [...(m.attachments || [])];
     attachments.push({
       id: createId(),
-      kind: "video",
-      name: name || savedPath || "video",
+      kind: options.kind,
+      name: name || savedPath || options.kind,
       mime,
       previewUrl: previewUrl || undefined,
       path: savedPath,
     });
     let content = m.content;
     if (savedPath && !content.includes(savedPath)) {
-      const note = `Video saved: ${savedPath}`;
+      const note = `${options.noteLabel} saved: ${savedPath}`;
       content = content ? `${content}\n\n${note}` : note;
+    }
+    if (!options.includeVideoFields) {
+      return { ...m, attachments, content };
     }
     return {
       ...m,

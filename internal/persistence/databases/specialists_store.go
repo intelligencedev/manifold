@@ -76,6 +76,7 @@ func (s *sqliteSpecStore) Init(ctx context.Context) error {
 	enable_tools INTEGER NOT NULL DEFAULT 0,
 	request_info_enabled INTEGER DEFAULT NULL,
 	image_generation INTEGER NOT NULL DEFAULT 0,
+	video_generation INTEGER NOT NULL DEFAULT 0,
 	auto_discover INTEGER DEFAULT NULL,
 	paused INTEGER NOT NULL DEFAULT 0,
 	allow_tools TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(allow_tools)),
@@ -92,6 +93,10 @@ func (s *sqliteSpecStore) Init(ctx context.Context) error {
 			s.initErr = err
 			return
 		}
+		if err := ensureSQLiteColumn(ctx, s.db, "specialists", "video_generation", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+			s.initErr = err
+			return
+		}
 		s.initErr = backfillSQLiteSpecialistSecrets(ctx, s.db, codec)
 	})
 	return s.initErr
@@ -101,7 +106,7 @@ func (s *sqliteSpecStore) List(ctx context.Context, userID int64) ([]persistence
 	if err := s.Init(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id,user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,request_info_enabled,image_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,harness,provider FROM specialists WHERE user_id=? ORDER BY LOWER(name)`, userID)
+	rows, err := s.db.QueryContext(ctx, `SELECT id,user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,request_info_enabled,image_generation,video_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,harness,provider FROM specialists WHERE user_id=? ORDER BY LOWER(name)`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +130,7 @@ func (s *sqliteSpecStore) GetByName(ctx context.Context, userID int64, name stri
 	if err := s.Init(ctx); err != nil {
 		return persistence.Specialist{}, false, err
 	}
-	row := s.db.QueryRowContext(ctx, `SELECT id,user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,request_info_enabled,image_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,harness,provider FROM specialists WHERE user_id=? AND name=?`, userID, name)
+	row := s.db.QueryRowContext(ctx, `SELECT id,user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,request_info_enabled,image_generation,video_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,harness,provider FROM specialists WHERE user_id=? AND name=?`, userID, name)
 	sp, err := scanSQLiteSpecialist(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return persistence.Specialist{}, false, nil
@@ -156,8 +161,8 @@ func (s *sqliteSpecStore) Upsert(ctx context.Context, userID int64, sp persisten
 	params, _ := json.Marshal(sp.ExtraParams)
 	harness := encodeSpecialistHarness(sp.Harness)
 	row := s.db.QueryRowContext(ctx, `
-INSERT INTO specialists(user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,request_info_enabled,image_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,harness,provider)
-VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+INSERT INTO specialists(user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,request_info_enabled,image_generation,video_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,harness,provider)
+VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(user_id, name) DO UPDATE SET
 	description=excluded.description,
 	base_url=excluded.base_url,
@@ -170,6 +175,7 @@ ON CONFLICT(user_id, name) DO UPDATE SET
 	enable_tools=excluded.enable_tools,
 	request_info_enabled=excluded.request_info_enabled,
 	image_generation=excluded.image_generation,
+	video_generation=excluded.video_generation,
 	auto_discover=excluded.auto_discover,
 	paused=excluded.paused,
 	allow_tools=excluded.allow_tools,
@@ -179,7 +185,7 @@ ON CONFLICT(user_id, name) DO UPDATE SET
 		extra_params=excluded.extra_params,
 		harness=excluded.harness,
 		provider=excluded.provider
-	RETURNING id, api_key`, userID, sp.Name, sp.Description, sp.BaseURL, toStore.APIKey, sp.Model, sp.SummaryContextWindowTokens, sp.EnableTools, nullableBool(sp.RequestInfoEnabled), sp.ImageGeneration, nullableBool(sp.AutoDiscover), sp.Paused, string(allow), sp.ReasoningEffort, sp.System, string(headers), string(params), nullableJSON(harness), sp.Provider)
+	RETURNING id, api_key`, userID, sp.Name, sp.Description, sp.BaseURL, toStore.APIKey, sp.Model, sp.SummaryContextWindowTokens, sp.EnableTools, nullableBool(sp.RequestInfoEnabled), sp.ImageGeneration, sp.VideoGeneration, nullableBool(sp.AutoDiscover), sp.Paused, string(allow), sp.ReasoningEffort, sp.System, string(headers), string(params), nullableJSON(harness), sp.Provider)
 	if err := row.Scan(&sp.ID, &sp.APIKey); err != nil {
 		return persistence.Specialist{}, err
 	}
@@ -218,7 +224,7 @@ func scanSQLiteSpecialist(row interface{ Scan(dest ...any) error }) (persistence
 	var allow, headers, params string
 	var harness sql.NullString
 	var requestInfo, autoDiscover sql.NullBool
-	if err := row.Scan(&sp.ID, &sp.UserID, &sp.Name, &sp.Description, &sp.BaseURL, &sp.APIKey, &sp.Model, &sp.SummaryContextWindowTokens, &sp.EnableTools, &requestInfo, &sp.ImageGeneration, &autoDiscover, &sp.Paused, &allow, &sp.ReasoningEffort, &sp.System, &headers, &params, &harness, &sp.Provider); err != nil {
+	if err := row.Scan(&sp.ID, &sp.UserID, &sp.Name, &sp.Description, &sp.BaseURL, &sp.APIKey, &sp.Model, &sp.SummaryContextWindowTokens, &sp.EnableTools, &requestInfo, &sp.ImageGeneration, &sp.VideoGeneration, &autoDiscover, &sp.Paused, &allow, &sp.ReasoningEffort, &sp.System, &headers, &params, &harness, &sp.Provider); err != nil {
 		return persistence.Specialist{}, err
 	}
 	_ = json.Unmarshal([]byte(allow), &sp.AllowTools)
@@ -316,6 +322,7 @@ func (s *pgSpecStore) Init(ctx context.Context) error {
 	enable_tools BOOLEAN NOT NULL DEFAULT false,
 	request_info_enabled BOOLEAN DEFAULT NULL,
 	image_generation BOOLEAN NOT NULL DEFAULT false,
+	video_generation BOOLEAN NOT NULL DEFAULT false,
 	auto_discover BOOLEAN DEFAULT NULL,
 	paused BOOLEAN NOT NULL DEFAULT false,
 	allow_tools JSONB NOT NULL DEFAULT '[]',
@@ -349,6 +356,9 @@ ALTER TABLE specialists
 	ADD COLUMN IF NOT EXISTS image_generation BOOLEAN NOT NULL DEFAULT false;
 
 ALTER TABLE specialists
+	ADD COLUMN IF NOT EXISTS video_generation BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE specialists
 	ADD COLUMN IF NOT EXISTS harness JSONB DEFAULT NULL;
 
 ALTER TABLE specialists
@@ -368,7 +378,7 @@ func (s *pgSpecStore) List(ctx context.Context, userID int64) ([]persistence.Spe
 		return nil, err
 	}
 	s.codec = codec
-	rows, err := s.pool.Query(ctx, `SELECT id,user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,request_info_enabled,image_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,harness,provider FROM specialists WHERE user_id=$1 ORDER BY LOWER(name)`, userID)
+	rows, err := s.pool.Query(ctx, `SELECT id,user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,request_info_enabled,image_generation,video_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,harness,provider FROM specialists WHERE user_id=$1 ORDER BY LOWER(name)`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -399,7 +409,7 @@ func (s *pgSpecStore) GetByName(ctx context.Context, userID int64, name string) 
 		return persistence.Specialist{}, false, err
 	}
 	s.codec = codec
-	row := s.pool.QueryRow(ctx, `SELECT id,user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,request_info_enabled,image_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,harness,provider FROM specialists WHERE user_id=$1 AND name=$2`, userID, name)
+	row := s.pool.QueryRow(ctx, `SELECT id,user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,request_info_enabled,image_generation,video_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,harness,provider FROM specialists WHERE user_id=$1 AND name=$2`, userID, name)
 	var sp persistence.Specialist
 	var allow, headers, params, harness []byte
 	if err := row.Scan(&sp.ID, &sp.UserID, &sp.Name, &sp.Description, &sp.BaseURL, &sp.APIKey, &sp.Model, &sp.SummaryContextWindowTokens, &sp.EnableTools, &sp.RequestInfoEnabled, &sp.ImageGeneration, &sp.AutoDiscover, &sp.Paused, &allow, &sp.ReasoningEffort, &sp.System, &headers, &params, &harness, &sp.Provider); err != nil {
@@ -434,17 +444,17 @@ func (s *pgSpecStore) Upsert(ctx context.Context, userID int64, sp persistence.S
 	params, _ := json.Marshal(sp.ExtraParams)
 	harness := encodeSpecialistHarness(sp.Harness)
 	row := s.pool.QueryRow(ctx, `
-INSERT INTO specialists(user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,request_info_enabled,image_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,harness,provider)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+INSERT INTO specialists(user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,request_info_enabled,image_generation,video_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,harness,provider)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
 		ON CONFLICT (user_id, name) DO UPDATE SET description=EXCLUDED.description, base_url=EXCLUDED.base_url,
 		api_key=CASE
 			WHEN NULLIF(BTRIM(EXCLUDED.api_key), '') IS NULL THEN specialists.api_key
 			ELSE EXCLUDED.api_key
 		END,
 		model=EXCLUDED.model,
-		summary_context_window_tokens=EXCLUDED.summary_context_window_tokens, enable_tools=EXCLUDED.enable_tools, request_info_enabled=EXCLUDED.request_info_enabled, image_generation=EXCLUDED.image_generation, auto_discover=EXCLUDED.auto_discover, paused=EXCLUDED.paused, allow_tools=EXCLUDED.allow_tools,
+		summary_context_window_tokens=EXCLUDED.summary_context_window_tokens, enable_tools=EXCLUDED.enable_tools, request_info_enabled=EXCLUDED.request_info_enabled, image_generation=EXCLUDED.image_generation, video_generation=EXCLUDED.video_generation, auto_discover=EXCLUDED.auto_discover, paused=EXCLUDED.paused, allow_tools=EXCLUDED.allow_tools,
 		reasoning_effort=EXCLUDED.reasoning_effort, system=EXCLUDED.system, extra_headers=EXCLUDED.extra_headers, extra_params=EXCLUDED.extra_params, harness=EXCLUDED.harness, provider=EXCLUDED.provider
-	RETURNING id, api_key;`, userID, sp.Name, sp.Description, sp.BaseURL, toStore.APIKey, sp.Model, sp.SummaryContextWindowTokens, sp.EnableTools, sp.RequestInfoEnabled, sp.ImageGeneration, sp.AutoDiscover, sp.Paused, allow, sp.ReasoningEffort, sp.System, headers, params, harness, sp.Provider)
+	RETURNING id, api_key;`, userID, sp.Name, sp.Description, sp.BaseURL, toStore.APIKey, sp.Model, sp.SummaryContextWindowTokens, sp.EnableTools, sp.RequestInfoEnabled, sp.ImageGeneration, sp.VideoGeneration, sp.AutoDiscover, sp.Paused, allow, sp.ReasoningEffort, sp.System, headers, params, harness, sp.Provider)
 	if err := row.Scan(&sp.ID, &sp.APIKey); err != nil {
 		return persistence.Specialist{}, err
 	}

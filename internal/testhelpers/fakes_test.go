@@ -14,6 +14,7 @@ type collectHandler struct {
 func (c *collectHandler) OnDelta(s string)           { c.Deltas = append(c.Deltas, s) }
 func (c *collectHandler) OnToolCall(tc llm.ToolCall) {}
 func (c *collectHandler) OnImage(llm.GeneratedImage) {}
+func (c *collectHandler) OnVideo(llm.GeneratedVideo) {}
 func (c *collectHandler) OnThoughtSummary(string)    {}
 func (c *collectHandler) OnThoughtSignature(string)  {}
 

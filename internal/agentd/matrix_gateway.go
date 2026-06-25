@@ -211,7 +211,7 @@ func (a *app) buildMatrixChatEngine(ctx context.Context, descriptor chatTargetDe
 }
 
 func (a *app) matrixChatHistory(ctx context.Context, request chatRunRequest, build chatEngineBuildResult, includeHistory bool) ([]llm.Message, error) {
-	if !includeHistory || build.ImageGeneration {
+	if !includeHistory || build.ImageGeneration || build.VideoGeneration {
 		return nil, nil
 	}
 	history, summary, err := a.chatMemory.BuildContextForProvider(ctx, nil, request.SessionID, build.Engine.LLM, build.Engine.Model, memory.SummaryPolicy{

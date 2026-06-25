@@ -68,7 +68,7 @@ func TestMCPServerPool_ResolveServerConfig(t *testing.T) {
 	pool := &MCPServerPool{}
 
 	srv := config.MCPServerConfig{
-		Name:    "test",
+		Name:    "chrome-devtools",
 		Command: "docker",
 		Args: []string{
 			"run",
@@ -80,6 +80,12 @@ func TestMCPServerPool_ResolveServerConfig(t *testing.T) {
 		Env: map[string]string{
 			"PROJECT_PATH": "{{PROJECT_DIR}}",
 			"HOME":         "/home/user",
+		},
+		Workdir: "{{PROJECT_DIR}}",
+		ToolDefaults: map[string]map[string]any{
+			"take_screenshot": {
+				"filePath": "{{PROJECT_DIR}}/.manifold/screenshots/screenshot-{{TIMESTAMP}}.png",
+			},
 		},
 	}
 
@@ -108,6 +114,12 @@ func TestMCPServerPool_ResolveServerConfig(t *testing.T) {
 	}
 	if resolved.Env["HOME"] != "/home/user" {
 		t.Errorf("Env[HOME] = %q, want %q (should not be modified)", resolved.Env["HOME"], "/home/user")
+	}
+	if resolved.Workdir != "/tmp/workspace/user1/project-abc" {
+		t.Errorf("Workdir = %q, want project dir", resolved.Workdir)
+	}
+	if got := resolved.ToolDefaults["take_screenshot"]["filePath"]; got != "/tmp/workspace/user1/project-abc/.manifold/screenshots/screenshot-{{TIMESTAMP}}.png" {
+		t.Errorf("tool default filePath = %q", got)
 	}
 
 	// Check original is not modified

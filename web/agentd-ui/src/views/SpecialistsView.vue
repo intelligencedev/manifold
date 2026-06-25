@@ -298,6 +298,9 @@
                 <Pill v-if="s.imageGeneration" tone="accent" size="sm">
                   Image generation
                 </Pill>
+                <Pill v-if="s.videoGeneration" tone="accent" size="sm">
+                  Video generation
+                </Pill>
                 <span
                   v-if="typeof s.autoDiscover === 'boolean'"
                   class="inline-flex items-center rounded-full border border-border bg-surface-muted/50 px-2 py-1 font-medium text-subtle-foreground"
@@ -590,6 +593,7 @@ function startCreate() {
     enableTools: false,
     requestInfoEnabled: true,
     imageGeneration: false,
+    videoGeneration: false,
     autoDiscover: false,
     paused: false,
     system: "",
@@ -644,6 +648,7 @@ function cloneSpecialist(s: Specialist) {
     autoDiscover: s.autoDiscover === true,
     requestInfoEnabled: s.requestInfoEnabled !== false,
     imageGeneration: !!s.imageGeneration,
+    videoGeneration: !!s.videoGeneration,
     allowTools: clonedAllowTools,
     extraHeaders: clonedHeaders,
     extraParams: clonedParams,

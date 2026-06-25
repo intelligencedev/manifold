@@ -15,6 +15,7 @@ export type ChatStreamEventType =
   | "tts_chunk"
   | "tts_audio"
   | "image"
+  | "video"
   | "error"
   | "summary"
   | "run_started"

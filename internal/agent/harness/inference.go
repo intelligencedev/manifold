@@ -210,6 +210,7 @@ type streamCaptureHandler struct {
 	deltas           []string
 	toolCalls        []llm.ToolCall
 	images           []llm.GeneratedImage
+	videos           []llm.GeneratedVideo
 	thoughtSummaries []string
 	thoughtSignature string
 }
@@ -227,6 +228,10 @@ func (h *streamCaptureHandler) OnImage(img llm.GeneratedImage) {
 	h.images = append(h.images, img)
 }
 
+func (h *streamCaptureHandler) OnVideo(video llm.GeneratedVideo) {
+	h.videos = append(h.videos, video)
+}
+
 func (h *streamCaptureHandler) OnThoughtSummary(summary string) {
 	h.thoughtSummaries = append(h.thoughtSummaries, summary)
 }
@@ -241,6 +246,7 @@ func (h *streamCaptureHandler) message() llm.Message {
 		Content:          h.content,
 		ToolCalls:        append([]llm.ToolCall(nil), h.toolCalls...),
 		Images:           append([]llm.GeneratedImage(nil), h.images...),
+		Videos:           append([]llm.GeneratedVideo(nil), h.videos...),
 		ThoughtSignature: h.thoughtSignature,
 	}
 }

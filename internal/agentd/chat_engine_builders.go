@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/rs/zerolog/log"
+
 	"manifold/internal/agent"
 	"manifold/internal/agent/harness"
 	"manifold/internal/agent/memory"
@@ -26,6 +28,7 @@ type chatEngineBuildResult struct {
 	Engine          *agent.Engine
 	ModelLabel      string
 	ImageGeneration bool
+	VideoGeneration bool
 	StatusCode      int
 	Err             error
 }
@@ -42,7 +45,7 @@ type chatEngineBuildRequest struct {
 }
 
 func sanitizeImageGenerationBuild(build chatEngineBuildResult) chatEngineBuildResult {
-	if !build.ImageGeneration || build.Engine == nil {
+	if (!build.ImageGeneration && !build.VideoGeneration) || build.Engine == nil {
 		return build
 	}
 	build.Engine.System = ""
@@ -79,6 +82,7 @@ func (a *app) chatMaxSteps() int {
 
 func (a *app) buildOrchestratorChatEngine(ctx context.Context, req chatEngineBuildRequest) chatEngineBuildResult {
 	req.MemorySettings = normalizeChatMemoryRunSettings(req.MemorySettings)
+	a.ensureChatMCPWorkspaceSession(ctx, req.Owner, req.ProjectID, req.CheckedOutWorkspace)
 	eng := a.cloneEngineForUser(ctx, req.Owner, req.SessionID, req.ProjectID, req.ObjectiveID, req.MemorySettings)
 	if eng == nil {
 		return chatEngineBuildResult{StatusCode: http.StatusServiceUnavailable, Err: fmt.Errorf("agent unavailable")}
@@ -100,6 +104,7 @@ func (a *app) buildOrchestratorChatEngine(ctx context.Context, req chatEngineBui
 
 func (a *app) buildSpecialistChatEngine(ctx context.Context, req chatEngineBuildRequest) chatEngineBuildResult {
 	req.MemorySettings = normalizeChatMemoryRunSettings(req.MemorySettings)
+	a.ensureChatMCPWorkspaceSession(ctx, req.Owner, req.ProjectID, req.CheckedOutWorkspace)
 	reg, err := a.specialistsRegistryForUser(ctx, req.Owner)
 	if err != nil {
 		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: fmt.Errorf("specialist registry unavailable: %w", err)}
@@ -172,11 +177,13 @@ func (a *app) buildSpecialistChatEngine(ctx context.Context, req chatEngineBuild
 		Engine:          eng,
 		ModelLabel:      chatModelLabel(req.Name, sp.Model),
 		ImageGeneration: sp.ImageGeneration,
+		VideoGeneration: sp.VideoGeneration,
 	}
 }
 
 func (a *app) buildTeamChatEngine(ctx context.Context, req chatEngineBuildRequest) chatEngineBuildResult {
 	req.MemorySettings = normalizeChatMemoryRunSettings(req.MemorySettings)
+	a.ensureChatMCPWorkspaceSession(ctx, req.Owner, req.ProjectID, req.CheckedOutWorkspace)
 	if a.teamStore == nil {
 		return chatEngineBuildResult{StatusCode: http.StatusInternalServerError, Err: fmt.Errorf("teams unavailable")}
 	}
@@ -255,6 +262,7 @@ func (a *app) buildTeamChatEngine(ctx context.Context, req chatEngineBuildReques
 		Engine:          eng,
 		ModelLabel:      chatModelLabel(orchestratorName, currentModel),
 		ImageGeneration: sp.ImageGeneration,
+		VideoGeneration: sp.VideoGeneration,
 	}
 }
 
@@ -317,6 +325,31 @@ func (a *app) chatProjectDir(ctx context.Context, checkedOutWorkspace *workspace
 		return baseDir
 	}
 	return ""
+}
+
+func (a *app) ensureChatMCPWorkspaceSession(ctx context.Context, owner int64, projectID string, checkedOutWorkspace *workspaces.Workspace) {
+	if a == nil || a.mcpPool == nil || a.baseToolRegistry == nil || !a.mcpPool.RequiresPerUserMCP() {
+		return
+	}
+	if owner == 0 || owner == systemUserID {
+		return
+	}
+	workspacePath := a.chatProjectDir(ctx, checkedOutWorkspace)
+	if strings.TrimSpace(workspacePath) == "" {
+		return
+	}
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		if id, ok := sandbox.ProjectIDFromContext(ctx); ok {
+			projectID = strings.TrimSpace(id)
+		}
+	}
+	if projectID == "" {
+		return
+	}
+	if err := a.mcpPool.EnsureUserSession(ctx, a.baseToolRegistry, owner, projectID, workspacePath); err != nil {
+		log.Warn().Err(err).Int64("userID", owner).Str("projectID", projectID).Str("workspacePath", workspacePath).Msg("chat_mcp_session_ensure_failed")
+	}
 }
 
 func (a *app) resolveAutoDiscover(autoDiscover *bool) bool {

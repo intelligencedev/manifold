@@ -5,9 +5,11 @@ servers:
   # name: unique tool prefix
   # command: stdio executable
   # args: command arguments
+  # workdir: optional stdio process working directory
   # env: extra env for stdio process
+  # toolDefaults: default args to inject by MCP tool name when callers omit them
   # keepAliveSeconds: ping interval; 0 disables keepalive
-  # pathDependent: expand {{PROJECT_DIR}} in args and env
+  # pathDependent: expand {{PROJECT_DIR}} in args, workdir, env, and toolDefaults
   # url: remote MCP endpoint for HTTP transport
   # headers: extra HTTP headers
   # bearerToken: sent as Authorization: Bearer <token>
@@ -39,6 +41,19 @@ servers:
     env:
       WORKSPACE_ROOT: "{{PROJECT_DIR}}"
     keepAliveSeconds: 15
+    pathDependent: true
+
+  - name: chrome-devtools
+    command: npx
+    args:
+      - chrome-devtools-mcp@latest
+      - --no-usage-statistics
+      - --headless
+      - --userDataDir={{PROJECT_DIR}}/.manifold/chrome-devtools/profile
+    workdir: "{{PROJECT_DIR}}"
+    toolDefaults:
+      take_screenshot:
+        filePath: ".manifold/chrome-devtools/screenshots/screenshot-{{TIMESTAMP}}.png"
     pathDependent: true
 
   - name: acme

@@ -332,6 +332,24 @@
                     class="mt-1 h-4 w-4 shrink-0"
                   />
                 </label>
+
+                <label
+                  class="flex items-start justify-between gap-3 rounded border border-border/60 bg-surface-muted/20 px-3 py-2"
+                >
+                  <span class="min-w-0">
+                    <span class="block text-sm font-medium text-foreground">
+                      Video generation
+                    </span>
+                    <span class="block text-xs text-subtle-foreground">
+                      Use the video generation endpoint for every request.
+                    </span>
+                  </span>
+                  <input
+                    v-model="draft.videoGeneration"
+                    type="checkbox"
+                    class="mt-1 h-4 w-4 shrink-0"
+                  />
+                </label>
               </div>
             </PanelGroup>
 
@@ -1266,6 +1284,7 @@ const draft = reactive({
   model: "",
   summaryContextWindowTokens: "",
   imageGeneration: false,
+  videoGeneration: false,
   paused: false,
   useDefaultEndpoint: true,
   customBaseURL: "",
@@ -1790,6 +1809,7 @@ function normalizeComparable(sp: Specialist): SpecialistComparable {
     enableTools: !!sp.enableTools,
     requestInfoEnabled: sp.requestInfoEnabled !== false,
     imageGeneration: !!sp.imageGeneration,
+    videoGeneration: !!sp.videoGeneration,
     autoDiscover: sp.autoDiscover === true,
     paused: !!sp.paused,
     allowTools,
@@ -1813,6 +1833,7 @@ function normalizePayload(sp: Specialist): Specialist {
     enableTools: !!sp.enableTools,
     requestInfoEnabled: sp.requestInfoEnabled !== false,
     imageGeneration: !!sp.imageGeneration,
+    videoGeneration: !!sp.videoGeneration,
     autoDiscover: sp.autoDiscover === true,
     paused: !!sp.paused,
     apiKey: sp.apiKey || undefined,
@@ -1947,6 +1968,7 @@ function buildPayloadFromDraft(): Specialist {
     enableTools,
     requestInfoEnabled: !!draft.requestInfoEnabled,
     imageGeneration: !!draft.imageGeneration,
+    videoGeneration: !!draft.videoGeneration,
     autoDiscover: !!draft.autoDiscover,
     paused: !!draft.paused,
     allowTools: allow,
@@ -2471,6 +2493,7 @@ function initFromInitial(sp: Specialist, clearFeedback = true) {
   draft.provider = normalized.provider || props.providerOptions[0] || "";
   draft.model = normalized.model || "";
   draft.imageGeneration = !!normalized.imageGeneration;
+  draft.videoGeneration = !!normalized.videoGeneration;
   draft.paused = !!normalized.paused;
   draft.system = normalized.system || "";
   draft.summaryContextWindowTokens = normalized.summaryContextWindowTokens

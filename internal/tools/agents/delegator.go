@@ -55,6 +55,7 @@ type delegateRunConfig struct {
 	system               string
 	model                string
 	imageGeneration      bool
+	videoGeneration      bool
 	inputRequestsEnabled bool
 	maxSteps             int
 	history              []llm.Message
@@ -134,6 +135,9 @@ func (d *Delegator) Run(ctx context.Context, req agent.DelegateRequest, tracer a
 	if cfg.imageGeneration {
 		runCtx = llm.WithImagePrompt(runCtx, llm.ImagePromptOptions{Size: defaultImagePromptSize})
 	}
+	if cfg.videoGeneration {
+		runCtx = llm.WithVideoPrompt(runCtx, llm.VideoPromptOptions{})
+	}
 	runCtx = inputrequest.WithRunMetadata(runCtx, inputrequest.RunMetadata{
 		Agent:        req.AgentName,
 		Model:        cfg.model,
@@ -204,6 +208,7 @@ func (d *Delegator) applySpecialistConfig(cfg *delegateRunConfig, agentName stri
 	cfg.toolsReg = a.ToolsRegistry()
 	cfg.inputRequestsEnabled = a.EnableTools && a.RequestInfoEnabled
 	cfg.imageGeneration = a.ImageGeneration
+	cfg.videoGeneration = a.VideoGeneration
 	cfg.system = a.System
 	cfg.model = a.Model
 	if a.EnableTools && cfg.toolsReg == nil {
@@ -228,7 +233,7 @@ func (d *Delegator) applyToolPolicy(cfg *delegateRunConfig, req agent.DelegateRe
 	if cfg.inputRequestsEnabled {
 		cfg.toolsReg = tools.NewOverlayRegistry(cfg.toolsReg, inputrequesttool.New())
 	}
-	if cfg.imageGeneration {
+	if cfg.imageGeneration || cfg.videoGeneration {
 		cfg.toolsReg = tools.NewRegistry()
 		cfg.system = ""
 		cfg.maxSteps = 1
@@ -294,7 +299,7 @@ func (d *Delegator) configureRuntimeFeatures(eng *agent.Engine, cfg delegateRunC
 		eng.DisableMemory = true
 		eng.EvolvingMemory = nil
 	}
-	if cfg.imageGeneration {
+	if cfg.imageGeneration || cfg.videoGeneration {
 		eng.System = ""
 		eng.UserPromptContext = ""
 		eng.EvolvingMemory = nil
@@ -312,7 +317,7 @@ func (d *Delegator) configureRuntimeFeatures(eng *agent.Engine, cfg delegateRunC
 		eng.SummaryEnabled = false
 		eng.SkipInitialSummarization = true
 	}
-	if !cfg.imageGeneration && !req.DisableEvolvingMemory && d.evolvingMemory != nil && d.reMemLLM != nil {
+	if !cfg.imageGeneration && !cfg.videoGeneration && !req.DisableEvolvingMemory && d.evolvingMemory != nil && d.reMemLLM != nil {
 		eng.ReMemEnabled = true
 		eng.ReMemController = memory.NewReMemController(memory.ReMemConfig{
 			LLM:           d.reMemLLM,

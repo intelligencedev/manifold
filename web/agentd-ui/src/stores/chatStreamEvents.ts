@@ -144,6 +144,10 @@ export function handleStreamEvent(
       handleImageEvent(state, event, sessionId, assistantId);
       break;
     }
+    case "video": {
+      handleVideoEvent(state, event, sessionId, assistantId);
+      break;
+    }
     case "tts_chunk":
       break;
     case "tts_audio": {
@@ -251,6 +255,52 @@ function handleImageEvent(
       content = content ? `${content}\n\n${note}` : note;
     }
     return { ...m, attachments, content };
+  });
+}
+
+
+function handleVideoEvent(
+  state: ChatStoreState,
+  event: ChatStreamEvent,
+  sessionId: string,
+  assistantId: string,
+) {
+  const name =
+    typeof event.name === "string" && event.name.trim()
+      ? event.name.trim()
+      : "generated video";
+  const mime = typeof event.mime === "string" ? event.mime : undefined;
+  const relPath =
+    typeof event.rel_path === "string" ? event.rel_path : undefined;
+  const filePath =
+    typeof event.file_path === "string" ? event.file_path : undefined;
+  const url = typeof event.url === "string" ? event.url : undefined;
+  const dataUrl =
+    typeof event.data_url === "string" ? event.data_url : undefined;
+  const previewUrl = dataUrl || url || relPath || filePath;
+  const savedPath = relPath || filePath || url;
+  state.updateMessage(sessionId, assistantId, (m) => {
+    const attachments = [...(m.attachments || [])];
+    attachments.push({
+      id: createId(),
+      kind: "video",
+      name: name || savedPath || "video",
+      mime,
+      previewUrl: previewUrl || undefined,
+      path: savedPath,
+    });
+    let content = m.content;
+    if (savedPath && !content.includes(savedPath)) {
+      const note = `Video saved: ${savedPath}`;
+      content = content ? `${content}\n\n${note}` : note;
+    }
+    return {
+      ...m,
+      attachments,
+      content,
+      videoUrl: previewUrl || m.videoUrl,
+      videoFilePath: savedPath || m.videoFilePath,
+    };
   });
 }
 

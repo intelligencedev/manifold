@@ -15,7 +15,7 @@ func TestBuildChatJSONPayloadIncludesMatrixMessages(t *testing.T) {
 	outbox.Add("room-1", "hello")
 	ctx := sandbox.WithMatrixOutbox(context.Background(), outbox)
 
-	payload := buildChatJSONPayload("done", nil, ctx, true)
+	payload := buildChatJSONPayload("done", nil, nil, ctx, true)
 
 	if payload["result"] != "done" {
 		t.Fatalf("expected result payload, got %#v", payload["result"])
@@ -33,7 +33,7 @@ func TestBuildChatJSONPayloadIncludesImages(t *testing.T) {
 	t.Parallel()
 
 	images := []savedImage{{Name: "image-1.png", MIME: "image/png", URL: "/api/projects/p/files?path=images%2Fimage-1.png"}}
-	payload := buildChatJSONPayload("done", images, context.Background(), false)
+	payload := buildChatJSONPayload("done", images, nil, context.Background(), false)
 
 	got, ok := payload["images"].([]savedImage)
 	if !ok {

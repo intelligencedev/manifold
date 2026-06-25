@@ -35,6 +35,7 @@ type Agent struct {
 	EnableTools                bool
 	RequestInfoEnabled         bool
 	ImageGeneration            bool
+	VideoGeneration            bool
 	AutoDiscover               bool
 	ReasoningEffort            string // optional: "low"|"medium"|"high"
 	ExtraParams                map[string]any
@@ -209,10 +210,10 @@ func buildProvider(provider string, base config.LLMClientConfig, sc config.Speci
 		extra := map[string]any{}
 		if len(sc.ExtraParams) > 0 {
 			extra = copyAnyMap(sc.ExtraParams)
-		} else if !sc.ImageGeneration && len(oc.ExtraParams) > 0 {
+		} else if !sc.ImageGeneration && !sc.VideoGeneration && len(oc.ExtraParams) > 0 {
 			extra = copyAnyMap(oc.ExtraParams)
 		}
-		if re := strings.TrimSpace(sc.ReasoningEffort); !sc.ImageGeneration && re != "" {
+		if re := strings.TrimSpace(sc.ReasoningEffort); !sc.ImageGeneration && !sc.VideoGeneration && re != "" {
 			if extra == nil {
 				extra = map[string]any{}
 			}
@@ -291,6 +292,7 @@ func (r *Registry) rebuildLocked() {
 			EnableTools:                sc.EnableTools,
 			RequestInfoEnabled:         resolvedRequestInfo,
 			ImageGeneration:            sc.ImageGeneration,
+			VideoGeneration:            sc.VideoGeneration,
 			AutoDiscover:               resolvedAutoDiscover,
 			ReasoningEffort:            strings.TrimSpace(sc.ReasoningEffort),
 			ExtraParams:                sc.ExtraParams,
@@ -429,6 +431,13 @@ func (a *Agent) Inference(ctx context.Context, user string, history []llm.Messag
 		}
 		return msg.Content, nil
 	}
+	if a.VideoGeneration {
+		msg, err := a.provider.Chat(llm.WithVideoPrompt(ctx, llm.VideoPromptOptions{}), a.buildMessages(nil, user), nil, a.Model)
+		if err != nil {
+			return "", err
+		}
+		return msg.Content, nil
+	}
 	msgs := a.buildMessages(history, user)
 
 	// Extra fields for the request: start with configured extra params
@@ -537,6 +546,9 @@ func (a *Agent) Stream(ctx context.Context, user string, history []llm.Message, 
 	if a.ImageGeneration {
 		return a.provider.ChatStream(llm.WithImagePrompt(ctx, llm.ImagePromptOptions{Size: defaultImagePromptSize}), a.buildMessages(nil, user), nil, a.Model, handler)
 	}
+	if a.VideoGeneration {
+		return a.provider.ChatStream(llm.WithVideoPrompt(ctx, llm.VideoPromptOptions{}), a.buildMessages(nil, user), nil, a.Model, handler)
+	}
 	msgs := a.buildMessages(history, user)
 	// Streaming path intentionally skips tool schemas to avoid executing tools
 	// mid-stream. This keeps the UX similar to a plain chat completion.
@@ -544,7 +556,7 @@ func (a *Agent) Stream(ctx context.Context, user string, history []llm.Message, 
 }
 
 func (a *Agent) buildMessages(history []llm.Message, user string) []llm.Message {
-	if a.ImageGeneration {
+	if a.ImageGeneration || a.VideoGeneration {
 		if strings.TrimSpace(user) == "" {
 			return nil
 		}

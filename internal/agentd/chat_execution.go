@@ -87,6 +87,7 @@ type chatTurnCollector struct {
 	projectID    string
 	stream       chatEventWriter
 	savedImages  []savedImage
+	savedVideos  []savedVideo
 	turnMessages []llm.Message
 }
 
@@ -99,49 +100,80 @@ func (c *chatTurnCollector) attach(eng *agent.Engine) {
 		c.turnMessages = append(c.turnMessages, msg)
 	}
 	eng.OnAssistant = func(msg llm.Message) {
-		if len(msg.Images) == 0 {
-			return
+		if len(msg.Images) > 0 {
+			saved := saveGeneratedImages(c.baseDir, msg.Images, c.projectID)
+			if len(saved) > 0 {
+				c.savedImages = append(c.savedImages, saved...)
+				if c.stream != nil {
+					for _, img := range saved {
+						payload := map[string]any{
+							"type":     "image",
+							"name":     img.Name,
+							"mime":     img.MIME,
+							"data_url": img.DataURL,
+						}
+						if img.URL != "" {
+							payload["url"] = img.URL
+						}
+						if img.RelPath != "" {
+							payload["rel_path"] = img.RelPath
+						}
+						if img.FullPath != "" {
+							payload["file_path"] = img.FullPath
+						}
+						c.stream.write(payload)
+					}
+				}
+			}
 		}
-		saved := saveGeneratedImages(c.baseDir, msg.Images, c.projectID)
-		if len(saved) == 0 {
-			return
-		}
-		c.savedImages = append(c.savedImages, saved...)
-		if c.stream == nil {
-			return
-		}
-		for _, img := range saved {
-			payload := map[string]any{
-				"type":     "image",
-				"name":     img.Name,
-				"mime":     img.MIME,
-				"data_url": img.DataURL,
+		if len(msg.Videos) > 0 {
+			saved := saveGeneratedVideos(c.baseDir, msg.Videos, c.projectID)
+			if len(saved) > 0 {
+				c.savedVideos = append(c.savedVideos, saved...)
+				if c.stream != nil {
+					for _, video := range saved {
+						payload := map[string]any{
+							"type": "video",
+							"name": video.Name,
+							"mime": video.MIME,
+						}
+						if video.DataURL != "" {
+							payload["data_url"] = video.DataURL
+						}
+						if video.URL != "" {
+							payload["url"] = video.URL
+						}
+						if video.RelPath != "" {
+							payload["rel_path"] = video.RelPath
+						}
+						if video.FullPath != "" {
+							payload["file_path"] = video.FullPath
+						}
+						c.stream.write(payload)
+					}
+				}
 			}
-			if img.URL != "" {
-				payload["url"] = img.URL
-			}
-			if img.RelPath != "" {
-				payload["rel_path"] = img.RelPath
-			}
-			if img.FullPath != "" {
-				payload["file_path"] = img.FullPath
-			}
-			c.stream.write(payload)
 		}
 	}
 }
 
 func (c *chatTurnCollector) resultText(result string) string {
-	if len(c.savedImages) == 0 {
-		return result
+	if len(c.savedImages) > 0 {
+		result = appendImageSummary(result, c.savedImages)
 	}
-	return appendImageSummary(result, c.savedImages)
+	if len(c.savedVideos) > 0 {
+		result = appendVideoSummary(result, c.savedVideos)
+	}
+	return result
 }
 
-func buildChatJSONPayload(result string, images []savedImage, ctx context.Context, includeMatrixMessages bool) map[string]any {
+func buildChatJSONPayload(result string, images []savedImage, videos []savedVideo, ctx context.Context, includeMatrixMessages bool) map[string]any {
 	payload := map[string]any{"result": result}
 	if len(images) > 0 {
 		payload["images"] = append([]savedImage(nil), images...)
+	}
+	if len(videos) > 0 {
+		payload["videos"] = append([]savedVideo(nil), videos...)
 	}
 	if includeMatrixMessages {
 		if outbox, ok := sandbox.MatrixOutboxFromContext(ctx); ok {
@@ -445,7 +477,7 @@ func applyChatImagePrompt(ctx, runCtx context.Context, req chatRunRequest, inher
 }
 
 func applyBuildImagePrompt(ctx context.Context, build chatEngineBuildResult) context.Context {
-	if !build.ImageGeneration {
+	if !build.ImageGeneration && !build.VideoGeneration {
 		return ctx
 	}
 	if _, ok := llm.ImagePromptFromContext(ctx); ok {
@@ -607,7 +639,7 @@ func (a *app) executeInternalJSONChat(storeCtx context.Context, exec chatExecuti
 		return nil, err
 	}
 	result = collector.resultText(result)
-	payload := buildChatJSONPayload(result, collector.savedImages, ctx, opts.IncludeMatrixMessages)
+	payload := buildChatJSONPayload(result, collector.savedImages, collector.savedVideos, ctx, opts.IncludeMatrixMessages)
 	a.runs.updateStatus(runID, "completed", 0)
 	if a.fleetBus != nil {
 		a.fleetBus.Publish(fleet.Event{Kind: fleet.EventRunFinished, RunID: runID, SessionID: req.SessionID, ProjectID: req.ProjectID, ObjectiveID: req.ObjectiveID, UserID: derefInputUserID(userID), Message: result})

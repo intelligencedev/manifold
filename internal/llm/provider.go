@@ -26,6 +26,16 @@ type GeneratedImage struct {
 	MIMEType string
 }
 
+// GeneratedVideo represents a video payload returned by the model.
+// Data is set when the provider returns inline bytes; URL is set when the
+// provider returns a remotely hosted video. MIMEType should be a valid video
+// MIME like video/mp4 when known.
+type GeneratedVideo struct {
+	Data     []byte
+	MIMEType string
+	URL      string
+}
+
 type Message struct {
 	Role    string // "system" | "user" | "assistant" | "tool"
 	Content string
@@ -34,6 +44,8 @@ type Message struct {
 	ToolCalls []ToolCall
 	// Images captures inline image payloads returned by the provider.
 	Images []GeneratedImage
+	// Videos captures video payloads returned by the provider.
+	Videos []GeneratedVideo
 	// Compaction carries responses API compaction state when available.
 	Compaction *CompactionItem
 	// ThoughtSignature carries provider-specific thought signatures (Gemini 3)
@@ -52,6 +64,7 @@ type StreamHandler interface {
 	OnDelta(content string)
 	OnToolCall(tc ToolCall)
 	OnImage(img GeneratedImage)
+	OnVideo(video GeneratedVideo)
 	// OnThoughtSummary receives model reasoning summaries when available.
 	OnThoughtSummary(summary string)
 	// OnThoughtSignature receives provider-specific thought signatures that must be

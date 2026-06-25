@@ -166,6 +166,7 @@ type streamAccumulator struct {
 	content          string
 	toolCalls        []llm.ToolCall
 	images           []llm.GeneratedImage
+	videos           []llm.GeneratedVideo
 	thoughtSignature string
 }
 
@@ -180,6 +181,7 @@ func (a *streamAccumulator) handler() *streamHandler {
 		onThoughtSignature: a.onThoughtSignature,
 		onToolCall:         a.onToolCall,
 		onImage:            a.onImage,
+		onVideo:            a.onVideo,
 	}
 }
 
@@ -208,6 +210,10 @@ func (a *streamAccumulator) onImage(img llm.GeneratedImage) {
 	a.images = append(a.images, img)
 }
 
+func (a *streamAccumulator) onVideo(video llm.GeneratedVideo) {
+	a.videos = append(a.videos, video)
+}
+
 func (a *streamAccumulator) message(e *Engine, msgs []llm.Message) llm.Message {
 	toolCalls := llm.NormalizeToolCalls(a.toolCalls)
 	toolCalls = e.ensureToolCallIDs(msgs, toolCalls)
@@ -216,6 +222,7 @@ func (a *streamAccumulator) message(e *Engine, msgs []llm.Message) llm.Message {
 		Content:          a.content,
 		ToolCalls:        toolCalls,
 		Images:           a.images,
+		Videos:           a.videos,
 		ThoughtSignature: a.thoughtSignature,
 	}
 }

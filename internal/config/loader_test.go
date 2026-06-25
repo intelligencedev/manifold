@@ -546,6 +546,16 @@ llm_client:
       X-Client: Manifold
     http:
       timeoutSeconds: 30
+  - name: chrome-devtools
+    command: npx
+    args:
+      - chrome-devtools-mcp@latest
+      - --userDataDir={{PROJECT_DIR}}/.manifold/chrome-devtools/profile
+    workdir: "{{PROJECT_DIR}}"
+    toolDefaults:
+      take_screenshot:
+        filePath: ".manifold/screenshots/screenshot-{{TIMESTAMP}}.png"
+    pathDependent: true
 `), 0o644); err != nil {
 		t.Fatalf("write mcp: %v", err)
 	}
@@ -554,8 +564,18 @@ llm_client:
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
-	if len(cfg.MCP.Servers) != 1 || cfg.MCP.Servers[0].BearerToken != "mcp-secret" {
+	if len(cfg.MCP.Servers) != 2 || cfg.MCP.Servers[0].BearerToken != "mcp-secret" {
 		t.Fatalf("unexpected mcp config: %+v", cfg.MCP.Servers)
+	}
+	chrome := cfg.MCP.Servers[1]
+	if chrome.Workdir != "{{PROJECT_DIR}}" || !chrome.PathDependent {
+		t.Fatalf("unexpected chrome mcp config: %+v", chrome)
+	}
+	if len(chrome.Args) != 2 || chrome.Args[1] != "--userDataDir={{PROJECT_DIR}}/.manifold/chrome-devtools/profile" {
+		t.Fatalf("unexpected chrome args: %+v", chrome.Args)
+	}
+	if got := chrome.ToolDefaults["take_screenshot"]["filePath"]; got != ".manifold/screenshots/screenshot-{{TIMESTAMP}}.png" {
+		t.Fatalf("unexpected chrome screenshot default: %#v", got)
 	}
 }
 

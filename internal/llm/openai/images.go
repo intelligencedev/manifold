@@ -1,11 +1,16 @@
 package openai
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"maps"
+	"mime"
+	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -69,6 +74,261 @@ func (c *Client) chatWithImageGeneration(ctx context.Context, msgs []llm.Message
 		content = fmt.Sprintf("Generated %d images", len(images))
 	}
 	return llm.Message{Role: "assistant", Content: content, Images: images}, nil
+}
+
+func (c *Client) chatWithVideoGeneration(ctx context.Context, msgs []llm.Message, model string) (llm.Message, error) {
+	prompt := lastUserPrompt(msgs)
+	if strings.TrimSpace(prompt) == "" {
+		return llm.Message{}, fmt.Errorf("video generation requires a user prompt")
+	}
+	videoModel := strings.TrimSpace(firstNonEmpty(model, c.model))
+	if videoModel == "" {
+		return llm.Message{}, fmt.Errorf("video generation requires a model")
+	}
+
+	log := observability.LoggerWithTrace(ctx)
+	ctx, span := llm.StartRequestSpan(ctx, "OpenAI VideoGen", videoModel, 0, len(msgs))
+	defer span.End()
+	llm.LogRedactedPrompt(ctx, msgs)
+
+	start := time.Now()
+	video, err := c.submitAndPollVideo(ctx, videoModel, prompt)
+	dur := time.Since(start)
+	if err != nil {
+		log.Error().Err(err).Str("model", videoModel).Dur("duration", dur).Msg("video_generation_error")
+		span.RecordError(err)
+		return llm.Message{}, err
+	}
+	logEvent := log.Debug().Str("model", videoModel).Dur("duration", dur).Str("mime", video.MIMEType)
+	if video.URL != "" {
+		logEvent = logEvent.Str("url", video.URL)
+	}
+	logEvent.Msg("video_generation_ok")
+	return llm.Message{Role: "assistant", Content: "Generated video", Videos: []llm.GeneratedVideo{video}}, nil
+}
+
+func (c *Client) submitAndPollVideo(ctx context.Context, model, prompt string) (llm.GeneratedVideo, error) {
+	payload := map[string]any{
+		"model":  model,
+		"prompt": prompt,
+	}
+	for k, v := range c.extra {
+		payload[k] = v
+	}
+	delete(payload, "poll_interval_ms")
+	delete(payload, "pollIntervalMs")
+	delete(payload, "max_poll_attempts")
+	delete(payload, "maxPollAttempts")
+
+	resp, err := c.doVideoJSON(ctx, http.MethodPost, c.videoEndpointURL("videos"), payload)
+	if err != nil {
+		return llm.GeneratedVideo{}, err
+	}
+	if videoURL := videoResultURL(resp); videoURL != "" {
+		return c.downloadGeneratedVideo(ctx, videoURL, "")
+	}
+	pollingURL := strings.TrimSpace(firstString(resp, "polling_url", "pollingUrl", "poll_url", "pollUrl"))
+	if pollingURL == "" {
+		return llm.GeneratedVideo{}, fmt.Errorf("video generation response missing polling_url or video URL")
+	}
+
+	interval := c.videoPollInterval()
+	attempts := c.videoMaxPollAttempts()
+	for attempt := 0; attempt < attempts; attempt++ {
+		if attempt > 0 {
+			if err := sleepContext(ctx, interval); err != nil {
+				return llm.GeneratedVideo{}, err
+			}
+		}
+		status, err := c.doVideoJSON(ctx, http.MethodGet, pollingURL, nil)
+		if err != nil {
+			return llm.GeneratedVideo{}, err
+		}
+		if videoURL := videoResultURL(status); videoURL != "" {
+			return c.downloadGeneratedVideo(ctx, videoURL, "")
+		}
+		state := strings.ToLower(strings.TrimSpace(firstString(status, "status", "state")))
+		if state == "failed" || state == "error" || state == "cancelled" || state == "canceled" {
+			if msg := strings.TrimSpace(firstString(status, "error", "message", "reason")); msg != "" {
+				return llm.GeneratedVideo{}, fmt.Errorf("video generation %s: %s", state, msg)
+			}
+			return llm.GeneratedVideo{}, fmt.Errorf("video generation %s", state)
+		}
+	}
+	return llm.GeneratedVideo{}, fmt.Errorf("video generation polling timed out after %d attempts", attempts)
+}
+
+func (c *Client) doVideoJSON(ctx context.Context, method, reqURL string, payload any) (map[string]any, error) {
+	var body io.Reader
+	if payload != nil {
+		b, err := json.Marshal(payload)
+		if err != nil {
+			return nil, err
+		}
+		body = bytes.NewReader(b)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, reqURL, body)
+	if err != nil {
+		return nil, err
+	}
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	c.applyAuthHeader(req)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("video generation HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
+	}
+	var out map[string]any
+	if err := json.Unmarshal(bodyBytes, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) videoEndpointURL(path string) string {
+	base := strings.TrimRight(strings.TrimSpace(c.baseURL), "/")
+	if base == "" {
+		base = "https:/api.openai.com/v1"
+	}
+	if strings.HasSuffix(base, "/chat/completions") || strings.HasSuffix(base, "/responses") || strings.HasSuffix(base, "/images/generations") || strings.HasSuffix(base, "/videos") {
+		base = strings.TrimRight(base[:strings.LastIndex(base, "/")], "/")
+	}
+	return base + "/" + strings.TrimLeft(path, "/")
+}
+
+func videoResultURL(data map[string]any) string {
+	for _, key := range []string{"url", "video_url", "videoUrl", "output_url", "outputUrl"} {
+		if s := strings.TrimSpace(firstString(data, key)); s != "" {
+			return s
+		}
+	}
+	for _, key := range []string{"unsigned_urls", "unsignedUrls", "urls", "data", "output", "result", "video"} {
+		if v, ok := data[key]; ok {
+			if s := videoResultURLFromAny(v); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+func videoResultURLFromAny(v any) string {
+	switch tv := v.(type) {
+	case string:
+		if isLikelyVideoURL(tv) {
+			return strings.TrimSpace(tv)
+		}
+	case map[string]any:
+		return videoResultURL(tv)
+	case []any:
+		for _, item := range tv {
+			if s := videoResultURLFromAny(item); s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+func isLikelyVideoURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https" || u.Scheme == "data")
+}
+
+func firstString(data map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if v, ok := data[key]; ok {
+			switch tv := v.(type) {
+			case string:
+				return tv
+			case map[string]any:
+				if s := firstString(tv, "message", "url"); s != "" {
+					return s
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func (c *Client) videoPollInterval() time.Duration {
+	if ms, ok := imageExtraInt64(c.extra["poll_interval_ms"]); ok && ms > 0 {
+		return time.Duration(ms) * time.Millisecond
+	}
+	if ms, ok := imageExtraInt64(c.extra["pollIntervalMs"]); ok && ms > 0 {
+		return time.Duration(ms) * time.Millisecond
+	}
+	return 2 * time.Second
+}
+
+func (c *Client) videoMaxPollAttempts() int {
+	if n, ok := imageExtraInt64(c.extra["max_poll_attempts"]); ok && n > 0 {
+		return int(n)
+	}
+	if n, ok := imageExtraInt64(c.extra["maxPollAttempts"]); ok && n > 0 {
+		return int(n)
+	}
+	return 300
+}
+
+func sleepContext(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+func (c *Client) downloadGeneratedVideo(ctx context.Context, videoURL, mimeType string) (llm.GeneratedVideo, error) {
+	videoURL = strings.TrimSpace(videoURL)
+	if videoURL == "" {
+		return llm.GeneratedVideo{}, fmt.Errorf("video generation missing content URL")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, videoURL, nil)
+	if err != nil {
+		return llm.GeneratedVideo{}, err
+	}
+	c.applyAuthHeader(req)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return llm.GeneratedVideo{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return llm.GeneratedVideo{}, fmt.Errorf("video download HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(bodyBytes)))
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	if err != nil {
+		return llm.GeneratedVideo{}, err
+	}
+	resolvedMIME := strings.TrimSpace(mimeType)
+	if resolvedMIME == "" {
+		resolvedMIME = strings.TrimSpace(resp.Header.Get("Content-Type"))
+	}
+	if resolvedMIME == "" {
+		resolvedMIME = "video/mp4"
+	}
+	return llm.GeneratedVideo{Data: data, MIMEType: resolvedMIME, URL: videoURL}, nil
+}
+
+func videoExtension(mimeType string) string {
+	if exts, err := mime.ExtensionsByType(mimeType); err == nil && len(exts) > 0 {
+		return exts[0]
+	}
+	return ".mp4"
 }
 
 func applyImageExtraParams(params *sdk.ImageGenerateParams, extra map[string]any) {

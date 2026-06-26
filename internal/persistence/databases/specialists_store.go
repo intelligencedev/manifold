@@ -387,7 +387,7 @@ func (s *pgSpecStore) List(ctx context.Context, userID int64) ([]persistence.Spe
 	for rows.Next() {
 		var sp persistence.Specialist
 		var allow, headers, params, harness []byte
-		if err := rows.Scan(&sp.ID, &sp.UserID, &sp.Name, &sp.Description, &sp.BaseURL, &sp.APIKey, &sp.Model, &sp.SummaryContextWindowTokens, &sp.EnableTools, &sp.RequestInfoEnabled, &sp.ImageGeneration, &sp.AutoDiscover, &sp.Paused, &allow, &sp.ReasoningEffort, &sp.System, &headers, &params, &harness, &sp.Provider); err != nil {
+		if err := rows.Scan(&sp.ID, &sp.UserID, &sp.Name, &sp.Description, &sp.BaseURL, &sp.APIKey, &sp.Model, &sp.SummaryContextWindowTokens, &sp.EnableTools, &sp.RequestInfoEnabled, &sp.ImageGeneration, &sp.VideoGeneration, &sp.AutoDiscover, &sp.Paused, &allow, &sp.ReasoningEffort, &sp.System, &headers, &params, &harness, &sp.Provider); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal(allow, &sp.AllowTools)
@@ -412,7 +412,7 @@ func (s *pgSpecStore) GetByName(ctx context.Context, userID int64, name string) 
 	row := s.pool.QueryRow(ctx, `SELECT id,user_id,name,description,base_url,api_key,model,summary_context_window_tokens,enable_tools,request_info_enabled,image_generation,video_generation,auto_discover,paused,allow_tools,reasoning_effort,system,extra_headers,extra_params,harness,provider FROM specialists WHERE user_id=$1 AND name=$2`, userID, name)
 	var sp persistence.Specialist
 	var allow, headers, params, harness []byte
-	if err := row.Scan(&sp.ID, &sp.UserID, &sp.Name, &sp.Description, &sp.BaseURL, &sp.APIKey, &sp.Model, &sp.SummaryContextWindowTokens, &sp.EnableTools, &sp.RequestInfoEnabled, &sp.ImageGeneration, &sp.AutoDiscover, &sp.Paused, &allow, &sp.ReasoningEffort, &sp.System, &headers, &params, &harness, &sp.Provider); err != nil {
+	if err := row.Scan(&sp.ID, &sp.UserID, &sp.Name, &sp.Description, &sp.BaseURL, &sp.APIKey, &sp.Model, &sp.SummaryContextWindowTokens, &sp.EnableTools, &sp.RequestInfoEnabled, &sp.ImageGeneration, &sp.VideoGeneration, &sp.AutoDiscover, &sp.Paused, &allow, &sp.ReasoningEffort, &sp.System, &headers, &params, &harness, &sp.Provider); err != nil {
 		return persistence.Specialist{}, false, nil
 	}
 	_ = json.Unmarshal(allow, &sp.AllowTools)

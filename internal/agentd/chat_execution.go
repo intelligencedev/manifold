@@ -480,6 +480,12 @@ func applyBuildImagePrompt(ctx context.Context, build chatEngineBuildResult) con
 	if !build.ImageGeneration && !build.VideoGeneration {
 		return ctx
 	}
+	if build.VideoGeneration {
+		if _, ok := llm.VideoPromptFromContext(ctx); ok {
+			return ctx
+		}
+		return llm.WithVideoPrompt(ctx, llm.VideoPromptOptions{})
+	}
 	if _, ok := llm.ImagePromptFromContext(ctx); ok {
 		return ctx
 	}

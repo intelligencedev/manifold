@@ -43,19 +43,24 @@ func wrapSandbox(cfg config.ExecConfig, workdir, resolvedCommand string, args, e
 		"--ro-bind-try", "/lib", "/lib",
 		"--ro-bind-try", "/lib64", "/lib64",
 		"--ro-bind-try", "/opt", "/opt",
+	}
+	for _, path := range sandboxReadPaths(workdir, cfg.Sandbox.ReadPaths) {
+		wrappedArgs = append(wrappedArgs, "--ro-bind-try", path, path)
+	}
+	wrappedArgs = append(wrappedArgs,
 		"--bind", workdir, workdir,
 		"--chdir", workdir,
 		"--setenv", "PATH", pathFromEnv(env),
 		"--setenv", "HOME", workdir,
-		"--setenv", "TMPDIR", workdir + "/.tmp",
-		"--setenv", "TEMP", workdir + "/.tmp",
-		"--setenv", "TMP", workdir + "/.tmp",
+		"--setenv", "TMPDIR", workdir+"/.tmp",
+		"--setenv", "TEMP", workdir+"/.tmp",
+		"--setenv", "TMP", workdir+"/.tmp",
 		"--setenv", "GOTOOLCHAIN", "local",
 		"--setenv", "GO111MODULE", "on",
-		"--setenv", "GOCACHE", workdir + "/.cache/go-build",
-		"--setenv", "GOMODCACHE", workdir + "/.cache/go-mod",
+		"--setenv", "GOCACHE", workdir+"/.cache/go-build",
+		"--setenv", "GOMODCACHE", workdir+"/.cache/go-mod",
 		"--setenv", "TERM", "xterm-256color",
-	}
+	)
 	if boolDefault(cfg.Sandbox.Network.Enabled, false) {
 		if network == nil || network.mode != networkModeDomainLimited {
 			wrappedArgs = append(wrappedArgs, "--share-net")

@@ -672,6 +672,7 @@ func TestApplyAuthHeaderPreservesExplicitAuthorization(t *testing.T) {
 type testStreamHandler struct {
 	deltas   []string
 	thoughts []string
+	videos   []llm.GeneratedVideo
 }
 
 func (h *testStreamHandler) OnDelta(content string) {
@@ -682,6 +683,10 @@ func (h *testStreamHandler) OnToolCall(tc llm.ToolCall) {
 }
 
 func (h *testStreamHandler) OnImage(llm.GeneratedImage) {
+}
+
+func (h *testStreamHandler) OnVideo(video llm.GeneratedVideo) {
+	h.videos = append(h.videos, video)
 }
 
 func (h *testStreamHandler) OnThoughtSummary(summary string) {
@@ -999,6 +1004,118 @@ func TestChatImageGeneration(t *testing.T) {
 	}
 	if _, ok := gotBody["custom"]; ok {
 		t.Fatalf("did not expect unknown extra params on image request: %#v", gotBody)
+	}
+}
+
+func TestChatWithVideoGenerationPollsAndDownloadsContent(t *testing.T) {
+	t.Parallel()
+
+	postCalls := 0
+	pollCalls := 0
+	contentCalls := 0
+	var authHeaders []string
+	serverURL := ""
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeaders = append(authHeaders, r.Header.Get("Authorization"))
+		switch r.URL.Path {
+		case "/videos":
+			if r.Method != http.MethodPost {
+				t.Fatalf("expected POST /videos, got %s", r.Method)
+			}
+			postCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"job-123","polling_url":"` + serverURL + `/videos/job-123","status":"pending"}`))
+		case "/videos/job-123":
+			if r.Method != http.MethodGet {
+				t.Fatalf("expected GET poll, got %s", r.Method)
+			}
+			pollCalls++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"status":"completed","unsigned_urls":["` + serverURL + `/videos/job-123/content?index=0"]}`))
+		case "/videos/job-123/content":
+			if r.Method != http.MethodGet {
+				t.Fatalf("expected GET content, got %s", r.Method)
+			}
+			contentCalls++
+			w.Header().Set("Content-Type", "video/mp4")
+			_, _ = w.Write([]byte("video-bytes"))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	})
+	srv := httptest.NewServer(handler)
+	serverURL = srv.URL
+	defer srv.Close()
+
+	cli := New(config.OpenAIConfig{APIKey: "test-key", BaseURL: srv.URL, Model: "video-model", API: "completions", ExtraParams: map[string]any{"poll_interval_ms": 1, "max_poll_attempts": 2}}, srv.Client())
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	msg, err := cli.Chat(llm.WithVideoPrompt(ctx, llm.VideoPromptOptions{}), []llm.Message{{Role: "user", Content: "make a movie"}}, nil, "")
+	if err != nil {
+		t.Fatalf("Chat returned error: %v", err)
+	}
+	if msg.Content != "Generated video" {
+		t.Fatalf("expected Generated video content, got %q", msg.Content)
+	}
+	if len(msg.Videos) != 1 {
+		t.Fatalf("expected one video, got %+v", msg.Videos)
+	}
+	if string(msg.Videos[0].Data) != "video-bytes" {
+		t.Fatalf("unexpected video bytes: %q", string(msg.Videos[0].Data))
+	}
+	if msg.Videos[0].MIMEType != "video/mp4" {
+		t.Fatalf("unexpected video mime: %q", msg.Videos[0].MIMEType)
+	}
+	if msg.Videos[0].URL != srv.URL+"/videos/job-123/content?index=0" {
+		t.Fatalf("unexpected video url: %q", msg.Videos[0].URL)
+	}
+	if postCalls != 1 || pollCalls != 1 || contentCalls != 1 {
+		t.Fatalf("unexpected call counts post=%d poll=%d content=%d", postCalls, pollCalls, contentCalls)
+	}
+	for _, auth := range authHeaders {
+		if auth != "Bearer test-key" {
+			t.Fatalf("expected auth header on all requests, got %q", auth)
+		}
+	}
+}
+
+func TestStreamVideoChatResultEmitsVideo(t *testing.T) {
+	t.Parallel()
+
+	serverURL := ""
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/videos":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"polling_url":"` + serverURL + `/videos/job-1"}`))
+		case "/videos/job-1":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"status":"completed","unsigned_urls":["` + serverURL + `/videos/job-1/content"]}`))
+		case "/videos/job-1/content":
+			w.Header().Set("Content-Type", "video/mp4")
+			_, _ = w.Write([]byte("stream-video"))
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	})
+	srv := httptest.NewServer(handler)
+	serverURL = srv.URL
+	defer srv.Close()
+
+	cli := New(config.OpenAIConfig{APIKey: "test-key", BaseURL: srv.URL, Model: "video-model", API: "completions", ExtraParams: map[string]any{"poll_interval_ms": 1, "max_poll_attempts": 2}}, srv.Client())
+	h := &testStreamHandler{}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	if err := cli.ChatStream(llm.WithVideoPrompt(ctx, llm.VideoPromptOptions{}), []llm.Message{{Role: "user", Content: "make a movie"}}, nil, "", h); err != nil {
+		t.Fatalf("ChatStream returned error: %v", err)
+	}
+	if len(h.deltas) != 1 || h.deltas[0] != "Generated video" {
+		t.Fatalf("unexpected deltas: %+v", h.deltas)
+	}
+	if len(h.videos) != 1 || string(h.videos[0].Data) != "stream-video" {
+		t.Fatalf("unexpected videos: %+v", h.videos)
 	}
 }
 

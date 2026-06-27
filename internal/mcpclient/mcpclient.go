@@ -93,6 +93,9 @@ func (m *Manager) RegisterOne(ctx context.Context, reg tools.Registry, srv confi
 			return fmt.Errorf("invalid command path")
 		}
 		cmd := exec.Command(cleanCmd, srv.Args...)
+		if workdir := strings.TrimSpace(srv.Workdir); workdir != "" {
+			cmd.Dir = workdir
+		}
 		// Merge env
 		if len(srv.Env) > 0 {
 			env := os.Environ()
@@ -132,7 +135,13 @@ func (m *Manager) RegisterOne(ctx context.Context, reg tools.Registry, srv confi
 			log.Debug().Err(err).Str("server", srv.Name).Msg("mcp_tool_iteration_error")
 			break
 		}
-		t := &mcpTool{server: srv.Name, session: session, tool: tool}
+		t := &mcpTool{
+			server:   srv.Name,
+			session:  session,
+			tool:     tool,
+			workdir:  strings.TrimSpace(srv.Workdir),
+			defaults: srv.ToolDefaults[tool.Name],
+		}
 		reg.Register(t)
 		tNames = append(tNames, t.Name())
 	}
@@ -156,9 +165,11 @@ func (m *Manager) RemoveOne(name string, reg tools.Registry) {
 
 // mcpTool adapts an MCP tool to the local tools.Tool interface.
 type mcpTool struct {
-	server  string
-	session *mcppkg.ClientSession
-	tool    *mcppkg.Tool
+	server   string
+	session  *mcppkg.ClientSession
+	tool     *mcppkg.Tool
+	workdir  string
+	defaults map[string]any
 }
 
 func (t *mcpTool) Name() string {
@@ -273,6 +284,7 @@ func (t *mcpTool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 	if args == nil {
 		args = map[string]any{}
 	}
+	args = t.applyDefaults(ctx, args)
 	res, err := t.session.CallTool(ctx, &mcppkg.CallToolParams{Name: t.tool.Name, Arguments: args})
 	if err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}, nil

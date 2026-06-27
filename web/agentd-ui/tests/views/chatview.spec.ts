@@ -19,6 +19,7 @@ const chatApiMocks = vi.hoisted(() => ({
       members: ["orchestrator-max", "ops"],
     },
   ],
+  listProjects: vi.fn(async () => [{ id: "proj-1", name: "Demo Project" }]),
   startChatRun: vi.fn(async (_options: StreamAgentRunOptions) => ({
     run_id: "run-1",
     session_id: "session-1",
@@ -89,7 +90,7 @@ vi.mock("@/api/client", () => ({
     summaryTokenBudget: 7000,
     requestInfoEnabled: true,
   }),
-  listProjects: async () => [{ id: "proj-1", name: "Demo Project" }],
+  listProjects: chatApiMocks.listProjects,
   listSpecialists: async () => chatApiMocks.specialists,
   listTeams: async () => chatApiMocks.teams,
   getUserPreferences: async () => ({ activeProjectId: "proj-1" }),
@@ -171,6 +172,7 @@ beforeEach(() => {
   ];
   chatApiMocks.startChatRun.mockClear();
   chatApiMocks.streamChatRunEvents.mockClear();
+  chatApiMocks.listProjects.mockClear();
   chatApiMocks.updateChatSessionMemorySettings.mockClear();
   chatApiMocks.updateChatSessionActiveTarget.mockClear();
   chatApiMocks.updateChatSessionPinned.mockClear();
@@ -226,6 +228,16 @@ describe("ChatView", () => {
       },
     ];
   }
+
+  it("loads projects without expensive usage stats on mount", async () => {
+    renderChatView();
+
+    await waitFor(() => {
+      expect(chatApiMocks.listProjects).toHaveBeenCalledWith({
+        includeUsage: false,
+      });
+    });
+  });
 
   async function waitForProjectSelection(
     findByLabelText: (text: string) => Promise<HTMLElement>,

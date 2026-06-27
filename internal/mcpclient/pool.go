@@ -305,10 +305,19 @@ func (p *MCPServerPool) resolveServerConfig(srv config.MCPServerConfig, projectD
 		}
 	}
 
+	resolved.Workdir = strings.ReplaceAll(resolved.Workdir, "{{PROJECT_DIR}}", projectDir)
+
 	if len(srv.Env) > 0 {
 		resolved.Env = make(map[string]string, len(srv.Env))
 		for k, v := range srv.Env {
 			resolved.Env[k] = strings.ReplaceAll(v, "{{PROJECT_DIR}}", projectDir)
+		}
+	}
+
+	if len(srv.ToolDefaults) > 0 {
+		resolved.ToolDefaults = make(map[string]map[string]any, len(srv.ToolDefaults))
+		for toolName, defaults := range srv.ToolDefaults {
+			resolved.ToolDefaults[toolName] = renderMCPDefaultTemplates(defaults, mcpDefaultTemplateData{ProjectDir: projectDir})
 		}
 	}
 

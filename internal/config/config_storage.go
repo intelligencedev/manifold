@@ -78,8 +78,13 @@ type MCPServerConfig struct {
 	Command string `yaml:"command" json:"command"`
 	// Args are passed to the command.
 	Args []string `yaml:"args" json:"args"`
+	// Workdir optionally sets the working directory for stdio MCP server commands.
+	// Path-dependent servers may use {{PROJECT_DIR}} to run inside the active project.
+	Workdir string `yaml:"workdir" json:"workdir"`
 	// Env are additional environment variables to set for the command.
 	Env map[string]string `yaml:"env" json:"env"`
+	// ToolDefaults injects default arguments for named MCP tools when the caller omits them.
+	ToolDefaults map[string]map[string]any `yaml:"toolDefaults" json:"toolDefaults"`
 	// KeepAliveSeconds configures client ping interval; 0 disables keepalive.
 	KeepAliveSeconds int `yaml:"keepAliveSeconds" json:"keepAliveSeconds"`
 	// PathDependent marks this server as requiring per-user instances with project

@@ -17,6 +17,9 @@ import (
 
 // Chat implements llm.Provider.Chat using OpenAI Chat Completions.
 func (c *Client) Chat(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string) (llm.Message, error) {
+	if _, ok := llm.VideoPromptFromContext(ctx); ok {
+		return c.chatWithVideoGeneration(ctx, msgs, model)
+	}
 	if imgOpts, ok := llm.ImagePromptFromContext(ctx); ok {
 		return c.chatWithImageGeneration(ctx, msgs, model, imgOpts)
 	}
@@ -181,6 +184,9 @@ func hasChatCompletionUsage(usage sdk.CompletionUsage) bool {
 
 // ChatStream implements streaming chat completions using OpenAI's streaming API.
 func (c *Client) ChatStream(ctx context.Context, msgs []llm.Message, tools []llm.ToolSchema, model string, h llm.StreamHandler) error {
+	if _, ok := llm.VideoPromptFromContext(ctx); ok {
+		return c.streamVideoChatResult(ctx, msgs, model, h)
+	}
 	if imgOpts, ok := llm.ImagePromptFromContext(ctx); ok {
 		return c.streamImageChatResult(ctx, msgs, model, imgOpts, h)
 	}
@@ -207,6 +213,23 @@ func (c *Client) streamImageChatResult(ctx context.Context, msgs []llm.Message, 
 	}
 	for _, img := range msg.Images {
 		h.OnImage(img)
+	}
+	return nil
+}
+
+func (c *Client) streamVideoChatResult(ctx context.Context, msgs []llm.Message, model string, h llm.StreamHandler) error {
+	msg, err := c.chatWithVideoGeneration(ctx, msgs, model)
+	if err != nil {
+		return err
+	}
+	if h == nil {
+		return nil
+	}
+	if strings.TrimSpace(msg.Content) != "" {
+		h.OnDelta(msg.Content)
+	}
+	for _, video := range msg.Videos {
+		h.OnVideo(video)
 	}
 	return nil
 }

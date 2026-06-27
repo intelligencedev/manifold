@@ -20,7 +20,12 @@ func (a *app) ensureMatrixRoomProject(ctx context.Context, roomID string) (strin
 	}
 
 	projectName := matrixRoomProjectName(trimmedRoomID)
-	matrixProjects, err := a.projectsService.ListProjectsByKind(ctx, systemUserID, projects.ProjectKindMatrix)
+	matrixProjects, err := a.projectsService.ListProjectsByKindWithUsage(
+		ctx,
+		systemUserID,
+		projects.ProjectKindMatrix,
+		false,
+	)
 	if err != nil {
 		return "", fmt.Errorf("list projects: %w", err)
 	}

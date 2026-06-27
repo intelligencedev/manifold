@@ -9,6 +9,7 @@ import (
 func (e *Engine) runLoop(ctx context.Context, msgs []llm.Message) (string, error) {
 	log := observability.LoggerWithTrace(ctx)
 	var final string
+	finalSet := false
 
 	for step := 0; e.stepAllowed(step); step++ {
 		log.Debug().Int("step", step).Int("history", len(msgs)).Msg("engine_step_start")
@@ -61,6 +62,7 @@ func (e *Engine) runLoop(ctx context.Context, msgs []llm.Message) (string, error
 		if len(msg.ToolCalls) == 0 {
 			log.Info().Int("step", step).Int("final_len", len(msg.Content)).Msg("engine_final")
 			final = msg.Content
+			finalSet = true
 			break
 		}
 
@@ -72,7 +74,7 @@ func (e *Engine) runLoop(ctx context.Context, msgs []llm.Message) (string, error
 		e.emitContextMetrics(ctx, msgs, ContextMetricPhaseToolAdded, nil, 0)
 	}
 
-	if final == "" {
+	if !finalSet {
 		return "", MaxStepsExceededError{MaxSteps: e.MaxSteps}
 	}
 
@@ -83,6 +85,7 @@ func (e *Engine) runLoop(ctx context.Context, msgs []llm.Message) (string, error
 // It returns the final assistant content or an error.
 func (e *Engine) runStreamLoop(ctx context.Context, msgs []llm.Message) (string, error) {
 	var final string
+	finalSet := false
 
 	for step := 0; e.stepAllowed(step); step++ {
 		if e.SummaryEnabled && step > 0 {
@@ -95,11 +98,12 @@ func (e *Engine) runStreamLoop(ctx context.Context, msgs []llm.Message) (string,
 		msgs = nextMsgs
 		if done {
 			final = content
+			finalSet = true
 			break
 		}
 	}
 
-	if final == "" {
+	if !finalSet {
 		return "", MaxStepsExceededError{MaxSteps: e.MaxSteps}
 	}
 
@@ -162,6 +166,7 @@ type streamAccumulator struct {
 	content          string
 	toolCalls        []llm.ToolCall
 	images           []llm.GeneratedImage
+	videos           []llm.GeneratedVideo
 	thoughtSignature string
 }
 
@@ -176,6 +181,7 @@ func (a *streamAccumulator) handler() *streamHandler {
 		onThoughtSignature: a.onThoughtSignature,
 		onToolCall:         a.onToolCall,
 		onImage:            a.onImage,
+		onVideo:            a.onVideo,
 	}
 }
 
@@ -204,6 +210,10 @@ func (a *streamAccumulator) onImage(img llm.GeneratedImage) {
 	a.images = append(a.images, img)
 }
 
+func (a *streamAccumulator) onVideo(video llm.GeneratedVideo) {
+	a.videos = append(a.videos, video)
+}
+
 func (a *streamAccumulator) message(e *Engine, msgs []llm.Message) llm.Message {
 	toolCalls := llm.NormalizeToolCalls(a.toolCalls)
 	toolCalls = e.ensureToolCallIDs(msgs, toolCalls)
@@ -212,6 +222,7 @@ func (a *streamAccumulator) message(e *Engine, msgs []llm.Message) llm.Message {
 		Content:          a.content,
 		ToolCalls:        toolCalls,
 		Images:           a.images,
+		Videos:           a.videos,
 		ThoughtSignature: a.thoughtSignature,
 	}
 }

@@ -133,9 +133,39 @@ func mcpServerHasProjectPlaceholder(cfgSrv config.MCPServerConfig) bool {
 			return true
 		}
 	}
+	if strings.Contains(cfgSrv.Workdir, "{{PROJECT_DIR}}") {
+		return true
+	}
 	for _, value := range cfgSrv.Env {
 		if strings.Contains(value, "{{PROJECT_DIR}}") {
 			return true
+		}
+	}
+	for _, defaults := range cfgSrv.ToolDefaults {
+		for _, value := range defaults {
+			if stringContainsProjectPlaceholder(value) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func stringContainsProjectPlaceholder(value any) bool {
+	switch v := value.(type) {
+	case string:
+		return strings.Contains(v, "{{PROJECT_DIR}}")
+	case []any:
+		for _, item := range v {
+			if stringContainsProjectPlaceholder(item) {
+				return true
+			}
+		}
+	case map[string]any:
+		for _, item := range v {
+			if stringContainsProjectPlaceholder(item) {
+				return true
+			}
 		}
 	}
 	return false

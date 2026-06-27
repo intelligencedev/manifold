@@ -2138,7 +2138,7 @@ onMounted(async () => {
     const [toolResp, workflowResp] = await Promise.all([
       fetchFlowTools(),
       fetchFlowWorkflowList(),
-      projectsStore.refresh().catch((err) => {
+      projectsStore.refresh({ includeUsage: false }).catch((err) => {
         console.error("projects", err);
         return [];
       }),

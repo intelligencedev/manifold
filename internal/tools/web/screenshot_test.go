@@ -3,6 +3,7 @@ package web
 import (
 	"image"
 	"image/color"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -49,6 +50,13 @@ func TestStitchViewportScreenshots(t *testing.T) {
 	require.Equal(t, color.RGBA{G: 0xff, A: 0xff}, stitched.RGBAAt(5, 125))
 	require.Equal(t, color.RGBA{B: 0xff, A: 0xff}, stitched.RGBAAt(5, 175))
 	require.Equal(t, color.RGBA{B: 0xff, A: 0xff}, stitched.RGBAAt(5, 249))
+}
+
+func TestScreenshotTempDirIsProjectLocal(t *testing.T) {
+	t.Parallel()
+
+	base := t.TempDir()
+	require.Equal(t, filepath.Join(base, ".tmp", "web-screenshot"), screenshotTempDir(base))
 }
 
 func solidImage(width, height int, fill color.RGBA) *image.RGBA {

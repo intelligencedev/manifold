@@ -26,6 +26,7 @@ func (s *streamRecorder) OnToolCall(tc llm.ToolCall) {
 func (s *streamRecorder) OnImage(img llm.GeneratedImage) {
 	s.images = append(s.images, img)
 }
+func (s *streamRecorder) OnVideo(llm.GeneratedVideo) {}
 func (s *streamRecorder) OnThoughtSummary(summary string) {
 	s.summaries = append(s.summaries, summary)
 }

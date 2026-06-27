@@ -406,6 +406,7 @@ type ExecCommandRule struct {
 type ExecSandboxConfig struct {
 	Enabled           *bool                    `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 	FailIfUnavailable *bool                    `yaml:"failIfUnavailable,omitempty" json:"failIfUnavailable,omitempty"`
+	ReadPaths         []string                 `yaml:"readPaths,omitempty" json:"readPaths,omitempty"`
 	Network           ExecSandboxNetworkConfig `yaml:"network" json:"network"`
 }
 
@@ -524,6 +525,8 @@ type SpecialistConfig struct {
 	RequestInfoEnabled *bool  `yaml:"requestInfoEnabled" json:"requestInfoEnabled"`
 	// ImageGeneration routes specialist chat requests through provider image generation.
 	ImageGeneration bool `yaml:"imageGeneration" json:"imageGeneration"`
+	// VideoGeneration routes specialist chat requests through provider video generation.
+	VideoGeneration bool `yaml:"videoGeneration" json:"videoGeneration"`
 	// AutoDiscover overrides the global auto-discovery setting for this specialist.
 	// Nil means inherit the global default.
 	AutoDiscover *bool `yaml:"autoDiscover" json:"autoDiscover"`

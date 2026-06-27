@@ -31,3 +31,29 @@ func ImagePromptFromContext(ctx context.Context) (ImagePromptOptions, bool) {
 	}
 	return ImagePromptOptions{}, false
 }
+
+// VideoPromptOptions describes optional overrides for video generation.
+type VideoPromptOptions struct{}
+
+type videoPromptCtxKey struct{}
+
+// WithVideoPrompt annotates ctx to request video generation support from providers.
+func WithVideoPrompt(ctx context.Context, opts VideoPromptOptions) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, videoPromptCtxKey{}, opts)
+}
+
+// VideoPromptFromContext returns the requested video generation options when present.
+func VideoPromptFromContext(ctx context.Context) (VideoPromptOptions, bool) {
+	if ctx == nil {
+		return VideoPromptOptions{}, false
+	}
+	if v := ctx.Value(videoPromptCtxKey{}); v != nil {
+		if opts, ok := v.(VideoPromptOptions); ok {
+			return opts, true
+		}
+	}
+	return VideoPromptOptions{}, false
+}

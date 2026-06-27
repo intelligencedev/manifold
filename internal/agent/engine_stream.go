@@ -8,6 +8,7 @@ type streamHandler struct {
 	onThoughtSignature func(string)
 	onToolCall         func(llm.ToolCall)
 	onImage            func(llm.GeneratedImage)
+	onVideo            func(llm.GeneratedVideo)
 }
 
 func (h *streamHandler) OnDelta(content string) {
@@ -25,6 +26,12 @@ func (h *streamHandler) OnToolCall(tc llm.ToolCall) {
 func (h *streamHandler) OnImage(img llm.GeneratedImage) {
 	if h.onImage != nil {
 		h.onImage(img)
+	}
+}
+
+func (h *streamHandler) OnVideo(video llm.GeneratedVideo) {
+	if h.onVideo != nil {
+		h.onVideo(video)
 	}
 }
 

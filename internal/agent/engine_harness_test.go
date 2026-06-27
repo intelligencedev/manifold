@@ -212,6 +212,32 @@ func TestRunStreamHarnessDisabledStreamsLegacyDeltas(t *testing.T) {
 	require.Equal(t, "legacy stream", turnMessages[0].Content)
 }
 
+func TestRunHarnessAllowsEmptyTerminalToolResponseWithZeroMaxSteps(t *testing.T) {
+	t.Parallel()
+
+	provider := &harnessScriptedProvider{responses: []llm.Message{
+		{Role: "assistant", ToolCalls: []llm.ToolCall{{Name: "agent_response", Args: json.RawMessage(`{"text":""}`)}}},
+	}}
+	eng := &Engine{
+		LLM:            provider,
+		Tools:          tools.NewRegistry(),
+		MaxSteps:       0,
+		HarnessEnabled: true,
+		HarnessConfig: harness.RunConfig{
+			Mode: harness.ModeWorkflow,
+			Workflow: harness.WorkflowConfig{
+				TerminalTools: []string{"agent_response"},
+			},
+		},
+	}
+
+	final, err := eng.Run(context.Background(), "finish empty", nil)
+
+	require.NoError(t, err)
+	require.Equal(t, "", final)
+	require.Len(t, provider.calls, 1)
+}
+
 func TestRunHarnessWorkflowEnforcesRequiredStepBeforeTerminal(t *testing.T) {
 	provider := &harnessScriptedProvider{responses: []llm.Message{
 		{Role: "assistant", ToolCalls: []llm.ToolCall{{Name: "agent_response", Args: json.RawMessage(`{"text":"too soon"}`)}}},

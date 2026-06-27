@@ -69,6 +69,7 @@ export interface Specialist {
   enableTools: boolean;
   requestInfoEnabled?: boolean | null;
   imageGeneration?: boolean;
+  videoGeneration?: boolean;
   autoDiscover?: boolean | null;
   paused: boolean;
   allowTools?: string[];

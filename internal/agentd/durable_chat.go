@@ -921,7 +921,7 @@ func durableChatBuild(prepared durableChatPreparedRequest, descriptor chatTarget
 }
 
 func (a *app) loadDurableChatHistory(ctx context.Context, prepared durableChatPreparedRequest, build chatEngineBuildResult) ([]llm.Message, *agentmemory.SummaryResult, error) {
-	if build.ImageGeneration {
+	if build.ImageGeneration || build.VideoGeneration {
 		return nil, nil, nil
 	}
 	history, summary, err := a.chatMemory.BuildContextForProvider(ctx, prepared.userID, prepared.req.SessionID, build.Engine.LLM, build.Engine.Model, agentmemory.SummaryPolicy{

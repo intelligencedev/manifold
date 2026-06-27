@@ -186,6 +186,7 @@ type Specialist struct {
 	EnableTools                bool               `json:"enableTools"`
 	RequestInfoEnabled         *bool              `json:"requestInfoEnabled,omitempty"`
 	ImageGeneration            bool               `json:"imageGeneration"`
+	VideoGeneration            bool               `json:"videoGeneration"`
 	AutoDiscover               *bool              `json:"autoDiscover,omitempty"`
 	Paused                     bool               `json:"paused"`
 	AllowTools                 []string           `json:"allowTools"`

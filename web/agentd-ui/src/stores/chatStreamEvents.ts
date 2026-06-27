@@ -144,6 +144,10 @@ export function handleStreamEvent(
       handleImageEvent(state, event, sessionId, assistantId);
       break;
     }
+    case "video": {
+      handleVideoEvent(state, event, sessionId, assistantId);
+      break;
+    }
     case "tts_chunk":
       break;
     case "tts_audio": {
@@ -221,10 +225,43 @@ function handleImageEvent(
   sessionId: string,
   assistantId: string,
 ) {
+  appendGeneratedMediaEvent(state, event, sessionId, assistantId, {
+    kind: "image",
+    fallbackName: "generated image",
+    noteLabel: "Image",
+  });
+}
+
+function handleVideoEvent(
+  state: ChatStoreState,
+  event: ChatStreamEvent,
+  sessionId: string,
+  assistantId: string,
+) {
+  appendGeneratedMediaEvent(state, event, sessionId, assistantId, {
+    kind: "video",
+    fallbackName: "generated video",
+    noteLabel: "Video",
+    includeVideoFields: true,
+  });
+}
+
+function appendGeneratedMediaEvent(
+  state: ChatStoreState,
+  event: ChatStreamEvent,
+  sessionId: string,
+  assistantId: string,
+  options: {
+    kind: "image" | "video";
+    fallbackName: string;
+    noteLabel: string;
+    includeVideoFields?: boolean;
+  },
+) {
   const name =
     typeof event.name === "string" && event.name.trim()
       ? event.name.trim()
-      : "generated image";
+      : options.fallbackName;
   const mime = typeof event.mime === "string" ? event.mime : undefined;
   const relPath =
     typeof event.rel_path === "string" ? event.rel_path : undefined;
@@ -239,18 +276,27 @@ function handleImageEvent(
     const attachments = [...(m.attachments || [])];
     attachments.push({
       id: createId(),
-      kind: "image",
-      name: name || savedPath || "image",
+      kind: options.kind,
+      name: name || savedPath || options.kind,
       mime,
       previewUrl: previewUrl || undefined,
       path: savedPath,
     });
     let content = m.content;
     if (savedPath && !content.includes(savedPath)) {
-      const note = `Image saved: ${savedPath}`;
+      const note = `${options.noteLabel} saved: ${savedPath}`;
       content = content ? `${content}\n\n${note}` : note;
     }
-    return { ...m, attachments, content };
+    if (!options.includeVideoFields) {
+      return { ...m, attachments, content };
+    }
+    return {
+      ...m,
+      attachments,
+      content,
+      videoUrl: previewUrl || m.videoUrl,
+      videoFilePath: savedPath || m.videoFilePath,
+    };
   });
 }
 

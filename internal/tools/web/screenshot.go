@@ -68,7 +68,7 @@ func (t *screenshotTool) Call(ctx context.Context, raw json.RawMessage) (any, er
 		return map[string]any{"ok": false, "error": "no project base directory in context; screenshot tool must run inside a project"}, nil
 	}
 
-	png, err := capturePageScreenshot(ctx, args)
+	png, err := capturePageScreenshot(ctx, base, args)
 	if err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}, nil
 	}
@@ -111,8 +111,11 @@ func (a screenshotArgs) fullPage() bool {
 	return a.FullPage == nil || *a.FullPage
 }
 
-func capturePageScreenshot(ctx context.Context, args screenshotArgs) ([]byte, error) {
-	allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx, screenshotAllocatorOptions(args)...)
+func capturePageScreenshot(ctx context.Context, base string, args screenshotArgs) ([]byte, error) {
+	if err := os.MkdirAll(screenshotTempDir(base), 0o755); err != nil {
+		return nil, fmt.Errorf("create screenshot temp dir: %w", err)
+	}
+	allocCtx, cancelAlloc := chromedp.NewExecAllocator(ctx, screenshotAllocatorOptions(base, args)...)
 	defer cancelAlloc()
 	browserCtx, cancelBrowser := chromedp.NewContext(allocCtx)
 	defer cancelBrowser()
@@ -127,8 +130,12 @@ func capturePageScreenshot(ctx context.Context, args screenshotArgs) ([]byte, er
 	return png, nil
 }
 
-func screenshotAllocatorOptions(args screenshotArgs) []chromedp.ExecAllocatorOption {
+func screenshotAllocatorOptions(base string, args screenshotArgs) []chromedp.ExecAllocatorOption {
+	tmpDir := screenshotTempDir(base)
+	profileDir := filepath.Join(tmpDir, "chrome-profile")
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Env("TMPDIR="+tmpDir, "TEMP="+tmpDir, "TMP="+tmpDir),
+		chromedp.UserDataDir(profileDir),
 		chromedp.Flag("headless", false),
 		chromedp.Flag("disable-gpu", false),
 		chromedp.Flag("start-maximized", true),
@@ -140,6 +147,10 @@ func screenshotAllocatorOptions(args screenshotArgs) []chromedp.ExecAllocatorOpt
 		opts = append(opts, chromedp.ExecPath(p))
 	}
 	return opts
+}
+
+func screenshotTempDir(base string) string {
+	return filepath.Join(base, ".tmp", "web-screenshot")
 }
 
 func screenshotTasks(args screenshotArgs, png *[]byte) chromedp.Tasks {

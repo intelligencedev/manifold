@@ -282,7 +282,7 @@ func (a *app) loadBuiltChatTarget(w http.ResponseWriter, r *http.Request, opts c
 
 	var history []llm.Message
 	var summary *memory.SummaryResult
-	if build.ImageGeneration {
+	if build.ImageGeneration || build.VideoGeneration {
 		return build, history, summary, true
 	}
 	var err error

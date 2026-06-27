@@ -66,6 +66,16 @@ func (p *unboundedStepsProvider) ChatStream(_ context.Context, _ []llm.Message, 
 	return nil
 }
 
+type emptyTerminalProvider struct{}
+
+func (p *emptyTerminalProvider) Chat(context.Context, []llm.Message, []llm.ToolSchema, string) (llm.Message, error) {
+	return llm.Message{Role: "assistant"}, nil
+}
+
+func (p *emptyTerminalProvider) ChatStream(context.Context, []llm.Message, []llm.ToolSchema, string, llm.StreamHandler) error {
+	return nil
+}
+
 func TestRunReturnsMaxStepsErrorInsteadOfFallbackText(t *testing.T) {
 	t.Parallel()
 
@@ -101,6 +111,44 @@ func TestRunStreamReturnsMaxStepsErrorInsteadOfFallbackText(t *testing.T) {
 	}
 	if strings.Contains(final, "no final text") {
 		t.Fatalf("fallback text leaked as final response: %q", final)
+	}
+}
+
+func TestRunAllowsEmptyTerminalResponseWithZeroMaxSteps(t *testing.T) {
+	t.Parallel()
+
+	eng := &Engine{
+		LLM:      &emptyTerminalProvider{},
+		Tools:    tools.NewRegistry(),
+		MaxSteps: 0,
+	}
+
+	final, err := eng.Run(context.Background(), "finish empty", nil)
+
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if final != "" {
+		t.Fatalf("expected empty final response, got %q", final)
+	}
+}
+
+func TestRunStreamAllowsEmptyTerminalResponseWithZeroMaxSteps(t *testing.T) {
+	t.Parallel()
+
+	eng := &Engine{
+		LLM:      &emptyTerminalProvider{},
+		Tools:    tools.NewRegistry(),
+		MaxSteps: 0,
+	}
+
+	final, err := eng.RunStream(context.Background(), "finish empty", nil)
+
+	if err != nil {
+		t.Fatalf("RunStream() error = %v", err)
+	}
+	if final != "" {
+		t.Fatalf("expected empty final response, got %q", final)
 	}
 }
 

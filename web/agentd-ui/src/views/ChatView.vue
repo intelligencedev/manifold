@@ -909,6 +909,21 @@
                     />
                   </div>
                   <div
+                    v-if="message.attachments.some((a) => a.kind === 'video')"
+                    class="space-y-2"
+                  >
+                    <video
+                      v-for="video in message.attachments.filter(
+                        (a) => a.kind === 'video',
+                      )"
+                      :key="video.id"
+                      :src="video.previewUrl"
+                      controls
+                      preload="metadata"
+                      class="max-h-[360px] w-full rounded-4 border border-border bg-black"
+                    ></video>
+                  </div>
+                  <div
                     v-if="message.attachments.some((a) => a.kind === 'text')"
                     class="flex flex-wrap gap-2"
                   >
@@ -929,6 +944,13 @@
                   controls
                   class="w-full"
                 ></audio>
+                <video
+                  v-if="message.videoUrl"
+                  :src="message.videoUrl"
+                  controls
+                  preload="metadata"
+                  class="max-h-[360px] w-full rounded-4 border border-border bg-black"
+                ></video>
               </div>
             </article>
 
@@ -1707,7 +1729,7 @@ const displayUsername = computed(
 
 onMounted(() => {
   void loadCurrentUser();
-  void proj.refresh();
+  void proj.refresh({ includeUsage: false });
   if (isBrowser) {
     previousBodyOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";

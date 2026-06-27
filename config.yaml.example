@@ -70,6 +70,11 @@ exec:
     # default to true. Keep explicit values here for predictable installs.
     enabled: true
     failIfUnavailable: true
+    # Extra host paths the command sandbox may read but not write. Absolute
+    # paths are used as-is; relative paths resolve under the active workspace.
+    # macOS Cargo/LibreSSL may need /private/etc/ssl to read openssl.cnf.
+    readPaths:
+      - /private/etc/ssl
     network:
       # Network is blocked inside the command sandbox unless enabled here.
       enabled: false

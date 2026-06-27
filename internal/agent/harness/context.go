@@ -463,5 +463,8 @@ func cloneLLMMessage(message llm.Message) llm.Message {
 	if len(message.Images) > 0 {
 		out.Images = append([]llm.GeneratedImage(nil), message.Images...)
 	}
+	if len(message.Videos) > 0 {
+		out.Videos = append([]llm.GeneratedVideo(nil), message.Videos...)
+	}
 	return out
 }

@@ -59,3 +59,43 @@ func TestRedactJSON_EmptyAndInvalid(t *testing.T) {
 		t.Errorf("expected original bytes for invalid json, got %s", string(res))
 	}
 }
+
+func TestRedactValueRedactsStructsMapsAndSlices(t *testing.T) {
+	type nested struct {
+		Authorization string `json:"authorization"`
+		Visible       string `json:"visible"`
+	}
+	type payload struct {
+		APIKey       string            `json:"apiKey"`
+		Name         string            `json:"name"`
+		ExtraHeaders map[string]string `json:"extraHeaders"`
+		Nested       nested            `json:"nested"`
+	}
+
+	redacted, ok := RedactValue(payload{
+		APIKey: "sk-secret",
+		Name:   "keep",
+		ExtraHeaders: map[string]string{
+			"Authorization": "Bearer secret",
+			"X-Trace":       "trace",
+		},
+		Nested: nested{Authorization: "Bearer nested", Visible: "shown"},
+	}).(map[string]any)
+	if !ok {
+		t.Fatalf("expected redacted struct map, got %T", redacted)
+	}
+	if redacted["apiKey"] != RedactedValue {
+		t.Fatalf("expected apiKey redacted, got %v", redacted["apiKey"])
+	}
+	if redacted["name"] != "keep" {
+		t.Fatalf("expected name preserved, got %v", redacted["name"])
+	}
+	headers := redacted["extraHeaders"].(map[string]any)
+	if headers["Authorization"] != RedactedValue || headers["X-Trace"] != "trace" {
+		t.Fatalf("unexpected header redaction: %#v", headers)
+	}
+	n := redacted["nested"].(map[string]any)
+	if n["authorization"] != RedactedValue || n["visible"] != "shown" {
+		t.Fatalf("unexpected nested redaction: %#v", n)
+	}
+}

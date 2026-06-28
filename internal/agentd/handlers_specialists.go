@@ -62,8 +62,7 @@ func (a *app) statusHandler() http.HandlerFunc {
 				UpdatedAt: now,
 			})
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(out)
+		writeJSON(w, http.StatusOK, out)
 	}
 }
 
@@ -80,7 +79,6 @@ func (a *app) specialistDefaultsHandler() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
 		out := map[string]persist.Specialist{}
 		for _, p := range []string{"openai", "anthropic", "google", "local"} {
 			model, baseURL, apiKey, headers, params := a.providerDefaults(p)
@@ -93,7 +91,7 @@ func (a *app) specialistDefaultsHandler() http.HandlerFunc {
 				ExtraParams:  params,
 			}
 		}
-		json.NewEncoder(w).Encode(out)
+		writeJSON(w, http.StatusOK, out)
 	}
 }
 
@@ -114,8 +112,7 @@ func (a *app) specialistsHandler() http.HandlerFunc {
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
 			}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(list)
+			writeJSON(w, http.StatusOK, list)
 
 		case http.MethodPost:
 			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
@@ -130,9 +127,7 @@ func (a *app) specialistsHandler() http.HandlerFunc {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(status)
-			json.NewEncoder(w).Encode(saved)
+			writeJSON(w, status, saved)
 
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -168,8 +163,7 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 				http.NotFound(w, r)
 				return
 			}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(sp)
+			writeJSON(w, http.StatusOK, sp)
 		case http.MethodPut:
 			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 			defer r.Body.Close()
@@ -183,8 +177,7 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(saved)
+			writeJSON(w, http.StatusOK, saved)
 		case http.MethodDelete:
 			if err := a.deleteSpecialistForUser(r.Context(), userID, name); err != nil {
 				if err == errOrchestratorDelete {

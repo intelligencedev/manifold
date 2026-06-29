@@ -12,7 +12,7 @@ var sensitiveKeys = []string{
 
 const RedactedValue = "[REDACTED]"
 
-/ RedactJSON takes a JSON payload and redacts sensitive values based on common key names.
+// RedactJSON takes a JSON payload and redacts sensitive values based on common key names.
 func RedactJSON(raw json.RawMessage) json.RawMessage {
 	if len(raw) == 0 {
 		return raw
@@ -29,9 +29,9 @@ func RedactJSON(raw json.RawMessage) json.RawMessage {
 	return b
 }
 
-/ RedactValue returns a recursively redacted copy of v. Maps with sensitive key
-/ names have their values replaced; slices and nested maps are redacted in place
-/ in the returned copy.
+// RedactValue returns a recursively redacted copy of v. Maps with sensitive key
+// names have their values replaced; slices and nested maps are redacted in place
+// in the returned copy.
 func RedactValue(v any) any {
 	return redactValue(v)
 }

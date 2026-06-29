@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"manifold/internal/config"
+	"manifold/internal/observability"
 	"manifold/internal/persistence"
 	"manifold/internal/persistence/databases"
 	"manifold/internal/specialists"
@@ -109,6 +110,50 @@ func TestDeleteSpecialistForUserRemovesMemberships(t *testing.T) {
 	}
 	if _, ok, err := app.specStore.GetByName(ctx, 21, "runner"); err != nil || ok {
 		t.Fatalf("expected specialist removed, ok=%v err=%v", ok, err)
+	}
+}
+
+func TestSpecialistsResponsesRedactSecrets(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := newSpecialistTeamTestApp()
+
+	_, err := app.specStore.Upsert(ctx, 41, persistence.Specialist{
+		Name:   "alpha",
+		APIKey: "alpha-secret",
+		ExtraHeaders: map[string]string{
+			"Authorization": "Bearer header-secret",
+			"X-Trace":       "trace-id",
+		},
+		ExtraParams: map[string]any{
+			"password": "param-secret",
+			"visible":  "shown",
+		},
+	})
+	if err != nil {
+		t.Fatalf("upsert specialist: %v", err)
+	}
+
+	list, err := app.listSpecialistsForUser(ctx, 41)
+	if err != nil {
+		t.Fatalf("listSpecialistsForUser: %v", err)
+	}
+	redactedList := observability.RedactValue(list).([]any)
+	for _, item := range redactedList {
+		sp := item.(map[string]any)
+		if sp["apiKey"] != observability.RedactedValue {
+			t.Fatalf("expected apiKey redacted in list item %#v", sp)
+		}
+	}
+	alpha := redactedList[1].(map[string]any)
+	headers := alpha["extraHeaders"].(map[string]any)
+	if headers["Authorization"] != observability.RedactedValue || headers["X-Trace"] != "trace-id" {
+		t.Fatalf("unexpected header redaction: %#v", headers)
+	}
+	params := alpha["extraParams"].(map[string]any)
+	if params["password"] != observability.RedactedValue || params["visible"] != "shown" {
+		t.Fatalf("unexpected params redaction: %#v", params)
 	}
 }
 

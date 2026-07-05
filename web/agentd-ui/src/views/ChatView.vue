@@ -108,35 +108,6 @@
                   </div>
                 </div>
               </header>
-              <section class="cockpit-run-strip" aria-label="Run Activity">
-                <div class="min-w-0">
-                  <p class="chat-panel-kicker">Run Activity</p>
-                  <h2 class="truncate text-base font-semibold text-foreground">
-                    {{ runActivityTitle }}
-                  </h2>
-                  <p class="mt-1 truncate text-xs text-subtle-foreground">
-                    {{ runActivityDetail }}
-                  </p>
-                </div>
-                <div class="cockpit-run-readouts">
-                  <div class="cockpit-mini-readout">
-                    <span>State</span>
-                    <strong>{{ cockpitRunStateText }}</strong>
-                  </div>
-                  <div class="cockpit-mini-readout">
-                    <span>Messages</span>
-                    <strong>{{ cockpitMessageCount.toLocaleString() }}</strong>
-                  </div>
-                  <div class="cockpit-mini-readout">
-                    <span>Tools</span>
-                    <strong>{{ cockpitToolCount.toLocaleString() }}</strong>
-                  </div>
-                  <div class="cockpit-mini-readout">
-                    <span>Active</span>
-                    <strong>{{ activeParticipantCount }}</strong>
-                  </div>
-                </div>
-              </section>
               <div class="cockpit-inspector-stack">
                 <section class="cockpit-inspector-card" aria-label="Context">
                   <div
@@ -156,6 +127,66 @@
                   </div>
                 </section>
               </div>
+
+              <section
+                class="session-tool-invocations"
+                aria-label="Tool invocations"
+              >
+                <header class="session-tool-invocations-header">
+                  <div>
+                    <p class="chat-panel-kicker">Tool Invocations</p>
+                    <p class="session-tool-invocations-summary">
+                      {{ cockpitToolCount.toLocaleString() }} total
+                    </p>
+                  </div>
+                </header>
+                <div
+                  v-if="cockpitToolRows.length"
+                  class="session-tool-invocation-list"
+                >
+                  <details
+                    v-for="row in cockpitToolRows"
+                    :key="row.id"
+                    class="session-tool-invocation"
+                  >
+                    <summary class="session-tool-invocation-summary-row">
+                      <span class="cockpit-tool-glyph">⌘</span>
+                      <span class="session-tool-invocation-title-block">
+                        <span class="cockpit-tool-title">{{ row.name }}</span>
+                        <span class="cockpit-tool-detail">{{
+                          row.detail
+                        }}</span>
+                      </span>
+                      <span class="cockpit-tool-state">
+                        <span
+                          class="cockpit-status-dot"
+                          :class="`cockpit-status-dot--${row.statusTone}`"
+                        ></span>
+                        {{ row.status }}
+                      </span>
+                    </summary>
+                    <div class="session-tool-invocation-details">
+                      <div v-if="row.args" class="session-tool-detail-block">
+                        <span class="session-tool-detail-label">Arguments</span>
+                        <pre>{{ row.args }}</pre>
+                      </div>
+                      <div v-if="row.output" class="session-tool-detail-block">
+                        <span class="session-tool-detail-label">Result</span>
+                        <pre>{{ row.output }}</pre>
+                      </div>
+                      <p
+                        v-if="!row.args && !row.output"
+                        class="cockpit-empty-text"
+                      >
+                        No details recorded for this invocation.
+                      </p>
+                    </div>
+                  </details>
+                </div>
+                <p v-else class="cockpit-empty-text">
+                  No tool calls recorded for this conversation.
+                </p>
+              </section>
             </div>
           </GlassCard>
         </div>
@@ -385,63 +416,6 @@
             </div>
             <p v-else class="cockpit-empty-text">
               No active timeline for this conversation.
-            </p>
-          </article>
-
-          <article class="cockpit-center-card">
-            <header class="cockpit-card-header">
-              <div>
-                <p class="chat-panel-kicker">Tool Invocations</p>
-              </div>
-              <span class="cockpit-card-pill"
-                >{{ cockpitToolCount.toLocaleString() }} total</span
-              >
-            </header>
-            <div
-              v-if="cockpitToolRows.length"
-              class="cockpit-tool-table"
-              role="table"
-              aria-label="Tool invocation details"
-            >
-              <div
-                class="cockpit-tool-table-row cockpit-tool-table-head"
-                role="row"
-              >
-                <span role="columnheader">Tool</span>
-                <span role="columnheader">Status</span>
-                <span role="columnheader">Duration</span>
-                <span role="columnheader">Timestamp</span>
-              </div>
-              <div
-                v-for="row in cockpitToolRows"
-                :key="row.id"
-                class="cockpit-tool-table-row"
-                role="row"
-              >
-                <span class="cockpit-tool-name" role="cell">
-                  <span class="cockpit-tool-glyph">⌘</span>
-                  <span class="min-w-0">
-                    <span class="cockpit-tool-title">{{ row.name }}</span>
-                    <span class="cockpit-tool-detail">{{ row.detail }}</span>
-                  </span>
-                </span>
-                <span class="cockpit-tool-state" role="cell">
-                  <span
-                    class="cockpit-status-dot"
-                    :class="`cockpit-status-dot--${row.statusTone}`"
-                  ></span>
-                  {{ row.status }}
-                </span>
-                <span class="cockpit-tool-meta" role="cell">{{
-                  row.durationLabel
-                }}</span>
-                <span class="cockpit-tool-meta" role="cell">{{
-                  row.timestampLabel
-                }}</span>
-              </div>
-            </div>
-            <p v-else class="cockpit-empty-text">
-              No tool calls recorded for this conversation.
             </p>
           </article>
         </section>
@@ -2715,8 +2689,8 @@ type CockpitToolRow = {
   detail: string;
   status: string;
   statusTone: ActivityStatus;
-  durationLabel: string;
-  timestampLabel: string;
+  args: string;
+  output: string;
 };
 type CockpitTimelineTick = {
   id: string;
@@ -2782,15 +2756,6 @@ function formatTimelineOffset(ms: number) {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-}
-
-function formatTimelineTimestamp(ms: number, timelineStartMs: number) {
-  const offset = Math.max(0, ms - timelineStartMs);
-  const totalSeconds = Math.round(offset / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 function percentBetween(value: number, start: number, span: number) {
@@ -2997,45 +2962,11 @@ const runActivityStateLabel = computed(() =>
   activityStateLabel(runActivityState.value),
 );
 
-const runActivityTitle = computed(() => {
-  const count = runActivityItems.value.length;
-  if (!count) return "Drafting response";
-  if (runActivityCounts.value.running > 0) {
-    return `${runActivityCounts.value.running} specialist${runActivityCounts.value.running === 1 ? "" : "s"} working`;
-  }
-  if (runActivityCounts.value.error > 0)
-    return "Specialist work needs attention";
-  return `${count} specialist${count === 1 ? "" : "s"} complete`;
-});
-
-const runActivityDetail = computed(() => {
-  const parts = [];
-  if (runActivityCounts.value.done)
-    parts.push(`${runActivityCounts.value.done} complete`);
-  if (runActivityCounts.value.running)
-    parts.push(`${runActivityCounts.value.running} running`);
-  if (runActivityCounts.value.error)
-    parts.push(`${runActivityCounts.value.error} error`);
-  return parts.length ? parts.join(" / ") : "Synthesizing output";
-});
-
 const runActivitySidebarLabel = computed(() => {
   const count = runActivityItems.value.length;
   if (!count) return "Idle";
   return `${count} thread${count === 1 ? "" : "s"}`;
 });
-
-const runActivityClasses = computed(() => ({
-  "run-activity--running": runActivityState.value === "running",
-  "run-activity--done": runActivityState.value === "done",
-  "run-activity--error": runActivityState.value === "error",
-}));
-
-const runActivityPillClasses = computed(() => ({
-  "run-activity-pill--running": runActivityState.value === "running",
-  "run-activity-pill--done": runActivityState.value === "done",
-  "run-activity-pill--error": runActivityState.value === "error",
-}));
 
 const selectedActivityItem = computed(() => {
   const selected = selectedActivityId.value;
@@ -3670,7 +3601,6 @@ function participantDotClasses(participant: Participant) {
   };
 }
 
-const cockpitMessageCount = computed(() => activeMessages.value.length);
 const cockpitActivityToolCount = computed(() =>
   runActivityItems.value.reduce(
     (count, item) => count + item.toolEntries.length,
@@ -3680,7 +3610,6 @@ const cockpitActivityToolCount = computed(() =>
 const cockpitToolCount = computed(
   () => cockpitActivityToolCount.value || toolMessages.value.length,
 );
-const cockpitRunStateText = computed(() => runActivityStateLabel.value);
 const cockpitAgentContext = computed(() => resolveAgentContext());
 const cockpitTimelineItems = computed(() =>
   [...runActivityItems.value]
@@ -3780,12 +3709,6 @@ const cockpitTimelineLanes = computed<CockpitTimelineLane[]>(() => {
     };
   });
 });
-const activeParticipantCount = computed(
-  () =>
-    participantList.value.filter((participant) =>
-      participantIsActive(participant),
-    ).length,
-);
 const cockpitContextPercent = computed(() => {
   const metrics = sessionContextMetrics.value;
   if (!metrics.contextWindow) return 0;
@@ -3803,26 +3726,19 @@ const cockpitContextLabel = computed(() => {
   return `${metrics.inputTokens.toLocaleString()} / ${metrics.contextWindow.toLocaleString()}`;
 });
 const cockpitToolRows = computed<CockpitToolRow[]>(() => {
-  const now = cockpitTimelineNowMs.value;
-  const window = cockpitTimelineWindow.value;
   const traceRows = runActivityItems.value.flatMap((item) =>
-    item.toolEntries.map((entry) => {
-      const start = activityStartMs(item);
-      const entryMs = safeTimestampMs(entry.createdAt) || start;
-      const end = activityEndMs(
-        item,
-        Math.max(entryMs, cockpitTimelineFallbackEndMs(item, now)),
-      );
-      return {
-        id: `${item.id}:${entry.id}`,
-        name: entry.title || "Tool call",
-        detail: entry.content || entry.args || item.name,
-        status: item.statusLabel,
-        statusTone: item.status,
-        durationLabel: formatDuration(Math.max(0, end - start)),
-        timestampLabel: formatTimelineTimestamp(entryMs, window.startMs),
-      };
-    }),
+    item.toolEntries.map((entry) => ({
+      id: `${item.id}:${entry.id}`,
+      name: entry.title || "Tool call",
+      detail: snippet(
+        entry.content || entry.data || entry.args || item.name,
+        72,
+      ),
+      status: item.statusLabel,
+      statusTone: item.status,
+      args: entry.args || "",
+      output: entry.content || entry.data || "",
+    })),
   );
   if (traceRows.length) return traceRows.slice(-5);
 
@@ -3832,7 +3748,6 @@ const cockpitToolRows = computed<CockpitToolRow[]>(() => {
       : message.streaming
         ? "Running"
         : "Done";
-    const createdAt = safeTimestampMs(message.createdAt) || window.startMs;
     return {
       id: message.id,
       name: message.activityToolTitle || message.title || "Tool call",
@@ -3841,11 +3756,8 @@ const cockpitToolRows = computed<CockpitToolRow[]>(() => {
         "Recorded tool message",
       status,
       statusTone: statusToneFromLabel(status),
-      durationLabel:
-        typeof message.durationMs === "number"
-          ? formatDuration(message.durationMs)
-          : "-",
-      timestampLabel: formatTimelineTimestamp(createdAt, window.startMs),
+      args: message.toolArgs || "",
+      output: message.error || message.content || "",
     };
   });
 });
@@ -5108,6 +5020,110 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   padding: 0.35rem 0.25rem 0.65rem;
 }
 
+.session-tool-invocations {
+  display: grid;
+  gap: 0.5rem;
+  border: 1px solid rgb(var(--color-border) / 0.42);
+  border-radius: 0.8rem;
+  background: rgb(var(--color-surface-muted) / 0.36);
+  padding: 0.65rem;
+}
+
+.session-tool-invocations-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.session-tool-invocations-summary {
+  margin-top: 0.16rem;
+  color: rgb(var(--color-faint-foreground));
+  font-size: 0.62rem;
+}
+
+.session-tool-invocation-list {
+  display: grid;
+  gap: 0.42rem;
+}
+
+.session-tool-invocation {
+  overflow: hidden;
+  border: 1px solid rgb(var(--color-border) / 0.36);
+  border-radius: 0.68rem;
+  background: rgb(var(--color-background) / 0.24);
+}
+
+.session-tool-invocation[open] {
+  border-color: rgb(var(--color-accent) / 0.32);
+  background: rgb(var(--color-surface-muted) / 0.5);
+}
+
+.session-tool-invocation-summary-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  gap: 0.45rem;
+  align-items: center;
+  padding: 0.48rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.session-tool-invocation-summary-row::-webkit-details-marker {
+  display: none;
+}
+
+.session-tool-invocation-summary-row::after {
+  content: "⌄";
+  color: rgb(var(--color-faint-foreground));
+  font-size: 0.72rem;
+  transition: transform 0.15s ease;
+}
+
+.session-tool-invocation[open] .session-tool-invocation-summary-row::after {
+  transform: rotate(180deg);
+}
+
+.session-tool-invocation-title-block {
+  display: block;
+  min-width: 0;
+}
+
+.session-tool-invocation-details {
+  display: grid;
+  gap: 0.5rem;
+  border-top: 1px solid rgb(var(--color-border) / 0.3);
+  padding: 0.55rem;
+}
+
+.session-tool-detail-block {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.session-tool-detail-label {
+  color: rgb(var(--color-faint-foreground));
+  font-family: var(--font-mono);
+  font-size: 0.55rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.session-tool-detail-block pre {
+  max-height: 12rem;
+  overflow: auto;
+  border: 1px solid rgb(var(--color-border) / 0.34);
+  border-radius: 0.55rem;
+  background: rgb(var(--color-background) / 0.42);
+  padding: 0.5rem;
+  color: rgb(var(--color-subtle-foreground));
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
 .session-column-title {
   color: rgb(var(--color-foreground));
   font-size: 0.95rem;
@@ -5209,17 +5225,6 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   opacity: 0.6;
 }
 
-.chat-session-panel .cockpit-run-strip {
-  align-items: stretch;
-  flex-direction: column;
-  margin: 0;
-}
-
-.chat-session-panel .cockpit-run-readouts {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  min-width: 0;
-}
-
 .chat-panel-kicker {
   margin-bottom: 0.18rem;
   color: rgb(var(--color-faint-foreground));
@@ -5259,37 +5264,6 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   border-radius: 1rem;
 }
 
-.cockpit-run-strip {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin: 0.375rem 0.5rem 0;
-  padding: 0.48rem 0.56rem;
-  border: 1px solid rgb(var(--color-border) / 0.64);
-  border-radius: 0.72rem;
-  background:
-    linear-gradient(
-      180deg,
-      rgb(var(--color-surface) / 0.92),
-      rgb(var(--color-muted) / 0.82)
-    ),
-    radial-gradient(
-      circle at 0% 0%,
-      rgb(var(--color-accent) / 0.12),
-      transparent 16rem
-    );
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04);
-}
-
-.cockpit-run-readouts {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.3rem;
-  min-width: 14rem;
-}
-
-.cockpit-mini-readout,
 .cockpit-metric {
   min-width: 0;
   border: 1px solid rgb(var(--color-border) / 0.56);
@@ -5298,7 +5272,6 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   padding: 0.3rem 0.36rem;
 }
 
-.cockpit-mini-readout span,
 .cockpit-metric span,
 .cockpit-readout-row span {
   display: block;
@@ -5310,7 +5283,6 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   text-transform: uppercase;
 }
 
-.cockpit-mini-readout strong,
 .cockpit-metric strong,
 .cockpit-readout-row strong {
   display: block;
@@ -5555,55 +5527,14 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   background: rgb(var(--color-border) / 0.72);
 }
 
-.cockpit-tool-table {
-  display: grid;
-  gap: 0.16rem;
-  margin-top: 0.42rem;
-}
-
-.cockpit-tool-table-row,
 .cockpit-readout-row {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
   align-items: center;
   gap: 0.5rem;
   border-top: 1px solid rgb(var(--color-border) / 0.32);
   padding-top: 0.24rem;
-}
-
-.cockpit-tool-table-row {
-  grid-template-columns:
-    minmax(0, 1.8fr) minmax(5.2rem, 0.65fr) minmax(4rem, 0.45fr)
-    minmax(4.8rem, 0.55fr);
-  border: 1px solid rgb(var(--color-border) / 0.34);
-  border-radius: 0.55rem;
-  background: linear-gradient(
-    180deg,
-    rgb(var(--color-surface-muted) / 0.52),
-    rgb(var(--color-muted) / 0.24)
-  );
-  padding: 0.34rem 0.42rem;
-}
-
-.cockpit-readout-row {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.cockpit-tool-table-head {
-  border-color: rgb(var(--color-border) / 0.26);
-  background: rgb(var(--color-background) / 0.18);
-  color: rgb(var(--color-faint-foreground));
-  font-family: var(--font-mono);
-  font-size: 0.56rem;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.cockpit-tool-name {
-  display: inline-flex;
-  min-width: 0;
-  align-items: center;
-  gap: 0.4rem;
 }
 
 .cockpit-tool-glyph {
@@ -5661,16 +5592,6 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   width: 0.32rem;
   height: 0.32rem;
   box-shadow: none;
-}
-
-.cockpit-tool-meta {
-  min-width: 0;
-  overflow: hidden;
-  color: rgb(var(--color-subtle-foreground));
-  font-family: var(--font-mono);
-  font-size: 0.62rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .cockpit-status-dot {
@@ -6427,68 +6348,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   padding: 1rem 1.1rem 1.2rem;
 }
 
-.run-activity {
-  margin-top: 0.34rem;
-  padding: 0.85rem;
-  border-radius: 0.85rem;
-  border: 1px solid rgb(var(--color-border) / 0.6);
-  background: rgb(var(--color-surface-muted) / 0.92);
-  box-shadow: 0 14px 32px -24px rgb(0 0 0 / 0.6);
-}
-
-.run-activity-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.15rem 0.75rem;
-  align-items: center;
-}
-
-.run-activity-title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: rgb(var(--color-foreground));
-}
-
-.run-activity-detail {
-  grid-column: 1 / 2;
-  color: rgb(var(--color-subtle-foreground));
-  font-size: 0.74rem;
-}
-
-.run-activity-pill {
-  grid-column: 2 / 3;
-  grid-row: 1 / 3;
-  flex-shrink: 0;
-  align-self: start;
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  padding: 0.2rem 0.55rem;
-  border-radius: 999px;
-  border: 1px solid rgb(var(--color-border) / 0.55);
-  color: rgb(var(--color-subtle-foreground));
-  background: rgb(var(--color-surface) / 0.88);
-}
-
-.run-activity--running {
-  border-color: rgb(var(--color-accent) / 0.35);
-}
-
-.run-activity--done {
-  border-color: rgb(var(--color-success) / 0.35);
-}
-
-.run-activity--error {
-  border-color: rgb(var(--color-danger) / 0.35);
-}
-
-.activity-status--running,
-.run-activity-pill--running {
+.activity-status--running {
   border-color: rgb(var(--color-accent) / 0.4);
   color: rgb(var(--color-accent));
   background: rgb(var(--color-accent) / 0.12);
@@ -6498,15 +6358,13 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   animation: statusPulse 1.8s ease-in-out infinite;
 }
 
-.activity-status--done,
-.run-activity-pill--done {
+.activity-status--done {
   border-color: rgb(var(--color-success) / 0.35);
   color: rgb(var(--color-success));
   background: rgb(var(--color-success) / 0.12);
 }
 
-.activity-status--error,
-.run-activity-pill--error {
+.activity-status--error {
   border-color: rgb(var(--color-danger) / 0.4);
   color: rgb(var(--color-danger));
   background: rgb(var(--color-danger) / 0.12);

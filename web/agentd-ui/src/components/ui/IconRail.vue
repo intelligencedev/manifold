@@ -1,24 +1,19 @@
 <template>
   <nav
-    class="halo-rail halo-hairline-r flex h-full w-[204px] flex-col px-3 py-3"
+    class="halo-rail halo-hairline-r flex h-full w-[88px] flex-col px-1.5 py-3"
     aria-label="Primary navigation"
   >
-    <div class="mb-5 flex items-center gap-3 px-1">
+    <div class="mb-3 flex flex-col items-center gap-0.5 px-0 text-center">
       <img
         :src="manifoldLogo"
         alt="Manifold"
-        class="h-8 w-8 rounded-[11px] object-contain"
+        class="h-6 w-6 rounded-[9px] object-contain"
       />
-      <div class="min-w-0">
+      <div class="min-w-0 max-w-full">
         <p
-          class="truncate text-sm font-semibold tracking-[-0.02em] text-foreground"
+          class="truncate text-[11px] font-semibold leading-tight tracking-[-0.02em] text-foreground"
         >
           Manifold
-        </p>
-        <p
-          class="truncate font-mono text-[10px] uppercase tracking-[0.16em] text-faint-foreground"
-        >
-          Agent Console
         </p>
       </div>
     </div>
@@ -42,7 +37,7 @@
           />
           <span v-else>{{ item.glyph }}</span>
         </span>
-        <span class="truncate">{{ item.label }}</span>
+        <span class="nav-label">{{ item.label }}</span>
       </RouterLink>
     </div>
 
@@ -63,7 +58,7 @@
         />
         <span v-else>{{ settingsItem.glyph }}</span>
       </span>
-      <span class="truncate">{{ settingsItem.label }}</span>
+      <span class="nav-label">{{ settingsItem.label }}</span>
     </RouterLink>
   </nav>
 </template>
@@ -141,12 +136,12 @@ function navTarget(name: string) {
 }
 
 function iconClass(name: string) {
-  return ["h-[18px] w-[18px]", name === "flow" ? "rotate-90" : ""];
+  return ["h-4 w-4", name === "flow" ? "rotate-90" : ""];
 }
 
 function itemClass(name: string) {
   const base =
-    "halo-focus relative flex h-10 w-full items-center gap-3 rounded-[14px] border px-3 text-sm font-medium transition-colors duration-150";
+    "halo-focus relative flex min-h-[52px] w-full flex-col items-center justify-center gap-0.5 rounded-[12px] border px-1 py-2 text-center transition-colors duration-150";
   if (isActive(name)) {
     return [
       base,
@@ -163,11 +158,25 @@ function itemClass(name: string) {
 <style scoped>
 .nav-icon-wrap {
   display: grid;
-  height: 1.75rem;
-  width: 1.75rem;
+  height: 1.375rem;
+  width: 1.375rem;
   flex: 0 0 auto;
   place-items: center;
-  border-radius: 0.65rem;
+  border-radius: 0.6rem;
   color: currentColor;
+}
+
+.nav-label {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 </style>

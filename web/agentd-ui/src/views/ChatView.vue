@@ -1677,30 +1677,6 @@
               </div>
               <div class="cockpit-inspector-stack">
                 <section class="cockpit-inspector-card">
-                  <h3 class="chat-panel-kicker">Model & Performance</h3>
-                  <div class="cockpit-metric-grid">
-                    <div class="cockpit-metric">
-                      <span>Primary model</span>
-                      <strong>{{ cockpitAgentContext.agentModel }}</strong>
-                    </div>
-                    <div class="cockpit-metric">
-                      <span>Run state</span>
-                      <strong>{{ cockpitRunStateText }}</strong>
-                    </div>
-                    <div class="cockpit-metric">
-                      <span>Messages</span>
-                      <strong>{{
-                        cockpitMessageCount.toLocaleString()
-                      }}</strong>
-                    </div>
-                    <div class="cockpit-metric">
-                      <span>Tool calls</span>
-                      <strong>{{ cockpitToolCount.toLocaleString() }}</strong>
-                    </div>
-                  </div>
-                </section>
-
-                <section class="cockpit-inspector-card">
                   <div
                     class="cockpit-context-ring"
                     :style="{ '--context-used': cockpitContextDegrees }"

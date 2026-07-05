@@ -11,14 +11,14 @@
       system-ui,
       -apple-system,
       sans-serif;
-    --radius: 9px;
-    --radius-lg: 13px;
+    --radius: 6px;
+    --radius-lg: 8px;
     --font-display: "Inter", system-ui, -apple-system, sans-serif;
     --font-text: "Inter", system-ui, -apple-system, sans-serif;
     --font-mono: "Inter", "Inter var", ui-monospace, SFMono-Regular, monospace;
-    --r-sm: 6px;
-    --r-md: 9px;
-    --r-lg: 13px;
+    --r-sm: 4px;
+    --r-md: 6px;
+    --r-lg: 8px;
     --pad: 20px;
     --bg-rail: 11 13 20;
     --line-soft: 33 39 54;
@@ -164,41 +164,10 @@
 }
 
 @layer utilities {
-  .halo-rail {
-    background:
-      linear-gradient(
-        180deg,
-        rgb(var(--color-surface) / 0.94),
-        rgb(var(--color-muted) / 0.96)
-      ),
-      radial-gradient(
-        circle at 50% 0%,
-        rgb(var(--color-accent) / 0.12),
-        transparent 18rem
-      );
-    box-shadow:
-      inset -1px 0 0 rgb(var(--color-border) / 0.64),
-      18px 0 42px -34px rgb(0 0 0 / 0.9);
-  }
-
-  .halo-surface {
-    border: 1px solid rgb(var(--color-border) / 0.7);
-    border-radius: 1.15rem;
-    background:
-      linear-gradient(
-        180deg,
-        rgb(var(--color-surface) / 0.96),
-        rgb(var(--color-muted) / 0.92)
-      ),
-      radial-gradient(
-        circle at 0% 0%,
-        rgb(var(--color-accent) / 0.1),
-        transparent 16rem
-      );
-    box-shadow:
-      inset 0 1px 0 rgb(255 255 255 / 0.04),
-      0 22px 70px -48px rgb(0 0 0 / 0.95);
-  }
+  /* .halo-rail and .halo-surface are defined (flat, stroke-based) in
+     assets/halo.css, which loads unlayered and always wins the cascade.
+     Legacy gradient/glass variants were removed from here to avoid
+     dead, misleading duplicate rules. */
 
   .halo-hairline-r {
     border-right: 1px solid rgb(var(--color-border) / 0.68);

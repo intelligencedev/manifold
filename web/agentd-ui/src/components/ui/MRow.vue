@@ -4,12 +4,15 @@
   >
     <div
       v-if="$slots.avatar"
-      class="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-[8px] bg-[rgb(var(--accent-dim))] font-mono text-[11px] text-[rgb(var(--accent-hi))]"
+      class="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-md bg-[rgb(var(--accent-dim))] font-mono text-[11px] text-[rgb(var(--accent-hi))]"
     >
       <slot name="avatar" />
     </div>
     <div class="min-w-0 flex-1">
-      <div v-if="$slots.title" class="min-w-0 text-sm font-medium text-foreground">
+      <div
+        v-if="$slots.title"
+        class="min-w-0 text-sm font-medium text-foreground"
+      >
         <slot name="title" />
       </div>
       <div

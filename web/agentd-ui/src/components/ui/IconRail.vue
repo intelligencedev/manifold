@@ -7,7 +7,7 @@
       <img
         :src="manifoldLogo"
         alt="Manifold"
-        class="h-6 w-6 rounded-[9px] object-contain"
+        class="h-6 w-6 rounded-md object-contain"
       />
       <div class="min-w-0 max-w-full">
         <p
@@ -141,7 +141,7 @@ function iconClass(name: string) {
 
 function itemClass(name: string) {
   const base =
-    "halo-focus relative flex min-h-[52px] w-full flex-col items-center justify-center gap-0.5 rounded-[12px] border px-1 py-2 text-center transition-colors duration-150";
+    "halo-focus relative flex min-h-[52px] w-full flex-col items-center justify-center gap-0.5 rounded-md border px-1 py-2 text-center transition-colors duration-150";
   if (isActive(name)) {
     return [
       base,

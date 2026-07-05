@@ -7,7 +7,7 @@
       :key="option.value"
       type="button"
       :class="[
-        'halo-focus rounded-[7px] border border-transparent px-3 py-1.5 font-sans text-[13px] font-medium text-muted-foreground transition-colors',
+        'halo-focus rounded-sm border border-transparent px-3 py-1.5 font-sans text-[13px] font-medium text-muted-foreground transition-colors',
         option.value === modelValue
           ? 'bg-input text-foreground shadow-[inset_0_0_0_1px_rgb(var(--line-strong))]'
           : 'hover:bg-surface-muted hover:text-foreground',

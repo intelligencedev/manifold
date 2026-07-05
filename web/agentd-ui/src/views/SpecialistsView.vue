@@ -18,13 +18,13 @@
           <div class="flex items-center gap-2">
             <button
               @click="startCreateTeam"
-              class="rounded-full border border-accent/50 px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/10"
+              class="rounded-md border border-accent/50 px-3 py-1.5 text-xs font-semibold text-accent transition hover:bg-accent/10"
             >
               New team
             </button>
             <button
               @click="startCreate"
-              class="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
+              class="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
             >
               New specialist
             </button>
@@ -41,7 +41,7 @@
             :aria-selected="activeListTab === 'specialists' ? 'true' : 'false'"
             :tabindex="activeListTab === 'specialists' ? 0 : -1"
             type="button"
-            class="rounded-full border px-3 py-1.5 text-xs font-semibold transition"
+            class="rounded-md border px-3 py-1.5 text-xs font-semibold transition"
             :class="
               activeListTab === 'specialists'
                 ? 'border-border/80 bg-surface-muted/60 text-foreground'
@@ -59,7 +59,7 @@
             :aria-selected="activeListTab === 'teams' ? 'true' : 'false'"
             :tabindex="activeListTab === 'teams' ? 0 : -1"
             type="button"
-            class="rounded-full border px-3 py-1.5 text-xs font-semibold transition"
+            class="rounded-md border px-3 py-1.5 text-xs font-semibold transition"
             :class="
               activeListTab === 'teams'
                 ? 'border-border/80 bg-surface-muted/60 text-foreground'
@@ -76,7 +76,7 @@
             v-model="searchQuery"
             type="text"
             placeholder="Search…"
-            class="w-40 rounded-full border border-border/60 bg-surface-muted/30 px-3 py-1.5 text-xs text-foreground placeholder:text-faint-foreground outline-none transition focus:border-accent/60 focus:ring-1 focus:ring-accent/40"
+            class="w-40 rounded-md border border-border/60 bg-surface-muted/30 px-3 py-1.5 text-xs text-foreground placeholder:text-faint-foreground outline-none transition focus:border-accent/60 focus:ring-1 focus:ring-accent/40"
           />
         </div>
 
@@ -86,19 +86,19 @@
           </div>
           <div
             v-if="teamsLoading"
-            class="rounded-[14px] border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground"
+            class="rounded-lg border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground"
           >
             Loading teams…
           </div>
           <div
             v-else-if="teamsError"
-            class="rounded-[14px] border border-danger/60 bg-danger/10 p-4 text-sm text-danger-foreground"
+            class="rounded-lg border border-danger/60 bg-danger/10 p-4 text-sm text-danger-foreground"
           >
             Failed to load teams.
           </div>
           <div
             v-else-if="!teams.length"
-            class="rounded-[14px] border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground"
+            class="rounded-lg border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground"
           >
             No teams configured yet.
           </div>
@@ -128,7 +128,10 @@
                     {{ teamOrchestratorLabel(t) }}
                   </p>
                 </div>
-                <Pill :tone="t.orchestratorName ? 'accent' : 'danger'" size="sm">
+                <Pill
+                  :tone="t.orchestratorName ? 'accent' : 'danger'"
+                  size="sm"
+                >
                   {{ t.orchestratorName ? "Team" : "Needs setup" }}
                 </Pill>
               </div>
@@ -139,7 +142,7 @@
                 class="mt-3 flex items-center gap-2 text-xs text-subtle-foreground"
               >
                 <span
-                  class="inline-flex items-center rounded-full border border-border bg-surface-muted/50 px-2 py-1 font-medium"
+                  class="inline-flex items-center rounded-md border border-border bg-surface-muted/50 px-2 py-1 font-medium"
                   >Members · {{ t.members?.length || 0 }}</span
                 >
               </div>
@@ -147,14 +150,14 @@
                 <button
                   type="button"
                   @click="editTeam(t)"
-                  class="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
+                  class="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
                 >
                   Edit
                 </button>
                 <button
                   type="button"
                   @click="removeTeam(t)"
-                  class="rounded-full border border-danger/60 px-3 py-1.5 text-xs font-semibold text-danger/80 transition hover:bg-danger/10"
+                  class="rounded-md border border-danger/60 px-3 py-1.5 text-xs font-semibold text-danger/80 transition hover:bg-danger/10"
                 >
                   Delete
                 </button>
@@ -167,7 +170,7 @@
           <div class="mb-3 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              class="rounded-full border px-3 py-1 text-xs font-semibold transition"
+              class="rounded-md border px-3 py-1 text-xs font-semibold transition"
               :class="
                 teamFilter === 'all'
                   ? 'border-border/80 bg-surface-muted/60 text-foreground'
@@ -179,7 +182,7 @@
             </button>
             <button
               type="button"
-              class="rounded-full border px-3 py-1 text-xs font-semibold transition"
+              class="rounded-md border px-3 py-1 text-xs font-semibold transition"
               :class="
                 teamFilter === 'unassigned'
                   ? 'border-border/80 bg-surface-muted/60 text-foreground'
@@ -193,7 +196,7 @@
               v-for="t in teams"
               :key="`filter-${t.name}`"
               type="button"
-              class="rounded-full border px-3 py-1 text-xs font-semibold transition"
+              class="rounded-md border px-3 py-1 text-xs font-semibold transition"
               :class="
                 teamFilter === t.name
                   ? 'border-border/80 bg-surface-muted/60 text-foreground'
@@ -207,19 +210,19 @@
 
           <div
             v-if="loading"
-            class="rounded-[14px] border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground"
+            class="rounded-lg border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground"
           >
             Loading specialists…
           </div>
           <div
             v-else-if="error"
-            class="rounded-[14px] border border-danger/60 bg-danger/10 p-4 text-sm text-danger-foreground"
+            class="rounded-lg border border-danger/60 bg-danger/10 p-4 text-sm text-danger-foreground"
           >
             Failed to load specialists.
           </div>
           <div
             v-else-if="!filteredSpecialists.length"
-            class="rounded-[14px] border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground"
+            class="rounded-lg border border-border/60 bg-surface-muted/20 p-4 text-sm text-faint-foreground"
           >
             No specialists match this filter.
           </div>
@@ -252,7 +255,7 @@
                 <div class="flex items-center gap-2">
                   <span
                     v-if="isCurrentlyEditing(s.name)"
-                    class="rounded-full border border-accent/50 bg-accent/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent"
+                    class="rounded-md border border-accent/50 bg-accent/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent"
                   >
                     Editing
                   </span>
@@ -303,7 +306,7 @@
                 </Pill>
                 <span
                   v-if="typeof s.autoDiscover === 'boolean'"
-                  class="inline-flex items-center rounded-full border border-border bg-surface-muted/50 px-2 py-1 font-medium text-subtle-foreground"
+                  class="inline-flex items-center rounded-md border border-border bg-surface-muted/50 px-2 py-1 font-medium text-subtle-foreground"
                 >
                   {{
                     s.autoDiscover ? "Auto-discover on" : "Auto-discover off"
@@ -311,7 +314,7 @@
                 </span>
                 <span
                   v-if="Array.isArray(s.allowTools) && s.allowTools.length > 0"
-                  class="inline-flex items-center rounded-full border border-border bg-surface-muted/50 px-2 py-1 font-medium text-subtle-foreground"
+                  class="inline-flex items-center rounded-md border border-border bg-surface-muted/50 px-2 py-1 font-medium text-subtle-foreground"
                 >
                   Allow list · {{ s.allowTools.length }}
                 </span>
@@ -321,14 +324,14 @@
                 <button
                   type="button"
                   @click="edit(s)"
-                  class="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
+                  class="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
                 >
                   Edit
                 </button>
                 <button
                   type="button"
                   @click="cloneSpecialist(s)"
-                  class="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
+                  class="rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
                   title="Duplicate this specialist"
                 >
                   Clone
@@ -336,7 +339,7 @@
                 <button
                   type="button"
                   @click="togglePause(s)"
-                  class="inline-flex items-center gap-1 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
+                  class="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs font-semibold text-subtle-foreground transition hover:border-accent/40 hover:text-accent"
                   :title="s.paused ? 'Resume specialist' : 'Pause specialist'"
                   :aria-label="
                     s.paused ? 'Resume specialist' : 'Pause specialist'
@@ -349,7 +352,7 @@
                 <button
                   type="button"
                   @click="remove(s)"
-                  class="rounded-full border border-danger/60 px-3 py-1.5 text-xs font-semibold text-danger/80 transition hover:bg-danger/10"
+                  class="rounded-md border border-danger/60 px-3 py-1.5 text-xs font-semibold text-danger/80 transition hover:bg-danger/10"
                 >
                   Delete
                 </button>
@@ -543,14 +546,14 @@ function isCurrentlyEditingTeam(name: string): boolean {
 
 function statusBadgeClass(paused: boolean): string {
   return paused
-    ? "inline-flex items-center rounded-full border border-border/60 bg-border/20 px-2 py-1 text-xs font-semibold text-subtle-foreground"
-    : "inline-flex items-center rounded-full border border-success/40 bg-success/10 px-2 py-1 text-xs font-semibold text-success";
+    ? "inline-flex items-center rounded-md border border-border/60 bg-border/20 px-2 py-1 text-xs font-semibold text-subtle-foreground"
+    : "inline-flex items-center rounded-md border border-success/40 bg-success/10 px-2 py-1 text-xs font-semibold text-success";
 }
 
 function toolsBadgeClass(enabled: boolean): string {
   return enabled
-    ? "inline-flex items-center rounded-full border border-success/40 bg-success/10 px-2 py-1 font-medium text-success"
-    : "inline-flex items-center rounded-full border border-border/50 bg-surface-muted/30 px-2 py-1 font-medium text-subtle-foreground";
+    ? "inline-flex items-center rounded-md border border-success/40 bg-success/10 px-2 py-1 font-medium text-success"
+    : "inline-flex items-center rounded-md border border-border/50 bg-surface-muted/30 px-2 py-1 font-medium text-subtle-foreground";
 }
 
 function teamOrchestratorLabel(team: SpecialistTeam): string {

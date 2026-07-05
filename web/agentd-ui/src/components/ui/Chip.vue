@@ -15,7 +15,7 @@ const props = defineProps({
 });
 
 const classes = computed(() => [
-  "inline-flex items-center rounded-[5px] border font-mono tracking-[0.04em] text-muted-foreground",
+  "inline-flex items-center rounded-sm border font-mono tracking-[0.04em] text-muted-foreground",
   props.muted
     ? "border-border bg-surface"
     : "border-[rgb(var(--line-strong))] bg-surface-muted",

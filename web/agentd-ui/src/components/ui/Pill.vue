@@ -37,7 +37,7 @@ const toneClasses: Record<PillTone, string> = {
 };
 
 const classes = computed(() => [
-  "inline-flex items-center gap-1 rounded-[5px] font-mono leading-none tracking-[0.04em]",
+  "inline-flex items-center gap-1 rounded-sm font-mono leading-none tracking-[0.04em]",
   props.size === "sm" ? "px-2 py-[3px] text-[11px]" : "px-2.5 py-1 text-xs",
   toneClasses[props.tone],
 ]);

@@ -28,7 +28,7 @@ const toneClasses = {
 };
 
 const classes = computed(() => [
-  "inline-flex items-center rounded-[5px] border px-2 py-[3px] font-mono text-[11px] leading-none tracking-[0.04em]",
+  "inline-flex items-center rounded-sm border px-2 py-[3px] font-mono text-[11px] leading-none tracking-[0.04em]",
   toneClasses[props.tone],
 ]);
 </script>

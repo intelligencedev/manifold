@@ -27,7 +27,7 @@
             @keydown.enter.prevent="selectFirst"
           />
           <span
-            class="rounded-[5px] border border-border px-1.5 py-0.5 font-mono text-[10px] text-faint-foreground"
+            class="rounded-sm border border-border px-1.5 py-0.5 font-mono text-[10px] text-faint-foreground"
           >
             ⌘K
           </span>
@@ -42,7 +42,7 @@
             @click="selectItem(item.name)"
           >
             <span
-              class="grid h-7 w-7 place-items-center rounded-[7px] bg-input font-mono text-[10px] text-[rgb(var(--accent-hi))]"
+              class="grid h-7 w-7 place-items-center rounded-sm bg-input font-mono text-[10px] text-[rgb(var(--accent-hi))]"
             >
               {{ item.glyph }}
             </span>

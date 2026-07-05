@@ -106,15 +106,6 @@
                       </button>
                     </template>
                   </div>
-                  <p
-                    v-if="sessionsError"
-                    class="session-conversation-meta text-danger"
-                  >
-                    {{ sessionsError }}
-                  </p>
-                  <p v-else class="session-conversation-meta">
-                    {{ activeConversationSummary }}
-                  </p>
                 </div>
               </header>
               <section class="cockpit-run-strip" aria-label="Run Activity">
@@ -1482,8 +1473,8 @@
             :padded="false"
             class="flex min-h-0 flex-1 flex-col overflow-hidden"
           >
-            <div class="flex min-h-0 flex-1 flex-col gap-2.5">
-              <div class="mt-1.5">
+            <div class="flex min-h-0 flex-1 flex-col">
+              <div class="participant-team-select">
                 <DropdownSelect
                   v-model="selectedTeam"
                   :options="teamOptions"
@@ -1493,7 +1484,9 @@
                   class="w-full"
                 />
               </div>
-              <div class="mt-1.5 flex-1 min-h-0 overflow-y-auto">
+              <div
+                class="participant-list-scroll min-h-0 flex-1 overflow-y-auto"
+              >
                 <div
                   v-if="!participantList.length"
                   class="rounded-4 border border-dashed border-border bg-surface p-3 text-xs text-subtle-foreground"
@@ -1832,7 +1825,6 @@ const selectedProjectId = computed({
 const sessions = computed(() => chat.sessions);
 const messagesBySession = computed(() => chat.messagesBySession);
 const sessionsLoading = computed(() => chat.sessionsLoading);
-const sessionsError = computed(() => chat.sessionsError);
 const agentThreads = computed(() => chat.agentThreads);
 
 const activeSessionId = computed({
@@ -2392,24 +2384,6 @@ function renderMarkdownOrHtml(content: string) {
 
 const activeSession = computed(() => chat.activeSession);
 const activeMessages = computed(() => chat.activeMessages);
-const activeConversationSummary = computed(() => {
-  const session = activeSession.value;
-  if (!session) {
-    if (sessionsLoading.value) return "Loading conversations...";
-    return "Start a new conversation when you're ready.";
-  }
-  const messageCount = messageCountFor(session.id);
-  const updated = formatTimestamp(session.updatedAt);
-  const status = sessionAwaitingInput(session.id)
-    ? "Awaiting user input"
-    : sessionIsStreaming(session.id)
-      ? "Streaming"
-      : updated
-        ? `Updated ${updated}`
-        : "Ready";
-  const preview = session.lastMessagePreview || "No messages yet";
-  return `${messageCount} msg${messageCount === 1 ? "" : "s"} · ${status} · ${preview}`;
-});
 const chatMessages = computed(() => chat.chatMessages);
 const activeMessagePaging = computed(() => chat.activeMessagePaging);
 const hasOlderMessages = computed(() =>
@@ -5235,16 +5209,6 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   opacity: 0.6;
 }
 
-.session-conversation-meta {
-  display: -webkit-box;
-  overflow: hidden;
-  color: rgb(var(--color-subtle-foreground));
-  font-size: 0.67rem;
-  line-height: 1.22;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
 .chat-session-panel .cockpit-run-strip {
   align-items: stretch;
   flex-direction: column;
@@ -6299,6 +6263,14 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   line-height: 1.4;
 }
 
+.participant-team-select {
+  padding: 0.65rem 0.75rem 0.35rem;
+}
+
+.participant-list-scroll {
+  margin-top: 0.25rem;
+}
+
 .participant-list {
   display: flex;
   flex-direction: column;
@@ -6315,7 +6287,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 .participant-row {
   display: flex;
   width: 100%;
-  align-items: flex-start;
+  align-items: center;
   gap: 0.6rem;
   padding: 0.5rem 0.75rem;
   border: 0;
@@ -6339,6 +6311,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 }
 
 .participant-dot {
+  flex: 0 0 auto;
   width: 0.55rem;
   height: 0.55rem;
   border-radius: 999px;

@@ -19,7 +19,103 @@
             >
               <header class="session-column-header">
                 <p class="chat-panel-kicker">Session</p>
-                <h2 class="session-column-title">Session</h2>
+                <div
+                  class="session-conversation-controls"
+                  aria-label="Conversation controls"
+                >
+                  <div
+                    v-if="
+                      renamingSessionId === activeSessionId && activeSession
+                    "
+                    class="w-full"
+                  >
+                    <input
+                      :ref="setRenameInput"
+                      v-model="renamingName"
+                      type="text"
+                      class="session-conversation-input"
+                      aria-label="Conversation name"
+                      @keyup.enter.prevent="commitRename(activeSession.id)"
+                      @keyup.esc.prevent="cancelRename"
+                      @blur="commitRename(activeSession.id)"
+                    />
+                  </div>
+                  <DropdownSelect
+                    v-else
+                    :model-value="activeSessionId || ''"
+                    :options="conversationOptions"
+                    :disabled="sessionsLoading || !sessions.length"
+                    size="sm"
+                    title="Select conversation"
+                    aria-label="Select conversation"
+                    class="w-full"
+                    @update:model-value="selectSession"
+                  />
+                  <div class="session-conversation-actions">
+                    <button
+                      type="button"
+                      class="session-action-button session-action-button--primary"
+                      @click="createSession()"
+                    >
+                      New
+                    </button>
+                    <template v-if="activeSession">
+                      <button
+                        type="button"
+                        class="session-action-button"
+                        @click="startRename(activeSession)"
+                      >
+                        Rename
+                      </button>
+                      <button
+                        type="button"
+                        class="session-icon-button"
+                        :title="
+                          activeSession.pinned
+                            ? `Unpin conversation ${activeSession.name}`
+                            : `Pin conversation ${activeSession.name}`
+                        "
+                        :aria-label="
+                          activeSession.pinned
+                            ? `Unpin conversation ${activeSession.name}`
+                            : `Pin conversation ${activeSession.name}`
+                        "
+                        :aria-pressed="Boolean(activeSession.pinned)"
+                        :disabled="sessionPinPending(activeSession.id)"
+                        @click="toggleSessionPinned(activeSession)"
+                      >
+                        <SolarPinBold class="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        class="session-icon-button"
+                        title="Export conversation"
+                        aria-label="Export conversation"
+                        @click="exportSession(activeSession.id)"
+                      >
+                        <SolarDownloadIcon class="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        class="session-icon-button session-icon-button--danger"
+                        :title="`Delete conversation ${activeSession.name}`"
+                        :aria-label="`Delete conversation ${activeSession.name}`"
+                        @click="openDeleteSessionDialog(activeSession)"
+                      >
+                        <SolarTrashIcon class="h-3.5 w-3.5" />
+                      </button>
+                    </template>
+                  </div>
+                  <p
+                    v-if="sessionsError"
+                    class="session-conversation-meta text-danger"
+                  >
+                    {{ sessionsError }}
+                  </p>
+                  <p v-else class="session-conversation-meta">
+                    {{ activeConversationSummary }}
+                  </p>
+                </div>
               </header>
               <section class="cockpit-run-strip" aria-label="Run Activity">
                 <div class="min-w-0">
@@ -83,93 +179,9 @@
         >
           <div class="min-w-0 flex-1">
             <p class="chat-panel-kicker">Conversation</p>
-            <div class="flex min-w-0 flex-wrap items-center gap-2">
-              <div
-                v-if="renamingSessionId === activeSessionId && activeSession"
-                class="min-w-[18rem] max-w-xl flex-1"
-              >
-                <input
-                  :ref="setRenameInput"
-                  v-model="renamingName"
-                  type="text"
-                  class="h-9 w-full rounded-[11px] border border-accent/50 bg-surface px-3 text-sm font-semibold text-foreground outline-none focus-visible:shadow-outline"
-                  aria-label="Conversation name"
-                  @keyup.enter.prevent="commitRename(activeSession.id)"
-                  @keyup.esc.prevent="cancelRename"
-                  @blur="commitRename(activeSession.id)"
-                />
-              </div>
-              <DropdownSelect
-                v-else
-                :model-value="activeSessionId || ''"
-                :options="conversationOptions"
-                :disabled="sessionsLoading || !sessions.length"
-                size="md"
-                title="Select conversation"
-                aria-label="Select conversation"
-                class="min-w-[18rem] max-w-xl flex-1"
-                @update:model-value="selectSession"
-              />
-              <button
-                type="button"
-                class="h-9 rounded-[11px] border border-accent/55 bg-accent/12 px-3 text-xs font-semibold text-accent transition hover:bg-accent/18"
-                @click="createSession()"
-              >
-                New Chat
-              </button>
-              <template v-if="activeSession">
-                <button
-                  type="button"
-                  class="h-9 rounded-[11px] border border-border/70 bg-surface-muted/45 px-3 text-xs font-semibold text-subtle-foreground transition hover:border-accent/55 hover:text-accent"
-                  @click="startRename(activeSession)"
-                >
-                  Rename
-                </button>
-                <button
-                  type="button"
-                  class="inline-flex h-9 w-9 items-center justify-center rounded-[11px] border border-border/70 bg-surface-muted/45 text-subtle-foreground transition hover:border-accent/55 hover:text-accent disabled:cursor-wait disabled:opacity-60"
-                  :title="
-                    activeSession.pinned
-                      ? `Unpin conversation ${activeSession.name}`
-                      : `Pin conversation ${activeSession.name}`
-                  "
-                  :aria-label="
-                    activeSession.pinned
-                      ? `Unpin conversation ${activeSession.name}`
-                      : `Pin conversation ${activeSession.name}`
-                  "
-                  :aria-pressed="Boolean(activeSession.pinned)"
-                  :disabled="sessionPinPending(activeSession.id)"
-                  @click="toggleSessionPinned(activeSession)"
-                >
-                  <SolarPinBold class="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  class="inline-flex h-9 w-9 items-center justify-center rounded-[11px] border border-border/70 bg-surface-muted/45 text-subtle-foreground transition hover:border-accent/55 hover:text-accent"
-                  title="Export conversation"
-                  aria-label="Export conversation"
-                  @click="exportSession(activeSession.id)"
-                >
-                  <SolarDownloadIcon class="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  class="inline-flex h-9 w-9 items-center justify-center rounded-[11px] border border-danger/45 bg-danger/8 text-danger transition hover:bg-danger/14"
-                  :title="`Delete conversation ${activeSession.name}`"
-                  :aria-label="`Delete conversation ${activeSession.name}`"
-                  @click="openDeleteSessionDialog(activeSession)"
-                >
-                  <SolarTrashIcon class="h-3.5 w-3.5" />
-                </button>
-              </template>
-            </div>
-            <p v-if="sessionsError" class="mt-1 text-xs text-danger">
-              {{ sessionsError }}
-            </p>
-            <p v-else class="mt-1 truncate text-xs text-subtle-foreground">
-              {{ activeConversationSummary }}
-            </p>
+            <h1 class="truncate text-base font-semibold text-foreground">
+              {{ activeSession?.name ?? "Conversation" }}
+            </h1>
           </div>
           <div class="flex items-center gap-2 text-xs text-subtle-foreground">
             <!-- Summary triggered indicator -->
@@ -5127,6 +5139,110 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   font-size: 0.95rem;
   font-weight: 700;
   line-height: 1.2;
+}
+
+.session-conversation-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.42rem;
+  margin-top: 0.45rem;
+}
+
+.session-conversation-input {
+  height: 1.85rem;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgb(var(--color-accent) / 0.5);
+  border-radius: 0.55rem;
+  background: rgb(var(--color-surface));
+  padding: 0 0.5rem;
+  color: rgb(var(--color-foreground));
+  font-size: 0.75rem;
+  font-weight: 650;
+  outline: none;
+}
+
+.session-conversation-input:focus-visible {
+  box-shadow: 0 0 0 3px rgb(var(--color-accent) / 0.18);
+}
+
+.session-conversation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.session-action-button,
+.session-icon-button {
+  display: inline-flex;
+  height: 1.75rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(var(--color-border) / 0.7);
+  border-radius: 0.52rem;
+  background: rgb(var(--color-surface-muted) / 0.45);
+  color: rgb(var(--color-subtle-foreground));
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+  transition:
+    border-color 150ms ease,
+    background 150ms ease,
+    color 150ms ease,
+    opacity 150ms ease;
+}
+
+.session-action-button {
+  padding: 0 0.46rem;
+}
+
+.session-action-button--primary {
+  border-color: rgb(var(--color-accent) / 0.55);
+  background: rgb(var(--color-accent) / 0.12);
+  color: rgb(var(--color-accent));
+}
+
+.session-icon-button {
+  width: 1.75rem;
+}
+
+.session-action-button:hover,
+.session-icon-button:hover {
+  border-color: rgb(var(--color-accent) / 0.55);
+  color: rgb(var(--color-accent));
+}
+
+.session-action-button--primary:hover {
+  background: rgb(var(--color-accent) / 0.18);
+}
+
+.session-icon-button--danger {
+  border-color: rgb(var(--color-danger) / 0.45);
+  background: rgb(var(--color-danger) / 0.08);
+  color: rgb(var(--color-danger));
+}
+
+.session-icon-button--danger:hover {
+  background: rgb(var(--color-danger) / 0.14);
+  border-color: rgb(var(--color-danger) / 0.6);
+  color: rgb(var(--color-danger));
+}
+
+.session-action-button:disabled,
+.session-icon-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.session-conversation-meta {
+  display: -webkit-box;
+  overflow: hidden;
+  color: rgb(var(--color-subtle-foreground));
+  font-size: 0.67rem;
+  line-height: 1.22;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .chat-session-panel .cockpit-run-strip {

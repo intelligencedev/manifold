@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from "vue";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/vue-query";
+import DropdownSelect from "@/components/DropdownSelect.vue";
 import GlassCard from "@/components/ui/GlassCard.vue";
 import Pill from "@/components/ui/Pill.vue";
+import type { DropdownOption } from "@/types/dropdown";
 import {
   listMatrixRooms,
   fetchMatrixRoomMessages,
@@ -263,6 +265,20 @@ const INTERVAL_PRESETS = [
   { label: "6 hr", value: 21600 },
   { label: "24 hr", value: 86400 },
 ];
+
+const scheduleTypeOptions: DropdownOption[] = [
+  { id: "interval", label: "Interval", value: "interval" },
+  { id: "daily_time", label: "Daily at time", value: "daily_time" },
+  { id: "once_at", label: "Once at date/time", value: "once_at" },
+];
+
+const intervalPresetOptions: DropdownOption[] = INTERVAL_PRESETS.map(
+  (preset) => ({
+    id: preset.value,
+    label: preset.label,
+    value: preset.value,
+  }),
+);
 
 function humanInterval(seconds: number) {
   if (seconds < 60) return `${seconds}s`;
@@ -617,14 +633,12 @@ async function doDelete(id: string) {
                 class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground"
               >
                 Schedule
-                <select
+                <DropdownSelect
                   v-model="draft.scheduleType"
-                  class="rounded-lg border border-border/60 bg-surface px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40"
-                >
-                  <option value="interval">Interval</option>
-                  <option value="daily_time">Daily at time</option>
-                  <option value="once_at">Once at date/time</option>
-                </select>
+                  :options="scheduleTypeOptions"
+                  size="md"
+                  title="Schedule type"
+                />
               </label>
 
               <label
@@ -632,18 +646,12 @@ async function doDelete(id: string) {
                 class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground"
               >
                 Interval
-                <select
-                  v-model.number="draft.intervalSeconds"
-                  class="rounded-lg border border-border/60 bg-surface px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40"
-                >
-                  <option
-                    v-for="p in INTERVAL_PRESETS"
-                    :key="p.value"
-                    :value="p.value"
-                  >
-                    {{ p.label }}
-                  </option>
-                </select>
+                <DropdownSelect
+                  v-model="draft.intervalSeconds"
+                  :options="intervalPresetOptions"
+                  size="md"
+                  title="Interval"
+                />
               </label>
 
               <label
@@ -775,32 +783,24 @@ async function doDelete(id: string) {
                     class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground"
                   >
                     Schedule
-                    <select
+                    <DropdownSelect
                       v-model="editDraft.scheduleType"
-                      class="rounded-lg border border-border/60 bg-surface px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40"
-                    >
-                      <option value="interval">Interval</option>
-                      <option value="daily_time">Daily at time</option>
-                      <option value="once_at">Once at date/time</option>
-                    </select>
+                      :options="scheduleTypeOptions"
+                      size="md"
+                      title="Schedule type"
+                    />
                   </label>
                   <label
                     v-if="editDraft.scheduleType === 'interval'"
                     class="flex flex-col gap-1 text-[11px] font-semibold uppercase tracking-widest text-subtle-foreground"
                   >
                     Interval
-                    <select
-                      v-model.number="editDraft.intervalSeconds"
-                      class="rounded-lg border border-border/60 bg-surface px-3 py-2 text-sm text-foreground focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring/40"
-                    >
-                      <option
-                        v-for="p in INTERVAL_PRESETS"
-                        :key="p.value"
-                        :value="p.value"
-                      >
-                        {{ p.label }}
-                      </option>
-                    </select>
+                    <DropdownSelect
+                      v-model="editDraft.intervalSeconds"
+                      :options="intervalPresetOptions"
+                      size="md"
+                      title="Interval"
+                    />
                   </label>
                   <label
                     v-else-if="editDraft.scheduleType === 'daily_time'"
@@ -877,8 +877,8 @@ async function doDelete(id: string) {
                       isPulseRunActive(task)
                         ? 'animate-pulse bg-accent text-accent'
                         : task.enabled
-                        ? 'bg-success text-success'
-                        : 'bg-subtle-foreground/30',
+                          ? 'bg-success text-success'
+                          : 'bg-subtle-foreground/30',
                     ]"
                     :title="taskStateLabel(task)"
                   />

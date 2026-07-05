@@ -154,31 +154,23 @@
           <div class="flex flex-wrap items-end gap-2">
             <label class="grid gap-1 text-xs text-subtle-foreground">
               <span>Queue</span>
-              <select
+              <DropdownSelect
                 v-model="selectedQueue"
-                class="min-h-9 rounded-3 border border-border/70 bg-surface-muted/55 px-3 text-sm text-foreground outline-none transition focus:border-accent"
-              >
-                <option value="">All queues</option>
-                <option v-for="queue in queueNames" :key="queue" :value="queue">
-                  {{ queue }}
-                </option>
-              </select>
+                :options="queueFilterOptions"
+                size="sm"
+                title="Filter tasks by queue"
+                class="min-w-40"
+              />
             </label>
             <label class="grid gap-1 text-xs text-subtle-foreground">
               <span>Status</span>
-              <select
+              <DropdownSelect
                 v-model="selectedStatus"
-                class="min-h-9 rounded-3 border border-border/70 bg-surface-muted/55 px-3 text-sm text-foreground outline-none transition focus:border-accent"
-              >
-                <option value="">All statuses</option>
-                <option
-                  v-for="status in taskStatuses"
-                  :key="status"
-                  :value="status"
-                >
-                  {{ status }}
-                </option>
-              </select>
+                :options="taskStatusOptions"
+                size="sm"
+                title="Filter tasks by status"
+                class="min-w-40"
+              />
             </label>
             <label class="grid gap-1 text-xs text-subtle-foreground">
               <span>Name</span>
@@ -293,8 +285,10 @@ import {
   type DurableTask,
   type DurableTaskStatus,
 } from "@/api/durable";
+import DropdownSelect from "@/components/DropdownSelect.vue";
 import AppButton from "@/components/ui/AppButton.vue";
 import Chip from "@/components/ui/Chip.vue";
+import type { DropdownOption } from "@/types/dropdown";
 
 const props = withDefaults(
   defineProps<{
@@ -316,6 +310,15 @@ const taskStatuses: DurableTaskStatus[] = [
   "completed",
   "failed",
   "cancelled",
+];
+
+const taskStatusOptions: DropdownOption[] = [
+  { id: "all", label: "All statuses", value: "" },
+  ...taskStatuses.map((status) => ({
+    id: status,
+    label: status,
+    value: status,
+  })),
 ];
 
 const selectedQueue = ref(queryString(route.query.queue));
@@ -407,6 +410,15 @@ const queueNames = computed(() => {
   for (const task of tasks.value) names.add(task.queue);
   return Array.from(names).sort((a, b) => a.localeCompare(b));
 });
+
+const queueFilterOptions = computed<DropdownOption[]>(() => [
+  { id: "all", label: "All queues", value: "" },
+  ...queueNames.value.map((queue) => ({
+    id: queue,
+    label: queue,
+    value: queue,
+  })),
+]);
 
 const totals = computed(() =>
   queues.value.reduce(

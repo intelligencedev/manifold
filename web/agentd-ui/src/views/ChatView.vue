@@ -1,221 +1,8 @@
 <template>
   <div class="flex h-full min-h-0 flex-1 overflow-hidden chat-modern">
     <section
-      class="grid h-full min-h-0 flex-1 grid-cols-[272px_minmax(0,1fr)_252px] overflow-hidden chat-grid"
+      class="grid h-full min-h-0 flex-1 grid-cols-[minmax(0,1fr)_252px] overflow-hidden chat-grid"
     >
-      <!-- Sessions sidebar -->
-      <aside
-        class="chat-sessions-panel flex h-full min-h-0 flex-col gap-3 overflow-hidden p-3"
-      >
-        <header class="flex items-center justify-between gap-2">
-          <div>
-            <p class="chat-panel-kicker">Workspace</p>
-            <h2
-              class="text-base font-semibold tracking-[-0.03em] text-foreground"
-            >
-              Conversations
-            </h2>
-          </div>
-          <div class="flex items-center gap-1.5">
-            <template v-if="!sessionSelectMode">
-              <button
-                type="button"
-                class="rounded-4 border border-border px-2 py-1 text-xs font-semibold text-foreground transition hover:border-border/80 hover:text-foreground/80"
-                title="Select conversations to delete"
-                @click="enterSessionSelectMode"
-              >
-                Select
-              </button>
-              <button
-                type="button"
-                class="rounded-4 border border-border px-2 py-1 text-xs font-semibold text-foreground transition hover:border-accent hover:text-accent"
-                @click="createSession()"
-              >
-                New
-              </button>
-            </template>
-            <template v-else>
-              <button
-                type="button"
-                class="rounded-4 border px-2 py-1 text-xs font-semibold transition"
-                :class="
-                  selectedSessionIds.length > 0
-                    ? 'border-danger/60 bg-danger/10 text-danger hover:bg-danger/20'
-                    : 'border-border/40 text-faint-foreground cursor-not-allowed opacity-50'
-                "
-                :disabled="selectedSessionIds.length === 0"
-                @click="openBulkDeleteDialog"
-              >
-                Delete{{
-                  selectedSessionIds.length > 0
-                    ? ` (${selectedSessionIds.length})`
-                    : ""
-                }}
-              </button>
-              <button
-                type="button"
-                class="rounded-4 border border-border px-2 py-1 text-xs font-semibold text-foreground transition hover:border-accent hover:text-accent"
-                @click="exitSessionSelectMode"
-              >
-                Cancel
-              </button>
-            </template>
-          </div>
-        </header>
-        <p
-          v-if="sessionsError"
-          class="rounded-4 border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger"
-        >
-          {{ sessionsError }}
-        </p>
-        <div class="flex-1 space-y-1.5 overflow-y-auto pr-1 text-sm">
-          <p
-            v-if="sessionsLoading"
-            class="px-3 py-2 text-xs text-subtle-foreground"
-          >
-            Loading conversations…
-          </p>
-          <p
-            v-else-if="!sessions.length"
-            class="px-3 py-2 text-xs text-subtle-foreground"
-          >
-            No conversations yet.
-          </p>
-          <div
-            v-for="session in sessions"
-            :key="session.id"
-            class="conversation-session-row group rounded-[14px] border border-transparent px-3 py-2.5 transition"
-            :class="sessionRowClasses(session.id)"
-            @click="
-              sessionSelectMode
-                ? toggleSessionSelection(session.id)
-                : selectSession(session.id)
-            "
-          >
-            <div class="flex items-center justify-between gap-2">
-              <template v-if="sessionSelectMode">
-                <p class="truncate font-medium text-foreground flex-1">
-                  {{ session.name }}
-                </p>
-              </template>
-              <template v-else-if="renamingSessionId === session.id">
-                <input
-                  :ref="setRenameInput"
-                  v-model="renamingName"
-                  type="text"
-                  class="w-full rounded bg-surface px-2 py-1 text-xs text-foreground outline-none focus:ring-0 focus:border-accent focus-visible:shadow-outline"
-                  @keyup.enter.prevent="commitRename(session.id)"
-                  @keyup.esc.prevent="cancelRename"
-                  @blur="commitRename(session.id)"
-                />
-              </template>
-              <template v-else>
-                <p class="min-w-0 flex-1 truncate font-medium text-foreground">
-                  {{ session.name }}
-                </p>
-                <div class="flex shrink-0 items-center gap-1">
-                  <button
-                    type="button"
-                    class="rounded px-2 py-1 text-[10px] text-faint-foreground opacity-0 transition group-hover:opacity-100 hover:text-accent"
-                    @click.stop="startRename(session)"
-                  >
-                    Rename
-                  </button>
-                  <button
-                    type="button"
-                    class="inline-flex h-6 w-6 items-center justify-center rounded text-subtle-foreground transition disabled:cursor-wait"
-                    :class="[
-                      session.pinned
-                        ? 'text-accent opacity-100 hover:text-accent/80'
-                        : 'opacity-0 group-hover:opacity-100 hover:text-accent',
-                      sessionPinPending(session.id) ? 'opacity-60' : '',
-                    ]"
-                    :title="
-                      session.pinned
-                        ? `Unpin conversation ${session.name}`
-                        : `Pin conversation ${session.name}`
-                    "
-                    :aria-label="
-                      session.pinned
-                        ? `Unpin conversation ${session.name}`
-                        : `Pin conversation ${session.name}`
-                    "
-                    :aria-pressed="Boolean(session.pinned)"
-                    :disabled="sessionPinPending(session.id)"
-                    @click.stop="toggleSessionPinned(session)"
-                  >
-                    <SolarPinBold class="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              </template>
-            </div>
-            <p class="mt-1 truncate text-xs text-subtle-foreground">
-              {{ session.lastMessagePreview || "No messages yet" }}
-            </p>
-            <div
-              v-if="!sessionSelectMode"
-              class="mt-2 flex items-center justify-between text-[10px] text-faint-foreground"
-            >
-              <div class="flex items-center gap-2">
-                <span
-                  class="whitespace-nowrap rounded-full border border-border/60 bg-surface px-2 py-0.5 text-[10px] text-subtle-foreground"
-                >
-                  {{ messageCountFor(session.id) }} msg{{
-                    messageCountFor(session.id) === 1 ? "" : "s"
-                  }}
-                </span>
-                <span>{{ formatTimestamp(session.updatedAt) }}</span>
-              </div>
-              <div class="flex items-center gap-2">
-                <span
-                  v-if="
-                    sessionAwaitingInput(session.id) ||
-                    sessionIsStreaming(session.id)
-                  "
-                  class="conversation-session-status flex items-center gap-1 text-xs"
-                  :class="
-                    sessionAwaitingInput(session.id)
-                      ? 'conversation-session-status--awaiting'
-                      : 'conversation-session-status--streaming'
-                  "
-                >
-                  <span
-                    class="h-1.5 w-1.5 animate-pulse rounded-full"
-                    :class="
-                      sessionAwaitingInput(session.id)
-                        ? 'bg-warning'
-                        : 'bg-accent'
-                    "
-                  ></span>
-                  {{
-                    sessionAwaitingInput(session.id)
-                      ? "Awaiting user input"
-                      : "Streaming"
-                  }}
-                </span>
-                <button
-                  type="button"
-                  class="rounded px-1 text-[10px] text-subtle-foreground opacity-0 transition group-hover:opacity-100 hover:text-accent"
-                  title="Export conversation"
-                  @click.stop="exportSession(session.id)"
-                >
-                  <SolarDownloadIcon class="inline-block h-3 w-3" />
-                </button>
-                <button
-                  type="button"
-                  class="inline-flex h-6 w-6 items-center justify-center text-danger opacity-0 transition group-hover:opacity-100 hover:text-danger/80"
-                  :title="`Delete conversation ${session.name}`"
-                  :aria-label="`Delete conversation ${session.name}`"
-                  @click.stop="openDeleteSessionDialog(session)"
-                >
-                  <SolarTrashIcon class="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </aside>
-
       <!-- Chat pane -->
       <section
         class="relative flex h-full min-h-0 flex-col overflow-hidden px-5 chat-pane"
@@ -223,12 +10,95 @@
         <header
           class="chat-pane-header flex flex-wrap items-center justify-between gap-3 px-4 pb-4 pt-1"
         >
-          <div>
-            <h1
-              class="text-xl font-semibold tracking-[-0.035em] text-foreground"
-            >
-              {{ activeSession?.name || "Conversation" }}
-            </h1>
+          <div class="min-w-0 flex-1">
+            <p class="chat-panel-kicker">Conversation</p>
+            <div class="flex min-w-0 flex-wrap items-center gap-2">
+              <div
+                v-if="renamingSessionId === activeSessionId && activeSession"
+                class="min-w-[18rem] max-w-xl flex-1"
+              >
+                <input
+                  :ref="setRenameInput"
+                  v-model="renamingName"
+                  type="text"
+                  class="h-9 w-full rounded-[11px] border border-accent/50 bg-surface px-3 text-sm font-semibold text-foreground outline-none focus-visible:shadow-outline"
+                  aria-label="Conversation name"
+                  @keyup.enter.prevent="commitRename(activeSession.id)"
+                  @keyup.esc.prevent="cancelRename"
+                  @blur="commitRename(activeSession.id)"
+                />
+              </div>
+              <DropdownSelect
+                v-else
+                :model-value="activeSessionId || ''"
+                :options="conversationOptions"
+                :disabled="sessionsLoading || !sessions.length"
+                size="md"
+                title="Select conversation"
+                aria-label="Select conversation"
+                class="min-w-[18rem] max-w-xl flex-1"
+                @update:model-value="selectSession"
+              />
+              <button
+                type="button"
+                class="h-9 rounded-[11px] border border-accent/55 bg-accent/12 px-3 text-xs font-semibold text-accent transition hover:bg-accent/18"
+                @click="createSession()"
+              >
+                New Chat
+              </button>
+              <template v-if="activeSession">
+                <button
+                  type="button"
+                  class="h-9 rounded-[11px] border border-border/70 bg-surface-muted/45 px-3 text-xs font-semibold text-subtle-foreground transition hover:border-accent/55 hover:text-accent"
+                  @click="startRename(activeSession)"
+                >
+                  Rename
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex h-9 w-9 items-center justify-center rounded-[11px] border border-border/70 bg-surface-muted/45 text-subtle-foreground transition hover:border-accent/55 hover:text-accent disabled:cursor-wait disabled:opacity-60"
+                  :title="
+                    activeSession.pinned
+                      ? `Unpin conversation ${activeSession.name}`
+                      : `Pin conversation ${activeSession.name}`
+                  "
+                  :aria-label="
+                    activeSession.pinned
+                      ? `Unpin conversation ${activeSession.name}`
+                      : `Pin conversation ${activeSession.name}`
+                  "
+                  :aria-pressed="Boolean(activeSession.pinned)"
+                  :disabled="sessionPinPending(activeSession.id)"
+                  @click="toggleSessionPinned(activeSession)"
+                >
+                  <SolarPinBold class="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex h-9 w-9 items-center justify-center rounded-[11px] border border-border/70 bg-surface-muted/45 text-subtle-foreground transition hover:border-accent/55 hover:text-accent"
+                  title="Export conversation"
+                  aria-label="Export conversation"
+                  @click="exportSession(activeSession.id)"
+                >
+                  <SolarDownloadIcon class="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  class="inline-flex h-9 w-9 items-center justify-center rounded-[11px] border border-danger/45 bg-danger/8 text-danger transition hover:bg-danger/14"
+                  :title="`Delete conversation ${activeSession.name}`"
+                  :aria-label="`Delete conversation ${activeSession.name}`"
+                  @click="openDeleteSessionDialog(activeSession)"
+                >
+                  <SolarTrashIcon class="h-3.5 w-3.5" />
+                </button>
+              </template>
+            </div>
+            <p v-if="sessionsError" class="mt-1 text-xs text-danger">
+              {{ sessionsError }}
+            </p>
+            <p v-else class="mt-1 truncate text-xs text-subtle-foreground">
+              {{ activeConversationSummary }}
+            </p>
           </div>
           <div class="flex items-center gap-2 text-xs text-subtle-foreground">
             <!-- Summary triggered indicator -->
@@ -1549,68 +1419,6 @@
         </div>
       </div>
 
-      <!-- Bulk delete dialog -->
-      <div
-        v-if="showBulkDeleteDialog"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="bulk-delete-title"
-        @click.self="closeBulkDeleteDialog"
-        @keydown.esc.prevent="closeBulkDeleteDialog"
-      >
-        <div
-          class="w-full max-w-md rounded-5 bg-surface p-5 ring-1 ring-border/60"
-        >
-          <h2
-            id="bulk-delete-title"
-            class="text-base font-semibold text-danger"
-          >
-            Delete {{ selectedSessionIds.length }} Conversation{{
-              selectedSessionIds.length === 1 ? "" : "s"
-            }}
-          </h2>
-          <p class="mt-2 text-sm text-subtle-foreground">
-            This permanently removes the selected
-            {{
-              selectedSessionIds.length === 1
-                ? "conversation"
-                : `${selectedSessionIds.length} conversations`
-            }}
-            and all messages in them.
-          </p>
-          <form class="mt-4 space-y-3" @submit.prevent="confirmBulkDelete">
-            <p class="text-xs text-faint-foreground">
-              This action cannot be undone.
-            </p>
-            <p v-if="bulkDeleteError" class="text-xs text-danger">
-              {{ bulkDeleteError }}
-            </p>
-            <div class="flex items-center justify-end gap-2">
-              <button
-                type="button"
-                class="h-9 rounded-full border border-white/15 px-3 text-sm text-subtle-foreground transition hover:border-white/30 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-                :disabled="bulkDeletePending"
-                @click="closeBulkDeleteDialog"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                class="h-9 rounded-full border border-danger/60 bg-danger/10 px-3 text-sm font-semibold text-danger transition hover:bg-danger/20 disabled:cursor-not-allowed disabled:opacity-60"
-                :disabled="bulkDeletePending"
-              >
-                {{
-                  bulkDeletePending
-                    ? "Deleting..."
-                    : `Delete ${selectedSessionIds.length === 1 ? "Conversation" : "Conversations"}`
-                }}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-
       <!-- Participants sidebar -->
       <aside
         class="chat-participants-panel flex h-full min-h-0 flex-col px-3 text-sm text-subtle-foreground chat-side"
@@ -2050,12 +1858,6 @@ const canConfirmDeleteSession = computed(
   () => !!deleteSessionTarget.value?.id && !deleteSessionPending.value,
 );
 
-// Multi-select state
-const sessionSelectMode = ref(false);
-const selectedSessionIds = ref<string[]>([]);
-const showBulkDeleteDialog = ref(false);
-const bulkDeletePending = ref(false);
-const bulkDeleteError = ref("");
 const participantActivityPane = ref<HTMLElement | null>(null);
 const selectedParticipantActivityName = ref<string | null>(null);
 
@@ -2556,6 +2358,24 @@ function renderMarkdownOrHtml(content: string) {
 
 const activeSession = computed(() => chat.activeSession);
 const activeMessages = computed(() => chat.activeMessages);
+const activeConversationSummary = computed(() => {
+  const session = activeSession.value;
+  if (!session) {
+    if (sessionsLoading.value) return "Loading conversations...";
+    return "Start a new conversation when you're ready.";
+  }
+  const messageCount = messageCountFor(session.id);
+  const updated = formatTimestamp(session.updatedAt);
+  const status = sessionAwaitingInput(session.id)
+    ? "Awaiting user input"
+    : sessionIsStreaming(session.id)
+      ? "Streaming"
+      : updated
+        ? `Updated ${updated}`
+        : "Ready";
+  const preview = session.lastMessagePreview || "No messages yet";
+  return `${messageCount} msg${messageCount === 1 ? "" : "s"} · ${status} · ${preview}`;
+});
 const chatMessages = computed(() => chat.chatMessages);
 const activeMessagePaging = computed(() => chat.activeMessagePaging);
 const hasOlderMessages = computed(() =>
@@ -2741,19 +2561,6 @@ function sessionAwaitingInput(sessionId: string) {
 
 function sessionIsStreaming(sessionId: string) {
   return chat.isSessionStreaming(sessionId);
-}
-
-function sessionRowClasses(sessionId: string) {
-  if (sessionSelectMode.value && selectedSessionIds.value.includes(sessionId)) {
-    return "border-danger/70 bg-danger/20";
-  }
-  if (!sessionSelectMode.value && sessionAwaitingInput(sessionId)) {
-    return "conversation-session-row--awaiting";
-  }
-  if (!sessionSelectMode.value && sessionId === activeSessionId.value) {
-    return "border-accent/70 bg-surface-muted/60";
-  }
-  return "hover:border-border hover:bg-surface-muted/40";
 }
 
 // --- Response timer (elapsed while streaming; frozen when stream completes) ---
@@ -4271,7 +4078,37 @@ function setRenameInput(el: Element | ComponentPublicInstance | null) {
   renameInput.value = el instanceof HTMLInputElement ? el : null;
 }
 
+function conversationOptionLabel(session: ChatSessionMeta) {
+  const messageCount = messageCountFor(session.id);
+  const status = sessionAwaitingInput(session.id)
+    ? " · awaiting input"
+    : sessionIsStreaming(session.id)
+      ? " · streaming"
+      : "";
+  const pinned = session.pinned ? "★ " : "";
+  return `${pinned}${session.name} (${messageCount})${status}`;
+}
+
+const conversationOptions = computed<DropdownOption[]>(() => {
+  if (sessionsLoading.value) {
+    return [
+      { id: "", label: "Loading conversations...", value: "", disabled: true },
+    ];
+  }
+  if (!sessions.value.length) {
+    return [
+      { id: "", label: "No conversations yet", value: "", disabled: true },
+    ];
+  }
+  return sessions.value.map((session) => ({
+    id: session.id,
+    label: conversationOptionLabel(session),
+    value: session.id,
+  }));
+});
+
 function selectSession(sessionId: string) {
+  if (!sessionId) return;
   chat.selectSession(sessionId);
   autoScrollEnabled.value = true;
   nextTick(() => scrollMessagesToBottom({ force: true, behavior: "auto" }));
@@ -4287,25 +4124,6 @@ async function createSession(name = "New Chat") {
     if (status === 403) {
       // readonly
     }
-  }
-}
-
-function enterSessionSelectMode() {
-  selectedSessionIds.value = [];
-  sessionSelectMode.value = true;
-}
-
-function exitSessionSelectMode() {
-  sessionSelectMode.value = false;
-  selectedSessionIds.value = [];
-}
-
-function toggleSessionSelection(id: string) {
-  const idx = selectedSessionIds.value.indexOf(id);
-  if (idx >= 0) {
-    selectedSessionIds.value.splice(idx, 1);
-  } else {
-    selectedSessionIds.value.push(id);
   }
 }
 
@@ -4331,43 +4149,6 @@ async function toggleSessionPinned(session: ChatSessionMeta) {
   } finally {
     setSessionPinPending(session.id, false);
   }
-}
-
-function openBulkDeleteDialog() {
-  if (selectedSessionIds.value.length === 0) return;
-  bulkDeleteError.value = "";
-  bulkDeletePending.value = false;
-  showBulkDeleteDialog.value = true;
-}
-
-function closeBulkDeleteDialog() {
-  if (bulkDeletePending.value) return;
-  showBulkDeleteDialog.value = false;
-  bulkDeleteError.value = "";
-}
-
-async function confirmBulkDelete() {
-  if (bulkDeletePending.value || selectedSessionIds.value.length === 0) return;
-  bulkDeletePending.value = true;
-  bulkDeleteError.value = "";
-  const ids = selectedSessionIds.value.slice();
-  let failed = 0;
-  for (const id of ids) {
-    try {
-      await chat.deleteSession(id);
-    } catch {
-      failed++;
-    }
-  }
-  bulkDeletePending.value = false;
-  if (failed > 0) {
-    bulkDeleteError.value = `Failed to delete ${failed} conversation${failed === 1 ? "" : "s"}.`;
-    return;
-  }
-  showBulkDeleteDialog.value = false;
-  exitSessionSelectMode();
-  autoScrollEnabled.value = true;
-  nextTick(() => scrollMessagesToBottom({ force: true, behavior: "auto" }));
 }
 
 function resetDeleteSessionDialogState() {
@@ -5290,7 +5071,6 @@ async function transcribeBlob(blob: Blob): Promise<string> {
     );
 }
 
-.chat-sessions-panel,
 .chat-participants-panel {
   border-radius: 1rem;
   border: 1px solid rgb(var(--color-border) / 0.64);
@@ -5880,44 +5660,6 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 
 .chat-side {
   min-height: 0;
-}
-
-.conversation-session-row--awaiting {
-  border-color: rgb(var(--color-warning) / 0.72);
-  background: rgb(var(--color-warning) / 0.12);
-  animation: conversationAwaitingPulse 1.35s ease-in-out infinite;
-}
-
-.conversation-session-row--awaiting:hover {
-  border-color: rgb(var(--color-warning) / 0.9);
-  background: rgb(var(--color-warning) / 0.18);
-}
-
-.conversation-session-status--awaiting {
-  color: rgb(var(--color-warning));
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-.conversation-session-status--streaming {
-  color: rgb(var(--color-accent));
-  white-space: nowrap;
-}
-
-@keyframes conversationAwaitingPulse {
-  0%,
-  100% {
-    box-shadow: 0 0 0 0 rgb(var(--color-warning) / 0.14);
-  }
-  50% {
-    box-shadow: 0 0 0 4px rgb(var(--color-warning) / 0.24);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .conversation-session-row--awaiting {
-    animation: none;
-  }
 }
 
 .participant-status {

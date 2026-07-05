@@ -39,6 +39,6 @@ const props = withDefaults(
 );
 
 const gridTemplateColumns = computed(() =>
-  props.inspector ? "196px minmax(0, 1fr) 320px" : "196px minmax(0, 1fr)",
+  props.inspector ? "88px minmax(0, 1fr) 320px" : "88px minmax(0, 1fr)",
 );
 </script>

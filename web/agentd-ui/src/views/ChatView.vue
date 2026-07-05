@@ -1622,7 +1622,6 @@
             class="flex min-h-0 flex-1 flex-col overflow-hidden"
           >
             <div class="flex min-h-0 flex-1 flex-col gap-2.5">
-
               <div class="mt-1.5">
                 <DropdownSelect
                   v-model="selectedTeam"
@@ -1898,6 +1897,7 @@ const SCROLL_LOCK_THRESHOLD = 80;
 const LOAD_OLDER_SCROLL_THRESHOLD = 96;
 const COCKPIT_TIMELINE_TICK_MS = 5_000;
 const COCKPIT_TIMELINE_MIN_WINDOW_MS = 30_000;
+const COCKPIT_TIMELINE_LIVE_UPDATE_MS = 100;
 let previousBodyOverflow: string | null = null;
 
 const chat = useChatStore();
@@ -2784,6 +2784,8 @@ function sessionRowClasses(sessionId: string) {
 const responseStartMsByMessageId = new Map<string, number>();
 const responseElapsedMsByMessageId = ref<Record<string, number>>({});
 const responseIntervalByMessageId = new Map<string, number>();
+const cockpitTimelineNowMs = ref(Date.now());
+let cockpitTimelineLiveInterval: number | null = null;
 
 function safeParseIsoMs(iso: string) {
   const ms = Date.parse(iso);
@@ -2971,12 +2973,13 @@ function activityStartMs(item: SpecialistActivityItem) {
 }
 
 function activityEndMs(item: SpecialistActivityItem, fallbackEndMs: number) {
+  const start = activityStartMs(item);
   if (item.finishedAt) {
     const finished = safeTimestampMs(item.finishedAt);
-    if (finished) return finished;
+    if (finished) return Math.max(start, finished);
   }
-  if (item.status === "running") return fallbackEndMs;
-  return Math.max(activityStartMs(item) + 1_000, item.updatedAt || 0);
+  if (item.status === "running") return Math.max(start, fallbackEndMs);
+  return Math.max(start, fallbackEndMs, item.updatedAt || 0);
 }
 
 function roundedTimelineStart(ms: number) {
@@ -3103,6 +3106,22 @@ function orchestratorActivityItem(): SpecialistActivityItem {
         : "idle";
   const latestThought =
     activeThoughtSummaries.value[activeThoughtSummaries.value.length - 1];
+  const now = cockpitTimelineNowMs.value;
+  const assistantStartMs = assistant
+    ? safeTimestampMs(assistant.createdAt) || now
+    : now;
+  const assistantElapsedMs = assistant ? responseElapsedMs(assistant) : 0;
+  const assistantEndMs =
+    assistant &&
+    status !== "running" &&
+    status !== "idle" &&
+    assistantElapsedMs > 0
+      ? assistantStartMs + assistantElapsedMs
+      : undefined;
+  const startedAt = new Date(assistantStartMs).toISOString();
+  const finishedAt = assistantEndMs
+    ? new Date(assistantEndMs).toISOString()
+    : undefined;
   return {
     id: "orchestrator",
     name: agentName || "orchestrator",
@@ -3122,11 +3141,10 @@ function orchestratorActivityItem(): SpecialistActivityItem {
     response: assistant?.content || "",
     toolEntries: [],
     error: assistant?.error || "",
-    startedAt: assistant?.createdAt || new Date().toISOString(),
-    finishedAt: status === "done" ? assistant?.createdAt : undefined,
-    updatedAt: assistant
-      ? safeTimestampMs(assistant.createdAt) || Date.now()
-      : Date.now(),
+    startedAt,
+    finishedAt,
+    updatedAt:
+      status === "running" ? now : (assistantEndMs ?? assistantStartMs),
     depth: 0,
     isOrchestrator: true,
   };
@@ -3878,10 +3896,27 @@ const cockpitTimelineItems = computed(() =>
     .sort((a, b) => activityStartMs(a) - activityStartMs(b))
     .slice(0, 5),
 );
+const hasLiveCockpitTimelineItems = computed(() =>
+  cockpitTimelineItems.value.some((item) => item.status === "running"),
+);
+
+function cockpitTimelineFallbackEndMs(
+  item: SpecialistActivityItem,
+  now: number,
+) {
+  if (item.status === "running") return now;
+  const latestEntry = Math.max(
+    0,
+    ...item.toolEntries.map((entry) => safeTimestampMs(entry.createdAt)),
+  );
+  return Math.max(latestEntry, item.updatedAt || 0);
+}
+
 const cockpitTimelineWindow = computed(() => {
+  const now = cockpitTimelineNowMs.value;
   const items = cockpitTimelineItems.value;
   if (!items.length) {
-    const startMs = roundedTimelineStart(Date.now());
+    const startMs = roundedTimelineStart(now);
     return {
       startMs,
       spanMs: COCKPIT_TIMELINE_MIN_WINDOW_MS,
@@ -3893,17 +3928,9 @@ const cockpitTimelineWindow = computed(() => {
   const earliest = Math.min(...starts);
   const startMs = roundedTimelineStart(earliest);
   const latest = Math.max(
-    ...items.map((item) => {
-      const start = activityStartMs(item);
-      const latestEntry = Math.max(
-        0,
-        ...item.toolEntries.map((entry) => safeTimestampMs(entry.createdAt)),
-      );
-      return activityEndMs(
-        item,
-        Math.max(start + COCKPIT_TIMELINE_TICK_MS, latestEntry, item.updatedAt),
-      );
-    }),
+    ...items.map((item) =>
+      activityEndMs(item, cockpitTimelineFallbackEndMs(item, now)),
+    ),
   );
   const rawSpan = Math.max(
     COCKPIT_TIMELINE_MIN_WINDOW_MS,
@@ -3934,17 +3961,11 @@ const cockpitTimelineTicks = computed<CockpitTimelineTick[]>(() => {
   });
 });
 const cockpitTimelineLanes = computed<CockpitTimelineLane[]>(() => {
+  const now = cockpitTimelineNowMs.value;
   const window = cockpitTimelineWindow.value;
   return cockpitTimelineItems.value.map((item) => {
     const start = activityStartMs(item);
-    const latestEntry = Math.max(
-      0,
-      ...item.toolEntries.map((entry) => safeTimestampMs(entry.createdAt)),
-    );
-    const end = activityEndMs(
-      item,
-      Math.max(start + COCKPIT_TIMELINE_TICK_MS, latestEntry, item.updatedAt),
-    );
+    const end = activityEndMs(item, cockpitTimelineFallbackEndMs(item, now));
     const left = percentBetween(start, window.startMs, window.spanMs);
     const durationPercent = Math.max(
       2.6,
@@ -3991,6 +4012,7 @@ const cockpitContextLabel = computed(() => {
   return `${metrics.inputTokens.toLocaleString()} / ${metrics.contextWindow.toLocaleString()}`;
 });
 const cockpitToolRows = computed<CockpitToolRow[]>(() => {
+  const now = cockpitTimelineNowMs.value;
   const window = cockpitTimelineWindow.value;
   const traceRows = runActivityItems.value.flatMap((item) =>
     item.toolEntries.map((entry) => {
@@ -3998,7 +4020,7 @@ const cockpitToolRows = computed<CockpitToolRow[]>(() => {
       const entryMs = safeTimestampMs(entry.createdAt) || start;
       const end = activityEndMs(
         item,
-        Math.max(start + COCKPIT_TIMELINE_TICK_MS, entryMs, item.updatedAt),
+        Math.max(entryMs, cockpitTimelineFallbackEndMs(item, now)),
       );
       return {
         id: `${item.id}:${entry.id}`,
@@ -4036,6 +4058,33 @@ const cockpitToolRows = computed<CockpitToolRow[]>(() => {
     };
   });
 });
+
+function stopCockpitTimelineLiveUpdates() {
+  if (cockpitTimelineLiveInterval == null) return;
+  if (isBrowser) window.clearInterval(cockpitTimelineLiveInterval);
+  cockpitTimelineLiveInterval = null;
+}
+
+function startCockpitTimelineLiveUpdates() {
+  cockpitTimelineNowMs.value = Date.now();
+  if (!isBrowser || cockpitTimelineLiveInterval != null) return;
+  cockpitTimelineLiveInterval = window.setInterval(() => {
+    cockpitTimelineNowMs.value = Date.now();
+  }, COCKPIT_TIMELINE_LIVE_UPDATE_MS);
+}
+
+watch(
+  hasLiveCockpitTimelineItems,
+  (hasLiveItems) => {
+    if (hasLiveItems) {
+      startCockpitTimelineLiveUpdates();
+    } else {
+      cockpitTimelineNowMs.value = Date.now();
+      stopCockpitTimelineLiveUpdates();
+    }
+  },
+  { immediate: true, flush: "post" },
+);
 
 watch(
   () =>
@@ -4236,6 +4285,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   stopAllResponseTimers();
+  stopCockpitTimelineLiveUpdates();
   if (isBrowser && previousBodyOverflow !== null) {
     document.body.style.overflow = previousBodyOverflow;
   }

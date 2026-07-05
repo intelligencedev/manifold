@@ -192,6 +192,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -249,17 +250,16 @@ describe("ChatView", () => {
     await findByRole("heading", { name: "Conversations" });
 
     expect(getByText("Workspace")).toBeTruthy();
-    expect(getByText("Active conversation")).toBeTruthy();
-    expect(getByText("Participants")).toBeTruthy();
-    expect(getByText("Team routing")).toBeTruthy();
+    expect(getByText("Conversation")).toBeTruthy();
     expect(getByText("Run Activity")).toBeTruthy();
-    expect(getByText("Execution Timeline")).toBeTruthy();
+    expect(getByText("Specialists Execution Timeline")).toBeTruthy();
     expect(getByText("Tool Invocations")).toBeTruthy();
     expect(getByText("Model & Performance")).toBeTruthy();
-    expect(getByText("Context & Memory")).toBeTruthy();
   });
 
   it("renders execution activity as a time grid and tool invocation table", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:10.000Z"));
     chatApiMocks.sessions = [sessionMeta()];
     chatApiMocks.messages = [
       {
@@ -321,6 +321,49 @@ describe("ChatView", () => {
     expect(getAllByText("2.0s").length).toBeGreaterThan(0);
     expect(getByText("Timestamp")).toBeTruthy();
     expect(getByText("00:00:01")).toBeTruthy();
+  });
+
+  it("updates live specialist runtime while the run remains active", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:10.000Z"));
+    chatApiMocks.sessions = [sessionMeta()];
+    chatApiMocks.messages = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        content: "Still coordinating.",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        streaming: true,
+      },
+    ];
+    chatApiMocks.activities = [
+      {
+        callId: "call-1",
+        assistantMessageId: "assistant-1",
+        agent: "Geometry Analyst",
+        model: "claude-3.5-sonnet",
+        prompt: "Compare manifolds",
+        depth: 1,
+        status: "running",
+        content: "",
+        entries: [],
+        thoughtSummaries: [],
+        startedAt: "2026-01-01T00:00:08.000Z",
+      },
+    ];
+
+    const { findByRole, findAllByText, getAllByText } = renderChatView();
+
+    await findByRole("heading", { name: "Conversations" });
+    await findAllByText("Geometry Analyst");
+
+    expect(getAllByText("2.0s").length).toBeGreaterThan(0);
+
+    await vi.advanceTimersByTimeAsync(3000);
+
+    await waitFor(() => {
+      expect(getAllByText("5.0s").length).toBeGreaterThan(0);
+    });
   });
 
   async function waitForProjectSelection(

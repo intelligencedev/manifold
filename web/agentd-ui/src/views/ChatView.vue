@@ -150,12 +150,13 @@
                     class="session-tool-invocation"
                   >
                     <summary class="session-tool-invocation-summary-row">
-                      <span class="cockpit-tool-glyph">⌘</span>
+                      <span
+                        class="cockpit-tool-glyph"
+                        :class="`cockpit-tool-glyph--${row.statusTone}`"
+                        >⌘</span
+                      >
                       <span class="session-tool-invocation-title-block">
                         <span class="cockpit-tool-title">{{ row.name }}</span>
-                        <span class="cockpit-tool-detail">{{
-                          row.detail
-                        }}</span>
                       </span>
                       <span class="cockpit-tool-state">
                         <span
@@ -170,7 +171,10 @@
                         <span class="session-tool-detail-label">Arguments</span>
                         <pre>{{ row.args }}</pre>
                       </div>
-                      <div v-if="row.output" class="session-tool-detail-block">
+                      <div
+                        v-if="row.output"
+                        class="session-tool-detail-block"
+                      >
                         <span class="session-tool-detail-label">Result</span>
                         <pre>{{ row.output }}</pre>
                       </div>
@@ -2686,7 +2690,6 @@ type SpecialistActivityItem = {
 type CockpitToolRow = {
   id: string;
   name: string;
-  detail: string;
   status: string;
   statusTone: ActivityStatus;
   args: string;
@@ -3730,19 +3733,15 @@ const cockpitToolRows = computed<CockpitToolRow[]>(() => {
     item.toolEntries.map((entry) => ({
       id: `${item.id}:${entry.id}`,
       name: entry.title || "Tool call",
-      detail: snippet(
-        entry.content || entry.data || entry.args || item.name,
-        72,
-      ),
       status: item.statusLabel,
       statusTone: item.status,
       args: entry.args || "",
       output: entry.content || entry.data || "",
     })),
   );
-  if (traceRows.length) return traceRows.slice(-5);
+  if (traceRows.length) return traceRows.slice(-25);
 
-  return toolMessages.value.slice(-5).map((message) => {
+  return toolMessages.value.slice(-25).map((message) => {
     const status = message.error
       ? "Error"
       : message.streaming
@@ -3751,9 +3750,6 @@ const cockpitToolRows = computed<CockpitToolRow[]>(() => {
     return {
       id: message.id,
       name: message.activityToolTitle || message.title || "Tool call",
-      detail:
-        snippet(message.content || message.toolArgs || "", 72) ||
-        "Recorded tool message",
       status,
       statusTone: statusToneFromLabel(status),
       args: message.toolArgs || "",
@@ -5021,8 +5017,11 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 }
 
 .session-tool-invocations {
-  display: grid;
-  gap: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 0.55rem;
   border: 1px solid rgb(var(--color-border) / 0.42);
   border-radius: 0.8rem;
   background: rgb(var(--color-surface-muted) / 0.36);
@@ -5031,6 +5030,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 
 .session-tool-invocations-header {
   display: flex;
+  flex: 0 0 auto;
   align-items: flex-start;
   justify-content: space-between;
   gap: 0.5rem;
@@ -5043,15 +5043,43 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 }
 
 .session-tool-invocation-list {
-  display: grid;
-  gap: 0.42rem;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  gap: 0.4rem;
+  overflow-y: auto;
+  padding-right: 0.15rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--color-border) / 0.7) transparent;
+}
+
+.session-tool-invocation-list::-webkit-scrollbar {
+  width: 0.4rem;
+}
+
+.session-tool-invocation-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgb(var(--color-border) / 0.7);
+}
+
+.session-tool-invocation-list::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .session-tool-invocation {
+  flex: 0 0 auto;
   overflow: hidden;
   border: 1px solid rgb(var(--color-border) / 0.36);
   border-radius: 0.68rem;
   background: rgb(var(--color-background) / 0.24);
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.session-tool-invocation:hover {
+  border-color: rgb(var(--color-accent) / 0.3);
 }
 
 .session-tool-invocation[open] {
@@ -5062,11 +5090,16 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 .session-tool-invocation-summary-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;
-  gap: 0.45rem;
+  gap: 0.5rem;
   align-items: center;
-  padding: 0.48rem;
+  padding: 0.5rem 0.55rem;
   cursor: pointer;
   list-style: none;
+  transition: background 0.15s ease;
+}
+
+.session-tool-invocation-summary-row:hover {
+  background: rgb(var(--color-surface-muted) / 0.4);
 }
 
 .session-tool-invocation-summary-row::-webkit-details-marker {
@@ -5093,7 +5126,8 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   display: grid;
   gap: 0.5rem;
   border-top: 1px solid rgb(var(--color-border) / 0.3);
-  padding: 0.55rem;
+  padding: 0.6rem 0.55rem 0.65rem;
+  background: rgb(var(--color-background) / 0.16);
 }
 
 .session-tool-detail-block {
@@ -5108,10 +5142,11 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   font-size: 0.55rem;
   font-weight: 800;
   text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .session-tool-detail-block pre {
-  max-height: 12rem;
+  max-height: 16rem;
   overflow: auto;
   border: 1px solid rgb(var(--color-border) / 0.34);
   border-radius: 0.55rem;
@@ -5539,8 +5574,8 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 
 .cockpit-tool-glyph {
   display: inline-flex;
-  width: 1.2rem;
-  height: 1.2rem;
+  width: 1.3rem;
+  height: 1.3rem;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
@@ -5548,28 +5583,46 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   border-radius: 0.42rem;
   background: rgb(var(--color-accent) / 0.1);
   color: rgb(var(--color-accent));
-  font-size: 0.72rem;
+  font-size: 0.74rem;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease;
 }
 
-.cockpit-tool-title,
-.cockpit-tool-detail {
+.cockpit-tool-glyph--running {
+  border-color: rgb(var(--color-accent) / 0.4);
+  background: rgb(var(--color-accent) / 0.16);
+  color: rgb(var(--color-accent));
+}
+
+.cockpit-tool-glyph--done {
+  border-color: rgb(var(--color-success) / 0.35);
+  background: rgb(var(--color-success) / 0.14);
+  color: rgb(var(--color-success));
+}
+
+.cockpit-tool-glyph--error {
+  border-color: rgb(var(--color-danger) / 0.4);
+  background: rgb(var(--color-danger) / 0.14);
+  color: rgb(var(--color-danger));
+}
+
+.cockpit-tool-glyph--idle {
+  border-color: rgb(var(--color-warning) / 0.35);
+  background: rgb(var(--color-warning) / 0.14);
+  color: rgb(var(--color-warning));
+}
+
+.cockpit-tool-title {
   display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.cockpit-tool-title {
   color: rgb(var(--color-foreground));
-  font-size: 0.68rem;
-  font-weight: 760;
-}
-
-.cockpit-tool-detail {
-  margin-top: 0.08rem;
-  color: rgb(var(--color-faint-foreground));
-  font-size: 0.58rem;
+  font-size: 0.7rem;
+  font-weight: 700;
 }
 
 .cockpit-tool-state {

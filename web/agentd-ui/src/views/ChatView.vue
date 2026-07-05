@@ -1,8 +1,79 @@
 <template>
   <div class="flex h-full min-h-0 flex-1 overflow-hidden chat-modern">
     <section
-      class="grid h-full min-h-0 flex-1 grid-cols-[minmax(0,1fr)_252px] overflow-hidden chat-grid"
+      class="grid h-full min-h-0 flex-1 grid-cols-[252px_minmax(0,1fr)_252px] gap-3 overflow-hidden chat-grid"
     >
+      <!-- Session sidebar -->
+      <aside
+        class="chat-session-panel flex h-full min-h-0 flex-col text-sm text-subtle-foreground chat-side"
+        aria-label="Session"
+      >
+        <div class="flex min-h-0 flex-1 flex-col">
+          <GlassCard
+            flat
+            :padded="false"
+            class="flex min-h-0 flex-1 flex-col overflow-hidden"
+          >
+            <div
+              class="session-column-content flex min-h-0 flex-1 flex-col gap-2.5"
+            >
+              <header class="session-column-header">
+                <p class="chat-panel-kicker">Session</p>
+                <h2 class="session-column-title">Session</h2>
+              </header>
+              <section class="cockpit-run-strip" aria-label="Run Activity">
+                <div class="min-w-0">
+                  <p class="chat-panel-kicker">Run Activity</p>
+                  <h2 class="truncate text-base font-semibold text-foreground">
+                    {{ runActivityTitle }}
+                  </h2>
+                  <p class="mt-1 truncate text-xs text-subtle-foreground">
+                    {{ runActivityDetail }}
+                  </p>
+                </div>
+                <div class="cockpit-run-readouts">
+                  <div class="cockpit-mini-readout">
+                    <span>State</span>
+                    <strong>{{ cockpitRunStateText }}</strong>
+                  </div>
+                  <div class="cockpit-mini-readout">
+                    <span>Messages</span>
+                    <strong>{{ cockpitMessageCount.toLocaleString() }}</strong>
+                  </div>
+                  <div class="cockpit-mini-readout">
+                    <span>Tools</span>
+                    <strong>{{ cockpitToolCount.toLocaleString() }}</strong>
+                  </div>
+                  <div class="cockpit-mini-readout">
+                    <span>Active</span>
+                    <strong>{{ activeParticipantCount }}</strong>
+                  </div>
+                </div>
+              </section>
+              <div class="cockpit-inspector-stack">
+                <section class="cockpit-inspector-card" aria-label="Context">
+                  <div
+                    class="cockpit-context-ring"
+                    :style="{ '--context-used': cockpitContextDegrees }"
+                  >
+                    <div>
+                      <strong>{{ cockpitContextPercent }}%</strong>
+                      <span>Context used</span>
+                    </div>
+                  </div>
+                  <div class="cockpit-readout-list">
+                    <div class="cockpit-readout-row">
+                      <span>Context window</span>
+                      <strong>{{ cockpitContextLabel }}</strong>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </GlassCard>
+        </div>
+      </aside>
+
       <!-- Chat pane -->
       <section
         class="relative flex h-full min-h-0 flex-col overflow-hidden px-5 chat-pane"
@@ -234,36 +305,6 @@
             </div>
           </div>
         </header>
-
-        <section class="cockpit-run-strip" aria-label="Run Activity">
-          <div class="min-w-0">
-            <p class="chat-panel-kicker">Run Activity</p>
-            <h2 class="truncate text-base font-semibold text-foreground">
-              {{ runActivityTitle }}
-            </h2>
-            <p class="mt-1 truncate text-xs text-subtle-foreground">
-              {{ runActivityDetail }}
-            </p>
-          </div>
-          <div class="cockpit-run-readouts">
-            <div class="cockpit-mini-readout">
-              <span>State</span>
-              <strong>{{ cockpitRunStateText }}</strong>
-            </div>
-            <div class="cockpit-mini-readout">
-              <span>Messages</span>
-              <strong>{{ cockpitMessageCount.toLocaleString() }}</strong>
-            </div>
-            <div class="cockpit-mini-readout">
-              <span>Tools</span>
-              <strong>{{ cockpitToolCount.toLocaleString() }}</strong>
-            </div>
-            <div class="cockpit-mini-readout">
-              <span>Active</span>
-              <strong>{{ activeParticipantCount }}</strong>
-            </div>
-          </div>
-        </section>
 
         <section
           class="cockpit-center-panels"
@@ -1421,7 +1462,7 @@
 
       <!-- Participants sidebar -->
       <aside
-        class="chat-participants-panel flex h-full min-h-0 flex-col px-3 text-sm text-subtle-foreground chat-side"
+        class="chat-participants-panel flex h-full min-h-0 flex-col text-sm text-subtle-foreground chat-side"
       >
         <div class="flex min-h-0 flex-1 flex-col">
           <GlassCard
@@ -1482,25 +1523,6 @@
                     </button>
                   </li>
                 </ul>
-              </div>
-              <div class="cockpit-inspector-stack">
-                <section class="cockpit-inspector-card">
-                  <div
-                    class="cockpit-context-ring"
-                    :style="{ '--context-used': cockpitContextDegrees }"
-                  >
-                    <div>
-                      <strong>{{ cockpitContextPercent }}%</strong>
-                      <span>Context used</span>
-                    </div>
-                  </div>
-                  <div class="cockpit-readout-list">
-                    <div class="cockpit-readout-row">
-                      <span>Context window</span>
-                      <strong>{{ cockpitContextLabel }}</strong>
-                    </div>
-                  </div>
-                </section>
               </div>
             </div>
           </GlassCard>
@@ -5071,6 +5093,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
     );
 }
 
+.chat-session-panel,
 .chat-participants-panel {
   border-radius: 1rem;
   border: 1px solid rgb(var(--color-border) / 0.64);
@@ -5088,6 +5111,33 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.04),
     0 20px 56px -42px rgb(0 0 0 / 0.95);
+}
+
+.session-column-content {
+  padding: 0.5rem;
+}
+
+.session-column-header {
+  border-bottom: 1px solid rgb(var(--color-border) / 0.58);
+  padding: 0.35rem 0.25rem 0.65rem;
+}
+
+.session-column-title {
+  color: rgb(var(--color-foreground));
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.chat-session-panel .cockpit-run-strip {
+  align-items: stretch;
+  flex-direction: column;
+  margin: 0;
+}
+
+.chat-session-panel .cockpit-run-readouts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 0;
 }
 
 .chat-panel-kicker {

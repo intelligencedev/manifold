@@ -1,14 +1,21 @@
 <template>
   <div class="flex h-full min-h-0 flex-1 overflow-hidden chat-modern">
     <section
-      class="grid h-full min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)_260px] overflow-hidden chat-grid"
+      class="grid h-full min-h-0 flex-1 grid-cols-[272px_minmax(0,1fr)_252px] overflow-hidden chat-grid"
     >
       <!-- Sessions sidebar -->
       <aside
-        class="flex h-full min-h-0 flex-col gap-3 overflow-hidden border-r border-border/60 p-4 pr-5"
+        class="chat-sessions-panel flex h-full min-h-0 flex-col gap-3 overflow-hidden p-3"
       >
         <header class="flex items-center justify-between gap-2">
-          <h2 class="text-sm font-semibold text-foreground">Conversations</h2>
+          <div>
+            <p class="chat-panel-kicker">Workspace</p>
+            <h2
+              class="text-base font-semibold tracking-[-0.03em] text-foreground"
+            >
+              Conversations
+            </h2>
+          </div>
           <div class="flex items-center gap-1.5">
             <template v-if="!sessionSelectMode">
               <button
@@ -61,7 +68,7 @@
         >
           {{ sessionsError }}
         </p>
-        <div class="flex-1 space-y-1 overflow-y-auto pr-1 text-sm">
+        <div class="flex-1 space-y-1.5 overflow-y-auto pr-1 text-sm">
           <p
             v-if="sessionsLoading"
             class="px-3 py-2 text-xs text-subtle-foreground"
@@ -77,7 +84,7 @@
           <div
             v-for="session in sessions"
             :key="session.id"
-            class="conversation-session-row group rounded-lg border border-transparent px-3 py-2 transition"
+            class="conversation-session-row group rounded-[14px] border border-transparent px-3 py-2.5 transition"
             :class="sessionRowClasses(session.id)"
             @click="
               sessionSelectMode
@@ -214,10 +221,12 @@
         class="relative flex h-full min-h-0 flex-col overflow-hidden px-5 chat-pane"
       >
         <header
-          class="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 pb-4 pt-1"
+          class="chat-pane-header flex flex-wrap items-center justify-between gap-3 px-4 pb-4 pt-1"
         >
           <div>
-            <h1 class="text-base font-semibold text-foreground">
+            <h1
+              class="text-xl font-semibold tracking-[-0.035em] text-foreground"
+            >
               {{ activeSession?.name || "Conversation" }}
             </h1>
           </div>
@@ -356,11 +365,176 @@
           </div>
         </header>
 
-        <TokenGaugeRail variant="session" :metrics="sessionContextMetrics" />
+        <section class="cockpit-run-strip" aria-label="Run Activity">
+          <div class="min-w-0">
+            <p class="chat-panel-kicker">Run Activity</p>
+            <h2 class="truncate text-base font-semibold text-foreground">
+              {{ runActivityTitle }}
+            </h2>
+            <p class="mt-1 truncate text-xs text-subtle-foreground">
+              {{ runActivityDetail }}
+            </p>
+          </div>
+          <div class="cockpit-run-readouts">
+            <div class="cockpit-mini-readout">
+              <span>State</span>
+              <strong>{{ cockpitRunStateText }}</strong>
+            </div>
+            <div class="cockpit-mini-readout">
+              <span>Messages</span>
+              <strong>{{ cockpitMessageCount.toLocaleString() }}</strong>
+            </div>
+            <div class="cockpit-mini-readout">
+              <span>Tools</span>
+              <strong>{{ cockpitToolCount.toLocaleString() }}</strong>
+            </div>
+            <div class="cockpit-mini-readout">
+              <span>Active</span>
+              <strong>{{ activeParticipantCount }}</strong>
+            </div>
+          </div>
+        </section>
+
+        <section
+          class="cockpit-center-panels"
+          aria-label="Orchestration summaries"
+        >
+          <article
+            class="cockpit-center-card cockpit-timeline-card"
+            aria-label="Execution Timeline"
+          >
+            <header class="cockpit-card-header">
+              <div>
+                <p class="chat-panel-kicker">Specialists Execution Timeline</p>
+              </div>
+              <div class="cockpit-card-actions">
+                <span class="cockpit-card-pill">1x</span>
+                <span class="cockpit-card-pill cockpit-card-pill--live">{{
+                  runActivitySidebarLabel
+                }}</span>
+              </div>
+            </header>
+            <div
+              v-if="cockpitTimelineLanes.length"
+              class="cockpit-timeline-grid"
+            >
+              <div class="cockpit-timeline-scale" aria-hidden="true">
+                <span class="cockpit-timeline-scale-label"></span>
+                <div class="cockpit-timeline-tick-track">
+                  <span
+                    v-for="tick in cockpitTimelineTicks"
+                    :key="tick.id"
+                    class="cockpit-timeline-tick"
+                    :style="{ left: tick.position }"
+                  >
+                    {{ tick.label }}
+                  </span>
+                </div>
+              </div>
+              <div
+                v-for="lane in cockpitTimelineLanes"
+                :key="lane.id"
+                class="cockpit-timeline-lane"
+              >
+                <div class="cockpit-timeline-agent">
+                  <span
+                    class="cockpit-status-dot"
+                    :class="`cockpit-status-dot--${lane.status}`"
+                  ></span>
+                  <span class="cockpit-timeline-agent-name">{{
+                    lane.name
+                  }}</span>
+                  <span class="cockpit-timeline-agent-state">{{
+                    lane.statusLabel
+                  }}</span>
+                </div>
+                <div class="cockpit-timeline-track">
+                  <span
+                    v-for="tick in cockpitTimelineTicks.slice(1)"
+                    :key="`${lane.id}:${tick.id}`"
+                    class="cockpit-timeline-gridline"
+                    :style="{ left: tick.position }"
+                  ></span>
+                  <span
+                    v-for="segment in lane.segments"
+                    :key="segment.id"
+                    class="cockpit-timeline-bar"
+                    :class="`cockpit-timeline-bar--${segment.status}`"
+                    :style="{ left: segment.left, width: segment.width }"
+                    :aria-label="segment.label"
+                    :title="segment.label"
+                  >
+                    <span>{{ segment.durationLabel }}</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+            <p v-else class="cockpit-empty-text">
+              No active timeline for this conversation.
+            </p>
+          </article>
+
+          <article class="cockpit-center-card">
+            <header class="cockpit-card-header">
+              <div>
+                <p class="chat-panel-kicker">Tool Invocations</p>
+              </div>
+              <span class="cockpit-card-pill"
+                >{{ cockpitToolCount.toLocaleString() }} total</span
+              >
+            </header>
+            <div
+              v-if="cockpitToolRows.length"
+              class="cockpit-tool-table"
+              role="table"
+              aria-label="Tool invocation details"
+            >
+              <div
+                class="cockpit-tool-table-row cockpit-tool-table-head"
+                role="row"
+              >
+                <span role="columnheader">Tool</span>
+                <span role="columnheader">Status</span>
+                <span role="columnheader">Duration</span>
+                <span role="columnheader">Timestamp</span>
+              </div>
+              <div
+                v-for="row in cockpitToolRows"
+                :key="row.id"
+                class="cockpit-tool-table-row"
+                role="row"
+              >
+                <span class="cockpit-tool-name" role="cell">
+                  <span class="cockpit-tool-glyph">⌘</span>
+                  <span class="min-w-0">
+                    <span class="cockpit-tool-title">{{ row.name }}</span>
+                    <span class="cockpit-tool-detail">{{ row.detail }}</span>
+                  </span>
+                </span>
+                <span class="cockpit-tool-state" role="cell">
+                  <span
+                    class="cockpit-status-dot"
+                    :class="`cockpit-status-dot--${row.statusTone}`"
+                  ></span>
+                  {{ row.status }}
+                </span>
+                <span class="cockpit-tool-meta" role="cell">{{
+                  row.durationLabel
+                }}</span>
+                <span class="cockpit-tool-meta" role="cell">{{
+                  row.timestampLabel
+                }}</span>
+              </div>
+            </div>
+            <p v-else class="cockpit-empty-text">
+              No tool calls recorded for this conversation.
+            </p>
+          </article>
+        </section>
 
         <div
           ref="messagesPane"
-          class="flex-1 min-h-0 space-y-5 overflow-y-auto overflow-x-hidden overscroll-contain py-4 pb-3 pl-24 pr-8 xl:pl-28 xl:pr-12"
+          class="chat-message-scroll flex-1 min-h-0 space-y-3 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-3 pb-2 xl:px-5"
           @scroll="handleMessagesScroll"
           @click="handleMarkdownClick"
         >
@@ -402,8 +576,8 @@
               :class="[
                 'relative min-w-0',
                 message.role === 'user'
-                  ? 'ml-auto max-w-[62%] rounded-lg border border-border/70 bg-surface-muted/50 px-4 py-3'
-                  : 'py-1 pr-6',
+                  ? 'user-message-card ml-auto max-w-[66%] rounded-[18px] border px-3.5 py-2.5'
+                  : 'assistant-message-card py-1 pr-6',
               ]"
             >
               <header class="flex flex-wrap items-center gap-2">
@@ -1439,20 +1613,17 @@
 
       <!-- Participants sidebar -->
       <aside
-        class="flex h-full min-h-0 flex-col border-l border-border/60 pl-5 text-sm text-subtle-foreground chat-side"
+        class="chat-participants-panel flex h-full min-h-0 flex-col px-3 text-sm text-subtle-foreground chat-side"
       >
         <div class="flex min-h-0 flex-1 flex-col">
-          <GlassCard flat class="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <div class="flex min-h-0 flex-1 flex-col">
-              <header class="flex items-center justify-between">
-                <h2 class="text-sm font-semibold text-foreground">
-                  Participants
-                </h2>
-                <span class="text-[11px] text-faint-foreground">
-                  {{ participantList.length }} available
-                </span>
-              </header>
-              <div class="mt-2">
+          <GlassCard
+            flat
+            :padded="false"
+            class="flex min-h-0 flex-1 flex-col overflow-hidden"
+          >
+            <div class="flex min-h-0 flex-1 flex-col gap-2.5">
+
+              <div class="mt-1.5">
                 <DropdownSelect
                   v-model="selectedTeam"
                   :options="teamOptions"
@@ -1462,7 +1633,7 @@
                   class="w-full"
                 />
               </div>
-              <div class="mt-2 flex-1 min-h-0 overflow-y-auto">
+              <div class="mt-1.5 flex-1 min-h-0 overflow-y-auto">
                 <div
                   v-if="!participantList.length"
                   class="rounded-4 border border-dashed border-border bg-surface p-3 text-xs text-subtle-foreground"
@@ -1504,6 +1675,49 @@
                     </button>
                   </li>
                 </ul>
+              </div>
+              <div class="cockpit-inspector-stack">
+                <section class="cockpit-inspector-card">
+                  <h3 class="chat-panel-kicker">Model & Performance</h3>
+                  <div class="cockpit-metric-grid">
+                    <div class="cockpit-metric">
+                      <span>Primary model</span>
+                      <strong>{{ cockpitAgentContext.agentModel }}</strong>
+                    </div>
+                    <div class="cockpit-metric">
+                      <span>Run state</span>
+                      <strong>{{ cockpitRunStateText }}</strong>
+                    </div>
+                    <div class="cockpit-metric">
+                      <span>Messages</span>
+                      <strong>{{
+                        cockpitMessageCount.toLocaleString()
+                      }}</strong>
+                    </div>
+                    <div class="cockpit-metric">
+                      <span>Tool calls</span>
+                      <strong>{{ cockpitToolCount.toLocaleString() }}</strong>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="cockpit-inspector-card">
+                  <div
+                    class="cockpit-context-ring"
+                    :style="{ '--context-used': cockpitContextDegrees }"
+                  >
+                    <div>
+                      <strong>{{ cockpitContextPercent }}%</strong>
+                      <span>Context used</span>
+                    </div>
+                  </div>
+                  <div class="cockpit-readout-list">
+                    <div class="cockpit-readout-row">
+                      <span>Context window</span>
+                      <strong>{{ cockpitContextLabel }}</strong>
+                    </div>
+                  </div>
+                </section>
               </div>
             </div>
           </GlassCard>
@@ -1667,7 +1881,6 @@ import SolarDownloadIcon from "@/components/icons/SolarDownload.vue";
 import SolarPinBold from "@/components/icons/SolarPinBold.vue";
 import SolarListArrowDownIcon from "@/components/icons/Expand.vue";
 import Camera from "@/components/icons/Camera.vue";
-import TokenGaugeRail from "@/components/chat/TokenGaugeRail.vue";
 import DropdownSelect from "@/components/DropdownSelect.vue";
 import GlassCard from "@/components/ui/GlassCard.vue";
 import { useChatStore } from "@/stores/chat";
@@ -1683,6 +1896,8 @@ const router = useRouter();
 const isBrowser = typeof window !== "undefined";
 const SCROLL_LOCK_THRESHOLD = 80;
 const LOAD_OLDER_SCROLL_THRESHOLD = 96;
+const COCKPIT_TIMELINE_TICK_MS = 5_000;
+const COCKPIT_TIMELINE_MIN_WINDOW_MS = 30_000;
 let previousBodyOverflow: string | null = null;
 
 const chat = useChatStore();
@@ -2701,6 +2916,35 @@ type SpecialistActivityItem = {
   depth: number;
   isOrchestrator: boolean;
 };
+type CockpitToolRow = {
+  id: string;
+  name: string;
+  detail: string;
+  status: string;
+  statusTone: ActivityStatus;
+  durationLabel: string;
+  timestampLabel: string;
+};
+type CockpitTimelineTick = {
+  id: string;
+  label: string;
+  position: string;
+};
+type CockpitTimelineSegment = {
+  id: string;
+  label: string;
+  status: ActivityStatus;
+  left: string;
+  width: string;
+  durationLabel: string;
+};
+type CockpitTimelineLane = {
+  id: string;
+  name: string;
+  status: ActivityStatus;
+  statusLabel: string;
+  segments: CockpitTimelineSegment[];
+};
 type Participant = {
   id: string;
   name: string;
@@ -2720,6 +2964,59 @@ function safeTimestampMs(value?: string) {
   if (!value) return 0;
   const ms = Date.parse(value);
   return Number.isFinite(ms) ? ms : 0;
+}
+
+function activityStartMs(item: SpecialistActivityItem) {
+  return safeTimestampMs(item.startedAt) || item.updatedAt || Date.now();
+}
+
+function activityEndMs(item: SpecialistActivityItem, fallbackEndMs: number) {
+  if (item.finishedAt) {
+    const finished = safeTimestampMs(item.finishedAt);
+    if (finished) return finished;
+  }
+  if (item.status === "running") return fallbackEndMs;
+  return Math.max(activityStartMs(item) + 1_000, item.updatedAt || 0);
+}
+
+function roundedTimelineStart(ms: number) {
+  return Math.floor(ms / COCKPIT_TIMELINE_TICK_MS) * COCKPIT_TIMELINE_TICK_MS;
+}
+
+function formatTimelineOffset(ms: number) {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatTimelineTimestamp(ms: number, timelineStartMs: number) {
+  const offset = Math.max(0, ms - timelineStartMs);
+  const totalSeconds = Math.round(offset / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function percentBetween(value: number, start: number, span: number) {
+  if (span <= 0) return "0%";
+  const pct = Math.min(100, Math.max(0, ((value - start) / span) * 100));
+  return `${pct.toFixed(2)}%`;
+}
+
+function statusToneFromLabel(label: string): ActivityStatus {
+  const normalized = label.toLowerCase();
+  if (normalized.includes("error") || normalized.includes("fail")) {
+    return "error";
+  }
+  if (normalized.includes("running") || normalized.includes("live")) {
+    return "running";
+  }
+  if (normalized.includes("queue") || normalized.includes("pending")) {
+    return "idle";
+  }
+  return "done";
 }
 
 function agentThreadTimestamp(thread: AgentThread) {
@@ -3563,6 +3860,182 @@ function participantDotClasses(participant: Participant) {
     "participant-dot--idle": !active,
   };
 }
+
+const cockpitMessageCount = computed(() => activeMessages.value.length);
+const cockpitActivityToolCount = computed(() =>
+  runActivityItems.value.reduce(
+    (count, item) => count + item.toolEntries.length,
+    0,
+  ),
+);
+const cockpitToolCount = computed(
+  () => cockpitActivityToolCount.value || toolMessages.value.length,
+);
+const cockpitRunStateText = computed(() => runActivityStateLabel.value);
+const cockpitAgentContext = computed(() => resolveAgentContext());
+const cockpitTimelineItems = computed(() =>
+  [...runActivityItems.value]
+    .sort((a, b) => activityStartMs(a) - activityStartMs(b))
+    .slice(0, 5),
+);
+const cockpitTimelineWindow = computed(() => {
+  const items = cockpitTimelineItems.value;
+  if (!items.length) {
+    const startMs = roundedTimelineStart(Date.now());
+    return {
+      startMs,
+      spanMs: COCKPIT_TIMELINE_MIN_WINDOW_MS,
+      stepMs: COCKPIT_TIMELINE_TICK_MS,
+    };
+  }
+
+  const starts = items.map(activityStartMs);
+  const earliest = Math.min(...starts);
+  const startMs = roundedTimelineStart(earliest);
+  const latest = Math.max(
+    ...items.map((item) => {
+      const start = activityStartMs(item);
+      const latestEntry = Math.max(
+        0,
+        ...item.toolEntries.map((entry) => safeTimestampMs(entry.createdAt)),
+      );
+      return activityEndMs(
+        item,
+        Math.max(start + COCKPIT_TIMELINE_TICK_MS, latestEntry, item.updatedAt),
+      );
+    }),
+  );
+  const rawSpan = Math.max(
+    COCKPIT_TIMELINE_MIN_WINDOW_MS,
+    latest - startMs + COCKPIT_TIMELINE_TICK_MS,
+  );
+  const stepMs =
+    Math.ceil(rawSpan / 6 / COCKPIT_TIMELINE_TICK_MS) *
+    COCKPIT_TIMELINE_TICK_MS;
+  return {
+    startMs,
+    spanMs: stepMs * 6,
+    stepMs,
+  };
+});
+const cockpitTimelineTicks = computed<CockpitTimelineTick[]>(() => {
+  const window = cockpitTimelineWindow.value;
+  return Array.from({ length: 7 }, (_, index) => {
+    const offset = index * window.stepMs;
+    return {
+      id: String(index),
+      label: formatTimelineOffset(offset),
+      position: percentBetween(
+        window.startMs + offset,
+        window.startMs,
+        window.spanMs,
+      ),
+    };
+  });
+});
+const cockpitTimelineLanes = computed<CockpitTimelineLane[]>(() => {
+  const window = cockpitTimelineWindow.value;
+  return cockpitTimelineItems.value.map((item) => {
+    const start = activityStartMs(item);
+    const latestEntry = Math.max(
+      0,
+      ...item.toolEntries.map((entry) => safeTimestampMs(entry.createdAt)),
+    );
+    const end = activityEndMs(
+      item,
+      Math.max(start + COCKPIT_TIMELINE_TICK_MS, latestEntry, item.updatedAt),
+    );
+    const left = percentBetween(start, window.startMs, window.spanMs);
+    const durationPercent = Math.max(
+      2.6,
+      ((Math.max(end, start + 800) - start) / window.spanMs) * 100,
+    );
+    return {
+      id: item.id,
+      name: item.name,
+      status: item.status,
+      statusLabel: item.statusLabel,
+      segments: [
+        {
+          id: `${item.id}:activity`,
+          label: `${item.name} ${item.statusLabel} ${formatDuration(end - start)}`,
+          status: item.status,
+          left,
+          width: `${Math.min(100, durationPercent).toFixed(2)}%`,
+          durationLabel: formatDuration(end - start),
+        },
+      ],
+    };
+  });
+});
+const activeParticipantCount = computed(
+  () =>
+    participantList.value.filter((participant) =>
+      participantIsActive(participant),
+    ).length,
+);
+const cockpitContextPercent = computed(() => {
+  const metrics = sessionContextMetrics.value;
+  if (!metrics.contextWindow) return 0;
+  return Math.min(
+    100,
+    Math.round((metrics.inputTokens / metrics.contextWindow) * 100),
+  );
+});
+const cockpitContextDegrees = computed(
+  () => `${cockpitContextPercent.value * 3.6}deg`,
+);
+const cockpitContextLabel = computed(() => {
+  const metrics = sessionContextMetrics.value;
+  if (!metrics.contextWindow) return "Unknown";
+  return `${metrics.inputTokens.toLocaleString()} / ${metrics.contextWindow.toLocaleString()}`;
+});
+const cockpitToolRows = computed<CockpitToolRow[]>(() => {
+  const window = cockpitTimelineWindow.value;
+  const traceRows = runActivityItems.value.flatMap((item) =>
+    item.toolEntries.map((entry) => {
+      const start = activityStartMs(item);
+      const entryMs = safeTimestampMs(entry.createdAt) || start;
+      const end = activityEndMs(
+        item,
+        Math.max(start + COCKPIT_TIMELINE_TICK_MS, entryMs, item.updatedAt),
+      );
+      return {
+        id: `${item.id}:${entry.id}`,
+        name: entry.title || "Tool call",
+        detail: entry.content || entry.args || item.name,
+        status: item.statusLabel,
+        statusTone: item.status,
+        durationLabel: formatDuration(Math.max(0, end - start)),
+        timestampLabel: formatTimelineTimestamp(entryMs, window.startMs),
+      };
+    }),
+  );
+  if (traceRows.length) return traceRows.slice(-5);
+
+  return toolMessages.value.slice(-5).map((message) => {
+    const status = message.error
+      ? "Error"
+      : message.streaming
+        ? "Running"
+        : "Done";
+    const createdAt = safeTimestampMs(message.createdAt) || window.startMs;
+    return {
+      id: message.id,
+      name: message.activityToolTitle || message.title || "Tool call",
+      detail:
+        snippet(message.content || message.toolArgs || "", 72) ||
+        "Recorded tool message",
+      status,
+      statusTone: statusToneFromLabel(status),
+      durationLabel:
+        typeof message.durationMs === "number"
+          ? formatDuration(message.durationMs)
+          : "-",
+      timestampLabel: formatTimelineTimestamp(createdAt, window.startMs),
+    };
+  });
+});
 
 watch(
   () =>
@@ -4768,6 +5241,597 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 
 <style scoped>
 .chat-modern {
+  position: relative;
+  isolation: isolate;
+}
+
+.chat-modern::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      circle at 28% 0%,
+      rgb(var(--color-accent) / 0.1),
+      transparent 28rem
+    ),
+    linear-gradient(
+      180deg,
+      rgb(var(--color-background) / 0.34),
+      transparent 10rem
+    );
+}
+
+.chat-sessions-panel,
+.chat-participants-panel {
+  border-radius: 1rem;
+  border: 1px solid rgb(var(--color-border) / 0.64);
+  background:
+    linear-gradient(
+      180deg,
+      rgb(var(--color-surface) / 0.9),
+      rgb(var(--color-muted) / 0.76)
+    ),
+    radial-gradient(
+      circle at 50% 0%,
+      rgb(var(--color-accent) / 0.08),
+      transparent 18rem
+    );
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.04),
+    0 20px 56px -42px rgb(0 0 0 / 0.95);
+}
+
+.chat-panel-kicker {
+  margin-bottom: 0.18rem;
+  color: rgb(var(--color-faint-foreground));
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+  line-height: 1.15;
+  text-transform: uppercase;
+}
+
+.chat-pane-header {
+  border-bottom: 1px solid rgb(var(--color-border) / 0.58);
+}
+
+.chat-message-scroll {
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    black 0.85rem,
+    black calc(100% - 0.75rem),
+    transparent 100%
+  );
+}
+
+.user-message-card {
+  border-color: rgb(var(--color-accent) / 0.24);
+  background: linear-gradient(
+    180deg,
+    rgb(var(--color-accent) / 0.15),
+    rgb(var(--color-surface-muted) / 0.62)
+  );
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04);
+}
+
+.assistant-message-card {
+  border-radius: 1rem;
+}
+
+.cockpit-run-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0.375rem 0.5rem 0;
+  padding: 0.48rem 0.56rem;
+  border: 1px solid rgb(var(--color-border) / 0.64);
+  border-radius: 0.72rem;
+  background:
+    linear-gradient(
+      180deg,
+      rgb(var(--color-surface) / 0.92),
+      rgb(var(--color-muted) / 0.82)
+    ),
+    radial-gradient(
+      circle at 0% 0%,
+      rgb(var(--color-accent) / 0.12),
+      transparent 16rem
+    );
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04);
+}
+
+.cockpit-run-readouts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.3rem;
+  min-width: 14rem;
+}
+
+.cockpit-mini-readout,
+.cockpit-metric {
+  min-width: 0;
+  border: 1px solid rgb(var(--color-border) / 0.56);
+  border-radius: 0.46rem;
+  background: rgb(var(--color-surface-muted) / 0.5);
+  padding: 0.3rem 0.36rem;
+}
+
+.cockpit-mini-readout span,
+.cockpit-metric span,
+.cockpit-readout-row span {
+  display: block;
+  color: rgb(var(--color-faint-foreground));
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cockpit-mini-readout strong,
+.cockpit-metric strong,
+.cockpit-readout-row strong {
+  display: block;
+  margin-top: 0.14rem;
+  overflow: hidden;
+  color: rgb(var(--color-foreground));
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cockpit-center-panels {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.42rem;
+  margin: 0.375rem 0.5rem 0;
+}
+
+.cockpit-center-card,
+.cockpit-inspector-card {
+  min-width: 0;
+  border: 1px solid rgb(var(--color-border) / 0.6);
+  border-radius: 0.72rem;
+  background:
+    linear-gradient(
+      180deg,
+      rgb(var(--color-surface) / 0.92),
+      rgb(var(--color-muted) / 0.8)
+    ),
+    radial-gradient(
+      circle at 100% 0%,
+      rgb(var(--color-info) / 0.08),
+      transparent 13rem
+    );
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.035);
+}
+
+.cockpit-center-card {
+  padding: 0.46rem;
+}
+
+.cockpit-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.cockpit-card-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.cockpit-card-header h2 {
+  color: rgb(var(--color-foreground));
+  font-size: 0.78rem;
+  line-height: 1.2;
+}
+
+.cockpit-card-pill {
+  flex: 0 0 auto;
+  border: 1px solid rgb(var(--color-border) / 0.54);
+  border-radius: 999px;
+  background: rgb(var(--color-surface-muted) / 0.5);
+  padding: 0.12rem 0.42rem;
+  color: rgb(var(--color-subtle-foreground));
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+}
+
+.cockpit-card-pill--live {
+  border-color: rgb(var(--color-success) / 0.35);
+  color: rgb(var(--color-success));
+}
+
+.cockpit-timeline-grid {
+  display: grid;
+  gap: 0;
+  margin-top: 0.42rem;
+  overflow: hidden;
+  border: 1px solid rgb(var(--color-border) / 0.42);
+  border-radius: 0.58rem;
+  background: rgb(var(--color-background) / 0.18);
+}
+
+.cockpit-timeline-scale,
+.cockpit-timeline-lane {
+  display: grid;
+  grid-template-columns: 8.2rem minmax(0, 1fr);
+}
+
+.cockpit-timeline-scale {
+  min-height: 1.25rem;
+  align-items: center;
+  border-bottom: 1px solid rgb(var(--color-border) / 0.34);
+}
+
+.cockpit-timeline-scale-label {
+  height: 100%;
+  border-right: 1px solid rgb(var(--color-border) / 0.34);
+  background: rgb(var(--color-surface-muted) / 0.26);
+}
+
+.cockpit-timeline-tick-track {
+  position: relative;
+  height: 100%;
+}
+
+.cockpit-timeline-tick {
+  position: absolute;
+  top: 50%;
+  display: inline-flex;
+  color: rgb(var(--color-faint-foreground));
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  transform: translate(-0.1rem, -50%);
+}
+
+.cockpit-timeline-lane {
+  min-height: 1.45rem;
+  border-bottom: 1px solid rgb(var(--color-border) / 0.26);
+}
+
+.cockpit-timeline-lane:last-child {
+  border-bottom: 0;
+}
+
+.cockpit-timeline-agent {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: 0.42rem;
+  align-content: center;
+  min-width: 0;
+  border-right: 1px solid rgb(var(--color-border) / 0.34);
+  background: rgb(var(--color-surface-muted) / 0.2);
+  padding: 0.26rem 0.42rem;
+}
+
+.cockpit-timeline-agent .cockpit-status-dot {
+  grid-row: 1 / 3;
+  align-self: center;
+}
+
+.cockpit-timeline-agent-name {
+  min-width: 0;
+  overflow: hidden;
+  color: rgb(var(--color-foreground));
+  font-size: 0.68rem;
+  font-weight: 750;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cockpit-timeline-agent-state {
+  min-width: 0;
+  overflow: hidden;
+  color: rgb(var(--color-faint-foreground));
+  font-family: var(--font-mono);
+  font-size: 0.55rem;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cockpit-timeline-track {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  background:
+    linear-gradient(
+      180deg,
+      rgb(var(--color-surface-muted) / 0.18),
+      rgb(var(--color-muted) / 0.14)
+    ),
+    repeating-linear-gradient(
+      90deg,
+      transparent 0,
+      transparent calc(16.666% - 1px),
+      rgb(var(--color-border) / 0.18) calc(16.666% - 1px),
+      rgb(var(--color-border) / 0.18) 16.666%
+    );
+}
+
+.cockpit-timeline-gridline {
+  position: absolute;
+  inset-block: 0;
+  width: 1px;
+  background: rgb(var(--color-border) / 0.2);
+}
+
+.cockpit-timeline-bar {
+  position: absolute;
+  top: 50%;
+  display: inline-flex;
+  min-width: 1rem;
+  max-width: calc(100% - 0.25rem);
+  height: 0.42rem;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  box-shadow: 0 0 18px rgb(var(--color-accent) / 0.18);
+}
+
+.cockpit-timeline-bar span {
+  color: rgb(var(--color-foreground));
+  font-family: var(--font-mono);
+  font-size: 0.52rem;
+  line-height: 1;
+}
+
+.cockpit-timeline-bar--running {
+  background: linear-gradient(
+    90deg,
+    rgb(var(--color-accent) / 0.68),
+    rgb(var(--color-info) / 0.86)
+  );
+}
+
+.cockpit-timeline-bar--done {
+  background: linear-gradient(
+    90deg,
+    rgb(var(--color-success) / 0.62),
+    rgb(var(--color-accent) / 0.54)
+  );
+}
+
+.cockpit-timeline-bar--error {
+  background: linear-gradient(
+    90deg,
+    rgb(var(--color-danger) / 0.72),
+    rgb(var(--color-warning) / 0.62)
+  );
+}
+
+.cockpit-timeline-bar--idle {
+  background: rgb(var(--color-border) / 0.72);
+}
+
+.cockpit-tool-table {
+  display: grid;
+  gap: 0.16rem;
+  margin-top: 0.42rem;
+}
+
+.cockpit-tool-table-row,
+.cockpit-readout-row {
+  display: grid;
+  min-width: 0;
+  align-items: center;
+  gap: 0.5rem;
+  border-top: 1px solid rgb(var(--color-border) / 0.32);
+  padding-top: 0.24rem;
+}
+
+.cockpit-tool-table-row {
+  grid-template-columns:
+    minmax(0, 1.8fr) minmax(5.2rem, 0.65fr) minmax(4rem, 0.45fr)
+    minmax(4.8rem, 0.55fr);
+  border: 1px solid rgb(var(--color-border) / 0.34);
+  border-radius: 0.55rem;
+  background: linear-gradient(
+    180deg,
+    rgb(var(--color-surface-muted) / 0.52),
+    rgb(var(--color-muted) / 0.24)
+  );
+  padding: 0.34rem 0.42rem;
+}
+
+.cockpit-readout-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.cockpit-tool-table-head {
+  border-color: rgb(var(--color-border) / 0.26);
+  background: rgb(var(--color-background) / 0.18);
+  color: rgb(var(--color-faint-foreground));
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.cockpit-tool-name {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.cockpit-tool-glyph {
+  display: inline-flex;
+  width: 1.2rem;
+  height: 1.2rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgb(var(--color-accent) / 0.22);
+  border-radius: 0.42rem;
+  background: rgb(var(--color-accent) / 0.1);
+  color: rgb(var(--color-accent));
+  font-size: 0.72rem;
+}
+
+.cockpit-tool-title,
+.cockpit-tool-detail {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cockpit-tool-title {
+  color: rgb(var(--color-foreground));
+  font-size: 0.68rem;
+  font-weight: 760;
+}
+
+.cockpit-tool-detail {
+  margin-top: 0.08rem;
+  color: rgb(var(--color-faint-foreground));
+  font-size: 0.58rem;
+}
+
+.cockpit-tool-state {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.35rem;
+  justify-self: start;
+  border: 1px solid rgb(var(--color-border) / 0.42);
+  border-radius: 999px;
+  background: rgb(var(--color-background) / 0.26);
+  padding: 0.12rem 0.42rem;
+  color: rgb(var(--color-subtle-foreground));
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  text-transform: uppercase;
+}
+
+.cockpit-tool-state .cockpit-status-dot {
+  width: 0.32rem;
+  height: 0.32rem;
+  box-shadow: none;
+}
+
+.cockpit-tool-meta {
+  min-width: 0;
+  overflow: hidden;
+  color: rgb(var(--color-subtle-foreground));
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cockpit-status-dot {
+  width: 0.36rem;
+  height: 0.36rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgb(var(--color-faint-foreground));
+  box-shadow: 0 0 0 3px rgb(var(--color-faint-foreground) / 0.12);
+}
+
+.cockpit-status-dot--running {
+  background: rgb(var(--color-accent));
+  box-shadow: 0 0 0 3px rgb(var(--color-accent) / 0.16);
+}
+
+.cockpit-status-dot--done {
+  background: rgb(var(--color-success));
+  box-shadow: 0 0 0 3px rgb(var(--color-success) / 0.16);
+}
+
+.cockpit-status-dot--error {
+  background: rgb(var(--color-danger));
+  box-shadow: 0 0 0 3px rgb(var(--color-danger) / 0.16);
+}
+
+.cockpit-muted,
+.cockpit-empty-text {
+  color: rgb(var(--color-faint-foreground));
+  font-size: 0.66rem;
+}
+
+.cockpit-empty-text {
+  margin-top: 0.34rem;
+}
+
+.cockpit-inspector-stack {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.cockpit-inspector-card {
+  padding: 0.75rem;
+}
+
+.cockpit-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+
+.cockpit-context-ring {
+  display: grid;
+  width: 5.7rem;
+  height: 5.7rem;
+  margin: 0.65rem auto 0.75rem;
+  place-items: center;
+  border-radius: 999px;
+  background:
+    radial-gradient(
+      circle at center,
+      rgb(var(--color-surface) / 0.98) 0 56%,
+      transparent 57%
+    ),
+    conic-gradient(
+      rgb(var(--color-info)) 0deg,
+      rgb(var(--color-accent)) var(--context-used, 0deg),
+      rgb(var(--color-border) / 0.54) 0deg
+    );
+}
+
+.cockpit-context-ring > div {
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+
+.cockpit-context-ring strong {
+  color: rgb(var(--color-foreground));
+  font-size: 1rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.cockpit-context-ring span {
+  margin-top: 0.18rem;
+  color: rgb(var(--color-faint-foreground));
+  font-size: 0.58rem;
+}
+
+.cockpit-readout-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.chat-modern {
   width: 100%;
   height: 100%;
   max-height: 100%;
@@ -4894,7 +5958,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   border: 1px solid rgb(var(--color-border) / 0.5);
   background: rgb(var(--color-surface-muted) / 0.45);
   padding: 0.3rem 0.75rem 0.3rem 0.55rem;
-  font-size: 0.72rem;
+  font-size: 0.66rem;
   font-weight: 600;
   color: rgb(var(--color-subtle-foreground));
   cursor: pointer;
@@ -5042,7 +6106,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 }
 
 .input-request-card {
-  border-radius: 0.5rem;
+  border-radius: 0.42rem;
   border: 1px solid rgb(var(--color-warning) / 0.55);
   background: rgb(var(--color-warning) / 0.1);
   padding: 0.85rem;
@@ -5078,7 +6142,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 .input-request-agent {
   margin-top: 0.16rem;
   color: rgb(var(--color-subtle-foreground));
-  font-size: 0.72rem;
+  font-size: 0.66rem;
   line-height: 1.25;
 }
 
@@ -5111,14 +6175,14 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 .input-request-choices {
   display: grid;
   gap: 0.5rem;
-  margin-top: 0.75rem;
+  margin-top: 0.34rem;
 }
 
 .input-request-choice {
   display: flex;
   align-items: flex-start;
   gap: 0.55rem;
-  border-radius: 0.5rem;
+  border-radius: 0.42rem;
   border: 1px solid rgb(var(--color-border) / 0.58);
   background: rgb(var(--color-surface) / 0.68);
   padding: 0.55rem 0.65rem;
@@ -5141,18 +6205,18 @@ async function transcribeBlob(blob: Blob): Promise<string> {
   display: block;
   margin-top: 0.12rem;
   color: rgb(var(--color-subtle-foreground));
-  font-size: 0.72rem;
+  font-size: 0.66rem;
 }
 
 .input-request-textarea {
-  margin-top: 0.75rem;
+  margin-top: 0.34rem;
   width: 100%;
   resize: vertical;
-  border-radius: 0.5rem;
+  border-radius: 0.42rem;
   border: 1px solid rgb(var(--color-border) / 0.7);
   background: rgb(var(--color-surface) / 0.78);
   color: rgb(var(--color-foreground));
-  font-size: 0.82rem;
+  font-size: 0.76rem;
   line-height: 1.45;
   outline: none;
   padding: 0.65rem;
@@ -5163,7 +6227,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 }
 
 .input-request-error {
-  margin-top: 0.5rem;
+  margin-top: 0.34rem;
   color: rgb(var(--color-danger));
   font-size: 0.74rem;
   font-weight: 650;
@@ -5190,7 +6254,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 .input-request-actions {
   display: flex;
   justify-content: flex-end;
-  margin-top: 0.75rem;
+  margin-top: 0.34rem;
 }
 
 .input-request-submit {
@@ -5262,7 +6326,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 
 .activity-thought-item {
   color: rgb(var(--color-foreground));
-  font-size: 0.72rem;
+  font-size: 0.66rem;
   line-height: 1.42;
   white-space: pre-wrap;
 }
@@ -5297,7 +6361,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 
 .activity-error-text {
   color: rgb(var(--color-danger));
-  font-size: 0.72rem;
+  font-size: 0.66rem;
   line-height: 1.4;
 }
 
@@ -5364,7 +6428,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 
 .participant-name {
   display: block;
-  font-size: 0.82rem;
+  font-size: 0.76rem;
   font-weight: 600;
   color: rgb(var(--color-foreground));
   white-space: nowrap;
@@ -5457,7 +6521,7 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 }
 
 .run-activity {
-  margin-top: 0.75rem;
+  margin-top: 0.34rem;
   padding: 0.85rem;
   border-radius: 0.85rem;
   border: 1px solid rgb(var(--color-border) / 0.6);
@@ -5653,12 +6717,27 @@ async function transcribeBlob(blob: Blob): Promise<string> {
 }
 
 .chat-modern .chat-prompt-input.halo-surface {
-  border: 1px solid rgb(255 255 255 / 0.12);
+  border: 1px solid rgb(var(--color-border) / 0.72);
+  border-radius: 1.35rem;
+  background:
+    linear-gradient(
+      180deg,
+      rgb(var(--color-surface) / 0.96),
+      rgb(var(--color-muted) / 0.9)
+    ),
+    radial-gradient(
+      circle at 8% 0%,
+      rgb(var(--color-accent) / 0.08),
+      transparent 18rem
+    );
 }
 
 .chat-modern .chat-prompt-input.halo-surface:focus-within,
 .chat-modern .chat-prompt-input.halo-surface:focus {
-  border-color: rgb(255 255 255 / 0.12);
+  border-color: rgb(var(--color-accent) / 0.56);
+  box-shadow:
+    0 0 0 3px rgb(var(--color-accent) / 0.12),
+    0 24px 72px -52px rgb(0 0 0 / 0.95);
 }
 
 :deep(.chat-markdown h2) {

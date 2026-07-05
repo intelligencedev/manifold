@@ -7,6 +7,8 @@ import type { ChatStreamEvent, StreamAgentRunOptions } from "@/api/chat";
 
 const chatApiMocks = vi.hoisted(() => ({
   sessions: [] as Array<Record<string, unknown>>,
+  messages: [] as Array<Record<string, unknown>>,
+  activities: [] as Array<Record<string, unknown>>,
   specialists: [
     { name: "orchestrator", model: "gpt-5", paused: false },
     { name: "orchestrator-max", model: "gpt-5", paused: false },
@@ -106,8 +108,8 @@ vi.mock("@/api/client", () => ({
 
 vi.mock("@/api/chat", () => ({
   listChatSessions: async () => chatApiMocks.sessions,
-  fetchChatMessages: async () => [],
-  fetchChatActivities: async () => [],
+  fetchChatMessages: async () => chatApiMocks.messages,
+  fetchChatActivities: async () => chatApiMocks.activities,
   createChatSession: async () => ({
     id: "session-1",
     name: "Session",
@@ -158,6 +160,8 @@ vi.mock("@/api/chat", () => ({
 
 beforeEach(() => {
   chatApiMocks.sessions = [];
+  chatApiMocks.messages = [];
+  chatApiMocks.activities = [];
   chatApiMocks.specialists = [
     { name: "orchestrator", model: "gpt-5", paused: false },
     { name: "orchestrator-max", model: "gpt-5", paused: false },
@@ -237,6 +241,86 @@ describe("ChatView", () => {
         includeUsage: false,
       });
     });
+  });
+
+  it("renders the redesigned chat landmarks with real application labels", async () => {
+    const { findByRole, getByText } = renderChatView();
+
+    await findByRole("heading", { name: "Conversations" });
+
+    expect(getByText("Workspace")).toBeTruthy();
+    expect(getByText("Active conversation")).toBeTruthy();
+    expect(getByText("Participants")).toBeTruthy();
+    expect(getByText("Team routing")).toBeTruthy();
+    expect(getByText("Run Activity")).toBeTruthy();
+    expect(getByText("Execution Timeline")).toBeTruthy();
+    expect(getByText("Tool Invocations")).toBeTruthy();
+    expect(getByText("Model & Performance")).toBeTruthy();
+    expect(getByText("Context & Memory")).toBeTruthy();
+  });
+
+  it("renders execution activity as a time grid and tool invocation table", async () => {
+    chatApiMocks.sessions = [sessionMeta()];
+    chatApiMocks.messages = [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        content: "Coordinating specialist work.",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ];
+    chatApiMocks.activities = [
+      {
+        callId: "call-1",
+        assistantMessageId: "assistant-1",
+        agent: "Topology Expert",
+        model: "gpt-4o",
+        prompt: "Compute invariants",
+        depth: 1,
+        status: "done",
+        content: "Computed invariants.",
+        entries: [
+          {
+            id: "tool-1",
+            type: "tool",
+            title: "web_search",
+            content: "Search academic papers on Klein bottle curvature",
+            createdAt: "2026-01-01T00:00:01.000Z",
+          },
+        ],
+        thoughtSummaries: [],
+        startedAt: "2026-01-01T00:00:01.000Z",
+        finishedAt: "2026-01-01T00:00:03.000Z",
+      },
+      {
+        callId: "call-2",
+        assistantMessageId: "assistant-1",
+        agent: "Geometry Analyst",
+        model: "claude-3.5-sonnet",
+        prompt: "Compare manifolds",
+        depth: 1,
+        status: "running",
+        content: "",
+        entries: [],
+        thoughtSummaries: [],
+        startedAt: "2026-01-01T00:00:08.000Z",
+      },
+    ];
+
+    const { findByRole, findAllByText, getAllByText, getByText } =
+      renderChatView();
+
+    await findByRole("heading", { name: "Conversations" });
+    await findAllByText("Topology Expert");
+
+    expect(getByText("00:00")).toBeTruthy();
+    expect(getByText("00:05")).toBeTruthy();
+    expect(getAllByText("Geometry Analyst").length).toBeGreaterThan(0);
+    expect(getAllByText("web_search").length).toBeGreaterThan(0);
+    expect(getByText("Duration")).toBeTruthy();
+    expect(getAllByText("2.0s").length).toBeGreaterThan(0);
+    expect(getByText("Timestamp")).toBeTruthy();
+    expect(getByText("00:00:01")).toBeTruthy();
   });
 
   async function waitForProjectSelection(

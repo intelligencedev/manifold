@@ -6,7 +6,7 @@ export GOMODCACHE := $(shell go env GOMODCACHE)
 export GOPATH := $(shell go env GOPATH)
 
 # Binaries are discovered under cmd/*
-## Discover cmd/* directories but exclude embedctl	@echo "Host build complete"
+## Discover cmd/* directories but exclude embedctl\t@echo "Host build complete"
 
 # Build TUI binary for host platform (fast - only rebuild when needed)
 BINS := $(shell for d in cmd/*; do if [ -d "$$d" ]; then bn=$$(basename $$d); if [ "$$bn" != "embedctl" ]; then echo $$bn; fi; fi; done)

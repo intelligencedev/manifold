@@ -125,6 +125,7 @@ export function handleStreamEvent(
       break;
     }
     case "tool_start": {
+      upsertToolMessage(state, event, sessionId, streamId, "start");
       state.updateMessage(sessionId, assistantId, (m) => ({
         ...m,
         activityToolTitle: event.title || "Tool call",
@@ -132,6 +133,7 @@ export function handleStreamEvent(
       break;
     }
     case "tool_result": {
+      upsertToolMessage(state, event, sessionId, streamId, "result");
       if (typeof event.title === "string" && event.title.trim()) {
         state.updateMessage(sessionId, assistantId, (m) => ({
           ...m,
@@ -205,6 +207,68 @@ export function handleStreamEvent(
     default:
       break;
   }
+}
+
+function upsertToolMessage(
+  state: ChatStoreState,
+  event: ChatStreamEvent,
+  sessionId: string,
+  streamId: string,
+  phase: "start" | "result",
+) {
+  const title =
+    typeof event.title === "string" && event.title.trim()
+      ? event.title.trim()
+      : "Tool call";
+  const toolId =
+    typeof event.tool_id === "string" && event.tool_id.trim()
+      ? event.tool_id.trim()
+      : undefined;
+  const key = toolId || `${title}:${eventSequence(event) || Date.now()}`;
+  const toolIndex = state.toolIndexFor(sessionId, streamId);
+  const existingId = toolIndex.get(key);
+  const existing = existingId
+    ? (state.messagesBySession.value[sessionId] || []).find(
+        (message) => message.id === existingId,
+      )
+    : undefined;
+  const now = new Date().toISOString();
+  const args = typeof event.args === "string" ? event.args : undefined;
+  const data = typeof event.data === "string" ? event.data : undefined;
+  if (!existingId || !existing) {
+    const id = createId();
+    toolIndex.set(key, id);
+    state.appendMessage(
+      sessionId,
+      {
+        id,
+        role: "tool",
+        title,
+        content:
+          phase === "result"
+            ? data || "Tool completed."
+            : "Tool invocation started.",
+        toolArgs: args,
+        createdAt: now,
+        streaming: phase === "start",
+        activityToolTitle: title,
+      },
+      false,
+    );
+    return;
+  }
+
+  state.updateMessage(sessionId, existingId, (message) => ({
+    ...message,
+    title,
+    activityToolTitle: title,
+    content:
+      phase === "result"
+        ? data || message.content || "Tool completed."
+        : message.content || "Tool invocation started.",
+    toolArgs: args ?? message.toolArgs,
+    streaming: phase === "start",
+  }));
 }
 
 function eventDurationMs(event: ChatStreamEvent) {

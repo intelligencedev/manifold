@@ -27,7 +27,7 @@ import "@/components/chat/chat.css";
 import ChatComposerPanel from "@/components/chat/ChatComposerPanel.vue";
 import ChatHeaderPanel from "@/components/chat/ChatHeaderPanel.vue";
 import ChatModals from "@/components/chat/ChatModals.vue";
-import ChatParticipantsPanel from "@/components/chat/ChatParticipantsPanel.vue";
+import ChatParticipantsPanel from "@/components/chat/ChatParticipantsPanel";
 import ChatSessionPanel from "@/components/chat/ChatSessionPanel.vue";
 import ChatTimelinePanel from "@/components/chat/ChatTimelinePanel.vue";
 import ChatTranscript from "@/components/chat/ChatTranscript.vue";

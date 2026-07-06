@@ -87,94 +87,10 @@
 
         <div class="mt-3 space-y-3 break-words text-sm leading-relaxed text-foreground">
           <div
-            v-if="model.visibleParticipantActivityItemsForMessage(message.id).length > 0"
-            class="parallel-activity-grid"
-            :class="
-              model.visibleParticipantActivityItemsForMessage(message.id).length <= 2
-                ? 'parallel-activity-grid--row'
-                : 'parallel-activity-grid--col'
-            "
+            v-if="model.hasDelegatedActivityForMessage(message.id)"
+            class="parallel-activity-redirect"
           >
-            <div
-              v-for="thread in model.visibleParticipantActivityItemsForMessage(message.id)"
-              :key="thread.id"
-              class="parallel-activity-card"
-            >
-              <Transition name="activity-pill">
-                <button
-                  v-if="model.isActivityCollapsed(thread.id)"
-                  type="button"
-                  class="direct-activity-pill"
-                  @click="model.expandActivity(thread.id)"
-                >
-                  <span
-                    class="direct-activity-pill-dot"
-                    :class="thread.status === 'running' ? 'direct-activity-pill-dot--live' : ''"
-                  ></span>
-                  <span class="direct-activity-pill-label">{{ thread.name }}</span>
-                  <span class="direct-activity-pill-chevron">›</span>
-                </button>
-              </Transition>
-              <Transition
-                @before-enter="model.drawerBeforeEnter"
-                @enter="model.drawerEnter"
-                @after-enter="model.drawerAfterEnter"
-                @before-leave="model.drawerBeforeLeave"
-                @leave="model.drawerLeave"
-              >
-                <div
-                  v-if="!model.isActivityCollapsed(thread.id)"
-                  class="direct-activity"
-                >
-                  <div class="direct-activity-header">
-                    <span class="direct-activity-label">{{ thread.name }}</span>
-                    <button
-                      v-if="thread.status !== 'running'"
-                      type="button"
-                      class="direct-activity-collapse-btn"
-                      title="Collapse"
-                      @click="model.collapseActivity(thread.id)"
-                    >
-                      collapse ›
-                    </button>
-                    <span v-else class="direct-activity-streaming-dot"></span>
-                  </div>
-                  <div
-                    class="direct-activity-body"
-                    :ref="(el) => model.registerThreadBody(el as Element | null, thread.id)"
-                    @scroll="model.handleThreadBodyScroll($event, thread.id)"
-                  >
-                    <div v-if="thread.toolEntries.length" class="direct-activity-row">
-                      <span class="direct-activity-label">Tool</span>
-                      <span class="direct-activity-value">
-                        {{ thread.toolEntries[thread.toolEntries.length - 1]?.title || "" }}
-                      </span>
-                    </div>
-                    <div v-if="thread.thoughtSummaries.length" class="direct-activity-thought">
-                      <span class="direct-activity-label">Thought summary</span>
-                      <div
-                        class="chat-markdown direct-activity-summary"
-                        v-html="
-                          model.renderMarkdownOrHtml(
-                            thread.thoughtSummaries[thread.thoughtSummaries.length - 1] || '',
-                          )
-                        "
-                      ></div>
-                    </div>
-                    <div
-                      v-if="thread.response && thread.status !== 'running'"
-                      class="direct-activity-thought"
-                    >
-                      <span class="direct-activity-label">Response</span>
-                      <div
-                        class="chat-markdown direct-activity-summary"
-                        v-html="model.renderMarkdownOrHtml(thread.response)"
-                      ></div>
-                    </div>
-                  </div>
-                </div>
-              </Transition>
-            </div>
+            Delegated specialist activity is shown in the participant list.
           </div>
 
           <div v-if="model.shouldShowDirectActivity(message)" class="direct-activity-wrapper">

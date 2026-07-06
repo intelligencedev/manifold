@@ -9,6 +9,8 @@ export type ActivityStatus = "running" | "done" | "error" | "idle";
 export type SpecialistActivityItem = {
   id: string;
   assistantMessageId?: string;
+  callId?: string;
+  parentCallId?: string;
   name: string;
   team?: string;
   model: string;
@@ -53,6 +55,14 @@ export type CockpitTimelineLane = {
   status: ActivityStatus;
   statusLabel: string;
   segments: CockpitTimelineSegment[];
+};
+
+export type ParticipantActivityGroup = {
+  participant: Participant;
+  item: SpecialistActivityItem;
+  children: ParticipantActivityGroup[];
+  running: boolean;
+  collapsed: boolean;
 };
 
 type AgentContext = { agentName: string; agentModel: string };
@@ -215,6 +225,8 @@ export function useChatActivity(params: {
     const team = (thread.team || "").trim() || undefined;
     return {
       assistantMessageId: thread.assistantMessageId,
+      callId: thread.callId,
+      parentCallId: thread.parentCallId,
       id: [thread.assistantMessageId, thread.callId].filter(Boolean).join(":"),
       name,
       team,
@@ -411,19 +423,24 @@ export function useChatActivity(params: {
 
   // --- Collapsible activity panel per message ---
   const collapsedActivityIds = ref<Set<string>>(new Set());
+  const manuallyExpandedParticipantActivityKeys = ref<Set<string>>(new Set());
+
+  function setCollapsedActivityIds(ids: Set<string>) {
+    collapsedActivityIds.value = ids;
+  }
 
   function isActivityCollapsed(id: string): boolean {
     return collapsedActivityIds.value.has(id);
   }
 
   function collapseActivity(id: string) {
-    collapsedActivityIds.value = new Set([...collapsedActivityIds.value, id]);
+    setCollapsedActivityIds(new Set([...collapsedActivityIds.value, id]));
   }
 
   function expandActivity(id: string) {
     const next = new Set(collapsedActivityIds.value);
     next.delete(id);
-    collapsedActivityIds.value = next;
+    setCollapsedActivityIds(next);
   }
 
   const expandedMemoryContextIds = ref<Set<string>>(new Set());
@@ -513,18 +530,28 @@ export function useChatActivity(params: {
     { flush: "post" },
   );
 
-  // Auto-collapse parallel activity cards only after all running threads finish
+  // Active participant activity expands while running, then collapses when complete.
   watch(
     () =>
-      visibleParticipantActivityItems.value.map((i) => `${i.id}:${i.status}`),
+      visibleParticipantActivityItems.value.map((item) => `${item.id}:${item.status}`),
     () => {
-      const items = visibleParticipantActivityItems.value;
-      if (!items.length || items.some((item) => item.status === "running")) {
-        return;
+      const nextCollapsed = new Set(collapsedActivityIds.value);
+      const nextManual = new Set(manuallyExpandedParticipantActivityKeys.value);
+      const liveIds = new Set(visibleParticipantActivityItems.value.map((item) => item.id));
+
+      for (const item of visibleParticipantActivityItems.value) {
+        if (item.status === "running") {
+          nextCollapsed.delete(item.id);
+          continue;
+        }
+        if (nextManual.has(item.id)) continue;
+        nextCollapsed.add(item.id);
       }
-      for (const item of items) {
-        if (item.status === "done") collapseActivity(item.id);
+      for (const key of nextManual) {
+        if (!liveIds.has(key)) nextManual.delete(key);
       }
+      setCollapsedActivityIds(nextCollapsed);
+      manuallyExpandedParticipantActivityKeys.value = nextManual;
     },
     { flush: "post", immediate: true },
   );
@@ -566,6 +593,46 @@ export function useChatActivity(params: {
     return `specialist:${name.toLowerCase()}`;
   }
 
+  function isChildActivityOf(parent: SpecialistActivityItem, child: SpecialistActivityItem) {
+    return Boolean(
+      parent.callId &&
+        child.parentCallId &&
+        child.parentCallId.trim() === parent.callId.trim(),
+    );
+  }
+
+  function directChildActivityItems(parent: SpecialistActivityItem) {
+    return sortActivityItems(
+      runActivityItems.value.filter((candidate) => isChildActivityOf(parent, candidate)),
+    );
+  }
+
+  function participantActivityDescendantItems(participant: Participant) {
+    const roots = participantActivityItems(participant);
+    if (!roots.length) return [];
+
+    const seen = new Set(roots.map((item) => item.id));
+    const items = [...roots];
+    let added = true;
+    while (added) {
+      added = false;
+      for (const candidate of runActivityItems.value) {
+        if (seen.has(candidate.id)) continue;
+        if (items.some((item) => isChildActivityOf(item, candidate))) {
+          seen.add(candidate.id);
+          items.push(candidate);
+          added = true;
+        }
+      }
+    }
+
+    return sortActivityItems(items);
+  }
+
+  function hasDelegatedActivityForMessage(messageId: string) {
+    return visibleParticipantActivityItemsForMessage(messageId).length > 0;
+  }
+
   function participantActivityItems(participant: Participant) {
     const key = participantActivityKey(participant);
     return runActivityItems.value.filter(
@@ -585,8 +652,79 @@ export function useChatActivity(params: {
 
   const selectedParticipantActivityItems = computed(() => {
     const participant = selectedParticipantActivity.value;
-    return participant ? participantActivityItems(participant) : [];
+    return participant ? participantActivityDescendantItems(participant) : [];
   });
+
+  function participantActivityGroupForItem(
+    participant: Participant,
+    item: SpecialistActivityItem,
+    seen = new Set<string>(),
+  ): ParticipantActivityGroup {
+    seen.add(item.id);
+    const children = directChildActivityItems(item)
+      .filter((child) => !seen.has(child.id))
+      .map((child) => participantActivityGroupForItem(participant, child, new Set(seen)));
+    return {
+      participant,
+      item,
+      children,
+      running:
+        item.status === "running" || children.some((child) => child.running),
+      collapsed: isActivityCollapsed(item.id),
+    };
+  }
+
+  function participantActivityGroups(participant: Participant) {
+    const directItems = participantActivityItems(participant);
+    const childCallIds = new Set(
+      directItems
+        .map((item) => item.parentCallId?.trim())
+        .filter((parentCallId): parentCallId is string => Boolean(parentCallId)),
+    );
+    return directItems
+      .filter((item) => !item.callId || !childCallIds.has(item.callId.trim()))
+      .map((item) => participantActivityGroupForItem(participant, item));
+  }
+
+  const participantActivityGroupsByKey = computed(() => {
+    const groups: Record<string, ParticipantActivityGroup[]> = {};
+    for (const participant of participantList.value) {
+      const activityGroups = participantActivityGroups(participant);
+      if (activityGroups.length) {
+        groups[participantActivityKey(participant)] = activityGroups;
+      }
+    }
+    return groups;
+  });
+
+  function participantActivityGroupsFor(participant: Participant) {
+    return participantActivityGroupsByKey.value[participantActivityKey(participant)] || [];
+  }
+
+  function participantActivityGroupKey(group: ParticipantActivityGroup) {
+    return group.item.id;
+  }
+
+  function participantActivityGroupPrimaryItem(group: ParticipantActivityGroup) {
+    return group.item;
+  }
+
+  function toggleParticipantActivityGroup(group: ParticipantActivityGroup) {
+    const item = participantActivityGroupPrimaryItem(group);
+    const key = participantActivityGroupKey(group);
+    if (isActivityCollapsed(item.id)) {
+      expandActivity(item.id);
+      manuallyExpandedParticipantActivityKeys.value = new Set([
+        ...manuallyExpandedParticipantActivityKeys.value,
+        key,
+      ]);
+    } else {
+      collapseActivity(item.id);
+      const next = new Set(manuallyExpandedParticipantActivityKeys.value);
+      next.delete(key);
+      manuallyExpandedParticipantActivityKeys.value = next;
+    }
+  }
 
   function openParticipantActivity(participant: Participant) {
     selectedParticipantActivityName.value = participantActivityKey(participant);
@@ -919,6 +1057,7 @@ export function useChatActivity(params: {
     cockpitTimelineTicks,
     runActivitySidebarLabel,
     visibleParticipantActivityItemsForMessage,
+    hasDelegatedActivityForMessage,
     isActivityCollapsed,
     expandActivity,
     collapseActivity,
@@ -940,6 +1079,10 @@ export function useChatActivity(params: {
     participantRowClasses,
     participantDotClasses,
     participantStatusLabel,
+    participantActivityGroupsFor,
+    participantActivityGroupKey,
+    participantActivityGroupPrimaryItem,
+    toggleParticipantActivityGroup,
     openParticipantActivity,
     selectedParticipantActivityName,
     selectedParticipantActivity,

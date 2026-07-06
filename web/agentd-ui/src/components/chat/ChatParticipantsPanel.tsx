@@ -5,7 +5,6 @@ import type {
   ChatParticipantsPanelModel,
   ParticipantActivityGroup,
 } from "@/composables/chat/useChatViewController";
-import GlassCard from "@/components/ui/GlassCard.vue";
 
 function renderParticipantActivityGroup(
   group: ParticipantActivityGroup,
@@ -135,9 +134,7 @@ export default defineComponent({
       const model = props.model;
       return (
         <aside class="chat-participants-panel flex h-full min-h-0 flex-col text-sm text-subtle-foreground chat-side">
-          <div class="flex min-h-0 flex-1 flex-col">
-            <GlassCard flat padded={false} class="flex min-h-0 flex-1 flex-col overflow-hidden">
-              <div class="flex min-h-0 flex-1 flex-col">
+          <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
                 <div class="participant-team-select">
                   <DropdownSelect
                     modelValue={model.selectedTeam}
@@ -151,7 +148,7 @@ export default defineComponent({
                 </div>
                 <div class="participant-list-scroll min-h-0 flex-1 overflow-y-auto">
                   {!model.participantList.length ? (
-                    <div class="rounded-4 border border-dashed border-border bg-surface p-3 text-xs text-subtle-foreground">
+                    <div class="participant-empty-state">
                       No specialists available
                     </div>
                   ) : (
@@ -162,8 +159,6 @@ export default defineComponent({
                     </ul>
                   )}
                 </div>
-              </div>
-            </GlassCard>
           </div>
         </aside>
       );

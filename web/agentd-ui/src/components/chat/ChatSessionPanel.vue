@@ -3,13 +3,7 @@
     class="chat-session-panel flex h-full min-h-0 flex-col text-sm text-subtle-foreground chat-side"
     aria-label="Session"
   >
-    <div class="flex min-h-0 flex-1 flex-col">
-      <GlassCard
-        flat
-        :padded="false"
-        class="flex min-h-0 flex-1 flex-col overflow-hidden"
-      >
-        <div class="session-column-content flex min-h-0 flex-1 flex-col gap-2.5">
+    <div class="session-column-content flex min-h-0 flex-1 flex-col">
           <header class="session-column-header">
             <p class="chat-panel-kicker">Session</p>
             <div
@@ -282,8 +276,6 @@
               No tool calls recorded for this conversation.
             </p>
           </section>
-        </div>
-      </GlassCard>
     </div>
   </aside>
 </template>
@@ -293,7 +285,6 @@ import { onBeforeUnmount, onMounted, ref } from "vue";
 import SolarDownloadIcon from "@/components/icons/SolarDownload.vue";
 import SolarPinBold from "@/components/icons/SolarPinBold.vue";
 import SolarTrashIcon from "@/components/icons/SolarTrash.vue";
-import GlassCard from "@/components/ui/GlassCard.vue";
 import type { ChatSessionPanelModel } from "@/composables/chat/useChatViewController";
 
 const props = defineProps<{

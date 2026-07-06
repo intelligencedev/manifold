@@ -1,7 +1,7 @@
 <template>
   <div class="chat-modern flex h-full min-h-0 flex-1 overflow-hidden">
     <section
-      class="chat-grid grid h-full min-h-0 flex-1 grid-cols-[252px_minmax(0,1fr)_252px] gap-3 overflow-hidden"
+      class="chat-grid grid h-full min-h-0 flex-1 grid-cols-[236px_minmax(0,1fr)_236px] gap-0 overflow-hidden"
     >
       <ChatSessionPanel :model="sessionPanel" />
 

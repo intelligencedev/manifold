@@ -181,7 +181,16 @@
             <section class="cockpit-inspector-card" aria-label="Context">
               <div
                 class="cockpit-context-ring"
-                :style="{ '--context-used': model.cockpitContextDegrees }"
+                :style="{
+                  '--context-used': model.cockpitContextDegrees,
+                  '--context-gradient': model.cockpitContextGradient,
+                }"
+                :title="model.cockpitContextTitle"
+                role="meter"
+                :aria-valuenow="model.cockpitContextPercent"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-label="Context window usage by context kind"
               >
                 <div>
                   <strong>{{ model.cockpitContextPercent }}%</strong>
@@ -192,6 +201,29 @@
                 <div class="cockpit-readout-row">
                   <span>Context window</span>
                   <strong>{{ model.cockpitContextLabel }}</strong>
+                </div>
+              </div>
+              <div
+                v-if="model.cockpitContextLegend.length"
+                class="cockpit-context-legend"
+                aria-label="Context kind color legend"
+              >
+                <div
+                  v-for="segment in model.cockpitContextLegend"
+                  :key="segment.id"
+                  class="cockpit-context-legend-row"
+                >
+                  <span
+                    class="cockpit-context-legend-swatch"
+                    :style="{ background: segment.color }"
+                    aria-hidden="true"
+                  ></span>
+                  <span class="cockpit-context-legend-label">
+                    {{ segment.label }}
+                  </span>
+                  <span class="cockpit-context-legend-value">
+                    {{ segment.tokenLabel }} · {{ segment.percentLabel }}
+                  </span>
                 </div>
               </div>
             </section>

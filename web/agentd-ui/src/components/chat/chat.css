@@ -922,10 +922,13 @@
       rgb(var(--color-surface) / 0.98) 0 56%,
       transparent 57%
     ),
-    conic-gradient(
-      rgb(var(--color-info)) 0deg,
-      rgb(var(--color-accent)) var(--context-used, 0deg),
-      rgb(var(--color-border) / 0.54) 0deg
+    var(
+      --context-gradient,
+      conic-gradient(
+        rgb(var(--color-info)) 0deg,
+        rgb(var(--color-accent)) var(--context-used, 0deg),
+        rgb(var(--color-border) / 0.54) 0deg
+      )
     );
 }
 
@@ -951,6 +954,52 @@
 .cockpit-readout-list {
   display: grid;
   gap: 0.5rem;
+}
+
+.cockpit-context-legend {
+  display: grid;
+  gap: 0.38rem;
+  margin-top: 0.68rem;
+}
+
+.cockpit-context-legend-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.42rem;
+  min-width: 0;
+  color: rgb(var(--color-subtle-foreground) / 0.9);
+  font-size: 0.68rem;
+  line-height: 1.1;
+}
+
+.cockpit-context-legend-swatch {
+  width: 0.48rem;
+  height: 0.48rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgb(var(--color-border) / 0.48);
+}
+
+.cockpit-context-legend-label,
+.cockpit-context-legend-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cockpit-context-legend-label {
+  min-width: 0;
+  color: rgb(var(--color-foreground) / 0.82);
+  font-weight: 650;
+}
+
+.cockpit-context-legend-value {
+  color: rgb(var(--color-faint-foreground));
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono",
+    monospace;
+  font-size: 0.62rem;
 }
 
 .chat-modern {

@@ -2,7 +2,10 @@ import { computed, nextTick, ref, watch } from "vue";
 import type { ComputedRef, Ref } from "vue";
 import type { SpecialistTeam } from "@/api/client";
 import type { AgentThread, ChatMessage } from "@/types/chat";
-import type { ChatContextMetrics } from "@/types/chat";
+import type {
+  ChatContextMetricSegmentKind,
+  ChatContextMetrics,
+} from "@/types/chat";
 import type { Participant } from "./chatTargeting";
 
 export type ActivityStatus = "running" | "done" | "error" | "idle";
@@ -55,6 +58,20 @@ export type CockpitTimelineLane = {
   status: ActivityStatus;
   statusLabel: string;
   segments: CockpitTimelineSegment[];
+};
+export type CockpitContextSegmentKind =
+  | ChatContextMetricSegmentKind
+  | "other"
+  | "remaining";
+export type CockpitContextSegment = {
+  id: CockpitContextSegmentKind;
+  kind: CockpitContextSegmentKind;
+  label: string;
+  tokens: number;
+  tokenLabel: string;
+  percent: number;
+  percentLabel: string;
+  color: string;
 };
 
 export type ParticipantActivityGroup = {
@@ -117,6 +134,38 @@ export function useChatActivity(params: {
   const COCKPIT_TIMELINE_TICK_MS = 5_000;
   const COCKPIT_TIMELINE_MIN_WINDOW_MS = 30_000;
   const COCKPIT_TIMELINE_LIVE_UPDATE_MS = 100;
+  const CONTEXT_SEGMENT_ORDER: CockpitContextSegmentKind[] = [
+    "system",
+    "summary",
+    "history",
+    "user",
+    "memory",
+    "tools",
+    "assistant",
+    "other",
+  ];
+  const CONTEXT_SEGMENT_LABELS: Record<CockpitContextSegmentKind, string> = {
+    system: "System",
+    history: "History",
+    user: "User",
+    memory: "Memory",
+    tools: "Tools",
+    summary: "Summary",
+    assistant: "Response",
+    other: "Other",
+    remaining: "Remaining",
+  };
+  const CONTEXT_SEGMENT_COLORS: Record<CockpitContextSegmentKind, string> = {
+    system: "rgb(var(--color-subtle-foreground) / 0.72)",
+    history: "rgb(88 166 255 / 0.82)",
+    user: "rgb(71 199 132 / 0.92)",
+    memory: "rgb(245 177 66 / 0.94)",
+    tools: "rgb(168 130 255 / 0.92)",
+    summary: "rgb(176 185 202 / 0.92)",
+    assistant: "rgb(75 214 230 / 0.9)",
+    other: "rgb(var(--color-accent) / 0.86)",
+    remaining: "rgb(var(--color-border) / 0.54)",
+  };
   const selectedActivityId = ref<string | null>(null);
   const selectedParticipantActivityName = ref<string | null>(null);
   const toolActivityMsById = ref<Record<string, number>>({});
@@ -959,6 +1008,86 @@ export function useChatActivity(params: {
     if (!metrics?.contextWindow) return "Unknown";
     return `${metrics.inputTokens.toLocaleString()} / ${metrics.contextWindow.toLocaleString()}`;
   });
+  const cockpitContextLegend = computed<CockpitContextSegment[]>(() => {
+    const metrics = sessionContextMetrics.value;
+    if (!metrics?.contextWindow) return [];
+    const totals = new Map<CockpitContextSegmentKind, number>();
+    for (const segment of metrics.segments) {
+      if (segment.tokens <= 0) continue;
+      totals.set(segment.kind, (totals.get(segment.kind) ?? 0) + segment.tokens);
+    }
+    const segmentedTokens = Array.from(totals.values()).reduce(
+      (sum, tokens) => sum + tokens,
+      0,
+    );
+    const unsegmentedTokens = Math.max(0, metrics.inputTokens - segmentedTokens);
+    if (unsegmentedTokens > 0) totals.set("other", unsegmentedTokens);
+
+    const legend = CONTEXT_SEGMENT_ORDER.flatMap((kind) => {
+      const tokens = totals.get(kind) ?? 0;
+      if (tokens <= 0) return [];
+      return [contextLegendSegment(kind, tokens, metrics.contextWindow)];
+    });
+    const remainingTokens = Math.max(0, metrics.contextWindow - metrics.inputTokens);
+    if (remainingTokens > 0) {
+      legend.push(
+        contextLegendSegment("remaining", remainingTokens, metrics.contextWindow),
+      );
+    }
+    return legend;
+  });
+  const cockpitContextGradient = computed(() => {
+    const metrics = sessionContextMetrics.value;
+    if (!metrics?.contextWindow) {
+      return "conic-gradient(rgb(var(--color-border) / 0.54) 0deg 360deg)";
+    }
+    let cursor = 0;
+    const stops: string[] = [];
+    for (const segment of cockpitContextLegend.value) {
+      const end = Math.min(
+        360,
+        cursor + (segment.tokens / metrics.contextWindow) * 360,
+      );
+      if (end <= cursor) continue;
+      stops.push(`${segment.color} ${cursor.toFixed(2)}deg ${end.toFixed(2)}deg`);
+      cursor = end;
+      if (cursor >= 360) break;
+    }
+    if (!stops.length) {
+      return "conic-gradient(rgb(var(--color-border) / 0.54) 0deg 360deg)";
+    }
+    return `conic-gradient(${stops.join(", ")})`;
+  });
+  const cockpitContextTitle = computed(() => {
+    const metrics = sessionContextMetrics.value;
+    if (!metrics) return "No context metrics yet";
+    const lines = [
+      `Context used: ${metrics.inputTokens.toLocaleString()} / ${metrics.contextWindow.toLocaleString()} tokens`,
+    ];
+    for (const segment of cockpitContextLegend.value) {
+      lines.push(`${segment.label}: ${segment.tokenLabel} (${segment.percentLabel})`);
+    }
+    return lines.join("\n");
+  });
+
+  function contextLegendSegment(
+    kind: CockpitContextSegmentKind,
+    tokens: number,
+    contextWindow: number,
+  ): CockpitContextSegment {
+    const percent = contextWindow > 0 ? (tokens / contextWindow) * 100 : 0;
+    return {
+      id: kind,
+      kind,
+      label: CONTEXT_SEGMENT_LABELS[kind],
+      tokens,
+      tokenLabel: tokens.toLocaleString(),
+      percent,
+      percentLabel: `${percent >= 10 ? percent.toFixed(0) : percent.toFixed(1)}%`,
+      color: CONTEXT_SEGMENT_COLORS[kind],
+    };
+  }
+
   const cockpitToolRows = computed<CockpitToolRow[]>(() => {
     const traceRows = runActivityItems.value.flatMap((item) =>
       item.toolEntries.map((entry) => ({
@@ -1051,6 +1180,9 @@ export function useChatActivity(params: {
     cockpitContextDegrees,
     cockpitContextPercent,
     cockpitContextLabel,
+    cockpitContextLegend,
+    cockpitContextGradient,
+    cockpitContextTitle,
     cockpitToolCount,
     cockpitToolRows,
     cockpitTimelineLanes,

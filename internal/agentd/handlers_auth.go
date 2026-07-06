@@ -54,7 +54,9 @@ func (a *app) authLogoutHandler() http.HandlerFunc {
 func (a *app) meHandler() http.HandlerFunc {
 	if a.authProvider == nil {
 		return func(w http.ResponseWriter, r *http.Request) {
-			http.NotFound(w, r)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
 		}
 	}
 	return a.authProvider.MeHandler()

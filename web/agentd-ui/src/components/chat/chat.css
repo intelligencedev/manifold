@@ -1570,27 +1570,40 @@
 }
 
 .chat-modern .chat-prompt-input.halo-surface {
-  border: 1px solid rgb(var(--color-border) / 0.72);
-  border-radius: 1.35rem;
+  border: 1px solid rgb(var(--color-border) / 0.6);
+  border-radius: var(--r-lg);
   background:
     linear-gradient(
       180deg,
-      rgb(var(--color-surface) / 0.96),
-      rgb(var(--color-muted) / 0.9)
+      rgb(var(--color-surface) / 0.95),
+      rgb(var(--color-muted) / 0.85)
     ),
     radial-gradient(
       circle at 8% 0%,
-      rgb(var(--color-accent) / 0.08),
-      transparent 18rem
+      rgb(var(--color-accent) / 0.04),
+      transparent 12rem
     );
 }
 
 .chat-modern .chat-prompt-input.halo-surface:focus-within,
 .chat-modern .chat-prompt-input.halo-surface:focus {
-  border-color: rgb(var(--color-accent) / 0.56);
-  box-shadow:
-    0 0 0 3px rgb(var(--color-accent) / 0.12),
-    0 24px 72px -52px rgb(0 0 0 / 0.95);
+  border-color: rgb(var(--color-accent) / 0.28);
+  box-shadow: 0 0 0 1px rgb(var(--color-accent) / 0.06);
+}
+
+/* Reduce send button glow */
+.chat-modern .chat-prompt-input button[class*="bg-accent"] {
+  box-shadow: none;
+}
+.chat-modern .chat-prompt-input button[class*="bg-accent"]:hover {
+  box-shadow: 0 0 0 1px rgb(var(--color-accent) / 0.12);
+}
+/* Compact default height for the composer textarea */
+.chat-modern .chat-prompt-input textarea {
+  height: 44px;
+  min-height: 44px;
+  max-height: 160px;
+  transition: height 0.12s ease-out;
 }
 
 .chat-markdown h2 {

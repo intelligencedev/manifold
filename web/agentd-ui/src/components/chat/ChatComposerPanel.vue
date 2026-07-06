@@ -1,10 +1,10 @@
 <template>
-  <footer class="px-4 pb-4 pt-2">
+  <footer class="px-4 pb-2 pt-0.5">
     <form
-      class="space-y-3"
-      @submit.prevent="model.sendCurrentPrompt"
+      class="space-y-1.5"
       @dragover.prevent
       @drop.prevent="model.handleDrop"
+      @submit.prevent="model.sendCurrentPrompt"
     >
       <p
         v-if="model.requiresProjectSelection"
@@ -13,10 +13,10 @@
         Select a project to run the agent. If you don't see any projects,
         contact an administrator.
       </p>
-      <div class="halo-surface chat-prompt-input relative p-3">
+      <div class="halo-surface chat-prompt-input relative p-1.5">
         <div
           v-if="model.mentionMenuOpen"
-          class="absolute bottom-full left-3 z-20 mb-2 w-72 overflow-hidden rounded-4 border border-border bg-surface ring-1 ring-border/50"
+          class="absolute bottom-full left-3 z-20 mb-1.5 w-72 overflow-hidden rounded-4 border border-border bg-surface ring-1 ring-border/50"
         >
           <div class="max-h-60 overflow-y-auto py-1">
             <button
@@ -52,25 +52,25 @@
           </div>
         </div>
 
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2">
           <textarea
             :ref="model.setComposerRef"
             :value="model.draft"
             rows="1"
-            class="flex-1 min-w-0 resize-none bg-transparent py-1.5 text-sm leading-6 text-foreground outline-none placeholder:text-faint-foreground"
+            class="flex-1 min-w-0 resize-none bg-transparent py-1 text-sm leading-5 text-foreground outline-none placeholder:text-faint-foreground"
             :placeholder="model.composerPlaceholder"
             :disabled="!model.projectSelected || model.hasPendingInputRequest"
             @keydown="model.handleComposerKeydown"
             @input="
               model.handleComposerInput(
-                (($event.target as HTMLTextAreaElement | null)?.value || ''),
+                ($event.target as HTMLTextAreaElement | null)?.value || '',
               )
             "
             @keyup="model.handleComposerKeyup"
             @click="model.updateMentionState"
           ></textarea>
 
-          <div class="shrink-0 flex items-end gap-1">
+          <div class="shrink-0 flex items-end gap-0.5">
             <input
               :ref="model.setFileInputRef"
               type="file"
@@ -82,14 +82,14 @@
 
             <button
               type="button"
-              class="inline-flex h-8 w-8 items-center justify-center rounded-3 focus-visible:shadow-outline"
+              class="inline-flex h-7 w-7 items-center justify-center rounded-3 transition focus-visible:shadow-outline"
               title="Attach files"
               aria-label="Attach files"
               :disabled="!model.projectSelected || model.hasPendingInputRequest"
               :class="
                 !model.projectSelected || model.hasPendingInputRequest
                   ? 'cursor-not-allowed text-foreground/40 opacity-50'
-                  : 'text-foreground/80 hover:text-accent'
+                  : 'text-foreground/70 hover:text-accent'
               "
               @click="
                 model.projectSelected && !model.hasPendingInputRequest
@@ -97,16 +97,16 @@
                   : undefined
               "
             >
-              <SolarPaperclip2Bold class="h-5 w-5" />
+              <SolarPaperclip2Bold class="h-4 w-4" />
             </button>
 
             <button
               type="button"
-              class="inline-flex h-8 w-8 items-center justify-center rounded-3 focus-visible:shadow-outline"
+              class="inline-flex h-7 w-7 items-center justify-center rounded-3 transition focus-visible:shadow-outline"
               :class="[
                 model.isRecording
                   ? 'text-danger hover:text-danger/90'
-                  : 'text-foreground/80 hover:text-accent',
+                  : 'text-foreground/70 hover:text-accent',
                 model.isStreaming ||
                 !model.canUseMic ||
                 !model.projectSelected ||
@@ -120,40 +120,50 @@
                 !model.projectSelected ||
                 model.hasPendingInputRequest
               "
-              :title="model.isRecording ? 'Stop recording' : 'Record voice prompt'"
+              :title="
+                model.isRecording ? 'Stop recording' : 'Record voice prompt'
+              "
               :aria-label="
                 model.isRecording ? 'Stop recording' : 'Record voice prompt'
               "
-              @click="model.isRecording ? model.stopRecording() : model.startRecording()"
+              @click="
+                model.isRecording
+                  ? model.stopRecording()
+                  : model.startRecording()
+              "
             >
-              <SolarMicrophone3Bold class="h-5 w-5" />
+              <SolarMicrophone3Bold class="h-4 w-4" />
             </button>
 
             <button
               type="button"
-              class="inline-flex h-8 w-8 items-center justify-center rounded-3 transition focus-visible:shadow-outline"
+              class="inline-flex h-7 w-7 items-center justify-center rounded-3 transition focus-visible:shadow-outline"
               :class="[
                 model.imagePrompt
                   ? 'bg-accent/20 text-accent hover:bg-accent/30'
-                  : 'text-foreground/80 hover:text-accent',
-                model.isStreaming || !model.projectSelected || model.hasPendingInputRequest
+                  : 'text-foreground/70 hover:text-accent',
+                model.isStreaming ||
+                !model.projectSelected ||
+                model.hasPendingInputRequest
                   ? 'cursor-not-allowed opacity-50'
                   : '',
               ]"
               :disabled="
-                model.isStreaming || !model.projectSelected || model.hasPendingInputRequest
+                model.isStreaming ||
+                !model.projectSelected ||
+                model.hasPendingInputRequest
               "
               title="Generate image response"
               aria-label="Generate image response"
               @click="model.setImagePromptValue(!model.imagePrompt)"
             >
-              <Camera class="h-5 w-5" />
+              <Camera class="h-4 w-4" />
             </button>
 
             <button
               type="button"
+              class="inline-flex h-7 w-7 items-center justify-center rounded-3 transition focus-visible:shadow-outline"
               :class="[
-                'inline-flex h-8 w-8 items-center justify-center rounded-3 focus-visible:shadow-outline',
                 model.isStreaming
                   ? 'border border-danger/60 text-foreground/80 hover:text-danger'
                   : 'bg-accent text-accent-foreground hover:bg-accent/90',
@@ -191,14 +201,17 @@
                     : model.sendCurrentPrompt()
               "
             >
-              <SolarStopBold v-if="model.isStreaming" class="h-4 w-4" />
-              <SolarArrowToTopLeftBold v-else class="h-4 w-4" />
+              <SolarStopBold v-if="model.isStreaming" class="h-3.5 w-3.5" />
+              <SolarArrowToTopLeftBold v-else class="h-3.5 w-3.5" />
             </button>
           </div>
         </div>
       </div>
       <div v-if="model.pendingAttachments.length" class="space-y-2">
-        <div v-if="model.imageAttachments.length" class="flex gap-2 overflow-x-auto pb-1">
+        <div
+          v-if="model.imageAttachments.length"
+          class="flex gap-2 overflow-x-auto pb-1"
+        >
           <div
             v-for="img in model.imageAttachments"
             :key="img.id"
@@ -207,7 +220,7 @@
             <img
               :src="img.previewUrl"
               :alt="img.name"
-              class="h-16 w-16 rounded border border-border object-cover"
+              class="h-14 w-14 rounded border border-border object-cover"
             />
             <button
               type="button"

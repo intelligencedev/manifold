@@ -172,6 +172,14 @@ export function useChatSessionPanel({
     else selectAllSessions();
   }
 
+  function toggleSessionDropdown() {
+    sessionDropdownOpen.value = !sessionDropdownOpen.value;
+  }
+
+  function closeSessionDropdown() {
+    sessionDropdownOpen.value = false;
+  }
+
   // Session message counts and awaiting-input state
   const sessionMessageCounts = computed<Record<string, number>>(() => {
     const counts: Record<string, number> = {};
@@ -344,5 +352,7 @@ export function useChatSessionPanel({
     checkedSessionCount,
     allSessionsChecked,
     toggleSelectAll,
+    toggleSessionDropdown,
+    closeSessionDropdown,
   };
 }

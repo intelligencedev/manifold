@@ -43,7 +43,7 @@
                   :disabled="model.sessionsLoading || !model.sessions.length"
                   :title="model.activeSession?.name ?? 'Select conversation'"
                   aria-label="Select conversation"
-                  @click="model.sessionDropdownOpen = !model.sessionDropdownOpen"
+                  @click="model.toggleSessionDropdown()"
                 >
                   <span class="session-dropdown-trigger-label">
                     {{ model.activeSession?.name ?? 'Select conversation' }}
@@ -89,7 +89,7 @@
                     </button>
                   </div>
                   <div class="session-dropdown-list">
-                    <label
+                    <div
                       v-for="session in model.sessions"
                       :key="session.id"
                       class="session-dropdown-item"
@@ -102,8 +102,7 @@
                         type="checkbox"
                         class="session-checkbox"
                         :checked="model.isSessionChecked(session.id)"
-                        @click.stop
-                        @change="model.toggleSessionChecked(session.id)"
+                        @click.stop="model.toggleSessionChecked(session.id)"
                       />
                       <span
                         class="session-dropdown-item-label"
@@ -115,7 +114,7 @@
                       <span class="session-dropdown-item-count">
                         {{ model.messageCountFor?.(session.id) ?? 0 }}
                       </span>
-                    </label>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -274,7 +273,7 @@ const dropdownWrapperRef = ref<HTMLElement | null>(null);
 function handleClickOutside(event: MouseEvent) {
   if (!dropdownWrapperRef.value) return;
   if (!dropdownWrapperRef.value.contains(event.target as Node)) {
-    props.model.sessionDropdownOpen = false;
+    props.model.closeSessionDropdown();
   }
 }
 
@@ -288,13 +287,13 @@ onBeforeUnmount(() => {
 
 function handleSessionClick(sessionId: string) {
   props.model.selectSession(sessionId);
-  props.model.sessionDropdownOpen = false;
+  props.model.closeSessionDropdown();
 }
 
 function handleBulkDelete() {
   const ids = Array.from(props.model.checkedSessionIds);
   if (!ids.length) return;
   props.model.openBulkDeleteSessionDialog(ids);
-  props.model.sessionDropdownOpen = false;
+  props.model.closeSessionDropdown();
 }
 </script>

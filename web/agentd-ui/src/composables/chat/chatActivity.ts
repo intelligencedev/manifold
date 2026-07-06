@@ -1,0 +1,982 @@
+import { computed, ref, watch } from "vue";
+import type { ComputedRef, Ref } from "vue";
+import type { AgentThread, ChatMessage } from "@/types/chat";
+import type { ChatContextMetrics } from "@/types/chat";
+import type { Participant } from "./chatTargeting";
+
+export type ActivityStatus = "running" | "done" | "error" | "idle";
+export type SpecialistActivityItem = {
+  id: string;
+  assistantMessageId?: string;
+  name: string;
+  team?: string;
+  model: string;
+  status: ActivityStatus;
+  statusLabel: string;
+  description: string;
+  initials: string;
+  thoughtSummaries: string[];
+  response: string;
+  toolEntries: AgentThread["entries"];
+  error: string;
+  startedAt: string;
+  finishedAt?: string;
+  updatedAt: number;
+  depth: number;
+  isOrchestrator: boolean;
+};
+export type CockpitToolRow = {
+  id: string;
+  name: string;
+  status: string;
+  statusTone: ActivityStatus;
+  args: string;
+  output: string;
+};
+export type CockpitTimelineTick = {
+  id: string;
+  label: string;
+  position: string;
+};
+export type CockpitTimelineSegment = {
+  id: string;
+  label: string;
+  status: ActivityStatus;
+  left: string;
+  width: string;
+  durationLabel: string;
+};
+export type CockpitTimelineLane = {
+  id: string;
+  name: string;
+  status: ActivityStatus;
+  statusLabel: string;
+  segments: CockpitTimelineSegment[];
+};
+
+type AgentContext = { agentName: string; agentModel: string };
+type TeamConfig = { name?: string };
+
+export function useChatActivity(params: {
+  isBrowser: boolean;
+  activeMessages: ComputedRef<ChatMessage[]>;
+  agentThreads: ComputedRef<AgentThread[]>;
+  isStreaming: ComputedRef<boolean>;
+  activeThoughtSummaries: ComputedRef<string[]>;
+  selectedTeam: Ref<string>;
+  selectedSpecialist: Ref<string>;
+  selectedTeamConfig: ComputedRef<TeamConfig | null | undefined>;
+  teamsByName: ComputedRef<Map<string, TeamConfig>>;
+  participantList: ComputedRef<Participant[]>;
+  toolMessages: ComputedRef<ChatMessage[]>;
+  sessionContextMetrics: ComputedRef<ChatContextMetrics>;
+  resolveAgentContext: () => AgentContext;
+  teamOrchestratorDisplayName: (team: TeamConfig) => string;
+  responseElapsedMs: (message: ChatMessage) => number;
+  scrollThreadBodyToBottom: (id: string) => void;
+  scrollActivityPaneToBottom: (options?: { force?: boolean; behavior?: ScrollBehavior }) => void;
+  activityAutoScrollEnabled: Ref<boolean>;
+  activityLastScrollTop: Ref<number>;
+}) {
+  const {
+    isBrowser,
+    activeMessages,
+    agentThreads,
+    isStreaming,
+    activeThoughtSummaries,
+    selectedTeam,
+    selectedSpecialist,
+    selectedTeamConfig,
+    teamsByName,
+    participantList,
+    toolMessages,
+    sessionContextMetrics,
+    resolveAgentContext,
+    teamOrchestratorDisplayName,
+    responseElapsedMs,
+    scrollThreadBodyToBottom,
+    scrollActivityPaneToBottom,
+    activityAutoScrollEnabled,
+    activityLastScrollTop,
+  } = params;
+
+  const COCKPIT_TIMELINE_TICK_MS = 5_000;
+  const COCKPIT_TIMELINE_MIN_WINDOW_MS = 30_000;
+  const COCKPIT_TIMELINE_LIVE_UPDATE_MS = 100;
+  const selectedActivityId = ref<string | null>(null);
+  const selectedParticipantActivityName = ref<string | null>(null);
+  const toolActivityMsById = ref<Record<string, number>>({});
+  const cockpitTimelineNowMs = ref(Date.now());
+  let cockpitTimelineLiveInterval: number | null = null;
+
+  const lastAssistant = computed(() =>
+  findLast(activeMessages.value, (msg) => msg.role === "assistant"),
+);
+const lastAssistantId = computed(() => lastAssistant.value?.id || "");
+
+function activityStartMs(item: SpecialistActivityItem) {
+  return safeTimestampMs(item.startedAt) || item.updatedAt || Date.now();
+}
+
+function activityEndMs(item: SpecialistActivityItem, fallbackEndMs: number) {
+  const start = activityStartMs(item);
+  if (item.finishedAt) {
+    const finished = safeTimestampMs(item.finishedAt);
+    if (finished) return Math.max(start, finished);
+  }
+  if (item.status === "running") return Math.max(start, fallbackEndMs);
+  return Math.max(start, fallbackEndMs, item.updatedAt || 0);
+}
+
+function roundedTimelineStart(ms: number) {
+  return Math.floor(ms / COCKPIT_TIMELINE_TICK_MS) * COCKPIT_TIMELINE_TICK_MS;
+}
+
+function formatTimelineOffset(ms: number) {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function percentBetween(value: number, start: number, span: number) {
+  if (span <= 0) return "0%";
+  const pct = Math.min(100, Math.max(0, ((value - start) / span) * 100));
+  return `${pct.toFixed(2)}%`;
+}
+
+function statusToneFromLabel(label: string): ActivityStatus {
+  const normalized = label.toLowerCase();
+  if (normalized.includes("error") || normalized.includes("fail")) {
+    return "error";
+  }
+  if (normalized.includes("running") || normalized.includes("live")) {
+    return "running";
+  }
+  if (normalized.includes("queue") || normalized.includes("pending")) {
+    return "idle";
+  }
+  return "done";
+}
+
+function agentThreadTimestamp(thread: AgentThread) {
+  const lastEntry = thread.entries[thread.entries.length - 1];
+  const stamp = lastEntry?.createdAt || thread.finishedAt || thread.startedAt;
+  return safeTimestampMs(stamp);
+}
+
+function activityStateLabel(state: ActivityStatus) {
+  switch (state) {
+    case "running":
+      return "Live";
+    case "done":
+      return "Complete";
+    case "error":
+      return "Error";
+    default:
+      return "Ready";
+  }
+}
+
+function initialsForName(name: string) {
+  const parts = (name || "Agent").split(/[\s_-]+/).filter(Boolean);
+  if (!parts.length) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+}
+
+function latestThreadEntry(thread: AgentThread) {
+  return thread.entries[thread.entries.length - 1] || null;
+}
+
+function activityDescriptionForThread(thread: AgentThread) {
+  const latestEntry = latestThreadEntry(thread);
+  if (thread.error) return thread.error;
+  if (latestEntry?.type === "tool") {
+    return latestEntry.title ? `Tool: ${latestEntry.title}` : "Using a tool";
+  }
+  const latestThought =
+    thread.thoughtSummaries[thread.thoughtSummaries.length - 1];
+  if (latestThought) return snippet(latestThought, 96);
+  if (thread.content) return snippet(thread.content, 96);
+  if (thread.prompt) return snippet(thread.prompt, 96);
+  return thread.status === "running" ? "Working" : "No details yet";
+}
+
+function activityItemFromThread(thread: AgentThread): SpecialistActivityItem {
+  const name =
+    (thread.agent || "Delegated agent").trim() || "Delegated agent";
+  const status = thread.status as ActivityStatus;
+  const toolEntries = thread.entries.filter((entry) => entry.type === "tool");
+  const team = (thread.team || "").trim() || undefined;
+  return {
+    assistantMessageId: thread.assistantMessageId,
+    id: [thread.assistantMessageId, thread.callId].filter(Boolean).join(":"),
+    name,
+    team,
+    model: (thread.model || "").trim(),
+    status,
+    statusLabel: activityStateLabel(status),
+    description: activityDescriptionForThread(thread),
+    initials: initialsForName(name),
+    thoughtSummaries: thread.thoughtSummaries || [],
+    response: thread.content || "",
+    toolEntries,
+    error: thread.error || "",
+    startedAt: thread.startedAt,
+    finishedAt: thread.finishedAt,
+    updatedAt: agentThreadTimestamp(thread),
+    depth: thread.depth,
+    isOrchestrator: false,
+  };
+}
+
+function orchestratorActivityItem(): SpecialistActivityItem {
+  const { agentName, agentModel } = resolveAgentContext();
+  const teamName = selectedTeamConfig.value?.name?.trim() || undefined;
+  const assistant = lastAssistant.value;
+  const status: ActivityStatus = assistant?.error
+    ? "error"
+    : isStreaming.value
+      ? "running"
+      : assistant?.content
+        ? "done"
+        : "idle";
+  const latestThought =
+    activeThoughtSummaries.value[activeThoughtSummaries.value.length - 1];
+  const now = cockpitTimelineNowMs.value;
+  const assistantStartMs = assistant
+    ? safeTimestampMs(assistant.createdAt) || now
+    : now;
+  const assistantElapsedMs = assistant ? responseElapsedMs(assistant) : 0;
+  const assistantEndMs =
+    assistant &&
+    status !== "running" &&
+    status !== "idle" &&
+    assistantElapsedMs > 0
+      ? assistantStartMs + assistantElapsedMs
+      : undefined;
+  const startedAt = new Date(assistantStartMs).toISOString();
+  const finishedAt = assistantEndMs
+    ? new Date(assistantEndMs).toISOString()
+    : undefined;
+  return {
+    id: "orchestrator",
+    name: agentName || "orchestrator",
+    team: teamName,
+    model: agentModel || "",
+    status,
+    statusLabel: activityStateLabel(status),
+    description: latestThought
+      ? snippet(latestThought, 96)
+      : assistant?.content
+        ? snippet(assistant.content, 96)
+        : status === "running"
+          ? "Coordinating response"
+          : "Ready",
+    initials: initialsForName(agentName || "orchestrator"),
+    thoughtSummaries: activeThoughtSummaries.value,
+    response: assistant?.content || "",
+    toolEntries: [],
+    error: assistant?.error || "",
+    startedAt,
+    finishedAt,
+    updatedAt:
+      status === "running" ? now : (assistantEndMs ?? assistantStartMs),
+    depth: 0,
+    isOrchestrator: true,
+  };
+}
+
+function sortActivityItems(items: SpecialistActivityItem[]) {
+  return items.sort((a, b) => {
+    if (a.status === "running" && b.status !== "running") return -1;
+    if (a.status !== "running" && b.status === "running") return 1;
+    return b.updatedAt - a.updatedAt;
+  });
+}
+
+function runActivityItemsForMessage(messageId: string) {
+  if (!messageId) return [];
+  const items = agentThreads.value
+    .filter((thread) => thread.assistantMessageId === messageId)
+    .map(activityItemFromThread);
+  const isLastAssistantMessage = messageId === lastAssistantId.value;
+  const shouldShowOrchestrator =
+    isLastAssistantMessage &&
+    (activeThoughtSummaries.value.length > 0 ||
+      (isStreaming.value && items.length === 0) ||
+      (Boolean(selectedTeamConfig.value) && Boolean(lastAssistant.value)));
+  if (shouldShowOrchestrator) items.unshift(orchestratorActivityItem());
+
+  return sortActivityItems(items);
+}
+
+const runActivityItems = computed<SpecialistActivityItem[]>(() =>
+  runActivityItemsForMessage(lastAssistantId.value),
+);
+
+const visibleParticipantActivityItems = computed(() =>
+  runActivityItems.value.filter((item) => !item.isOrchestrator),
+);
+
+function visibleParticipantActivityItemsForMessage(messageId: string) {
+  return runActivityItemsForMessage(messageId).filter(
+    (item) => !item.isOrchestrator,
+  );
+}
+
+const runActivityCounts = computed(() => {
+  const counts = { running: 0, done: 0, error: 0, idle: 0 };
+  for (const item of runActivityItems.value) counts[item.status] += 1;
+  return counts;
+});
+
+const runActivityState = computed<ActivityStatus>(() => {
+  if (runActivityCounts.value.error > 0) return "error";
+  if (runActivityCounts.value.running > 0 || isStreaming.value)
+    return "running";
+  if (runActivityCounts.value.done > 0) return "done";
+  return "idle";
+});
+
+const runActivityStateLabel = computed(() =>
+  activityStateLabel(runActivityState.value),
+);
+
+const runActivitySidebarLabel = computed(() => {
+  const count = runActivityItems.value.length;
+  if (!count) return "Idle";
+  return `${count} thread${count === 1 ? "" : "s"}`;
+});
+
+const selectedActivityItem = computed(() => {
+  const selected = selectedActivityId.value;
+  return (
+    visibleParticipantActivityItems.value.find(
+      (item) => item.id === selected,
+    ) ||
+    visibleParticipantActivityItems.value[0] ||
+    null
+  );
+});
+
+const selectedActivityThoughtSummaries = computed(
+  () => selectedActivityItem.value?.thoughtSummaries || [],
+);
+
+function shouldShowDirectActivity(message: ChatMessage) {
+  return (
+    message.role === "assistant" &&
+    Boolean(message.activityToolTitle || shouldShowDirectThought(message))
+  );
+}
+
+function shouldShowDirectThought(message: ChatMessage) {
+  return Boolean(message.activityThoughtSummary);
+}
+
+function hasMemoryContext(message: ChatMessage) {
+  return Boolean(message.memoryContext?.text?.trim());
+}
+
+function returnedMemoryLaneCount(message: ChatMessage) {
+  const lanes = message.memoryContext?.lanes;
+  if (!lanes) return 0;
+  return Object.values(lanes).filter(
+    (lane) => lane.returned || (lane.items ?? 0) > 0,
+  ).length;
+}
+
+function memoryContextPillMeta(message: ChatMessage) {
+  const context = message.memoryContext;
+  if (!context) return "";
+  const parts: string[] = [];
+  const laneCount = returnedMemoryLaneCount(message);
+  if (laneCount > 0) {
+    parts.push(`${laneCount} ${laneCount === 1 ? "lane" : "lanes"}`);
+  }
+  if (context.tokenEstimate && context.tokenEstimate > 0) {
+    parts.push(`${context.tokenEstimate.toLocaleString()} tokens`);
+  }
+  if (context.truncated) {
+    parts.push("truncated");
+  }
+  return parts.join(" · ");
+}
+
+// --- Collapsible activity panel per message ---
+const collapsedActivityIds = ref<Set<string>>(new Set());
+
+function isActivityCollapsed(id: string): boolean {
+  return collapsedActivityIds.value.has(id);
+}
+
+function collapseActivity(id: string) {
+  collapsedActivityIds.value = new Set([...collapsedActivityIds.value, id]);
+}
+
+function expandActivity(id: string) {
+  const next = new Set(collapsedActivityIds.value);
+  next.delete(id);
+  collapsedActivityIds.value = next;
+}
+
+const expandedMemoryContextIds = ref<Set<string>>(new Set());
+
+function isMemoryContextExpanded(id: string): boolean {
+  return expandedMemoryContextIds.value.has(id);
+}
+
+function collapseMemoryContext(id: string) {
+  const next = new Set(expandedMemoryContextIds.value);
+  next.delete(id);
+  expandedMemoryContextIds.value = next;
+}
+
+function expandMemoryContext(id: string) {
+  expandedMemoryContextIds.value = new Set([
+    ...expandedMemoryContextIds.value,
+    id,
+  ]);
+}
+
+// Drawer JS transition hooks
+function drawerBeforeEnter(el: Element) {
+  const e = el as HTMLElement;
+  e.style.height = "0";
+  e.style.overflow = "hidden";
+}
+function drawerEnter(el: Element, done: () => void) {
+  const e = el as HTMLElement;
+  const h = e.scrollHeight;
+  e.style.transition = "height 0.28s cubic-bezier(0.4, 0, 0.2, 1)";
+  e.style.height = h + "px";
+  e.addEventListener("transitionend", done, { once: true });
+}
+function drawerAfterEnter(el: Element) {
+  const e = el as HTMLElement;
+  e.style.height = "auto";
+  e.style.overflow = "";
+  e.style.transition = "";
+}
+function drawerBeforeLeave(el: Element) {
+  const e = el as HTMLElement;
+  e.style.height = e.scrollHeight + "px";
+  e.style.overflow = "hidden";
+}
+function drawerLeave(el: Element, done: () => void) {
+  const e = el as HTMLElement;
+  requestAnimationFrame(() => {
+    e.style.transition = "height 0.22s cubic-bezier(0.4, 0, 0.2, 1)";
+    e.style.height = "0";
+    e.addEventListener("transitionend", done, { once: true });
+  });
+}
+
+// Auto-collapse activity panel when streaming finishes
+watch(
+  () => activeMessages.value.map((m) => `${m.id}:${m.streaming ? 1 : 0}`),
+  (cur, prev) => {
+    if (!prev) return;
+    for (let i = 0; i < cur.length; i++) {
+      const [id, streaming] = (cur[i] || "").split(":");
+      const [, prevStreaming] = (prev[i] || "").split(":");
+      // Transitioned from streaming → done
+      if (prevStreaming === "1" && streaming === "0" && id) {
+        const msg = activeMessages.value.find((m) => m.id === id);
+        if (msg && shouldShowDirectActivity(msg)) {
+          collapseActivity(id);
+        }
+      }
+    }
+  },
+  { flush: "post" },
+);
+
+// Auto-scroll parallel activity card bodies on content changes
+watch(
+  () =>
+    visibleParticipantActivityItems.value.map(
+      (i) =>
+        `${i.id}:${i.description}:${i.thoughtSummaries.length}:${i.response.length}`,
+    ),
+  () => {
+    for (const item of visibleParticipantActivityItems.value) {
+      scrollThreadBodyToBottom(item.id);
+    }
+  },
+  { flush: "post" },
+);
+
+// Auto-collapse parallel activity cards only after all running threads finish
+watch(
+  () =>
+    visibleParticipantActivityItems.value.map((i) => `${i.id}:${i.status}`),
+  () => {
+    const items = visibleParticipantActivityItems.value;
+    if (!items.length || items.some((item) => item.status === "running")) {
+      return;
+    }
+    for (const item of items) {
+      if (item.status === "done") collapseActivity(item.id);
+    }
+  },
+  { flush: "post", immediate: true },
+);
+
+function selectActivity(id: string) {
+  selectedActivityId.value = id;
+  activityAutoScrollEnabled.value = true;
+  activityLastScrollTop.value = 0;
+  scrollActivityPaneToBottom({ force: true });
+}
+
+function participantActivityKey(participant: Participant) {
+  if (participant.kind === "team_orchestrator") {
+    const teamName = (participant.teamName || participant.mentionName)
+      .trim()
+      .toLowerCase();
+    return `team:${teamName}:orchestrator`;
+  }
+  return `specialist:${participant.routeName.trim().toLowerCase()}`;
+}
+
+function activityItemKey(item: SpecialistActivityItem) {
+  const team = (item.team || "").trim();
+  const name = item.name.trim();
+  const teamConfig = teamsByName.value.get(team.toLowerCase());
+  const orchestrator = teamConfig
+    ? teamOrchestratorDisplayName(teamConfig).toLowerCase()
+    : "";
+  if (
+    team &&
+    (name.toLowerCase() === "orchestrator" ||
+      name.toLowerCase() === orchestrator)
+  ) {
+    return `team:${team.toLowerCase()}:orchestrator`;
+  }
+  if (item.isOrchestrator && team) {
+    return `team:${team.toLowerCase()}:orchestrator`;
+  }
+  return `specialist:${name.toLowerCase()}`;
+}
+
+function participantActivityItems(participant: Participant) {
+  const key = participantActivityKey(participant);
+  return runActivityItems.value.filter(
+    (item) => activityItemKey(item) === key,
+  );
+}
+
+const selectedParticipantActivity = computed(() => {
+  const key = selectedParticipantActivityName.value;
+  if (!key) return null;
+  return (
+    participantList.value.find(
+      (participant) => participantActivityKey(participant) === key,
+    ) || null
+  );
+});
+
+const selectedParticipantActivityItems = computed(() => {
+  const participant = selectedParticipantActivity.value;
+  return participant ? participantActivityItems(participant) : [];
+});
+
+function openParticipantActivity(participant: Participant) {
+  selectedParticipantActivityName.value = participantActivityKey(participant);
+  activityAutoScrollEnabled.value = true;
+  activityLastScrollTop.value = 0;
+  nextTick(() => {
+    scrollActivityPaneToBottom({ force: true, behavior: "auto" });
+  });
+}
+
+function closeParticipantActivity() {
+  selectedParticipantActivityName.value = null;
+}
+
+function activityStatusClasses(item: SpecialistActivityItem) {
+  return {
+    "activity-status--running": item.status === "running",
+    "activity-status--done": item.status === "done",
+    "activity-status--error": item.status === "error",
+    "activity-status--idle": item.status === "idle",
+  };
+}
+
+function activityMonitorRowClasses(item: SpecialistActivityItem) {
+  return {
+    "activity-monitor-row--selected":
+      selectedActivityItem.value?.id === item.id,
+    "activity-monitor-row--running": item.status === "running",
+    "activity-monitor-row--error": item.status === "error",
+  };
+}
+
+function participantIsActive(participant: Participant) {
+  const key = participantActivityKey(participant);
+
+  // Find the currently streaming assistant message to determine who is live.
+  const streamingMsg = activeMessages.value.find(
+    (m) => m.role === "assistant" && m.streaming,
+  );
+
+  if (streamingMsg) {
+    const liveTeam = selectedTeam.value.trim();
+    const liveAgent = (streamingMsg.agentName || streamingMsg.agent || "")
+      .trim()
+      .toLowerCase();
+    const liveTeamConfig = teamsByName.value.get(liveTeam.toLowerCase());
+    const liveTeamOrchestrator = liveTeamConfig
+      ? teamOrchestratorDisplayName(liveTeamConfig).toLowerCase()
+      : "";
+    const liveKey =
+      liveTeam &&
+      (liveAgent === liveTeamOrchestrator || liveAgent === "orchestrator")
+        ? `team:${liveTeam.toLowerCase()}:orchestrator`
+        : `specialist:${(
+            liveAgent ||
+            selectedSpecialist.value ||
+            "orchestrator"
+          ).toLowerCase()}`;
+
+    // During streaming, only the agent whose name matches is live.
+    // Never mark orchestrator live just because runActivityCounts > 0 here —
+    // that count includes the specialist itself and causes false positives.
+    return liveKey === key;
+  }
+
+  // No active stream: fall back to agent-thread activity counts.
+  if (
+    participant.kind === "specialist" &&
+    participant.routeName.toLowerCase() === "orchestrator"
+  ) {
+    return runActivityCounts.value.running > 0;
+  }
+  return visibleParticipantActivityItems.value.some(
+    (item) => item.status === "running" && activityItemKey(item) === key,
+  );
+}
+
+function participantStatusLabel(participant: Participant) {
+  const active = participantIsActive(participant);
+  if (active) return "Live";
+  if (
+    participant.kind === "specialist" &&
+    participant.routeName.toLowerCase() === "orchestrator"
+  ) {
+    const label = runActivityStateLabel.value;
+    return label && label.toLowerCase() !== "completed" ? label : "Idle";
+  }
+  const key = participantActivityKey(participant);
+  const item = runActivityItems.value.find(
+    (activity) => activityItemKey(activity) === key,
+  );
+  if (!item) return "Idle";
+  const lbl = item.statusLabel;
+  return lbl && lbl.toLowerCase() !== "completed" ? lbl : "Idle";
+}
+
+function participantRowClasses(participant: Participant) {
+  return {
+    "participant-row--active": participantIsActive(participant),
+  };
+}
+
+function participantDotClasses(participant: Participant) {
+  const active = participantIsActive(participant);
+  return {
+    "participant-dot--active": active,
+    "participant-dot--idle": !active,
+  };
+}
+
+const cockpitActivityToolCount = computed(() =>
+  runActivityItems.value.reduce(
+    (count, item) => count + item.toolEntries.length,
+    0,
+  ),
+);
+const cockpitToolCount = computed(
+  () => cockpitActivityToolCount.value || toolMessages.value.length,
+);
+const cockpitAgentContext = computed(() => resolveAgentContext());
+const cockpitTimelineItems = computed(() =>
+  [...runActivityItems.value]
+    .sort((a, b) => activityStartMs(a) - activityStartMs(b))
+    .slice(0, 5),
+);
+const hasLiveCockpitTimelineItems = computed(() =>
+  cockpitTimelineItems.value.some((item) => item.status === "running"),
+);
+
+function cockpitTimelineFallbackEndMs(
+  item: SpecialistActivityItem,
+  now: number,
+) {
+  if (item.status === "running") return now;
+  const latestEntry = Math.max(
+    0,
+    ...item.toolEntries.map((entry) => safeTimestampMs(entry.createdAt)),
+  );
+  return Math.max(latestEntry, item.updatedAt || 0);
+}
+
+const cockpitTimelineWindow = computed(() => {
+  const now = cockpitTimelineNowMs.value;
+  const items = cockpitTimelineItems.value;
+  if (!items.length) {
+    const startMs = roundedTimelineStart(now);
+    return {
+      startMs,
+      spanMs: COCKPIT_TIMELINE_MIN_WINDOW_MS,
+      stepMs: COCKPIT_TIMELINE_TICK_MS,
+    };
+  }
+
+  const starts = items.map(activityStartMs);
+  const earliest = Math.min(...starts);
+  const startMs = roundedTimelineStart(earliest);
+  const latest = Math.max(
+    ...items.map((item) =>
+      activityEndMs(item, cockpitTimelineFallbackEndMs(item, now)),
+    ),
+  );
+  const rawSpan = Math.max(
+    COCKPIT_TIMELINE_MIN_WINDOW_MS,
+    latest - startMs + COCKPIT_TIMELINE_TICK_MS,
+  );
+  const stepMs =
+    Math.ceil(rawSpan / 6 / COCKPIT_TIMELINE_TICK_MS) *
+    COCKPIT_TIMELINE_TICK_MS;
+  return {
+    startMs,
+    spanMs: stepMs * 6,
+    stepMs,
+  };
+});
+const cockpitTimelineTicks = computed<CockpitTimelineTick[]>(() => {
+  const window = cockpitTimelineWindow.value;
+  return Array.from({ length: 7 }, (_, index) => {
+    const offset = index * window.stepMs;
+    return {
+      id: String(index),
+      label: formatTimelineOffset(offset),
+      position: percentBetween(
+        window.startMs + offset,
+        window.startMs,
+        window.spanMs,
+      ),
+    };
+  });
+});
+const cockpitTimelineLanes = computed<CockpitTimelineLane[]>(() => {
+  const now = cockpitTimelineNowMs.value;
+  const window = cockpitTimelineWindow.value;
+  return cockpitTimelineItems.value.map((item) => {
+    const start = activityStartMs(item);
+    const end = activityEndMs(item, cockpitTimelineFallbackEndMs(item, now));
+    const left = percentBetween(start, window.startMs, window.spanMs);
+    const durationPercent = Math.max(
+      2.6,
+      ((Math.max(end, start + 800) - start) / window.spanMs) * 100,
+    );
+    return {
+      id: item.id,
+      name: item.name,
+      status: item.status,
+      statusLabel: item.statusLabel,
+      segments: [
+        {
+          id: `${item.id}:activity`,
+          label: `${item.name} ${item.statusLabel} ${formatDuration(end - start)}`,
+          status: item.status,
+          left,
+          width: `${Math.min(100, durationPercent).toFixed(2)}%`,
+          durationLabel: formatDuration(end - start),
+        },
+      ],
+    };
+  });
+});
+const cockpitContextPercent = computed(() => {
+  const metrics = sessionContextMetrics.value;
+  if (!metrics.contextWindow) return 0;
+  return Math.min(
+    100,
+    Math.round((metrics.inputTokens / metrics.contextWindow) * 100),
+  );
+});
+const cockpitContextDegrees = computed(
+  () => `${cockpitContextPercent.value * 3.6}deg`,
+);
+const cockpitContextLabel = computed(() => {
+  const metrics = sessionContextMetrics.value;
+  if (!metrics.contextWindow) return "Unknown";
+  return `${metrics.inputTokens.toLocaleString()} / ${metrics.contextWindow.toLocaleString()}`;
+});
+const cockpitToolRows = computed<CockpitToolRow[]>(() => {
+  const traceRows = runActivityItems.value.flatMap((item) =>
+    item.toolEntries.map((entry) => ({
+      id: `${item.id}:${entry.id}`,
+      name: entry.title || "Tool call",
+      status: item.statusLabel,
+      statusTone: item.status,
+      args: entry.args || "",
+      output: entry.content || entry.data || "",
+    })),
+  );
+  if (traceRows.length) return traceRows.slice(-25);
+
+  return toolMessages.value.slice(-25).map((message) => {
+    const status = message.error
+      ? "Error"
+      : message.streaming
+        ? "Running"
+        : "Done";
+    return {
+      id: message.id,
+      name: message.activityToolTitle || message.title || "Tool call",
+      status,
+      statusTone: statusToneFromLabel(status),
+      args: message.toolArgs || "",
+      output: message.error || message.content || "",
+    };
+  });
+});
+
+function stopCockpitTimelineLiveUpdates() {
+  if (cockpitTimelineLiveInterval == null) return;
+  if (isBrowser) window.clearInterval(cockpitTimelineLiveInterval);
+  cockpitTimelineLiveInterval = null;
+}
+
+function startCockpitTimelineLiveUpdates() {
+  cockpitTimelineNowMs.value = Date.now();
+  if (!isBrowser || cockpitTimelineLiveInterval != null) return;
+  cockpitTimelineLiveInterval = window.setInterval(() => {
+    cockpitTimelineNowMs.value = Date.now();
+  }, COCKPIT_TIMELINE_LIVE_UPDATE_MS);
+}
+
+watch(
+  hasLiveCockpitTimelineItems,
+  (hasLiveItems) => {
+    if (hasLiveItems) {
+      startCockpitTimelineLiveUpdates();
+    } else {
+      cockpitTimelineNowMs.value = Date.now();
+      stopCockpitTimelineLiveUpdates();
+    }
+  },
+  { immediate: true, flush: "post" },
+);
+
+watch(
+  () =>
+    toolMessages.value.map((msg) => ({
+      id: msg.id,
+      signature: `${msg.content.length}:${msg.streaming ? 1 : 0}:${
+        msg.error ? 1 : 0
+      }`,
+      createdAt: msg.createdAt,
+    })),
+  (next, prev) => {
+    const now = Date.now();
+    const prevMap = new Map<string, string>();
+    (prev || []).forEach((item) => prevMap.set(item.id, item.signature));
+    const updated: Record<string, number> = {};
+
+    for (const item of next) {
+      const priorSig = prevMap.get(item.id);
+      if (!priorSig || priorSig !== item.signature) {
+        updated[item.id] = now;
+      } else {
+        const baseStamp = safeTimestampMs(item.createdAt);
+        updated[item.id] =
+          toolActivityMsById.value[item.id] ?? (baseStamp || now);
+      }
+    }
+
+    toolActivityMsById.value = updated;
+  },
+  { flush: "post" },
+);
+
+
+  return {
+    cockpitContextDegrees,
+    cockpitContextPercent,
+    cockpitContextLabel,
+    cockpitToolCount,
+    cockpitToolRows,
+    cockpitTimelineLanes,
+    cockpitTimelineTicks,
+    runActivitySidebarLabel,
+    visibleParticipantActivityItemsForMessage,
+    isActivityCollapsed,
+    expandActivity,
+    collapseActivity,
+    drawerBeforeEnter,
+    drawerEnter,
+    drawerAfterEnter,
+    drawerBeforeLeave,
+    drawerLeave,
+    shouldShowDirectActivity,
+    shouldShowDirectThought,
+    hasMemoryContext,
+    isMemoryContextExpanded,
+    expandMemoryContext,
+    collapseMemoryContext,
+    memoryContextPillMeta,
+    selectedActivityThoughtSummaries,
+    stopCockpitTimelineLiveUpdates,
+    stopAllActivityTimers: stopCockpitTimelineLiveUpdates,
+    participantRowClasses,
+    participantDotClasses,
+    participantStatusLabel,
+    openParticipantActivity,
+    selectedParticipantActivityName,
+    selectedParticipantActivity,
+    selectedParticipantActivityItems,
+    closeParticipantActivity,
+    activityStatusClasses,
+    activityMonitorRowClasses,
+    selectActivity,
+  };
+}
+
+function safeTimestampMs(value?: string) {
+  if (!value) return 0;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+export function formatDuration(ms: number) {
+  const clamped = Math.max(0, ms);
+  const seconds = clamped / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${minutes}:${String(secs).padStart(2, "0")}`;
+}
+
+export function snippet(content: string, maxLength = 80) {
+  if (!content) return "";
+  const trimmed = content.replace(/\s+/g, " ").trim();
+  const safeLength = Math.max(4, maxLength);
+  return trimmed.length > safeLength
+    ? `${trimmed.slice(0, safeLength - 3)}...`
+    : trimmed;
+}
+
+function findLast<T>(items: T[], predicate: (item: T) => boolean): T | null {
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    if (predicate(items[i])) {
+      return items[i];
+    }
+  }
+  return null;
+}

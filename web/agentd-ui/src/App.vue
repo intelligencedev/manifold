@@ -7,16 +7,6 @@
     <template #topbar>
       <BreadcrumbTopbar :title="sectionTitle" :crumb="sectionCrumb">
         <template #actions>
-          <button
-            ref="commandTriggerRef"
-            type="button"
-            class="halo-focus rounded-md border border-[rgb(var(--line-strong))] bg-surface px-2.5 py-1.5 font-mono text-[11px] text-muted-foreground hover:bg-surface-muted hover:text-foreground"
-            aria-label="Open command bar"
-            @click="openCommand"
-          >
-            ⌘K
-          </button>
-          <ThemeToggle />
           <AccountButton :username="user?.name || user?.email" />
         </template>
       </BreadcrumbTopbar>
@@ -31,7 +21,6 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { RouterView, useRoute } from "vue-router";
 import AccountButton from "@/components/AccountButton.vue";
-import ThemeToggle from "@/components/ThemeToggle.vue";
 import AppShell from "@/components/ui/AppShell.vue";
 import BreadcrumbTopbar from "@/components/ui/BreadcrumbTopbar.vue";
 import IconRail from "@/components/ui/IconRail.vue";
@@ -43,7 +32,6 @@ const user = ref<{ name?: string; email?: string; picture?: string } | null>(
   null,
 );
 const commandOpen = ref(false);
-const commandTriggerRef = ref<HTMLButtonElement | null>(null);
 
 const metaSource = computed(() => {
   const matched = [...route.matched]
@@ -93,6 +81,5 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", handleGlobalKeydown);
-  commandTriggerRef.value = null;
 });
 </script>

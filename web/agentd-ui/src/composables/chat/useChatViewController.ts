@@ -1,6 +1,7 @@
 import {
   computed,
   nextTick,
+  nextTick,
   onBeforeUnmount,
   onMounted,
   ref,
@@ -678,6 +679,15 @@ export function useChatViewController() {
     toggleSessionPinned: sessionPanelState.toggleSessionPinned,
     exportSession,
     openDeleteSessionDialog: modalsState.openDeleteSessionDialog,
+    checkedSessionIds: sessionPanelState.checkedSessionIds.value,
+    sessionDropdownOpen: sessionPanelState.sessionDropdownOpen,
+    toggleSessionChecked: sessionPanelState.toggleSessionChecked,
+    isSessionChecked: sessionPanelState.isSessionChecked,
+    checkedSessionCount: sessionPanelState.checkedSessionCount.value,
+    allSessionsChecked: sessionPanelState.allSessionsChecked.value,
+    toggleSelectAll: sessionPanelState.toggleSelectAll,
+    openBulkDeleteSessionDialog: modalsState.openBulkDeleteSessionDialog,
+    messageCountFor: sessionPanelState.messageCountFor,
   }));
 
   const headerPanel = computed(() => ({
@@ -834,13 +844,17 @@ export function useChatViewController() {
     showDeleteSessionDialog: modalsState.showDeleteSessionDialog.value,
     deleteSessionTarget: modalsState.deleteSessionTarget.value,
     deleteSessionPending: modalsState.deleteSessionPending.value,
-    deleteSessionError: modalsState.deleteSessionError.value,
-    canConfirmDeleteSession: modalsState.canConfirmDeleteSession.value,
-    closeDeleteSessionDialog: modalsState.closeDeleteSessionDialog,
     confirmDeleteSession: () =>
       modalsState.confirmDeleteSession((id) => chat.deleteSession(id)),
+    showBulkDeleteSessionDialog: modalsState.showBulkDeleteSessionDialog.value,
+    bulkDeleteSessionPending: modalsState.bulkDeleteSessionPending.value,
+    bulkDeleteSessionError: modalsState.bulkDeleteSessionError.value,
+    bulkDeleteSessionCount: modalsState.bulkDeleteSessionCount.value,
+    canConfirmBulkDeleteSession: modalsState.canConfirmBulkDeleteSession.value,
+    closeBulkDeleteSessionDialog: modalsState.closeBulkDeleteSessionDialog,
+    confirmBulkDeleteSession: () =>
+      modalsState.confirmBulkDeleteSession((id) => chat.deleteSession(id)),
     selectedParticipantActivityName: selectedParticipantActivityName.value,
-    selectedParticipantActivity: selectedParticipantActivity.value,
     selectedParticipantActivityItems: selectedParticipantActivityItems.value,
     setParticipantActivityPaneRef: scroll.setParticipantActivityPaneRef,
     handleActivityPaneScroll: scroll.handleActivityPaneScroll,

@@ -75,6 +75,50 @@
   </div>
 
   <div
+    v-if="model.showBulkDeleteSessionDialog"
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="bulk-delete-session-title"
+    @click.self="model.closeBulkDeleteSessionDialog"
+    @keydown.esc.prevent="model.closeBulkDeleteSessionDialog"
+  >
+    <div class="w-full max-w-md rounded-5 bg-surface p-5 ring-1 ring-border/60">
+      <h2 id="bulk-delete-session-title" class="text-base font-semibold text-danger">
+        Delete Conversations
+      </h2>
+      <p class="mt-2 text-sm text-subtle-foreground">
+        This permanently removes
+        <span class="font-semibold text-foreground">{{ model.bulkDeleteSessionCount }}</span>
+        conversation{{ model.bulkDeleteSessionCount === 1 ? '' : 's' }} and all messages in them.
+      </p>
+      <form class="mt-4 space-y-3" @submit.prevent="model.confirmBulkDeleteSession">
+        <p class="text-xs text-faint-foreground">This action cannot be undone.</p>
+        <p v-if="model.bulkDeleteSessionError" class="text-xs text-danger">
+          {{ model.bulkDeleteSessionError }}
+        </p>
+        <div class="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            class="h-9 rounded-full border border-white/15 px-3 text-sm text-subtle-foreground transition hover:border-white/30 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+            :disabled="model.bulkDeleteSessionPending"
+            @click="model.closeBulkDeleteSessionDialog"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            class="h-9 rounded-full border border-danger/60 bg-danger/10 px-3 text-sm font-semibold text-danger transition hover:bg-danger/20 disabled:cursor-not-allowed disabled:opacity-60"
+            :disabled="!model.canConfirmBulkDeleteSession"
+          >
+            {{ model.bulkDeleteSessionPending ? "Deleting..." : `Delete ${model.bulkDeleteSessionCount} Conversation${model.bulkDeleteSessionCount === 1 ? '' : 's'}` }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div
     v-if="model.selectedParticipantActivityName"
     class="activity-modal-backdrop"
     role="dialog"

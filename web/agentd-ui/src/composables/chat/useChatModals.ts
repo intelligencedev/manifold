@@ -81,6 +81,61 @@ export function useChatModals({
     deleteSessionPending.value = false;
   }
 
+  // Bulk delete session dialog state
+  const showBulkDeleteSessionDialog = ref(false);
+  const bulkDeleteSessionIds = ref<string[]>([]);
+  const bulkDeleteSessionPending = ref(false);
+  const bulkDeleteSessionError = ref("");
+  const bulkDeleteSessionCount = computed(
+    () => bulkDeleteSessionIds.value.length,
+  );
+  const canConfirmBulkDeleteSession = computed(
+    () =>
+      bulkDeleteSessionIds.value.length > 0 && !bulkDeleteSessionPending.value,
+  );
+
+  function openBulkDeleteSessionDialog(ids: string[]) {
+    if (!ids.length) return;
+    bulkDeleteSessionIds.value = ids;
+    bulkDeleteSessionPending.value = false;
+    bulkDeleteSessionError.value = "";
+    showBulkDeleteSessionDialog.value = true;
+  }
+
+  function closeBulkDeleteSessionDialog() {
+    if (bulkDeleteSessionPending.value) return;
+    showBulkDeleteSessionDialog.value = false;
+    bulkDeleteSessionIds.value = [];
+    bulkDeleteSessionPending.value = false;
+    bulkDeleteSessionError.value = "";
+  }
+
+  async function confirmBulkDeleteSession(
+    deleteSession: (sessionId: string) => Promise<void>,
+  ) {
+    const ids = bulkDeleteSessionIds.value;
+    if (!ids.length || !canConfirmBulkDeleteSession.value) return;
+    bulkDeleteSessionPending.value = true;
+    bulkDeleteSessionError.value = "";
+    let failedCount = 0;
+    for (const id of ids) {
+      try {
+        await deleteSession(id);
+      } catch {
+        failedCount++;
+      }
+    }
+    if (failedCount > 0) {
+      bulkDeleteSessionError.value = `Failed to delete ${failedCount} of ${ids.length} conversations.`;
+    } else {
+      showBulkDeleteSessionDialog.value = false;
+      bulkDeleteSessionIds.value = [];
+      autoScrollEnabled.value = true;
+      scrollMessagesToBottom({ force: true, behavior: "auto" });
+    }
+    bulkDeleteSessionPending.value = false;
+  }
+
   return {
     showImageModal,
     modalImage,
@@ -95,5 +150,14 @@ export function useChatModals({
     openDeleteSessionDialog,
     closeDeleteSessionDialog,
     confirmDeleteSession,
+    showBulkDeleteSessionDialog,
+    bulkDeleteSessionIds,
+    bulkDeleteSessionPending,
+    bulkDeleteSessionError,
+    bulkDeleteSessionCount,
+    canConfirmBulkDeleteSession,
+    openBulkDeleteSessionDialog,
+    closeBulkDeleteSessionDialog,
+    confirmBulkDeleteSession,
   };
 }

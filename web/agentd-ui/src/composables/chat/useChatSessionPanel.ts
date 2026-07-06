@@ -136,6 +136,42 @@ export function useChatSessionPanel({
     }
   }
 
+  // --- Multi-select for bulk delete ---
+  const checkedSessionIds = ref<Set<string>>(new Set());
+  const sessionDropdownOpen = ref(false);
+
+  function toggleSessionChecked(sessionId: string) {
+    const next = new Set(checkedSessionIds.value);
+    if (next.has(sessionId)) next.delete(sessionId);
+    else next.add(sessionId);
+    checkedSessionIds.value = next;
+  }
+
+  function isSessionChecked(sessionId: string) {
+    return checkedSessionIds.value.has(sessionId);
+  }
+
+  function selectAllSessions() {
+    checkedSessionIds.value = new Set(sessions.value.map((s) => s.id));
+  }
+
+  function clearCheckedSessions() {
+    checkedSessionIds.value = new Set();
+  }
+
+  const checkedSessionCount = computed(() => checkedSessionIds.value.size);
+
+  const allSessionsChecked = computed(
+    () =>
+      sessions.value.length > 0 &&
+      sessions.value.every((s) => checkedSessionIds.value.has(s.id)),
+  );
+
+  function toggleSelectAll() {
+    if (allSessionsChecked.value) clearCheckedSessions();
+    else selectAllSessions();
+  }
+
   // Session message counts and awaiting-input state
   const sessionMessageCounts = computed<Record<string, number>>(() => {
     const counts: Record<string, number> = {};
@@ -266,6 +302,16 @@ export function useChatSessionPanel({
         }
       }
       if (projectChanged) selectedProjectBySession.value = projectPruned;
+
+      // Prune checked sessions that no longer exist
+      const checkedCurrent = checkedSessionIds.value;
+      let checkedChanged = false;
+      const checkedPruned = new Set<string>();
+      for (const id of checkedCurrent) {
+        if (keep.has(id)) checkedPruned.add(id);
+        else checkedChanged = true;
+      }
+      if (checkedChanged) checkedSessionIds.value = checkedPruned;
     },
     { immediate: true },
   );
@@ -289,5 +335,14 @@ export function useChatSessionPanel({
     sessionAwaitingInput,
     sessionIsStreaming,
     conversationOptions,
+    checkedSessionIds,
+    sessionDropdownOpen,
+    toggleSessionChecked,
+    isSessionChecked,
+    selectAllSessions,
+    clearCheckedSessions,
+    checkedSessionCount,
+    allSessionsChecked,
+    toggleSelectAll,
   };
 }

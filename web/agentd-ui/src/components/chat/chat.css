@@ -200,6 +200,16 @@
   margin-top: 0.45rem;
 }
 
+.session-dropdown-row {
+  display: flex;
+  align-items: center;
+  gap: 0.32rem;
+}
+
+.session-dropdown-row > .session-icon-button {
+  flex-shrink: 0;
+}
+
 .session-conversation-input {
   height: 1.85rem;
   width: 100%;
@@ -278,6 +288,17 @@
   color: rgb(var(--color-danger));
 }
 
+.session-icon-button--new {
+  gap: 0.32rem;
+  background: rgb(var(--color-accent) / 0.1);
+  color: rgb(var(--color-accent));
+}
+
+.session-icon-button--new:hover {
+  background: rgb(var(--color-accent) / 0.16);
+  color: rgb(var(--color-accent));
+}
+
 .session-action-button:disabled,
 .session-icon-button:disabled {
   cursor: wait;
@@ -287,7 +308,8 @@
 /* --- Custom session dropdown with multi-select --- */
 .session-dropdown-wrapper {
   position: relative;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
 }
 
 .session-dropdown-trigger {

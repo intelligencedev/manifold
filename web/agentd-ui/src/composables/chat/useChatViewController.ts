@@ -689,6 +689,7 @@ export function useChatViewController() {
     sessionDropdownOpen: sessionPanelState.sessionDropdownOpen.value,
     toggleSessionDropdown: sessionPanelState.toggleSessionDropdown,
     closeSessionDropdown: sessionPanelState.closeSessionDropdown,
+    toggleSessionChecked: sessionPanelState.toggleSessionChecked,
     isSessionChecked: sessionPanelState.isSessionChecked,
     checkedSessionCount: sessionPanelState.checkedSessionCount.value,
     allSessionsChecked: sessionPanelState.allSessionsChecked.value,

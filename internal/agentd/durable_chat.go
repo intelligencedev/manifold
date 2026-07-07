@@ -288,6 +288,8 @@ func (t durableAgentTracer) Trace(ev agent.AgentTrace) {
 		"role":            ev.Role,
 		"content":         ev.Content,
 		"title":           ev.Title,
+		"tool_name":       ev.ToolName,
+		"tool_title":      ev.ToolTitle,
 		"args":            ev.Args,
 		"data":            ev.Data,
 		"tool_id":         ev.ToolID,

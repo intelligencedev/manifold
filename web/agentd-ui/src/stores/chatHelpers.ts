@@ -69,10 +69,38 @@ export function agentToolEntry(
   return {
     id: createId(),
     type: "tool",
-    title: event.title || "Tool",
+    title: toolDisplayTitle(event),
+    toolName:
+      typeof event.tool_name === "string" && event.tool_name.trim()
+        ? event.tool_name.trim()
+        : undefined,
+    toolTitle:
+      typeof event.tool_title === "string" && event.tool_title.trim()
+        ? event.tool_title.trim()
+        : undefined,
     [field]: value,
     createdAt,
   };
+}
+
+export function toolDisplayTitle(event: ChatStreamEvent): string {
+  if (typeof event.tool_title === "string" && event.tool_title.trim()) {
+    return event.tool_title.trim();
+  }
+  if (typeof event.title === "string" && event.title.trim()) {
+    return event.title.trim();
+  }
+  return "Tool";
+}
+
+export function toolInvocationName(event: ChatStreamEvent): string {
+  if (typeof event.tool_name === "string" && event.tool_name.trim()) {
+    return event.tool_name.trim();
+  }
+  if (typeof event.title === "string" && event.title.trim()) {
+    return event.title.trim();
+  }
+  return "Tool call";
 }
 
 export function updateLatestUserBeforeMessage(

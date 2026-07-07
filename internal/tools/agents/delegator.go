@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"manifold/internal/agent"
@@ -336,11 +337,13 @@ func (d *Delegator) attachTracer(eng *agent.Engine, tracer agent.AgentTracer, re
 			}
 			tracer.Trace(agent.AgentTrace{Type: "agent_delta", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Content: delta, Role: "assistant"})
 		}
-		eng.OnToolStart = func(name string, args []byte, toolID string) {
-			tracer.Trace(agent.AgentTrace{Type: "agent_tool_start", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Title: name, Args: string(args), ToolID: toolID})
+		eng.OnToolStartWithTitle = func(name string, title string, args []byte, toolID string) {
+			activityTitle := toolActivityTitle(name, title)
+			tracer.Trace(agent.AgentTrace{Type: "agent_tool_start", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Title: activityTitle, ToolName: name, ToolTitle: activityTitle, Args: string(args), ToolID: toolID})
 		}
-		eng.OnTool = func(name string, args []byte, result []byte, toolID string) {
-			tracer.Trace(agent.AgentTrace{Type: "agent_tool_result", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Title: name, Args: string(args), Data: string(result), ToolID: toolID})
+		eng.OnToolWithTitle = func(name string, title string, args []byte, result []byte, toolID string) {
+			activityTitle := toolActivityTitle(name, title)
+			tracer.Trace(agent.AgentTrace{Type: "agent_tool_result", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Title: activityTitle, ToolName: name, ToolTitle: activityTitle, Args: string(args), Data: string(result), ToolID: toolID})
 		}
 		eng.OnThoughtSummary = func(summary string) {
 			if summary == "" {
@@ -349,6 +352,13 @@ func (d *Delegator) attachTracer(eng *agent.Engine, tracer agent.AgentTracer, re
 			tracer.Trace(agent.AgentTrace{Type: "agent_thought_summary", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, ThoughtSummary: summary})
 		}
 	}
+}
+
+func toolActivityTitle(name string, title string) string {
+	if trimmed := strings.TrimSpace(title); trimmed != "" {
+		return trimmed
+	}
+	return tools.HumanizeToolName(name)
 }
 
 func (d *Delegator) traceStart(tracer agent.AgentTracer, req agent.DelegateRequest, cfg delegateRunConfig) {

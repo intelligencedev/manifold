@@ -82,6 +82,17 @@ export type ParticipantActivityGroup = {
   collapsed: boolean;
 };
 
+export type ParticipantToolCall = {
+  id: string;
+  title: string;
+  args: string;
+  output: string;
+  createdAt: string;
+  createdAtMs: number;
+  agentName: string;
+  status: ActivityStatus;
+};
+
 type AgentContext = { agentName: string; agentModel: string };
 type TeamConfig = SpecialistTeam;
 
@@ -342,7 +353,9 @@ export function useChatActivity(params: {
       initials: initialsForName(agentName || "orchestrator"),
       thoughtSummaries: activeThoughtSummaries.value,
       response: assistant?.content || "",
-      toolEntries: [],
+      toolEntries: (assistant?.activityToolEntries || []).filter(
+        (entry) => entry.type === "tool",
+      ),
       error: assistant?.error || "",
       startedAt,
       finishedAt,
@@ -370,6 +383,7 @@ export function useChatActivity(params: {
     const shouldShowOrchestrator =
       isLastAssistantMessage &&
       (activeThoughtSummaries.value.length > 0 ||
+        (lastAssistant.value?.activityToolEntries?.length ?? 0) > 0 ||
         (isStreaming.value && items.length === 0) ||
         (Boolean(selectedTeamConfig.value) && Boolean(lastAssistant.value)));
     if (shouldShowOrchestrator) items.unshift(orchestratorActivityItem());
@@ -582,11 +596,15 @@ export function useChatActivity(params: {
   // Active participant activity expands while running, then collapses when complete.
   watch(
     () =>
-      visibleParticipantActivityItems.value.map((item) => `${item.id}:${item.status}`),
+      visibleParticipantActivityItems.value.map(
+        (item) => `${item.id}:${item.status}`,
+      ),
     () => {
       const nextCollapsed = new Set(collapsedActivityIds.value);
       const nextManual = new Set(manuallyExpandedParticipantActivityKeys.value);
-      const liveIds = new Set(visibleParticipantActivityItems.value.map((item) => item.id));
+      const liveIds = new Set(
+        visibleParticipantActivityItems.value.map((item) => item.id),
+      );
 
       for (const item of visibleParticipantActivityItems.value) {
         if (item.status === "running") {
@@ -642,17 +660,22 @@ export function useChatActivity(params: {
     return `specialist:${name.toLowerCase()}`;
   }
 
-  function isChildActivityOf(parent: SpecialistActivityItem, child: SpecialistActivityItem) {
+  function isChildActivityOf(
+    parent: SpecialistActivityItem,
+    child: SpecialistActivityItem,
+  ) {
     return Boolean(
       parent.callId &&
-        child.parentCallId &&
-        child.parentCallId.trim() === parent.callId.trim(),
+      child.parentCallId &&
+      child.parentCallId.trim() === parent.callId.trim(),
     );
   }
 
   function directChildActivityItems(parent: SpecialistActivityItem) {
     return sortActivityItems(
-      runActivityItems.value.filter((candidate) => isChildActivityOf(parent, candidate)),
+      runActivityItems.value.filter((candidate) =>
+        isChildActivityOf(parent, candidate),
+      ),
     );
   }
 
@@ -676,6 +699,38 @@ export function useChatActivity(params: {
     }
 
     return sortActivityItems(items);
+  }
+
+  function participantToolHistory(
+    participant: Participant,
+  ): ParticipantToolCall[] {
+    const items = participantActivityDescendantItems(participant);
+    const calls: ParticipantToolCall[] = [];
+    for (const item of items) {
+      for (const entry of item.toolEntries) {
+        calls.push({
+          id: `${item.id}:${entry.id}`,
+          title: entry.title || "Tool call",
+          args: entry.args || "",
+          output: entry.content || entry.data || "",
+          createdAt: entry.createdAt,
+          createdAtMs: safeTimestampMs(entry.createdAt),
+          agentName: item.name,
+          status: item.status,
+        });
+      }
+    }
+    return calls.sort((a, b) => {
+      if (a.createdAtMs !== b.createdAtMs) return a.createdAtMs - b.createdAtMs;
+      return a.id.localeCompare(b.id);
+    });
+  }
+
+  function participantLastToolCall(
+    participant: Participant,
+  ): ParticipantToolCall | null {
+    const history = participantToolHistory(participant);
+    return history.length ? history[history.length - 1] : null;
   }
 
   function hasDelegatedActivityForMessage(messageId: string) {
@@ -712,7 +767,9 @@ export function useChatActivity(params: {
     seen.add(item.id);
     const children = directChildActivityItems(item)
       .filter((child) => !seen.has(child.id))
-      .map((child) => participantActivityGroupForItem(participant, child, new Set(seen)));
+      .map((child) =>
+        participantActivityGroupForItem(participant, child, new Set(seen)),
+      );
     return {
       participant,
       item,
@@ -728,7 +785,9 @@ export function useChatActivity(params: {
     const childCallIds = new Set(
       directItems
         .map((item) => item.parentCallId?.trim())
-        .filter((parentCallId): parentCallId is string => Boolean(parentCallId)),
+        .filter((parentCallId): parentCallId is string =>
+          Boolean(parentCallId),
+        ),
     );
     return directItems
       .filter((item) => !item.callId || !childCallIds.has(item.callId.trim()))
@@ -747,14 +806,20 @@ export function useChatActivity(params: {
   });
 
   function participantActivityGroupsFor(participant: Participant) {
-    return participantActivityGroupsByKey.value[participantActivityKey(participant)] || [];
+    return (
+      participantActivityGroupsByKey.value[
+        participantActivityKey(participant)
+      ] || []
+    );
   }
 
   function participantActivityGroupKey(group: ParticipantActivityGroup) {
     return group.item.id;
   }
 
-  function participantActivityGroupPrimaryItem(group: ParticipantActivityGroup) {
+  function participantActivityGroupPrimaryItem(
+    group: ParticipantActivityGroup,
+  ) {
     return group.item;
   }
 
@@ -1014,13 +1079,19 @@ export function useChatActivity(params: {
     const totals = new Map<CockpitContextSegmentKind, number>();
     for (const segment of metrics.segments) {
       if (segment.tokens <= 0) continue;
-      totals.set(segment.kind, (totals.get(segment.kind) ?? 0) + segment.tokens);
+      totals.set(
+        segment.kind,
+        (totals.get(segment.kind) ?? 0) + segment.tokens,
+      );
     }
     const segmentedTokens = Array.from(totals.values()).reduce(
       (sum, tokens) => sum + tokens,
       0,
     );
-    const unsegmentedTokens = Math.max(0, metrics.inputTokens - segmentedTokens);
+    const unsegmentedTokens = Math.max(
+      0,
+      metrics.inputTokens - segmentedTokens,
+    );
     if (unsegmentedTokens > 0) totals.set("other", unsegmentedTokens);
 
     const legend = CONTEXT_SEGMENT_ORDER.flatMap((kind) => {
@@ -1028,10 +1099,17 @@ export function useChatActivity(params: {
       if (tokens <= 0) return [];
       return [contextLegendSegment(kind, tokens, metrics.contextWindow)];
     });
-    const remainingTokens = Math.max(0, metrics.contextWindow - metrics.inputTokens);
+    const remainingTokens = Math.max(
+      0,
+      metrics.contextWindow - metrics.inputTokens,
+    );
     if (remainingTokens > 0) {
       legend.push(
-        contextLegendSegment("remaining", remainingTokens, metrics.contextWindow),
+        contextLegendSegment(
+          "remaining",
+          remainingTokens,
+          metrics.contextWindow,
+        ),
       );
     }
     return legend;
@@ -1049,7 +1127,9 @@ export function useChatActivity(params: {
         cursor + (segment.tokens / metrics.contextWindow) * 360,
       );
       if (end <= cursor) continue;
-      stops.push(`${segment.color} ${cursor.toFixed(2)}deg ${end.toFixed(2)}deg`);
+      stops.push(
+        `${segment.color} ${cursor.toFixed(2)}deg ${end.toFixed(2)}deg`,
+      );
       cursor = end;
       if (cursor >= 360) break;
     }
@@ -1065,7 +1145,9 @@ export function useChatActivity(params: {
       `Context used: ${metrics.inputTokens.toLocaleString()} / ${metrics.contextWindow.toLocaleString()} tokens`,
     ];
     for (const segment of cockpitContextLegend.value) {
-      lines.push(`${segment.label}: ${segment.tokenLabel} (${segment.percentLabel})`);
+      lines.push(
+        `${segment.label}: ${segment.tokenLabel} (${segment.percentLabel})`,
+      );
     }
     return lines.join("\n");
   });
@@ -1092,7 +1174,7 @@ export function useChatActivity(params: {
     const traceRows = runActivityItems.value.flatMap((item) =>
       item.toolEntries.map((entry) => ({
         id: `${item.id}:${entry.id}`,
-        name: entry.title || "Tool call",
+        name: entry.toolName || entry.title || "Tool call",
         status: item.statusLabel,
         statusTone: item.status,
         args: entry.args || "",
@@ -1109,7 +1191,7 @@ export function useChatActivity(params: {
           : "Done";
       return {
         id: message.id,
-        name: message.activityToolTitle || message.title || "Tool call",
+        name: message.title || "Tool call",
         status,
         statusTone: statusToneFromLabel(status),
         args: message.toolArgs || "",
@@ -1219,6 +1301,8 @@ export function useChatActivity(params: {
     selectedParticipantActivityName,
     selectedParticipantActivity,
     selectedParticipantActivityItems,
+    participantToolHistory,
+    participantLastToolCall,
     closeParticipantActivity,
     activityStatusClasses,
     activityMonitorRowClasses,

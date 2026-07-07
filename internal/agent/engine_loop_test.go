@@ -197,3 +197,39 @@ func TestRunStreamZeroMaxStepsIsUnbounded(t *testing.T) {
 		t.Fatalf("expected 10 calls, got %d", provider.calls)
 	}
 }
+
+func TestToolCallbacksIncludeDisplayTitle(t *testing.T) {
+	t.Parallel()
+
+	reg := tools.NewRegistry()
+	reg.Register(&titleLookupTool{})
+	eng := &Engine{Tools: reg}
+
+	var gotName, gotTitle string
+	eng.OnToolStartWithTitle = func(name string, title string, args []byte, toolID string) {
+		gotName = name
+		gotTitle = title
+	}
+
+	_, err := eng.dispatchToolsAtStep(context.Background(), nil, []llm.ToolCall{{Name: "lookup", ID: "call-1", Args: json.RawMessage(`{}`)}}, -1)
+	if err != nil {
+		t.Fatalf("dispatchToolsAtStep: %v", err)
+	}
+	if gotName != "lookup" || gotTitle != "Lookup Context" {
+		t.Fatalf("callback got name=%q title=%q", gotName, gotTitle)
+	}
+}
+
+type titleLookupTool struct{}
+
+func (t *titleLookupTool) Name() string { return "lookup" }
+func (t *titleLookupTool) JSONSchema() map[string]any {
+	return map[string]any{
+		"title":       "Lookup Context",
+		"description": "test lookup",
+		"parameters":  map[string]any{"type": "object"},
+	}
+}
+func (t *titleLookupTool) Call(context.Context, json.RawMessage) (any, error) {
+	return map[string]any{"ok": true}, nil
+}

@@ -114,6 +114,7 @@ export interface ChatMessage {
   runId?: string;
   lastRunSequence?: number;
   activityToolTitle?: string;
+  activityToolEntries?: AgentTraceEntry[];
   activityThoughtSummary?: string;
   memoryContext?: ChatMemoryContext;
   contextMetrics?: ChatContextMetrics;
@@ -153,6 +154,8 @@ export interface AgentTraceEntry {
   type: "message" | "tool" | "error" | "input_request";
   role?: ChatRole;
   title?: string;
+  toolName?: string;
+  toolTitle?: string;
   content?: string;
   args?: string;
   data?: string;
@@ -181,6 +184,8 @@ export interface SpecialistActivityEntry {
   id: string;
   type: string;
   title?: string;
+  toolName?: string;
+  toolTitle?: string;
   content?: string;
   args?: string;
   data?: string;

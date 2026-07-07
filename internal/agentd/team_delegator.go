@@ -84,11 +84,13 @@ func (a *app) RunTeam(ctx context.Context, req agent.TeamDelegateRequest, tracer
 			}
 			annotatedTracer.Trace(agent.AgentTrace{Type: "agent_delta", Agent: orchestratorAgent, Team: teamName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Content: delta, Role: "assistant"})
 		}
-		eng.OnToolStart = func(name string, args []byte, toolID string) {
-			annotatedTracer.Trace(agent.AgentTrace{Type: "agent_tool_start", Agent: orchestratorAgent, Team: teamName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Title: name, Args: string(args), ToolID: toolID})
+		eng.OnToolStartWithTitle = func(name string, title string, args []byte, toolID string) {
+			activityTitle := toolActivityTitle(name, title)
+			annotatedTracer.Trace(agent.AgentTrace{Type: "agent_tool_start", Agent: orchestratorAgent, Team: teamName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Title: activityTitle, ToolName: name, ToolTitle: activityTitle, Args: string(args), ToolID: toolID})
 		}
-		eng.OnTool = func(name string, args []byte, result []byte, toolID string) {
-			annotatedTracer.Trace(agent.AgentTrace{Type: "agent_tool_result", Agent: orchestratorAgent, Team: teamName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Title: name, Args: string(args), Data: string(result), ToolID: toolID})
+		eng.OnToolWithTitle = func(name string, title string, args []byte, result []byte, toolID string) {
+			activityTitle := toolActivityTitle(name, title)
+			annotatedTracer.Trace(agent.AgentTrace{Type: "agent_tool_result", Agent: orchestratorAgent, Team: teamName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, Title: activityTitle, ToolName: name, ToolTitle: activityTitle, Args: string(args), Data: string(result), ToolID: toolID})
 		}
 		eng.OnThoughtSummary = func(summary string) {
 			if strings.TrimSpace(summary) == "" {

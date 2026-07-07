@@ -18,6 +18,7 @@ import (
 	"manifold/internal/fleet"
 	"manifold/internal/llm"
 	"manifold/internal/sandbox"
+	"manifold/internal/tools"
 	"manifold/internal/workspaces"
 )
 
@@ -222,21 +223,23 @@ func configureCommonStreamCallbacks(eng *agent.Engine, stream chatEventWriter, e
 	} else {
 		eng.OnThoughtSummary = nil
 	}
-	eng.OnToolStart = func(name string, args []byte, toolID string) {
-		payload := map[string]any{"type": "tool_start", "title": "Tool: " + name, "tool_id": toolID, "args": string(args)}
+	eng.OnToolStartWithTitle = func(name string, title string, args []byte, toolID string) {
+		activityTitle := toolActivityTitle(name, title)
+		payload := map[string]any{"type": "tool_start", "title": activityTitle, "tool_title": activityTitle, "tool_name": name, "tool_id": toolID, "args": string(args)}
 		if name == "agent_call" || name == "ask_agent" {
 			payload["agent"] = true
 		}
 		stream.write(payload)
 	}
-	eng.OnTool = func(name string, args []byte, result []byte, toolID string) {
+	eng.OnToolWithTitle = func(name string, title string, args []byte, result []byte, toolID string) {
 		if name == "text_to_speech_chunk" {
 			var meta map[string]any
 			_ = json.Unmarshal(result, &meta)
 			stream.write(map[string]any{"type": "tts_chunk", "bytes": meta["bytes"], "b64": meta["b64"]})
 			return
 		}
-		payload := map[string]any{"type": "tool_result", "title": "Tool: " + name, "data": string(result), "tool_id": toolID}
+		activityTitle := toolActivityTitle(name, title)
+		payload := map[string]any{"type": "tool_result", "title": activityTitle, "tool_title": activityTitle, "tool_name": name, "data": string(result), "tool_id": toolID}
 		if name == "agent_call" || name == "ask_agent" {
 			payload["agent"] = true
 		}
@@ -665,4 +668,11 @@ func (a *app) executeInternalJSONChat(storeCtx context.Context, exec chatExecuti
 	}
 	a.commitWorkspace(ctx, checkedOutWorkspace)
 	return payload, nil
+}
+
+func toolActivityTitle(name string, title string) string {
+	if strings.TrimSpace(title) != "" {
+		return strings.TrimSpace(title)
+	}
+	return tools.HumanizeToolName(name)
 }

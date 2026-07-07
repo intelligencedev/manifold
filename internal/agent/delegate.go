@@ -20,6 +20,8 @@ type AgentTrace struct {
 	Role           string
 	Content        string
 	Title          string
+	ToolName       string
+	ToolTitle      string
 	Args           string
 	Data           string
 	ToolID         string

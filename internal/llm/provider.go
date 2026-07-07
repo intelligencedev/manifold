@@ -56,6 +56,7 @@ type Message struct {
 
 type ToolSchema struct {
 	Name        string
+	Title       string
 	Description string
 	Parameters  map[string]any
 }

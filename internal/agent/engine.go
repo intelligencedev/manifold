@@ -116,10 +116,12 @@ type Engine struct {
 	// OnThoughtSummary, if set, is called for streamed reasoning summaries.
 	OnThoughtSummary func(string)
 	// OnTool, if set, is called after each tool execution with tool name, args, result, and tool ID.
-	OnTool             func(toolName string, args []byte, result []byte, toolID string)
-	OnToolStart        func(toolName string, args []byte, toolID string)
-	OnTurnMessage      func(llm.Message)
-	OnSummaryTriggered func(inputTokens, tokenBudget, messageCount, summarizedCount int)
+	OnTool               func(toolName string, args []byte, result []byte, toolID string)
+	OnToolWithTitle      func(toolName string, toolTitle string, args []byte, result []byte, toolID string)
+	OnToolStart          func(toolName string, args []byte, toolID string)
+	OnToolStartWithTitle func(toolName string, toolTitle string, args []byte, toolID string)
+	OnTurnMessage        func(llm.Message)
+	OnSummaryTriggered   func(inputTokens, tokenBudget, messageCount, summarizedCount int)
 	// OnContextMetrics, if set, receives token budget snapshots at key prompt
 	// assembly and compaction boundaries.
 	OnContextMetrics func(ContextMetrics)

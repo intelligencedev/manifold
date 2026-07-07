@@ -45,3 +45,17 @@ func TestBuildMCPHTTPClient_DefaultTimeout(t *testing.T) {
 		t.Fatalf("expected default timeout of 30s, got %s", client.Timeout)
 	}
 }
+
+func TestMCPToolTitleUsesToolTitleAndAnnotations(t *testing.T) {
+	t.Parallel()
+
+	tool := &mcpTool{server: "s", tool: &mcppkg.Tool{Name: "t", Title: "Readable Tool"}}
+	if got := tool.JSONSchema()["title"]; got != "Readable Tool" {
+		t.Fatalf("title = %#v", got)
+	}
+
+	tool = &mcpTool{server: "s", tool: &mcppkg.Tool{Name: "t", Annotations: &mcppkg.ToolAnnotations{Title: "Annotated Tool"}}}
+	if got := tool.JSONSchema()["title"]; got != "Annotated Tool" {
+		t.Fatalf("annotation title = %#v", got)
+	}
+}

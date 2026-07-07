@@ -49,3 +49,28 @@ func TestFilteredRegistryAcceptsDottedParallelAliasInAllowList(t *testing.T) {
 		t.Fatalf("expected aliased schema to be exposed, got %#v", names)
 	}
 }
+
+func TestRegistrySchemasPopulateDefaultTitle(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(aliasTestTool{})
+
+	schemas := reg.Schemas()
+	if len(schemas) != 1 {
+		t.Fatalf("schemas = %d, want 1", len(schemas))
+	}
+	if schemas[0].Title == "" {
+		t.Fatalf("expected schema title for %s", schemas[0].Name)
+	}
+	if got := ToolTitle(reg, "multi_tool_use.parallel"); got == "" {
+		t.Fatalf("expected title lookup for dotted alias")
+	}
+}
+
+func TestHumanizeToolNameUsesFriendlyInternalTitles(t *testing.T) {
+	if got := HumanizeToolName("run_cli"); got != "Run Command" {
+		t.Fatalf("HumanizeToolName(run_cli) = %q, want %q", got, "Run Command")
+	}
+	if got := HumanizeToolName("transit_list_recent"); got != "List Recent Transit Records" {
+		t.Fatalf("HumanizeToolName(transit_list_recent) = %q, want %q", got, "List Recent Transit Records")
+	}
+}

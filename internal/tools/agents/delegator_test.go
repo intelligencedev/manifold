@@ -176,3 +176,37 @@ func TestDelegatorRunImageGenerationSpecialistSendsOnlyPrompt(t *testing.T) {
 		t.Fatalf("expected configured delegated image size, got %#v", gotBody["size"])
 	}
 }
+
+type delegatorTraceRecorder struct {
+	events []agent.AgentTrace
+}
+
+func (r *delegatorTraceRecorder) Trace(ev agent.AgentTrace) {
+	r.events = append(r.events, ev)
+}
+
+func TestDelegatorTracerUsesFriendlyToolTitles(t *testing.T) {
+	d := NewDelegator(tools.NewRegistry(), nil, nil, 1)
+	eng := &agent.Engine{}
+	recorder := &delegatorTraceRecorder{}
+	d.attachTracer(eng, recorder, agent.DelegateRequest{AgentName: "developer", CallID: "call-1"}, "test-model")
+
+	if eng.OnToolStartWithTitle == nil {
+		t.Fatal("expected title-aware tool start tracer")
+	}
+	eng.OnToolStartWithTitle("run_cli", "", []byte(`{"command":"go"}`), "tool-1")
+
+	if len(recorder.events) != 1 {
+		t.Fatalf("expected one trace event, got %d", len(recorder.events))
+	}
+	ev := recorder.events[0]
+	if ev.Title != "Run Command" {
+		t.Fatalf("trace title = %q, want %q", ev.Title, "Run Command")
+	}
+	if ev.ToolName != "run_cli" {
+		t.Fatalf("trace tool name = %q, want %q", ev.ToolName, "run_cli")
+	}
+	if ev.ToolTitle != "Run Command" {
+		t.Fatalf("trace tool title = %q, want %q", ev.ToolTitle, "Run Command")
+	}
+}

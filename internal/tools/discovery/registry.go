@@ -69,13 +69,27 @@ func (r *DiscoverableRegistry) Schemas() []llm.ToolSchema {
 		}
 	}
 	r.mu.RUnlock()
-	searchSchema := r.searchTool.JSONSchema()
+	searchSchema := tools.EnsureToolSchemaTitle(r.searchTool.JSONSchema(), r.searchTool.Name())
 	out = append(out, llm.ToolSchema{
 		Name:        r.searchTool.Name(),
+		Title:       schemaString(searchSchema["title"]),
 		Description: schemaString(searchSchema["description"]),
 		Parameters:  schemaMap(searchSchema["parameters"]),
 	})
 	return out
+}
+
+func (r *DiscoverableRegistry) ToolTitle(name string) string {
+	if name == r.searchTool.Name() {
+		return schemaString(r.searchTool.JSONSchema()["title"])
+	}
+	r.mu.RLock()
+	active := r.active[name]
+	r.mu.RUnlock()
+	if !active {
+		return ""
+	}
+	return tools.ToolTitle(r.base, name)
 }
 
 func (r *DiscoverableRegistry) Dispatch(ctx context.Context, name string, raw json.RawMessage) ([]byte, error) {

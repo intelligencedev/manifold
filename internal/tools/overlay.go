@@ -53,14 +53,23 @@ func (r *overlayRegistry) Schemas() []llm.ToolSchema {
 		if extra == nil || known[name] {
 			continue
 		}
-		schema := addCommonWarppIO(extra.JSONSchema())
+		schema := EnsureToolSchemaTitle(extra.JSONSchema(), name)
+		schema = addCommonWarppIO(schema)
 		out = append(out, llm.ToolSchema{
 			Name:        name,
+			Title:       strFrom(schema["title"]),
 			Description: strFrom(schema["description"]),
 			Parameters:  mapFrom(schema["parameters"]),
 		})
 	}
 	return out
+}
+
+func (r *overlayRegistry) ToolTitle(name string) string {
+	if extra := r.extra[name]; extra != nil {
+		return strFrom(EnsureToolSchemaTitle(extra.JSONSchema(), name)["title"])
+	}
+	return ToolTitle(r.base, name)
 }
 
 func (r *overlayRegistry) Dispatch(ctx context.Context, name string, raw json.RawMessage) ([]byte, error) {

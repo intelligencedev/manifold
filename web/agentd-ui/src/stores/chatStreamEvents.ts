@@ -6,6 +6,8 @@ import {
   memoryContextFromEvent,
   mergeMemoryContext,
   snippet,
+  toolDisplayTitle,
+  toolInvocationName,
   updateLatestUserBeforeMessage,
   withEstimatedAssistantTokens,
 } from "@/stores/chatHelpers";
@@ -128,18 +130,16 @@ export function handleStreamEvent(
       upsertToolMessage(state, event, sessionId, streamId, "start");
       state.updateMessage(sessionId, assistantId, (m) => ({
         ...m,
-        activityToolTitle: event.title || "Tool call",
+        activityToolTitle: toolDisplayTitle(event),
       }));
       break;
     }
     case "tool_result": {
       upsertToolMessage(state, event, sessionId, streamId, "result");
-      if (typeof event.title === "string" && event.title.trim()) {
-        state.updateMessage(sessionId, assistantId, (m) => ({
-          ...m,
-          activityToolTitle: event.title,
-        }));
-      }
+      state.updateMessage(sessionId, assistantId, (m) => ({
+        ...m,
+        activityToolTitle: toolDisplayTitle(event),
+      }));
       break;
     }
     case "image": {
@@ -216,10 +216,8 @@ function upsertToolMessage(
   streamId: string,
   phase: "start" | "result",
 ) {
-  const title =
-    typeof event.title === "string" && event.title.trim()
-      ? event.title.trim()
-      : "Tool call";
+  const title = toolInvocationName(event);
+  const activityTitle = toolDisplayTitle(event);
   const toolId =
     typeof event.tool_id === "string" && event.tool_id.trim()
       ? event.tool_id.trim()
@@ -251,7 +249,7 @@ function upsertToolMessage(
         toolArgs: args,
         createdAt: now,
         streaming: phase === "start",
-        activityToolTitle: title,
+        activityToolTitle: activityTitle,
       },
       false,
     );
@@ -261,7 +259,7 @@ function upsertToolMessage(
   state.updateMessage(sessionId, existingId, (message) => ({
     ...message,
     title,
-    activityToolTitle: title,
+    activityToolTitle: activityTitle,
     content:
       phase === "result"
         ? data || message.content || "Tool completed."

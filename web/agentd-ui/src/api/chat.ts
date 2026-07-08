@@ -6,6 +6,8 @@ import type {
   ChatSessionMeta,
   SpecialistActivityEntry,
   SpecialistActivityRecord,
+  ChatLLMRequestContext,
+  ChatLLMRequestSummary,
 } from "@/types/chat";
 
 export {
@@ -139,6 +141,25 @@ export async function fetchChatMessages(
     {
       params,
     },
+  );
+  return data;
+}
+
+export async function fetchChatLLMRequests(
+  sessionId: string,
+  messageId: string,
+): Promise<ChatLLMRequestSummary[]> {
+  const { data } = await apiClient.get<ChatLLMRequestSummary[]>(
+    `/chat/sessions/${encodeURIComponent(sessionId)}/llm-requests/${encodeURIComponent(messageId)}`,
+  );
+  return data;
+}
+
+export async function fetchLLMRequestContext(
+  requestId: string,
+): Promise<ChatLLMRequestContext> {
+  const { data } = await apiClient.get<ChatLLMRequestContext>(
+    `/llm-requests/${encodeURIComponent(requestId)}/context`,
   );
   return data;
 }

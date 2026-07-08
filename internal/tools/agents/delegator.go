@@ -351,6 +351,13 @@ func (d *Delegator) attachTracer(eng *agent.Engine, tracer agent.AgentTracer, re
 			}
 			tracer.Trace(agent.AgentTrace{Type: "agent_thought_summary", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, ThoughtSummary: summary})
 		}
+		previousLLMRequest := eng.OnLLMRequest
+		eng.OnLLMRequest = func(snapshot agent.LLMRequestSnapshot) {
+			if previousLLMRequest != nil {
+				previousLLMRequest(snapshot)
+			}
+			tracer.Trace(agent.AgentTrace{Type: "llm_request", Agent: req.AgentName, Model: model, CallID: req.CallID, ParentCallID: req.ParentCallID, Depth: req.Depth, LLMRequestID: snapshot.ID})
+		}
 	}
 }
 

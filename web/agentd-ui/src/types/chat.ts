@@ -118,7 +118,27 @@ export interface ChatMessage {
   activityThoughtSummary?: string;
   memoryContext?: ChatMemoryContext;
   contextMetrics?: ChatContextMetrics;
+  llmRequestCount?: number;
   inputRequests?: ChatInputRequest[];
+}
+
+export interface ChatLLMRequestSummary {
+  id: string;
+  provider?: string;
+  model: string;
+  specialistId?: string;
+  createdAt: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  maxContextTokens?: number;
+  redacted: boolean;
+  callId?: string;
+  parentCallId?: string;
+  parentUserMessageId?: string;
+}
+
+export interface ChatLLMRequestContext extends ChatLLMRequestSummary {
+  payload: Record<string, unknown>;
 }
 
 export interface SummaryEvent {

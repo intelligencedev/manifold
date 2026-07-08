@@ -2,6 +2,7 @@ package persistence
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -288,16 +289,48 @@ type ChatSession struct {
 
 // ChatMessage is a single turn within a chat session.
 type ChatMessage struct {
-	ID         string    `json:"id"`
-	SessionID  string    `json:"sessionId"`
-	Role       string    `json:"role"`
-	Content    string    `json:"content"`
-	CreatedAt  time.Time `json:"createdAt"`
-	DurationMs *int64    `json:"durationMs,omitempty"`
+	ID              string    `json:"id"`
+	SessionID       string    `json:"sessionId"`
+	Role            string    `json:"role"`
+	Content         string    `json:"content"`
+	CreatedAt       time.Time `json:"createdAt"`
+	DurationMs      *int64    `json:"durationMs,omitempty"`
+	LLMRequestCount int       `json:"llmRequestCount,omitempty"`
 	// Optional, not persisted: used to hydrate tool calls for the UI.
 	Title    string `json:"title,omitempty"`
 	ToolArgs string `json:"toolArgs,omitempty"`
 	ToolID   string `json:"toolId,omitempty"`
+}
+
+// LLMRequest captures the exact redacted context sent to an LLM provider for a
+// single model call.
+type LLMRequest struct {
+	ID                  string          `json:"id"`
+	SessionID           string          `json:"sessionId"`
+	UserID              *int64          `json:"userId,omitempty"`
+	RunID               string          `json:"runId,omitempty"`
+	MessageID           string          `json:"messageId,omitempty"`
+	ParentUserMessageID string          `json:"parentUserMessageId,omitempty"`
+	CallID              string          `json:"callId,omitempty"`
+	ParentCallID        string          `json:"parentCallId,omitempty"`
+	SpecialistID        string          `json:"specialistId,omitempty"`
+	Provider            string          `json:"provider,omitempty"`
+	Model               string          `json:"model"`
+	InputTokens         int             `json:"inputTokens,omitempty"`
+	OutputTokens        int             `json:"outputTokens,omitempty"`
+	MaxContextTokens    int             `json:"maxContextTokens,omitempty"`
+	Payload             json.RawMessage `json:"payload"`
+	Redacted            bool            `json:"redacted"`
+	CreatedAt           time.Time       `json:"createdAt"`
+}
+
+// LLMRequestStore persists inspectable LLM request snapshots for chat sessions.
+type LLMRequestStore interface {
+	Init(ctx context.Context) error
+	AppendLLMRequest(ctx context.Context, req LLMRequest) error
+	ListLLMRequestsForMessage(ctx context.Context, userID *int64, sessionID string, messageID string) ([]LLMRequest, error)
+	GetLLMRequest(ctx context.Context, userID *int64, id string) (LLMRequest, error)
+	DeleteSessionLLMRequests(ctx context.Context, userID *int64, sessionID string) error
 }
 
 type ChatDeleteAfterRequest struct {

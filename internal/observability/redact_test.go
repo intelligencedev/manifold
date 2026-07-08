@@ -3,6 +3,7 @@ package observability
 import (
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 func TestRedactJSON_SimpleAndNested(t *testing.T) {
@@ -97,5 +98,85 @@ func TestRedactValueRedactsStructsMapsAndSlices(t *testing.T) {
 	n := redacted["nested"].(map[string]any)
 	if n["authorization"] != RedactedValue || n["visible"] != "shown" {
 		t.Fatalf("unexpected nested redaction: %#v", n)
+	}
+}
+
+func TestRedactValuePreservesTimeAndTokenMetrics(t *testing.T) {
+	type payload struct {
+		CreatedAt       time.Time `json:"createdAt"`
+		TokenBudget     int       `json:"tokenBudget"`
+		TailTokenBudget int       `json:"tailTokenBudget"`
+		AccessToken     string    `json:"access_token"`
+		Token           string    `json:"token"`
+	}
+
+	createdAt := time.Date(2026, 7, 6, 21, 30, 0, 0, time.UTC)
+	redacted, ok := RedactValue(payload{
+		CreatedAt:       createdAt,
+		TokenBudget:     100,
+		TailTokenBudget: 50,
+		AccessToken:     "secret-access",
+		Token:           "secret-token",
+	}).(map[string]any)
+	if !ok {
+		t.Fatalf("expected redacted struct map, got %T", redacted)
+	}
+
+	if redacted["createdAt"] != createdAt {
+		t.Fatalf("expected createdAt preserved, got %#v", redacted["createdAt"])
+	}
+	if redacted["tokenBudget"] != 100 || redacted["tailTokenBudget"] != 50 {
+		t.Fatalf("expected token metrics preserved, got %#v", redacted)
+	}
+	if redacted["access_token"] != RedactedValue || redacted["token"] != RedactedValue {
+		t.Fatalf("expected credentials redacted, got %#v", redacted)
+	}
+
+	b, err := json.Marshal(redacted)
+	if err != nil {
+		t.Fatalf("marshal redacted payload: %v", err)
+	}
+	var decoded payload
+	if err := json.Unmarshal(b, &decoded); err != nil {
+		t.Fatalf("unmarshal redacted payload: %v", err)
+	}
+	if !decoded.CreatedAt.Equal(createdAt) || decoded.TokenBudget != 100 || decoded.TailTokenBudget != 50 {
+		t.Fatalf("unexpected decoded payload: %#v", decoded)
+	}
+}
+
+func TestRedactValuePreservesRawJSONAsJSONContent(t *testing.T) {
+	type payload struct {
+		Payload json.RawMessage `json:"payload"`
+	}
+
+	redacted, ok := RedactValue(payload{
+		Payload: json.RawMessage(`{"messages":[{"role":"user","content":"hello"}],"authorization":"Bearer secret"}`),
+	}).(map[string]any)
+	if !ok {
+		t.Fatalf("expected redacted struct map, got %T", redacted)
+	}
+
+	b, err := json.Marshal(redacted)
+	if err != nil {
+		t.Fatalf("marshal redacted payload: %v", err)
+	}
+	var decoded struct {
+		Payload struct {
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
+			Authorization string `json:"authorization"`
+		} `json:"payload"`
+	}
+	if err := json.Unmarshal(b, &decoded); err != nil {
+		t.Fatalf("unmarshal redacted payload: %v", err)
+	}
+	if len(decoded.Payload.Messages) != 1 || decoded.Payload.Messages[0].Content != "hello" {
+		t.Fatalf("expected payload messages to survive redaction, got %#v", decoded.Payload.Messages)
+	}
+	if decoded.Payload.Authorization != RedactedValue {
+		t.Fatalf("expected raw JSON secrets redacted, got %q", decoded.Payload.Authorization)
 	}
 }

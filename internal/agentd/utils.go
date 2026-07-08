@@ -182,6 +182,8 @@ type chatTurnHistoryRecord struct {
 	Model              string
 }
 
+const chatTurnMessageSpacing = time.Microsecond
+
 func storeChatTurnWithHistory(ctx context.Context, store persist.ChatStore, record chatTurnHistoryRecord) error {
 	roles := make([]string, len(record.TurnMessages))
 	lastAssistantIndex := -1
@@ -193,7 +195,10 @@ func storeChatTurnWithHistory(ctx context.Context, store persist.ChatStore, reco
 	}
 	log.Info().Str("session_id", record.SessionID).Str("user_content_len", fmt.Sprint(len(record.UserContent))).Int("turn_messages", len(record.TurnMessages)).Strs("roles", roles).Msg("store_chat_turn_start")
 	messages := make([]persist.ChatMessage, 0, 2+len(record.TurnMessages))
-	now := time.Now().UTC()
+	now := existingUserMessageCreatedAt(ctx, store, record)
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
 
 	// Add user message
 	if strings.TrimSpace(record.UserContent) != "" {
@@ -247,7 +252,7 @@ func storeChatTurnWithHistory(ctx context.Context, store persist.ChatStore, reco
 			SessionID:  record.SessionID,
 			Role:       msg.Role,
 			Content:    content,
-			CreatedAt:  now.Add(time.Duration(i+1) * 10 * time.Millisecond),
+			CreatedAt:  now.Add(time.Duration(i+1) * chatTurnMessageSpacing),
 			DurationMs: durationForTurnMessage(record, msg.Role, i, lastAssistantIndex),
 		})
 	}
@@ -264,6 +269,22 @@ func storeChatTurnWithHistory(ctx context.Context, store persist.ChatStore, reco
 		preview = previewSnippet(record.UserContent)
 	}
 	return store.AppendMessagesOnce(ctx, record.UserID, record.SessionID, messages, preview, record.Model)
+}
+
+func existingUserMessageCreatedAt(ctx context.Context, store persist.ChatStore, record chatTurnHistoryRecord) time.Time {
+	if store == nil || strings.TrimSpace(record.SessionID) == "" || strings.TrimSpace(record.UserMessageID) == "" {
+		return time.Time{}
+	}
+	messages, err := store.ListMessages(ctx, record.UserID, record.SessionID, 0)
+	if err != nil {
+		return time.Time{}
+	}
+	for _, message := range messages {
+		if message.ID == record.UserMessageID && message.Role == "user" && !message.CreatedAt.IsZero() {
+			return message.CreatedAt.UTC()
+		}
+	}
+	return time.Time{}
 }
 
 func durationForTurnMessage(record chatTurnHistoryRecord, role string, index, lastAssistantIndex int) *int64 {

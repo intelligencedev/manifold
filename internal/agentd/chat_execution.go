@@ -532,6 +532,7 @@ func (a *app) executeStreamChat(w http.ResponseWriter, r *http.Request, exec cha
 		return
 	}
 
+	attachLLMRequestCapture(eng, llmRequestCaptureConfig{Store: a.llmRequestStore, SessionID: req.SessionID, UserID: userID, RunID: runID, MessageID: req.AssistantMessageID, ParentUserMessageID: req.UserMessageID, SpecialistID: streamAgentName(eng)})
 	activityCollector := a.newStreamActivityCollector(req, runID, userID)
 	defer a.flushStreamActivities(r.Context(), req, userID, activityCollector)
 	a.configureStreamExecutionCallbacks(eng, stream, opts, activityCollector, fleetCallbackRequest{
@@ -609,6 +610,7 @@ func (a *app) executeInternalJSONChat(storeCtx context.Context, exec chatExecuti
 	if req.EphemeralSession {
 		defer cleanupEphemeralChatSession(a.chatStore, userID, req.SessionID)
 	}
+	attachLLMRequestCapture(eng, llmRequestCaptureConfig{Store: a.llmRequestStore, SessionID: req.SessionID, UserID: userID, RunID: runID, MessageID: req.AssistantMessageID, ParentUserMessageID: req.UserMessageID, SpecialistID: streamAgentName(eng)})
 	configureFleetCallbacks(a, eng, fleetCallbackRequest{
 		RunID:       runID,
 		SessionID:   req.SessionID,

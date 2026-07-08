@@ -1,7 +1,6 @@
 import {
   computed,
   nextTick,
-  nextTick,
   onBeforeUnmount,
   onMounted,
   ref,
@@ -26,6 +25,7 @@ import { useChatResponseTimers } from "./useChatResponseTimers";
 import { useChatSessionPanel } from "./useChatSessionPanel";
 import { useChatComposer } from "./useChatComposer";
 import { useChatTranscript } from "./useChatTranscript";
+import { useContextInspector } from "./useContextInspector";
 
 export function useChatViewController() {
   const isBrowser = typeof window !== "undefined";
@@ -257,6 +257,9 @@ export function useChatViewController() {
 
   // --- Response timers ---
   const responseTimers = useChatResponseTimers(isBrowser);
+
+  // --- Context inspector ---
+  const contextInspector = useContextInspector();
 
   // --- Scroll ---
   const scroll = useChatScroll({
@@ -744,6 +747,10 @@ export function useChatViewController() {
     drawerBeforeLeave,
     drawerLeave,
     renderMarkdownOrHtml,
+    inspectContext: (messageId: string) => {
+      const sessionId = activeSessionId.value;
+      if (sessionId && messageId) void contextInspector.inspect(sessionId, messageId);
+    },
     shouldShowDirectActivity,
     shouldShowDirectThought,
     agentNameFor: (message: any) =>
@@ -852,6 +859,9 @@ export function useChatViewController() {
     showDeleteSessionDialog: modalsState.showDeleteSessionDialog.value,
     deleteSessionTarget: modalsState.deleteSessionTarget.value,
     deleteSessionPending: modalsState.deleteSessionPending.value,
+    deleteSessionError: modalsState.deleteSessionError.value,
+    canConfirmDeleteSession: modalsState.canConfirmDeleteSession.value,
+    closeDeleteSessionDialog: modalsState.closeDeleteSessionDialog,
     confirmDeleteSession: () =>
       modalsState.confirmDeleteSession((id) => chat.deleteSession(id)),
     showBulkDeleteSessionDialog: modalsState.showBulkDeleteSessionDialog.value,
@@ -860,9 +870,14 @@ export function useChatViewController() {
     bulkDeleteSessionCount: modalsState.bulkDeleteSessionCount.value,
     canConfirmBulkDeleteSession: modalsState.canConfirmBulkDeleteSession.value,
     closeBulkDeleteSessionDialog: modalsState.closeBulkDeleteSessionDialog,
-    confirmBulkDeleteSession: () =>
-      modalsState.confirmBulkDeleteSession((id) => chat.deleteSession(id)),
+    confirmBulkDeleteSession: async () => {
+      const deleted = await modalsState.confirmBulkDeleteSession((id) =>
+        chat.deleteSession(id),
+      );
+      if (deleted) sessionPanelState.clearCheckedSessions();
+    },
     selectedParticipantActivityName: selectedParticipantActivityName.value,
+    selectedParticipantActivity: selectedParticipantActivity.value,
     selectedParticipantActivityItems: selectedParticipantActivityItems.value,
     setParticipantActivityPaneRef: scroll.setParticipantActivityPaneRef,
     handleActivityPaneScroll: scroll.handleActivityPaneScroll,
@@ -875,6 +890,7 @@ export function useChatViewController() {
     headerPanel,
     timelinePanel,
     transcript,
+    contextInspector,
     composerPanel,
     participantsPanel,
     modals,

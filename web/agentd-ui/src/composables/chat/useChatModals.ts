@@ -112,9 +112,9 @@ export function useChatModals({
 
   async function confirmBulkDeleteSession(
     deleteSession: (sessionId: string) => Promise<void>,
-  ) {
+  ): Promise<boolean> {
     const ids = bulkDeleteSessionIds.value;
-    if (!ids.length || !canConfirmBulkDeleteSession.value) return;
+    if (!ids.length || !canConfirmBulkDeleteSession.value) return false;
     bulkDeleteSessionPending.value = true;
     bulkDeleteSessionError.value = "";
     let failedCount = 0;
@@ -134,6 +134,7 @@ export function useChatModals({
       scrollMessagesToBottom({ force: true, behavior: "auto" });
     }
     bulkDeleteSessionPending.value = false;
+    return failedCount === 0;
   }
 
   return {

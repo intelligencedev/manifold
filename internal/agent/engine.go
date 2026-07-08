@@ -122,6 +122,9 @@ type Engine struct {
 	OnToolStartWithTitle func(toolName string, toolTitle string, args []byte, toolID string)
 	OnTurnMessage        func(llm.Message)
 	OnSummaryTriggered   func(inputTokens, tokenBudget, messageCount, summarizedCount int)
+	// OnLLMRequest, if set, receives the exact normalized prompt and tool schemas
+	// immediately before a provider call.
+	OnLLMRequest func(LLMRequestSnapshot)
 	// OnContextMetrics, if set, receives token budget snapshots at key prompt
 	// assembly and compaction boundaries.
 	OnContextMetrics func(ContextMetrics)

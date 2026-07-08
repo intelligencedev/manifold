@@ -436,6 +436,10 @@ func (a *app) initChatMemory(cfg *config.Config, mgr databases.Manager, summaryL
 	if a.activityStore == nil {
 		return fmt.Errorf("specialist activity store not initialized")
 	}
+	a.llmRequestStore = mgr.LLMRequests
+	if a.llmRequestStore == nil {
+		return fmt.Errorf("llm request store not initialized")
+	}
 
 	summaryCtxSize, _ := llmpkg.ContextSize(summaryModel)
 	if cfg.Summary.ContextWindowTokens > 0 {

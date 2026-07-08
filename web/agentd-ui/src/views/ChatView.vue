@@ -12,6 +12,17 @@
         <ChatTimelinePanel :model="timelinePanel" />
         <ChatTranscript :model="transcript" />
         <ChatComposerPanel :model="composerPanel" />
+        <ContextInspectorDrawer
+          :open="contextInspector.open.value"
+          :loading="contextInspector.loading.value"
+          :context-loading="contextInspector.contextLoading.value"
+          :requests="contextInspector.requests.value"
+          :selected-request-id="contextInspector.selectedRequestId.value"
+          :selected-context="contextInspector.selectedContext.value"
+          :error="contextInspector.error.value"
+          @close="contextInspector.close"
+          @select-request="contextInspector.selectRequest"
+        />
       </section>
 
       <ChatParticipantsPanel :model="participantsPanel" />
@@ -25,6 +36,7 @@
 import "highlight.js/styles/github-dark-dimmed.css";
 import "@/components/chat/chat.css";
 import ChatComposerPanel from "@/components/chat/ChatComposerPanel.vue";
+import ContextInspectorDrawer from "@/components/chat/ContextInspectorDrawer.vue";
 import ChatHeaderPanel from "@/components/chat/ChatHeaderPanel.vue";
 import ChatModals from "@/components/chat/ChatModals.vue";
 import ChatParticipantsPanel from "@/components/chat/ChatParticipantsPanel";
@@ -38,6 +50,7 @@ const {
   headerPanel,
   timelinePanel,
   transcript,
+  contextInspector,
   composerPanel,
   participantsPanel,
   modals,

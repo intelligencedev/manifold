@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"manifold/internal/observability"
 	"manifold/internal/persistence"
 	"manifold/internal/secrets"
 
@@ -152,6 +153,11 @@ func (s *sqliteSpecStore) Upsert(ctx context.Context, userID int64, sp persisten
 	if err := s.Init(ctx); err != nil {
 		return persistence.Specialist{}, err
 	}
+	if existing, ok, err := s.GetByName(ctx, userID, sp.Name); err != nil {
+		return persistence.Specialist{}, err
+	} else if ok {
+		sp = preserveExistingSpecialistSecrets(existing, sp)
+	}
 	toStore, err := encryptSpecialistForStore(s.codec, userID, sp)
 	if err != nil {
 		return persistence.Specialist{}, err
@@ -191,6 +197,63 @@ ON CONFLICT(user_id, name) DO UPDATE SET
 	}
 	sp.UserID = userID
 	return decryptSpecialistFromStore(s.codec, sp)
+}
+
+func shouldPreserveExistingAPIKey(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	return trimmed == "" || trimmed == observability.RedactedValue
+}
+
+func isRedactedPlaceholder(value string) bool {
+	return strings.TrimSpace(value) == observability.RedactedValue
+}
+
+func copyStringMapValues(in map[string]string) map[string]string {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func preserveExistingSpecialistSecrets(existing, incoming persistence.Specialist) persistence.Specialist {
+	if shouldPreserveExistingAPIKey(incoming.APIKey) {
+		incoming.APIKey = existing.APIKey
+	}
+
+	if len(incoming.ExtraHeaders) > 0 {
+		headers := copyStringMapValues(incoming.ExtraHeaders)
+		for key, value := range headers {
+			if !isRedactedPlaceholder(value) {
+				continue
+			}
+			if prev, ok := existing.ExtraHeaders[key]; ok {
+				headers[key] = prev
+				continue
+			}
+			delete(headers, key)
+		}
+		incoming.ExtraHeaders = headers
+	}
+
+	if len(incoming.ExtraParams) > 0 {
+		params := make(map[string]any, len(incoming.ExtraParams))
+		for key, value := range incoming.ExtraParams {
+			s, ok := value.(string)
+			if ok && isRedactedPlaceholder(s) {
+				if prev, ok := existing.ExtraParams[key]; ok {
+					params[key] = prev
+				}
+				continue
+			}
+			params[key] = value
+		}
+		incoming.ExtraParams = params
+	}
+	return incoming
 }
 
 func boolPtr(value bool) *bool {
@@ -281,9 +344,7 @@ func (s *memSpecStore) Upsert(ctx context.Context, userID int64, sp persistence.
 		s.m[userID] = map[string]persistence.Specialist{}
 	}
 	if existing, ok := s.m[userID][sp.Name]; ok {
-		if strings.TrimSpace(sp.APIKey) == "" {
-			sp.APIKey = existing.APIKey
-		}
+		sp = preserveExistingSpecialistSecrets(existing, sp)
 	}
 	sp.UserID = userID
 	s.m[userID][sp.Name] = sp
@@ -435,6 +496,11 @@ func (s *pgSpecStore) Upsert(ctx context.Context, userID int64, sp persistence.S
 		return persistence.Specialist{}, err
 	}
 	s.codec = codec
+	if existing, ok, err := s.GetByName(ctx, userID, sp.Name); err != nil {
+		return persistence.Specialist{}, err
+	} else if ok {
+		sp = preserveExistingSpecialistSecrets(existing, sp)
+	}
 	toStore, err := encryptSpecialistForStore(s.codec, userID, sp)
 	if err != nil {
 		return persistence.Specialist{}, err

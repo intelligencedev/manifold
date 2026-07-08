@@ -468,7 +468,8 @@ const isDirty = computed(() => {
   if ((orchestratorDraft.provider || defaultProvider.value) !== (orch.provider || defaultProvider.value)) return true;
   if ((orchestratorDraft.model || "") !== (orch.model || "")) return true;
   if ((orchestratorDraft.baseURL || "") !== (orch.baseURL || "")) return true;
-  if ((orchestratorDraft.apiKey || "") !== (orch.apiKey || "")) return true;
+  const baselineKey = (!orch.apiKey || orch.apiKey === "[REDACTED]") ? "" : orch.apiKey;
+  if ((orchestratorDraft.apiKey || "") !== baselineKey) return true;
   if (orchestratorDraft.enableTools !== !!orch.enableTools) return true;
   if (orchestratorDraft.autoDiscover !== (orch.autoDiscover === true)) return true;
   if (orchestratorDraft.requestInfoEnabled !== (orch.requestInfoEnabled !== false)) return true;
@@ -501,7 +502,8 @@ function initFromInitial(team: SpecialistTeam) {
   orchestratorDraft.provider = orch.provider || defaultProvider.value;
   orchestratorDraft.model = orch.model || "";
   orchestratorDraft.baseURL = orch.baseURL || "";
-  orchestratorDraft.apiKey = orch.apiKey || "";
+  const nextApiKey = orch.apiKey || "";
+  orchestratorDraft.apiKey = nextApiKey === "[REDACTED]" ? "" : nextApiKey;
   orchestratorDraft.enableTools = !!orch.enableTools;
   orchestratorDraft.autoDiscover = orch.autoDiscover === true;
   orchestratorDraft.requestInfoEnabled = orch.requestInfoEnabled !== false;
@@ -541,7 +543,11 @@ function buildPayload(): SpecialistTeam {
     provider: orchestratorDraft.provider || defaultProvider.value,
     model: orchestratorDraft.model || "",
     baseURL: orchestratorDraft.baseURL || "",
-    apiKey: orchestratorDraft.apiKey || "",
+    apiKey: (() => {
+      const next = (orchestratorDraft.apiKey || "").trim();
+      if (!next || next === "[REDACTED]") return "";
+      return next;
+    })(),
     enableTools: orchestratorDraft.enableTools,
     autoDiscover: orchestratorDraft.autoDiscover,
     requestInfoEnabled: orchestratorDraft.requestInfoEnabled,

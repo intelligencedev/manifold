@@ -761,7 +761,11 @@ function onTeamSaved(saved: SpecialistTeam) {
 }
 async function togglePause(s: Specialist) {
   try {
-    await upsertSpecialist({ ...s, paused: !s.paused });
+    const { apiKey: _apiKey, ...rest } = s;
+    await upsertSpecialist({
+      ...rest,
+      paused: !s.paused,
+    });
     actionError.value = null;
     await qc.invalidateQueries({ queryKey: ["specialists"] });
     await qc.invalidateQueries({ queryKey: ["agent-status"] });

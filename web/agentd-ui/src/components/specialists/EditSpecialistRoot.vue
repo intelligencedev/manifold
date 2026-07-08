@@ -1832,7 +1832,8 @@ function normalizePayload(sp: Specialist): Specialist {
     videoGeneration: !!sp.videoGeneration,
     autoDiscover: sp.autoDiscover === true,
     paused: !!sp.paused,
-    apiKey: sp.apiKey || undefined,
+    // API responses redact secrets to [REDACTED]; never treat that placeholder as a real key.
+    apiKey: sp.apiKey && sp.apiKey !== "[REDACTED]" ? sp.apiKey : undefined,
     allowTools: Array.isArray(sp.allowTools) ? sp.allowTools : [],
     system: sp.system || "",
     extraHeaders: sp.extraHeaders || {},

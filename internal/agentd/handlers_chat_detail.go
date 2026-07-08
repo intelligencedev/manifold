@@ -38,6 +38,8 @@ func (a *app) chatSessionDetailHandler() http.HandlerFunc {
 			a.handleChatActivities(w, r, userID, id)
 		case "messages":
 			a.handleChatMessages(w, r, userID, id, subresourceID)
+		case "llm-requests":
+			a.handleChatLLMRequests(w, r, userID, id, subresourceID)
 		case "runs":
 			a.handleChatSessionRuns(w, r, userID, id)
 		case "title":
@@ -89,7 +91,7 @@ func setChatDetailCORSHeaders(w http.ResponseWriter, r *http.Request, subresourc
 	switch subresource {
 	case "messages":
 		setChatCORSHeaders(w, r, "GET, DELETE, OPTIONS")
-	case "activities":
+	case "activities", "llm-requests":
 		setChatCORSHeaders(w, r, "GET, OPTIONS")
 	case "title":
 		setChatCORSHeaders(w, r, "POST, OPTIONS")
@@ -146,7 +148,7 @@ func (a *app) handleChatMessages(w http.ResponseWriter, r *http.Request, userID 
 		writeChatDetailStoreError(w, r, err, sessionID, "list_chat_messages")
 		return
 	}
-	writeChatJSON(w, hydrateChatMessages(msgs), "encode_chat_messages")
+	writeChatJSON(w, a.hydrateChatMessagesForRequest(r.Context(), userID, sessionID, msgs), "encode_chat_messages")
 }
 
 type chatMessageBeforeLister interface {

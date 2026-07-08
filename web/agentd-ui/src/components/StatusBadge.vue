@@ -1,7 +1,7 @@
 <template>
   <span
     :class="[
-      'inline-flex items-center gap-2 rounded-[5px] border px-2 py-[3px] font-mono text-[11px] uppercase tracking-[0.08em]',
+      'inline-flex items-center gap-2 rounded-sm border px-2 py-[3px] font-mono text-[11px] uppercase tracking-[0.08em]',
       statusClasses,
     ]"
   >

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"strings"
+	"time"
 )
 
 var sensitiveKeys = []string{
@@ -11,6 +12,11 @@ var sensitiveKeys = []string{
 }
 
 const RedactedValue = "[REDACTED]"
+
+var (
+	rawMessageType = reflect.TypeOf(json.RawMessage{})
+	timeType       = reflect.TypeOf(time.Time{})
+)
 
 // RedactJSON takes a JSON payload and redacts sensitive values based on common key names.
 func RedactJSON(raw json.RawMessage) json.RawMessage {
@@ -52,6 +58,22 @@ func redactReflectValue(v reflect.Value) any {
 			return nil
 		}
 		return redactReflectValue(v.Elem())
+	}
+
+	if v.Type() == rawMessageType {
+		raw := v.Interface().(json.RawMessage)
+		if len(raw) == 0 {
+			return raw
+		}
+		var value any
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return string(raw)
+		}
+		return redactValue(value)
+	}
+
+	if v.Type() == timeType {
+		return v.Interface()
 	}
 
 	switch v.Kind() {
@@ -119,12 +141,24 @@ func isSensitiveKey(k string) bool {
 	if strings.HasSuffix(low, "tokens") {
 		return false
 	}
+	normalized := strings.NewReplacer("-", "_").Replace(low)
+	switch normalized {
+	case "auth", "token", "access_token", "refresh_token", "id_token", "session_token":
+		return true
+	}
+	if strings.HasSuffix(normalized, "_auth") || strings.HasSuffix(normalized, "_token") || strings.HasSuffix(normalized, "token") {
+		return true
+	}
 	for _, s := range sensitiveKeys {
-		if low == s {
+		if s == "auth" || s == "token" || s == "access_token" || s == "refresh_token" {
+			continue
+		}
+		needle := strings.NewReplacer("-", "_").Replace(strings.ToLower(s))
+		if normalized == needle {
 			return true
 		}
 		// contains common header forms
-		if strings.Contains(low, s) {
+		if strings.Contains(normalized, needle) {
 			return true
 		}
 	}

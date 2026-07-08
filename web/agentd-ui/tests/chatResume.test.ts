@@ -159,4 +159,65 @@ describe("chat durable resume", () => {
     expect(assistant?.content).toBe("partial done");
     expect(assistant?.lastRunSequence).toBe(3);
   });
+
+  it("reloads completed chat messages so backend-enriched fields are visible without refresh", async () => {
+    const state = createChatStoreState();
+    state.sessions.value = [
+      {
+        id: "session-1",
+        name: "Session",
+        createdAt: "2026-06-02T12:00:00.000Z",
+        updatedAt: "2026-06-02T12:00:00.000Z",
+      },
+    ];
+    state.activeSessionId.value = "session-1";
+    chatApiMocks.startChatRun.mockResolvedValue({
+      run_id: "run-1",
+      session_id: "session-1",
+      user_message_id: "user-1",
+      assistant_message_id: "assistant-1",
+      status: "running",
+    });
+    chatApiMocks.streamChatRunEvents.mockImplementation(
+      async (options: { onEvent: (event: ChatStreamEvent) => void }) => {
+        options.onEvent({
+          type: "final",
+          data: "done",
+          sequence: 1,
+        });
+      },
+    );
+    const loadMessagesFromServer = vi.fn(async (sessionId: string) => {
+      state.setMessages(sessionId, [
+        {
+          id: "user-1",
+          role: "user",
+          content: "hello",
+          createdAt: "2026-06-02T12:00:00.000Z",
+        },
+        {
+          id: "assistant-1",
+          role: "assistant",
+          content: "done",
+          createdAt: "2026-06-02T12:00:01.000Z",
+          llmRequestCount: 1,
+        },
+      ]);
+    });
+
+    const actions = createChatStreamActions(
+      state,
+      { invalidateQueries: vi.fn() },
+      { loadMessagesFromServer } as any,
+    );
+    await actions.sendPrompt("hello");
+
+    expect(loadMessagesFromServer).toHaveBeenCalledWith("session-1", {
+      force: true,
+    });
+    const assistant = state.messagesBySession.value["session-1"].find(
+      (message) => message.role === "assistant",
+    );
+    expect(assistant?.llmRequestCount).toBe(1);
+  });
 });

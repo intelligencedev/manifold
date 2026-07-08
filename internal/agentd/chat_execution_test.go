@@ -2,9 +2,15 @@ package agentd
 
 import (
 	"context"
+	"database/sql"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"manifold/internal/llm"
+	"manifold/internal/persistence"
+	"manifold/internal/persistence/databases"
+	sqlitep "manifold/internal/persistence/sqlite"
 	"manifold/internal/sandbox"
 )
 
@@ -111,6 +117,75 @@ func TestChatStoreModelPrefersOverride(t *testing.T) {
 	if got := chatStoreModel(nil, "team:gpt-4.1"); got != "team:gpt-4.1" {
 		t.Fatalf("expected override model label, got %q", got)
 	}
+}
+
+func TestStoreChatTurnWithHistoryKeepsAssistantAfterPrePersistedUser(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store := databases.NewSQLiteChatStore(openAgentdTestSQLite(t))
+	sessionID := "session-turn-order"
+	if _, err := store.EnsureSession(ctx, nil, sessionID, "Turn Order"); err != nil {
+		t.Fatalf("EnsureSession: %v", err)
+	}
+
+	startedAt := time.Now().UTC().Add(-2 * time.Hour)
+	if err := store.AppendMessagesOnce(ctx, nil, sessionID, []persistence.ChatMessage{
+		{ID: "user-1", SessionID: sessionID, Role: "user", Content: "first prompt", CreatedAt: startedAt},
+	}, "first prompt", ""); err != nil {
+		t.Fatalf("AppendMessagesOnce user-1: %v", err)
+	}
+	if err := store.AppendMessagesOnce(ctx, nil, sessionID, []persistence.ChatMessage{
+		{ID: "user-2", SessionID: sessionID, Role: "user", Content: "second prompt", CreatedAt: startedAt.Add(time.Second)},
+	}, "second prompt", ""); err != nil {
+		t.Fatalf("AppendMessagesOnce user-2: %v", err)
+	}
+
+	durationMs := int64(500)
+	if err := storeChatTurnWithHistory(ctx, store, chatTurnHistoryRecord{
+		SessionID:          sessionID,
+		UserMessageID:      "user-1",
+		UserContent:        "first prompt",
+		TurnMessages:       []llm.Message{{Role: "assistant", Content: "first response"}},
+		FinalContent:       "first response",
+		AssistantMessageID: "assistant-1",
+		DurationMs:         &durationMs,
+	}); err != nil {
+		t.Fatalf("storeChatTurnWithHistory: %v", err)
+	}
+
+	messages, err := store.ListMessages(ctx, nil, sessionID, 0)
+	if err != nil {
+		t.Fatalf("ListMessages: %v", err)
+	}
+	got := make([]string, 0, len(messages))
+	for _, message := range messages {
+		got = append(got, message.ID)
+	}
+	want := []string{"user-1", "assistant-1", "user-2"}
+	if len(got) != len(want) {
+		t.Fatalf("message order = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("message order = %v, want %v", got, want)
+		}
+	}
+}
+
+func openAgentdTestSQLite(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := sqlitep.Open(context.Background(), sqlitep.Config{
+		Path:          filepath.Join(t.TempDir(), "manifold.db"),
+		BusyTimeoutMs: 10000,
+		WAL:           true,
+		MaxOpenConns:  1,
+	})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
 }
 
 func contains(haystack, needle string) bool {

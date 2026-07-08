@@ -38,6 +38,7 @@ func (e *Engine) runLoop(ctx context.Context, msgs []llm.Message) (string, error
 		} else if found {
 			log.Info().Int("step", step).Msg("engine_step_replay_assistant_checkpoint")
 		} else {
+			requestID := e.emitLLMRequest(ctx, msgs, schemas, e.model())
 			msg, err = e.LLM.Chat(ctx, msgs, schemas, e.model())
 			if err != nil {
 				log.Error().Err(err).Int("step", step).Msg("engine_step_error")
@@ -45,6 +46,9 @@ func (e *Engine) runLoop(ctx context.Context, msgs []llm.Message) (string, error
 			}
 			msg.ToolCalls = llm.NormalizeToolCalls(msg.ToolCalls)
 			msg.ToolCalls = e.ensureToolCallIDs(msgs, msg.ToolCalls)
+			if requestID != "" && e.AgentTracer != nil {
+				e.AgentTracer.Trace(AgentTrace{Type: "llm_request", Agent: e.AgentRole, Model: e.model(), Depth: e.AgentDepth, LLMRequestID: requestID})
+			}
 			if err := e.saveCheckpoint(ctx, assistantCheckpointKey(step), msg); err != nil {
 				return "", err
 			}
@@ -126,11 +130,15 @@ func (e *Engine) runStreamStep(ctx context.Context, msgs []llm.Message, step int
 	} else if found {
 		log.Info().Int("step", step).Msg("engine_stream_step_replay_assistant_checkpoint")
 	} else {
+		requestID := e.emitLLMRequest(ctx, msgs, schemas, e.model())
 		if err := e.LLM.ChatStream(ctx, msgs, schemas, e.model(), acc.handler()); err != nil {
 			log.Error().Err(err).Int("step", step).Msg("engine_stream_step_error")
 			return nil, "", false, err
 		}
 		msg = acc.message(e, msgs)
+		if requestID != "" && e.AgentTracer != nil {
+			e.AgentTracer.Trace(AgentTrace{Type: "llm_request", Agent: e.AgentRole, Model: e.model(), Depth: e.AgentDepth, LLMRequestID: requestID})
+		}
 		if err := e.saveCheckpoint(ctx, assistantCheckpointKey(step), msg); err != nil {
 			return nil, "", false, err
 		}

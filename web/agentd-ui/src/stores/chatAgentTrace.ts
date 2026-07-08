@@ -215,12 +215,31 @@ function handleDirectAgentTraceEvent(
     }
     case "agent_tool_start":
     case "agent_tool_result": {
-      if (typeof event.title === "string" && event.title.trim()) {
-        state.updateMessage(sessionId, assistantId, (m) => ({
-          ...m,
-          activityToolTitle: event.title,
-        }));
-      }
+      const now = new Date().toISOString();
+      const isResult = event.type === "agent_tool_result";
+      const entryValue = isResult
+        ? typeof event.data === "string"
+          ? event.data
+          : values.data
+        : typeof event.args === "string"
+          ? event.args
+          : undefined;
+      const entry = agentToolEntry(
+        event,
+        isResult ? "data" : "args",
+        entryValue,
+        now,
+      );
+      state.updateMessage(sessionId, assistantId, (m) => ({
+        ...m,
+        activityToolTitle:
+          typeof event.tool_title === "string" && event.tool_title.trim()
+            ? event.tool_title
+            : typeof event.title === "string" && event.title.trim()
+              ? event.title
+              : m.activityToolTitle,
+        activityToolEntries: [...(m.activityToolEntries || []), entry],
+      }));
       break;
     }
     case "agent_error": {

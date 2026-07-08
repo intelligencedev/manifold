@@ -156,6 +156,58 @@ func TestSpecialistsResponsesRedactSecrets(t *testing.T) {
 		t.Fatalf("unexpected params redaction: %#v", params)
 	}
 }
+func TestUpdateSpecialistForUserPreservesAPIKeyOnPauseWithRedactedPayload(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	app := newSpecialistTeamTestApp()
+
+	_, err := app.specStore.Upsert(ctx, 51, persistence.Specialist{
+		Name:     "alpha",
+		Provider: "openai",
+		Model:    "gpt-4.1",
+		APIKey:   "alpha-secret",
+		ExtraHeaders: map[string]string{
+			"Authorization": "Bearer header-secret",
+			"X-Trace":       "trace-id",
+		},
+	})
+	if err != nil {
+		t.Fatalf("upsert specialist: %v", err)
+	}
+
+	saved, err := app.updateSpecialistForUser(ctx, 51, "alpha", persistence.Specialist{
+		Name:     "alpha",
+		Provider: "openai",
+		Model:    "gpt-4.1",
+		APIKey:   observability.RedactedValue,
+		Paused:   true,
+		ExtraHeaders: map[string]string{
+			"Authorization": observability.RedactedValue,
+			"X-Trace":       "trace-id",
+		},
+	})
+	if err != nil {
+		t.Fatalf("updateSpecialistForUser: %v", err)
+	}
+	if !saved.Paused {
+		t.Fatalf("expected specialist to be paused")
+	}
+
+	got, ok, err := app.specStore.GetByName(ctx, 51, "alpha")
+	if err != nil || !ok {
+		t.Fatalf("get specialist: ok=%v err=%v", ok, err)
+	}
+	if got.APIKey != "alpha-secret" {
+		t.Fatalf("expected stored api key preserved, got %q", got.APIKey)
+	}
+	if got.ExtraHeaders["Authorization"] != "Bearer header-secret" {
+		t.Fatalf("expected authorization header preserved, got %#v", got.ExtraHeaders)
+	}
+	if !got.Paused {
+		t.Fatalf("expected paused state persisted")
+	}
+}
 
 func TestCreateTeamForUserRequiresSelectedMemberOrchestrator(t *testing.T) {
 	t.Parallel()

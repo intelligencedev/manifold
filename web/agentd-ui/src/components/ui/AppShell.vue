@@ -11,7 +11,9 @@
       <slot name="topbar" />
     </div>
 
-    <main class="col-start-2 row-start-2 min-h-0 min-w-0 overflow-auto px-6 py-5">
+    <main
+      class="col-start-2 row-start-2 min-h-0 min-w-0 overflow-auto px-2.5 py-2.5"
+    >
       <slot />
     </main>
 
@@ -37,6 +39,6 @@ const props = withDefaults(
 );
 
 const gridTemplateColumns = computed(() =>
-  props.inspector ? "64px minmax(0, 1fr) 360px" : "64px minmax(0, 1fr)",
+  props.inspector ? "88px minmax(0, 1fr) 320px" : "88px minmax(0, 1fr)",
 );
 </script>

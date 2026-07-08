@@ -176,6 +176,21 @@ func (t *mcpTool) Name() string {
 	return sanitizeName(t.server + "_" + t.tool.Name)
 }
 
+func (t *mcpTool) Title() string {
+	if t.tool == nil {
+		return ""
+	}
+	if title := strings.TrimSpace(t.tool.Title); title != "" {
+		return title
+	}
+	if t.tool.Annotations != nil {
+		if title := strings.TrimSpace(t.tool.Annotations.Title); title != "" {
+			return title
+		}
+	}
+	return ""
+}
+
 func (t *mcpTool) JSONSchema() map[string]any {
 	// Start with a safe default that OpenAI accepts: object with empty properties
 	params := map[string]any{"type": "object", "properties": map[string]any{}}
@@ -198,6 +213,7 @@ func (t *mcpTool) JSONSchema() map[string]any {
 	// Normalize recursively to satisfy OpenAI's stricter requirements
 	sanitizeSchema(params, "")
 	return map[string]any{
+		"title":       t.Title(),
 		"description": t.tool.Description,
 		"parameters":  params,
 	}

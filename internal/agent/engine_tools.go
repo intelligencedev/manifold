@@ -83,7 +83,9 @@ func (e *Engine) dispatchToolsAtStep(ctx context.Context, msgs []llm.Message, to
 			continue
 		}
 
-		if e.OnToolStart != nil {
+		if e.OnToolStartWithTitle != nil {
+			e.OnToolStartWithTitle(tc.Name, e.toolTitle(tc.Name), tc.Args, tc.ID)
+		} else if e.OnToolStart != nil {
 			e.OnToolStart(tc.Name, tc.Args, tc.ID)
 		}
 
@@ -197,9 +199,7 @@ func (e *Engine) executeToolCallForStep(ctx context.Context, tc llm.ToolCall, st
 			observability.LoggerWithTrace(ctx).Warn().Err(err).Str("tool", tc.Name).Str("tool_id", tc.ID).Int("step", step).Msg("engine_tool_checkpoint_save_failed")
 		}
 	}
-	if e.OnTool != nil {
-		e.OnTool(tc.Name, tc.Args, payload, tc.ID)
-	}
+	e.emitToolResult(tc.Name, tc.Args, payload, tc.ID)
 	return toolMsg, nil
 }
 
@@ -216,9 +216,7 @@ func (e *Engine) executeToolCall(ctx context.Context, tc llm.ToolCall) llm.Messa
 	if err != nil {
 		payload = fmt.Appendf(nil, `{"error":%q}`, err.Error())
 	}
-	if e.OnTool != nil {
-		e.OnTool(tc.Name, tc.Args, payload, tc.ID)
-	}
+	e.emitToolResult(tc.Name, tc.Args, payload, tc.ID)
 	return llm.Message{Role: "tool", Content: string(payload), ToolID: tc.ID}
 }
 
@@ -474,4 +472,18 @@ func delegatedRunErrorJSON(kind, name string, err error) []byte {
 		return b
 	}
 	return fmt.Appendf(nil, `{"ok":false,%q:%q,"error":%q}`, kind, name, payload["error"])
+}
+
+func (e *Engine) toolTitle(name string) string {
+	return tools.ToolTitle(e.Tools, name)
+}
+
+func (e *Engine) emitToolResult(name string, args []byte, result []byte, toolID string) {
+	if e.OnToolWithTitle != nil {
+		e.OnToolWithTitle(name, e.toolTitle(name), args, result, toolID)
+		return
+	}
+	if e.OnTool != nil {
+		e.OnTool(name, args, result, toolID)
+	}
 }

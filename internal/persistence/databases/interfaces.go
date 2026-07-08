@@ -70,6 +70,7 @@ type Manager struct {
 	Graph              GraphDB
 	Chat               persistence.ChatStore
 	SpecialistActivity persistence.SpecialistActivityStore
+	LLMRequests        persistence.LLMRequestStore
 	Specialists        persistence.SpecialistsStore
 	SpecialistTeams    persistence.SpecialistTeamsStore
 	EvolvingMemory     memory.EvolvingMemoryStore
@@ -96,6 +97,7 @@ func (m Manager) Close() {
 	closeIfPossible(m.Graph)
 	closeIfPossible(m.Chat)
 	closeIfPossible(m.SpecialistActivity)
+	closeIfPossible(m.LLMRequests)
 	closeIfPossible(m.Specialists)
 	closeIfPossible(m.SpecialistTeams)
 	closeIfPossible(m.EvolvingMemory)

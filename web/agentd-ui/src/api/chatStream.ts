@@ -33,6 +33,8 @@ export interface ChatStreamEvent {
   type: ChatStreamEventType;
   data?: string;
   title?: string;
+  tool_title?: string;
+  tool_name?: string;
   tool_id?: string;
   args?: string;
   bytes?: number;

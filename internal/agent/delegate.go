@@ -20,11 +20,14 @@ type AgentTrace struct {
 	Role           string
 	Content        string
 	Title          string
+	ToolName       string
+	ToolTitle      string
 	Args           string
 	Data           string
 	ToolID         string
 	Error          string
 	ThoughtSummary string
+	LLMRequestID   string
 }
 
 // AgentTracer receives trace events emitted during delegated agent execution.

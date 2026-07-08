@@ -124,9 +124,7 @@
             </ul>
           </div>
 
-          <section
-            class="rounded-[14px] border border-border/60 bg-surface p-6"
-          >
+          <section class="rounded-lg border border-border/60 bg-surface p-6">
             <PanelGroup
               title="Identity"
               helper="Give the specialist a stable name and a short description."
@@ -429,7 +427,7 @@
           </div>
 
           <section
-            class="flex min-h-0 flex-1 flex-col rounded-[14px] border border-border/60 bg-surface p-6"
+            class="flex min-h-0 flex-1 flex-col rounded-lg border border-border/60 bg-surface p-6"
           >
             <PanelGroup
               title="Template"
@@ -547,7 +545,7 @@
           </div>
 
           <section
-            class="min-w-0 max-w-full rounded-[14px] border border-border/60 bg-surface p-6"
+            class="min-w-0 max-w-full rounded-lg border border-border/60 bg-surface p-6"
           >
             <PanelGroup
               title="Tool access policy"
@@ -782,9 +780,7 @@
             </ul>
           </div>
 
-          <section
-            class="rounded-[14px] border border-border/60 bg-surface p-6"
-          >
+          <section class="rounded-lg border border-border/60 bg-surface p-6">
             <PanelGroup
               title="Summarization"
               helper="Override the summary context window for this specialist. Leave blank to use the global summaryContextWindowTokens fallback."
@@ -1836,7 +1832,8 @@ function normalizePayload(sp: Specialist): Specialist {
     videoGeneration: !!sp.videoGeneration,
     autoDiscover: sp.autoDiscover === true,
     paused: !!sp.paused,
-    apiKey: sp.apiKey || undefined,
+    // API responses redact secrets to [REDACTED]; never treat that placeholder as a real key.
+    apiKey: sp.apiKey && sp.apiKey !== "[REDACTED]" ? sp.apiKey : undefined,
     allowTools: Array.isArray(sp.allowTools) ? sp.allowTools : [],
     system: sp.system || "",
     extraHeaders: sp.extraHeaders || {},

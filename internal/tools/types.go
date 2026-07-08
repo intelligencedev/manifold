@@ -33,6 +33,11 @@ type nestedToolDispatcherContextKey struct{}
 // registry dispatch.
 type NestedToolDispatcher func(ctx context.Context, name string, raw json.RawMessage, toolCallID string) (payload []byte, handled bool)
 
+// ToolTitleResolver can resolve optional human-readable display titles for registered tools.
+type ToolTitleResolver interface {
+	ToolTitle(name string) string
+}
+
 // WithDispatchRegistry records the active registry view for composite tools
 // that dispatch other tools internally.
 func WithDispatchRegistry(ctx context.Context, reg Registry) context.Context {
@@ -137,12 +142,38 @@ func SchemaNames(reg Registry) []string {
 	return out
 }
 
+// ToolTitle returns a human-readable display title for a tool, if one is available.
+func ToolTitle(reg Registry, name string) string {
+	if reg == nil {
+		return ""
+	}
+	if resolver, ok := reg.(ToolTitleResolver); ok {
+		return resolver.ToolTitle(name)
+	}
+	name = normalizeToolName(name)
+	for _, schema := range reg.Schemas() {
+		if schema.Name == name {
+			return schema.Title
+		}
+	}
+	return ""
+}
+
 func (r *defaultRegistry) Register(t Tool) {
 	name := normalizeToolName(t.Name())
 	if _, exists := r.byName[name]; !exists {
 		r.order = append(r.order, name)
 	}
 	r.byName[name] = t
+}
+
+func (r *defaultRegistry) ToolTitle(name string) string {
+	name = normalizeToolName(name)
+	tool := r.byName[name]
+	if tool == nil {
+		return ""
+	}
+	return strFrom(EnsureToolSchemaTitle(tool.JSONSchema(), name)["title"])
 }
 
 func (r *defaultRegistry) Unregister(name string) {
@@ -173,9 +204,11 @@ func (r *defaultRegistry) Schemas() []llm.ToolSchema {
 		name := r.order[i]
 		t := r.byName[name]
 		schema := t.JSONSchema()
+		schema = EnsureToolSchemaTitle(schema, name)
 		schema = addCommonWarppIO(schema)
 		out = append(out, llm.ToolSchema{
 			Name:        name,
+			Title:       strFrom(schema["title"]),
 			Description: strFrom(schema["description"]),
 			Parameters:  mapFrom(schema["parameters"]),
 		})
@@ -204,6 +237,14 @@ func (f *filteredRegistry) Schemas() []llm.ToolSchema {
 		}
 	}
 	return out
+}
+
+func (f *filteredRegistry) ToolTitle(name string) string {
+	name = normalizeToolName(name)
+	if len(f.allow) != 0 && !f.allow[name] {
+		return ""
+	}
+	return ToolTitle(f.base, name)
 }
 
 func (f *filteredRegistry) Dispatch(ctx context.Context, name string, raw json.RawMessage) ([]byte, error) {

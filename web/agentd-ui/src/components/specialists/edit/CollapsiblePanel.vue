@@ -1,5 +1,5 @@
 <template>
-  <div class="rounded-[14px] border border-border/60 bg-surface">
+  <div class="rounded-lg border border-border/60 bg-surface">
     <button
       type="button"
       class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"

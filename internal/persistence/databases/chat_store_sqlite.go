@@ -244,16 +244,16 @@ func (s *sqliteChatStore) ListMessages(ctx context.Context, userID *int64, sessi
 	if _, err := s.GetSession(ctx, userID, sessionID); err != nil {
 		return nil, err
 	}
-	query := `SELECT id, session_id, role, content, created_at, duration_ms FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC, id ASC`
+	query := `SELECT id, session_id, role, content, created_at, duration_ms FROM chat_messages WHERE session_id = ? ORDER BY julianday(created_at) ASC, rowid ASC`
 	args := []any{sessionID}
 	if limit > 0 {
 		query = `SELECT id, session_id, role, content, created_at, duration_ms FROM (
-			SELECT id, session_id, role, content, created_at, duration_ms
+			SELECT id, session_id, role, content, created_at, duration_ms, rowid AS sort_rowid
 			FROM chat_messages
 			WHERE session_id = ?
-			ORDER BY created_at DESC, id DESC
+			ORDER BY julianday(created_at) DESC, rowid DESC
 			LIMIT ?
-		) ORDER BY created_at ASC, id ASC`
+		) ORDER BY julianday(created_at) ASC, sort_rowid ASC`
 		args = append(args, limit)
 	}
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -284,14 +284,15 @@ func (s *sqliteChatStore) ListMessagesBefore(ctx context.Context, userID *int64,
 		limit = 100
 	}
 	query := `SELECT id, session_id, role, content, created_at, duration_ms FROM (
-		SELECT m.id, m.session_id, m.role, m.content, m.created_at, m.duration_ms
+		SELECT m.id, m.session_id, m.role, m.content, m.created_at, m.duration_ms, m.rowid AS sort_rowid
 		FROM chat_messages m
 		JOIN chat_messages cursor ON cursor.session_id = ? AND cursor.id = ?
 		WHERE m.session_id = ?
-			AND (m.created_at < cursor.created_at OR (m.created_at = cursor.created_at AND m.id < cursor.id))
-		ORDER BY m.created_at DESC, m.id DESC
+			AND (julianday(m.created_at) < julianday(cursor.created_at)
+				OR (julianday(m.created_at) = julianday(cursor.created_at) AND m.rowid < cursor.rowid))
+		ORDER BY julianday(m.created_at) DESC, m.rowid DESC
 		LIMIT ?
-	) ORDER BY created_at ASC, id ASC`
+	) ORDER BY julianday(created_at) ASC, sort_rowid ASC`
 	rows, err := s.db.QueryContext(ctx, query, sessionID, beforeID, sessionID, limit)
 	if err != nil {
 		return nil, err
@@ -412,7 +413,7 @@ func (s *sqliteChatStore) appendMessages(ctx context.Context, req sqliteChatAppe
 		if req.SkipExisting {
 			stmt = `INSERT OR IGNORE INTO chat_messages(id, session_id, role, content, created_at, duration_ms) VALUES(?, ?, ?, ?, ?, ?)`
 		}
-		if _, err := tx.ExecContext(ctx, stmt, id, req.SessionID, message.Role, message.Content, createdAt, nullableInt64Value(message.DurationMs)); err != nil {
+		if _, err := tx.ExecContext(ctx, stmt, id, req.SessionID, message.Role, message.Content, sqliteTime{Time: createdAt}, nullableInt64Value(message.DurationMs)); err != nil {
 			return err
 		}
 	}
@@ -517,7 +518,7 @@ func (s *sqliteChatStore) finalizeSQLiteChatDeleteTx(ctx context.Context, tx *sq
 		}
 	}
 	var lastContent string
-	err := tx.QueryRowContext(ctx, `SELECT content FROM chat_messages WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT 1`, sessionID).Scan(&lastContent)
+	err := tx.QueryRowContext(ctx, `SELECT content FROM chat_messages WHERE session_id = ? ORDER BY julianday(created_at) DESC, rowid DESC LIMIT 1`, sessionID).Scan(&lastContent)
 	if errors.Is(err, sql.ErrNoRows) {
 		lastContent = ""
 	} else if err != nil {
@@ -539,7 +540,15 @@ func sqliteDeleteMessagesAfter(ctx context.Context, tx *sql.Tx, sessionID string
 	if inclusive {
 		cmp = ">="
 	}
-	_, err = tx.ExecContext(ctx, `DELETE FROM chat_messages WHERE session_id = ? AND (created_at > ? OR (created_at = ? AND id `+cmp+` ?))`, sessionID, targetCreated, targetCreated, messageID)
+	_, err = tx.ExecContext(ctx, `DELETE FROM chat_messages
+WHERE session_id = ?
+AND (
+	julianday(created_at) > julianday(?)
+	OR (
+		julianday(created_at) = julianday(?)
+		AND rowid `+cmp+` (SELECT rowid FROM chat_messages WHERE session_id = ? AND id = ?)
+	)
+)`, sessionID, targetCreated, targetCreated, sessionID, messageID)
 	return err
 }
 

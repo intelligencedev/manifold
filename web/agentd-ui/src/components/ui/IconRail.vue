@@ -1,31 +1,45 @@
 <template>
   <nav
-    class="halo-rail halo-hairline-r flex h-full w-16 flex-col items-center gap-1.5 px-0 py-3.5"
+    class="halo-rail halo-hairline-r flex h-full w-[88px] flex-col px-1.5 py-3"
     aria-label="Primary navigation"
   >
-    <img
-      :src="manifoldLogo"
-      alt="Manifold"
-      class="mb-3 h-[26px] w-[26px] rounded-[7px] object-contain"
-    />
-
-    <RouterLink
-      v-for="item in mainItems"
-      :key="item.name"
-      :to="navTarget(item.name)"
-      :class="itemClass(item.name)"
-      :aria-label="item.label"
-      :aria-current="isActive(item.name) ? 'page' : undefined"
-      :title="item.label"
-    >
-      <component
-        :is="item.icon"
-        v-if="item.icon"
-        :class="iconClass(item.name)"
-        aria-hidden="true"
+    <div class="mb-3 flex flex-col items-center gap-0.5 px-0 text-center">
+      <img
+        :src="manifoldLogo"
+        alt="Manifold"
+        class="h-6 w-6 rounded-md object-contain"
       />
-      <span v-else>{{ item.glyph }}</span>
-    </RouterLink>
+      <div class="min-w-0 max-w-full">
+        <p
+          class="truncate text-[11px] font-semibold leading-tight tracking-[-0.02em] text-foreground"
+        >
+          Manifold
+        </p>
+      </div>
+    </div>
+
+    <div class="flex min-h-0 flex-1 flex-col gap-1.5">
+      <RouterLink
+        v-for="item in mainItems"
+        :key="item.name"
+        :to="navTarget(item.name)"
+        :class="itemClass(item.name)"
+        :aria-label="item.label"
+        :aria-current="isActive(item.name) ? 'page' : undefined"
+        :title="item.label"
+      >
+        <span class="nav-icon-wrap">
+          <component
+            :is="item.icon"
+            v-if="item.icon"
+            :class="iconClass(item.name)"
+            aria-hidden="true"
+          />
+          <span v-else>{{ item.glyph }}</span>
+        </span>
+        <span class="nav-label">{{ item.label }}</span>
+      </RouterLink>
+    </div>
 
     <RouterLink
       v-if="settingsItem"
@@ -35,13 +49,16 @@
       :aria-current="isActive(settingsItem.name) ? 'page' : undefined"
       :title="settingsItem.label"
     >
-      <component
-        :is="settingsItem.icon"
-        v-if="settingsItem.icon"
-        :class="iconClass(settingsItem.name)"
-        aria-hidden="true"
-      />
-      <span v-else>{{ settingsItem.glyph }}</span>
+      <span class="nav-icon-wrap">
+        <component
+          :is="settingsItem.icon"
+          v-if="settingsItem.icon"
+          :class="iconClass(settingsItem.name)"
+          aria-hidden="true"
+        />
+        <span v-else>{{ settingsItem.glyph }}</span>
+      </span>
+      <span class="nav-label">{{ settingsItem.label }}</span>
     </RouterLink>
   </nav>
 </template>
@@ -119,21 +136,47 @@ function navTarget(name: string) {
 }
 
 function iconClass(name: string) {
-  return ["h-5 w-5", name === "flow" ? "rotate-90" : ""];
+  return ["h-4 w-4", name === "flow" ? "rotate-90" : ""];
 }
 
 function itemClass(name: string) {
   const base =
-    "halo-focus relative grid h-[38px] w-[38px] place-items-center rounded-md border border-transparent font-mono text-[11px] text-faint-foreground transition-colors duration-150";
+    "halo-focus relative flex min-h-[52px] w-full flex-col items-center justify-center gap-0.5 rounded-md border px-1 py-2 text-center transition-colors duration-150";
   if (isActive(name)) {
     return [
       base,
-      "bg-input text-[rgb(var(--accent-hi))] shadow-[inset_0_0_0_1px_rgb(var(--line-strong))]",
+      "border-[rgb(var(--color-accent)/0.38)] bg-[rgb(var(--color-accent)/0.12)] text-foreground shadow-[inset_0_1px_0_rgb(255_255_255/0.05)]",
     ];
   }
   return [
     base,
-    "hover:bg-surface-muted hover:text-foreground focus-visible:bg-input",
+    "border-transparent text-subtle-foreground hover:border-[rgb(var(--color-border)/0.58)] hover:bg-surface-muted/70 hover:text-foreground focus-visible:bg-input",
   ];
 }
 </script>
+
+<style scoped>
+.nav-icon-wrap {
+  display: grid;
+  height: 1.375rem;
+  width: 1.375rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 0.6rem;
+  color: currentColor;
+}
+
+.nav-label {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+</style>

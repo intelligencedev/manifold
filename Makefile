@@ -6,7 +6,7 @@ export GOMODCACHE := $(shell go env GOMODCACHE)
 export GOPATH := $(shell go env GOPATH)
 
 # Binaries are discovered under cmd/*
-## Discover cmd/* directories but exclude embedctl	@echo "Host build complete"
+## Discover cmd/* directories but exclude embedctl\t@echo "Host build complete"
 
 # Build TUI binary for host platform (fast - only rebuild when needed)
 BINS := $(shell for d in cmd/*; do if [ -d "$$d" ]; then bn=$$(basename $$d); if [ "$$bn" != "embedctl" ]; then echo $$bn; fi; fi; done)
@@ -22,6 +22,7 @@ FORGE_BUILD_TAGS ?= forge
 
 .PHONY: all help fmt fmt-check imports-check vet lint test test-forge-harness modernize modernize-diff ci build cross checksums tools clean build-tui frontend openapi
 .PHONY: sonar sonar-up sonar-down sonar-scan
+.PHONY: dev dev-backend dev-frontend
 
 all: build
 
@@ -52,6 +53,11 @@ help:
 	@echo "  make checksums          # generate SHA256 checksums for artifacts in $(DIST)/"
 	@echo "  make ci                 # run CI checks (fmt-check, imports-check, vet, lint, test)"
 	@echo "  make clean              # clean $(DIST) and coverage.out"
+	@echo ""
+	@echo "Dev mode (hot-reload frontend + live backend):"
+	@echo "  make dev                # start backend + Vite dev server together (HMR, proxied API)"
+	@echo "  make dev-backend        # start backend only (dev build, proxies frontend to Vite)"
+	@echo "  make dev-frontend       # start Vite dev server only (proxies API to backend)"
 	@echo ""
 	@echo "Note: Go caches use system defaults (GOCACHE=$(GOCACHE), GOMODCACHE=$(GOMODCACHE))"
 
@@ -276,3 +282,80 @@ frontend:
 .PHONY: openapi
 openapi:
 	go run ./cmd/openapi -out docs/openapi/openapi.json -server http://localhost:32180
+
+# ─── Dev mode ────────────────────────────────────────────────────────────────
+# The dev targets run the Go backend and the Vite dev server separately so you
+# get full HMR (Hot Module Replacement) while the frontend stays connected to
+# the real backend API.
+#
+# Architecture:
+#   • Backend is built with -tags dev which compiles assets_dev.go instead of
+#     assets_embed.go.  This avoids needing a pre-built internal/webui/dist —
+#     the backend reads frontend files directly from the filesystem.
+#   • When FRONTEND_DEV_PROXY is set, the backend reverse-proxies all non-API
+#     requests to the Vite dev server (default http://127.0.0.1:5177).
+#   • When VITE_DEV_SERVER_PROXY is set, Vite proxies /api, /stt, /audio, /auth
+#     requests to the backend (default http://127.0.0.1:32180).
+#
+# Usage:
+#   make dev             # starts both backend and frontend in one shell
+#   make dev-backend     # backend only (use if you already have Vite running)
+#   make dev-frontend    # frontend only (use if you already have backend running)
+
+VITE_PORT ?= 5177
+BACKEND_PORT ?= 32180
+VITE_HOST ?= 127.0.0.1
+FRONTEND_DEV_PROXY ?= http://$(VITE_HOST):$(VITE_PORT)
+VITE_DEV_SERVER_PROXY ?= http://127.0.0.1:$(BACKEND_PORT)
+
+# Start both backend and Vite dev server. Vite is launched first in the
+# background, then the backend runs in the foreground. Ctrl-C kills both.
+dev:
+	@set -e; \
+	frontend_pid=""; \
+	cleanup() { \
+		status=$$?; \
+		if [ -n "$$frontend_pid" ]; then \
+			kill "$$frontend_pid" 2>/dev/null || true; \
+			wait "$$frontend_pid" 2>/dev/null || true; \
+		fi; \
+		exit "$$status"; \
+	}; \
+	trap cleanup EXIT INT TERM; \
+	$(MAKE) --no-print-directory dev-frontend & \
+	frontend_pid=$$!; \
+	echo "Waiting for Vite dev server on $(VITE_HOST):$(VITE_PORT)..."; \
+	for _ in $$(seq 1 120); do \
+		if (echo > /dev/tcp/$(VITE_HOST)/$(VITE_PORT)) >/dev/null 2>&1; then \
+			break; \
+		fi; \
+		if ! kill -0 "$$frontend_pid" 2>/dev/null; then \
+			wait "$$frontend_pid"; \
+			exit $$?; \
+		fi; \
+		sleep 0.5; \
+	done; \
+	if ! (echo > /dev/tcp/$(VITE_HOST)/$(VITE_PORT)) >/dev/null 2>&1; then \
+		echo "Vite dev server did not become ready on $(VITE_HOST):$(VITE_PORT)"; \
+		exit 1; \
+	fi; \
+	$(MAKE) --no-print-directory dev-backend
+
+# Backend: dev build + run with frontend dev proxy enabled.
+dev-backend: | $(DIST)
+	@echo "Building Manifold backend (dev tags) -> $(DIST)/manifold"
+	@rm -f $(DIST)/agentd
+	go build -tags "dev" -o $(DIST)/manifold ./cmd/agentd
+	@echo "Starting backend on :$(BACKEND_PORT) (frontend proxy -> $(FRONTEND_DEV_PROXY))"
+	FRONTEND_DEV_PROXY=$(FRONTEND_DEV_PROXY) $(DIST)/manifold
+
+# Frontend: run Vite dev server with API proxy pointing to backend.
+dev-frontend:
+	@if ! command -v $(PNPM) > /dev/null 2>&1; then \
+		echo "pnpm not found; install it from https://pnpm.io/"; \
+		exit 1; \
+	fi
+	@echo "Installing frontend dependencies (if needed)..."
+	@cd $(FRONTEND_DIR) && $(PNPM) install --frozen-lockfile 2>/dev/null || $(PNPM) install
+	@echo "Starting Vite dev server on :$(VITE_PORT) (API proxy -> $(VITE_DEV_SERVER_PROXY))"
+	cd $(FRONTEND_DIR) && VITE_DEV_SERVER_PROXY=$(VITE_DEV_SERVER_PROXY) $(PNPM) run dev --host $(VITE_HOST) --port $(VITE_PORT) --strictPort

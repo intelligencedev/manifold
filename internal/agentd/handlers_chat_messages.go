@@ -1,12 +1,30 @@
 package agentd
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 
 	"manifold/internal/llm"
 	persist "manifold/internal/persistence"
 )
+
+func (a *app) hydrateChatMessagesForRequest(ctx context.Context, userID *int64, sessionID string, raw []persist.ChatMessage) []persist.ChatMessage {
+	msgs := hydrateChatMessages(raw)
+	if a == nil || a.llmRequestStore == nil || len(msgs) == 0 {
+		return msgs
+	}
+	for i := range msgs {
+		if msgs[i].Role != "assistant" {
+			continue
+		}
+		reqs, err := a.llmRequestStore.ListLLMRequestsForMessage(ctx, userID, sessionID, msgs[i].ID)
+		if err == nil {
+			msgs[i].LLMRequestCount = len(reqs)
+		}
+	}
+	return msgs
+}
 
 func hydrateChatMessages(raw []persist.ChatMessage) []persist.ChatMessage {
 	out := make([]persist.ChatMessage, 0, len(raw))

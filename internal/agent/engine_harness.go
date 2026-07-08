@@ -139,8 +139,13 @@ func (e *Engine) runHarnessStep(ctx context.Context, state *harnessLoopState, st
 
 	state.history = e.prepareHarnessHistory(ctx, state.history, state.cfg, state.tracker)
 	priorHistory := state.history
-	e.emitContextMetrics(ctx, harness.SerializeMessages(state.history), ContextMetricPhasePreModel, nil, 0)
+	serializedHistory := harness.SerializeMessages(state.history)
+	e.emitContextMetrics(ctx, serializedHistory, ContextMetricPhasePreModel, nil, 0)
+	requestID := e.emitLLMRequest(ctx, serializedHistory, schemas, e.model())
 	result, err := e.runHarnessInference(ctx, state, schemas, stream)
+	if requestID != "" && e.AgentTracer != nil {
+		e.AgentTracer.Trace(AgentTrace{Type: "llm_request", Agent: e.AgentRole, Model: e.model(), Depth: e.AgentDepth, LLMRequestID: requestID})
+	}
 	state.history = result.History
 	msg := e.acceptHarnessResult(priorHistory, result, step, stream)
 	e.emitContextMetrics(ctx, harness.SerializeMessages(state.history), ContextMetricPhaseAssistantAdded, nil, 0)

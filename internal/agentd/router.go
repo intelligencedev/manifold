@@ -32,11 +32,11 @@ func registerDocsRoutes(mux *http.ServeMux, a *app) {
 }
 
 func registerAuthRoutes(mux *http.ServeMux, a *app) {
+	mux.HandleFunc("/api/me", a.meHandler())
 	if a.cfg.Auth.Enabled && a.authProvider != nil {
 		mux.HandleFunc("/auth/login", a.authLoginHandler())
 		mux.HandleFunc("/auth/callback", a.authCallbackHandler())
 		mux.HandleFunc("/auth/logout", a.authLogoutHandler())
-		mux.HandleFunc("/api/me", a.meHandler())
 	}
 
 	// User preferences endpoints (available with or without auth)
@@ -71,6 +71,7 @@ func registerCoreAPIRoutes(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("/api/runs", a.runsHandler())
 	mux.HandleFunc("/api/runs/", a.runTimelineHandler())
 	mux.HandleFunc("/api/chat/sessions", a.chatSessionsHandler())
+	mux.HandleFunc("/api/llm-requests/", a.llmRequestContextHandler())
 	mux.HandleFunc("/api/chat/sessions/", a.chatSessionDetailHandler())
 	mux.HandleFunc("/api/chat/runs", a.chatRunsHandler())
 	mux.HandleFunc("/api/chat/runs/", a.chatRunDetailHandler())

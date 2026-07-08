@@ -75,6 +75,7 @@ type app struct {
 	chatStore          persist.ChatStore
 	matrixMessageStore persist.MatrixMessageStore
 	activityStore      persist.SpecialistActivityStore
+	llmRequestStore    persist.LLMRequestStore
 	chatMemory         *memory.Manager
 	runs               *runStore
 	inputRequests      *inputRequestBroker

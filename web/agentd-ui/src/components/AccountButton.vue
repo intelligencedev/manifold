@@ -14,7 +14,7 @@
       />
       <span
         v-else
-        class="inline-flex h-6 w-6 items-center justify-center rounded-[7px] bg-[rgb(var(--accent-dim))] font-mono text-[11px] text-[rgb(var(--accent-hi))]"
+        class="inline-flex h-6 w-6 items-center justify-center rounded-sm bg-[rgb(var(--accent-dim))] font-mono text-[11px] text-[rgb(var(--accent-hi))]"
         >U</span
       >
       <span class="hidden sm:inline">{{ username || "Account" }}</span>

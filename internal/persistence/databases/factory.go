@@ -87,6 +87,17 @@ func NewManager(ctx context.Context, cfg config.DBConfig) (m Manager, err error)
 		return Manager{}, err
 	}
 
+	m.LLMRequests, err = buildLLMRequestStore(ctx, chatBackend, chatDSN, m.SQLite, m.Chat)
+	if err != nil {
+		return Manager{}, err
+	}
+	if m.LLMRequests == nil {
+		m.LLMRequests = NewMemoryLLMRequestStore(m.Chat)
+	}
+	if err := initStore(ctx, "llm request store", m.LLMRequests); err != nil {
+		return Manager{}, err
+	}
+
 	if err := initializeDefaultStores(ctx, &m, cfg, chatDSN); err != nil {
 		return Manager{}, err
 	}
@@ -320,6 +331,37 @@ func buildSpecialistActivityStore(ctx context.Context, backend, dsn string, sqli
 		return NewPostgresSpecialistActivityStore(pool), nil
 	default:
 		return nil, fmt.Errorf("unsupported specialist activity backend: %s", backend)
+	}
+}
+
+func buildLLMRequestStore(ctx context.Context, backend, dsn string, sqliteDB *sql.DB, chat persistence.ChatStore) (persistence.LLMRequestStore, error) {
+	switch backend {
+	case "", "memory", "none", "disabled":
+		return NewMemoryLLMRequestStore(chat), nil
+	case "auto":
+		if pool := openOptionalPostgresPool(ctx, dsn); pool != nil {
+			return NewPostgresLLMRequestStore(pool, chat), nil
+		}
+		if sqliteDB != nil {
+			return NewSQLiteLLMRequestStore(sqliteDB, chat), nil
+		}
+		return NewMemoryLLMRequestStore(chat), nil
+	case "sqlite":
+		if sqliteDB == nil {
+			return nil, fmt.Errorf("llm request backend sqlite requires database")
+		}
+		return NewSQLiteLLMRequestStore(sqliteDB, chat), nil
+	case "postgres", "pg":
+		if dsn == "" {
+			return nil, fmt.Errorf("llm request backend postgres requires DSN")
+		}
+		pool, err := newPgPool(ctx, dsn)
+		if err != nil {
+			return nil, fmt.Errorf("connect postgres (llm request): %w", err)
+		}
+		return NewPostgresLLMRequestStore(pool, chat), nil
+	default:
+		return nil, fmt.Errorf("unsupported llm request backend: %s", backend)
 	}
 }
 

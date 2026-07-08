@@ -6,35 +6,39 @@
 
 @layer base {
   :root {
-    font-family: "Inter", system-ui, -apple-system, sans-serif;
-    --radius: 9px;
-    --radius-lg: 13px;
+    font-family:
+      "Inter",
+      system-ui,
+      -apple-system,
+      sans-serif;
+    --radius: 6px;
+    --radius-lg: 8px;
     --font-display: "Inter", system-ui, -apple-system, sans-serif;
     --font-text: "Inter", system-ui, -apple-system, sans-serif;
     --font-mono: "Inter", "Inter var", ui-monospace, SFMono-Regular, monospace;
-    --r-sm: 6px;
-    --r-md: 9px;
-    --r-lg: 13px;
+    --r-sm: 4px;
+    --r-md: 6px;
+    --r-lg: 8px;
     --pad: 20px;
-    --bg-rail: 11 13 17;
-    --line-soft: 22 26 34;
-    --line-strong: 42 49 60;
-    --accent-hi: 154 162 255;
-    --accent-dim: 39 43 71;
+    --bg-rail: 11 13 20;
+    --line-soft: 33 39 54;
+    --line-strong: 65 74 96;
+    --accent-hi: 178 187 255;
+    --accent-dim: 45 51 88;
     --data: 79 214 192;
     color-scheme: dark;
-    --color-background: 8 9 12;
-    --color-surface: 14 17 22;
-    --color-surface-muted: 20 24 33;
-    --color-border: 30 35 44;
-    --color-input: 26 31 42;
-    --color-ring: 124 134 255;
-    --color-foreground: 236 239 243;
-    --color-muted-foreground: 154 164 176;
-    --color-subtle-foreground: 154 164 176;
-    --color-faint-foreground: 92 102 114;
-    --color-muted: 14 17 22;
-    --color-accent: 124 134 255;
+    --color-background: 10 12 18;
+    --color-surface: 18 21 30;
+    --color-surface-muted: 27 31 44;
+    --color-border: 45 52 69;
+    --color-input: 32 37 52;
+    --color-ring: 151 164 255;
+    --color-foreground: 243 246 251;
+    --color-muted-foreground: 172 181 194;
+    --color-subtle-foreground: 139 150 166;
+    --color-faint-foreground: 94 105 122;
+    --color-muted: 15 18 26;
+    --color-accent: 151 164 255;
     --color-accent-foreground: 10 11 18;
     --color-destructive: 240 112 95;
     --color-destructive-foreground: 10 11 18;
@@ -50,6 +54,24 @@
 
   body {
     @apply bg-background text-foreground antialiased;
+  }
+
+  html,
+  body,
+  #app {
+    min-height: 100%;
+    background:
+      radial-gradient(
+        circle at 18% 0%,
+        rgb(var(--color-accent) / 0.16),
+        transparent 34rem
+      ),
+      radial-gradient(
+        circle at 92% 12%,
+        rgb(var(--color-info) / 0.09),
+        transparent 30rem
+      ),
+      rgb(var(--color-background));
   }
 
   button {
@@ -142,6 +164,40 @@
 }
 
 @layer utilities {
+  /* .halo-rail and .halo-surface are defined (flat, stroke-based) in
+     assets/halo.css, which loads unlayered and always wins the cascade.
+     Legacy gradient/glass variants were removed from here to avoid
+     dead, misleading duplicate rules. */
+
+  .halo-hairline-r {
+    border-right: 1px solid rgb(var(--color-border) / 0.68);
+  }
+
+  .halo-focus:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgb(var(--color-ring) / 0.36);
+  }
+
+  .halo-pulse {
+    box-shadow: 0 0 0 0 rgb(var(--color-accent) / 0.45);
+    animation: haloPulse 1.5s ease-in-out infinite;
+  }
+
+  @keyframes haloPulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgb(var(--color-accent) / 0.3);
+    }
+    50% {
+      box-shadow: 0 0 0 6px rgb(var(--color-accent) / 0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .halo-pulse {
+      animation: none;
+    }
+  }
   .focus-ring:focus-visible {
     outline: none;
     box-shadow: 0 0 0 3px rgb(var(--accent-dim));

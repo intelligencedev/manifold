@@ -140,6 +140,17 @@ func applyActivityEvent(record *persist.SpecialistActivityRecord, ev agent.Agent
 	case "agent_thought_summary":
 		record.Status = "running"
 		appendThoughtSummary(record, ev.ThoughtSummary)
+	case "llm_request":
+		record.Status = "running"
+		if ev.LLMRequestID != "" {
+			record.Entries = append(record.Entries, persist.SpecialistActivityEntry{
+				ID:        entryID(ev.LLMRequestID, now),
+				Type:      "llm_request",
+				Title:     "LLM request",
+				Data:      ev.LLMRequestID,
+				CreatedAt: now,
+			})
+		}
 	}
 }
 

@@ -122,6 +122,7 @@ export function createChatStreamActions(
       streamId,
     });
     state.toolIndexFor(sessionId, streamId);
+    let completedNormally = false;
 
     try {
       let promptToSend = stripLeadingChatMention(
@@ -203,6 +204,10 @@ export function createChatStreamActions(
           onEvent,
         });
       }
+      const assistant = assistantMessage(state, sessionId, assistantId);
+      completedNormally = Boolean(
+        assistant && !assistant.streaming && !assistant.error,
+      );
     } catch (error: any) {
       if (error instanceof DOMException && error.name === "AbortError") {
         console.warn("chat stream aborted (fetch)", {
@@ -228,9 +233,14 @@ export function createChatStreamActions(
       };
       state.updateMessage(sessionId, assistantId, assistantUpdater);
     } finally {
+      const shouldRefreshMessages =
+        completedNormally && state.isStreamCurrent(sessionId, streamId);
       if (state.isStreamCurrent(sessionId, streamId)) {
         state.clearStreamingState(sessionId);
         state.clearToolIndex(sessionId, streamId);
+      }
+      if (shouldRefreshMessages) {
+        await reloadMessagesAfterCompletedRun(sessionId);
       }
     }
   }
@@ -401,6 +411,16 @@ export function createChatStreamActions(
         state.clearStreamingState(sessionId);
         state.clearToolIndex(sessionId, streamId);
       }
+    }
+  }
+
+  async function reloadMessagesAfterCompletedRun(sessionId: string) {
+    const loadMessagesFromServer = sessionActions.loadMessagesFromServer;
+    if (typeof loadMessagesFromServer !== "function") return;
+    try {
+      await loadMessagesFromServer(sessionId, { force: true });
+    } catch (error) {
+      console.warn("chat message refresh after run failed", error);
     }
   }
 

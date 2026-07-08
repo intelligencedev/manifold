@@ -703,6 +703,15 @@ func (a *app) configureDurableChatEngine(task durable.Task, prepared durableChat
 	})
 	prepared.exec.Engine.Checkpointer = durableRunCheckpointer{}
 	prepared.exec.Engine.UserID = task.UserID
+	attachLLMRequestCapture(prepared.exec.Engine, llmRequestCaptureConfig{
+		Store:               a.llmRequestStore,
+		SessionID:           prepared.exec.RunRequest.SessionID,
+		UserID:              prepared.exec.UserID,
+		RunID:               task.ID,
+		MessageID:           prepared.exec.RunRequest.AssistantMessageID,
+		ParentUserMessageID: prepared.exec.RunRequest.UserMessageID,
+		SpecialistID:        streamAgentName(prepared.exec.Engine),
+	})
 }
 
 func (a *app) durableChatRunContext(runID string, prepared durableChatPreparedRun, writer *durableChatEventWriter) context.Context {

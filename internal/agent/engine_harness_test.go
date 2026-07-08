@@ -139,6 +139,34 @@ func TestRunHarnessDefaultsToGuardedChatWhenEnabled(t *testing.T) {
 	require.Len(t, provider.calls, 1)
 }
 
+func TestRunStreamHarnessEmitsLLMRequestSnapshot(t *testing.T) {
+	t.Parallel()
+
+	provider := &harnessScriptedProvider{streamResponses: []harnessStreamResponse{{
+		Deltas: []string{"plain final"},
+	}}}
+	var snapshots []LLMRequestSnapshot
+	eng := &Engine{
+		LLM:            provider,
+		Tools:          tools.NewRegistry(),
+		Model:          "gpt-test",
+		HarnessEnabled: true,
+		HarnessConfig:  harness.RunConfig{Mode: "guarded_chat"},
+		OnLLMRequest: func(snapshot LLMRequestSnapshot) {
+			snapshots = append(snapshots, snapshot)
+		},
+	}
+
+	final, err := eng.RunStream(context.Background(), "hello", nil)
+
+	require.NoError(t, err)
+	require.Equal(t, "plain final", final)
+	require.Len(t, snapshots, 1)
+	require.Equal(t, "gpt-test", snapshots[0].Model)
+	require.Len(t, snapshots[0].Messages, 1)
+	require.Equal(t, "hello", snapshots[0].Messages[0].Content)
+}
+
 func TestRunHarnessDisabledIgnoresWorkflowValidation(t *testing.T) {
 	t.Parallel()
 

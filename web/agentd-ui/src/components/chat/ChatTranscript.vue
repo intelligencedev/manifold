@@ -51,6 +51,10 @@
             >
               {{ model.agentNameFor(message) }}
             </span>
+            <ContextInspectorButton
+              :disabled="model.isStreaming || message.streaming"
+              @click="model.inspectContext(message.id)"
+            />
           </template>
           <span
             v-else
@@ -383,11 +387,6 @@
         class="mt-1 flex items-center gap-1 text-xs text-subtle-foreground opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100"
         :class="message.role === 'user' ? 'justify-end pr-1' : ''"
       >
-        <ContextInspectorButton
-          v-if="message.role === 'assistant' && message.llmRequestCount"
-          :disabled="model.isStreaming || message.streaming"
-          @click="model.inspectContext(message.id)"
-        />
         <button
           v-if="message.role === 'assistant'"
           type="button"

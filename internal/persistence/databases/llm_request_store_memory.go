@@ -2,7 +2,6 @@ package databases
 
 import (
 	"context"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -52,17 +51,38 @@ func (s *memLLMRequestStore) ListLLMRequestsForMessage(ctx context.Context, user
 		}
 	}
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	out := s.listLLMRequestsLocked(sessionID, func(req persistence.LLMRequest) bool {
+		return req.MessageID == messageID
+	})
+	s.mu.RUnlock()
+	sortLLMRequestsByCreatedAt(out)
+	if len(out) > 0 {
+		return out, nil
+	}
+	parentUserMessageID, ok, err := parentUserMessageIDForAssistantMessage(ctx, s.chat, userID, sessionID, messageID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return out, nil
+	}
+	s.mu.RLock()
+	out = s.listLLMRequestsLocked(sessionID, func(req persistence.LLMRequest) bool {
+		return strings.TrimSpace(req.MessageID) == "" && req.ParentUserMessageID == parentUserMessageID
+	})
+	s.mu.RUnlock()
+	sortLLMRequestsByCreatedAt(out)
+	return out, nil
+}
+
+func (s *memLLMRequestStore) listLLMRequestsLocked(sessionID string, match func(persistence.LLMRequest) bool) []persistence.LLMRequest {
 	out := []persistence.LLMRequest{}
 	for _, req := range s.records {
-		if req.SessionID == sessionID && req.MessageID == messageID {
+		if req.SessionID == sessionID && match(req) {
 			out = append(out, cloneLLMRequest(req))
 		}
 	}
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].CreatedAt.Before(out[j].CreatedAt)
-	})
-	return out, nil
+	return out
 }
 
 func (s *memLLMRequestStore) GetLLMRequest(ctx context.Context, userID *int64, id string) (persistence.LLMRequest, error) {

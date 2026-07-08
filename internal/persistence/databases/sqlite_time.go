@@ -32,7 +32,7 @@ func (t sqliteTime) Value() (driver.Value, error) {
 	if t.Time.IsZero() {
 		return nil, nil
 	}
-	return t.Time.UTC().Format(time.RFC3339Nano), nil
+	return t.Time.UTC().Format(sqliteSortableTimeLayout), nil
 }
 
 func (t *sqliteTime) scanString(value string) error {
@@ -52,6 +52,7 @@ func (t *sqliteTime) scanString(value string) error {
 }
 
 var sqliteTimeLayouts = []string{
+	sqliteSortableTimeLayout,
 	time.RFC3339Nano,
 	time.RFC3339,
 	"2006-01-02 15:04:05.999999999-07:00",
@@ -61,3 +62,5 @@ var sqliteTimeLayouts = []string{
 	"2006-01-02 15:04:05.999999",
 	"2006-01-02 15:04:05",
 }
+
+const sqliteSortableTimeLayout = "2006-01-02T15:04:05.000000000Z07:00"

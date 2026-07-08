@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS llm_requests (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS llm_requests_message_idx ON llm_requests(session_id, message_id, created_at);
+CREATE INDEX IF NOT EXISTS llm_requests_parent_user_message_idx ON llm_requests(session_id, parent_user_message_id, created_at);
 CREATE INDEX IF NOT EXISTS llm_requests_user_idx ON llm_requests(user_id, created_at);
 `)
 	return err
@@ -90,10 +91,28 @@ func (s *pgLLMRequestStore) ListLLMRequestsForMessage(ctx context.Context, userI
 	if err := s.Init(ctx); err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT id, session_id, user_id, run_id, message_id,
+	out, err := s.queryLLMRequests(ctx, `SELECT id, session_id, user_id, run_id, message_id,
 	parent_user_message_id, call_id, parent_call_id, specialist_id, provider, model,
 	input_tokens, output_tokens, max_context_tokens, payload_json::text, redacted, created_at
 	FROM llm_requests WHERE session_id = $1 AND message_id = $2 ORDER BY created_at ASC, id ASC`, sessionID, messageID)
+	if err != nil || len(out) > 0 {
+		return out, err
+	}
+	parentUserMessageID, ok, err := parentUserMessageIDForAssistantMessage(ctx, s.chat, userID, sessionID, messageID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return out, nil
+	}
+	return s.queryLLMRequests(ctx, `SELECT id, session_id, user_id, run_id, message_id,
+	parent_user_message_id, call_id, parent_call_id, specialist_id, provider, model,
+	input_tokens, output_tokens, max_context_tokens, payload_json::text, redacted, created_at
+	FROM llm_requests WHERE session_id = $1 AND message_id = '' AND parent_user_message_id = $2 ORDER BY created_at ASC, id ASC`, sessionID, parentUserMessageID)
+}
+
+func (s *pgLLMRequestStore) queryLLMRequests(ctx context.Context, query string, args ...any) ([]persistence.LLMRequest, error) {
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}

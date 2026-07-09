@@ -94,15 +94,15 @@ export const useThemeStore = defineStore("theme", () => {
 
   function setTheme(choice: ThemeChoice) {
     selection.value = choice;
+  }
+
+  function cycleTheme() {
     const order: ThemeChoice[] = [
       "halo-dark",
       "halo-light",
       "halo-sodium",
       "halo-sodium-light",
     ];
-
-  function cycleTheme() {
-    const order: ThemeChoice[] = ["halo-dark", "halo-light", "halo-sodium"];
     const currentIndex = order.indexOf(selection.value);
     const next = order[(currentIndex + 1) % order.length];
     selection.value = next;

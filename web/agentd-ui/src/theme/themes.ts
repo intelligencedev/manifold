@@ -1,4 +1,8 @@
-export type ThemeId = "halo-dark" | "halo-light" | "halo-sodium";
+export type ThemeId =
+  | "halo-dark"
+  | "halo-light"
+  | "halo-sodium"
+  | "halo-sodium-light";
 
 export type ThemeTokenName =
   | "background"
@@ -98,6 +102,32 @@ const haloDarkTokens: ThemeTokens = {
   "danger-foreground": "10 11 18",
 };
 
+const haloLightTokens: ThemeTokens = {
+  accent: "91 102 230",
+  "accent-foreground": "255 255 255",
+  border: "213 218 228",
+  background: "244 246 251",
+  "faint-foreground": "126 137 153",
+  foreground: "17 23 34",
+  input: "236 240 247",
+  muted: "250 251 253",
+  "muted-foreground": "72 84 102",
+  ring: "91 102 230",
+  "subtle-foreground": "91 104 123",
+  surface: "255 255 255",
+  "surface-muted": "238 242 249",
+  ...lightStatusTokens,
+  "info-foreground": "6 43 34",
+  "warning-foreground": "43 30 0",
+};
+
+/** Shared sodium-vapor amber used as the interaction accent. */
+const sodiumAccent = "232 177 74";
+const sodiumAccentForegroundDark = "10 11 18";
+/** Slightly denser amber for light surfaces so nails remain readable. */
+const sodiumAccentLight = "196 130 28";
+const sodiumAccentForegroundLight = "255 255 255";
+
 export const themes: ThemeDefinition[] = [
   {
     id: "halo-dark",
@@ -112,24 +142,7 @@ export const themes: ThemeDefinition[] = [
     label: "Halo (Light)",
     description: "Daytime editorial mode.",
     appearance: "light",
-    tokens: {
-      accent: "91 102 230",
-      "accent-foreground": "255 255 255",
-      border: "213 218 228",
-      background: "244 246 251",
-      "faint-foreground": "126 137 153",
-      foreground: "17 23 34",
-      input: "236 240 247",
-      muted: "250 251 253",
-      "muted-foreground": "72 84 102",
-      ring: "91 102 230",
-      "subtle-foreground": "91 104 123",
-      surface: "255 255 255",
-      "surface-muted": "238 242 249",
-      ...lightStatusTokens,
-      "info-foreground": "6 43 34",
-      "warning-foreground": "43 30 0",
-    },
+    tokens: haloLightTokens,
   },
   {
     id: "halo-sodium",
@@ -138,9 +151,21 @@ export const themes: ThemeDefinition[] = [
     appearance: "dark",
     tokens: {
       ...haloDarkTokens,
-      ring: "232 177 74",
-      accent: "232 177 74",
-      "accent-foreground": "10 11 18",
+      ring: sodiumAccent,
+      accent: sodiumAccent,
+      "accent-foreground": sodiumAccentForegroundDark,
+    },
+  },
+  {
+    id: "halo-sodium-light",
+    label: "Halo (Sodium Light)",
+    description: "Warm amber daytime mode — sodium vapor on paper.",
+    appearance: "light",
+    tokens: {
+      ...haloLightTokens,
+      ring: sodiumAccentLight,
+      accent: sodiumAccentLight,
+      "accent-foreground": sodiumAccentForegroundLight,
     },
   },
 ];
@@ -174,3 +199,4 @@ export const themeOptions = themes.map((theme) => ({
 // - Halo themes use stroke-based structure with one interaction accent.
 // - Tokens map to CSS custom properties consumed by Tailwind (see tailwind.config.ts).
 // - Theme application is handled in the theme store by writing --color-* variables to :root.
+// - Sodium variants swap only the accent/ring family; surfaces match their Halo counterpart.

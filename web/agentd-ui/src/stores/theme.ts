@@ -25,7 +25,10 @@ function applyTheme(theme: ThemeDefinition) {
   const root = document.documentElement;
   const body = document.body;
   root.dataset.theme = theme.id;
-  body.classList.toggle("theme-sodium", theme.id === "halo-sodium");
+  body.classList.toggle(
+    "theme-sodium",
+    theme.id === "halo-sodium" || theme.id === "halo-sodium-light",
+  );
   root.style.colorScheme = theme.appearance;
   Object.entries(theme.tokens).forEach(([token, value]) => {
     root.style.setProperty(`--color-${token}`, value);
@@ -91,7 +94,12 @@ export const useThemeStore = defineStore("theme", () => {
 
   function setTheme(choice: ThemeChoice) {
     selection.value = choice;
-  }
+    const order: ThemeChoice[] = [
+      "halo-dark",
+      "halo-light",
+      "halo-sodium",
+      "halo-sodium-light",
+    ];
 
   function cycleTheme() {
     const order: ThemeChoice[] = ["halo-dark", "halo-light", "halo-sodium"];

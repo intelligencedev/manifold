@@ -1142,7 +1142,7 @@ export function useChatActivity(params: {
     const metrics = sessionContextMetrics.value;
     if (!metrics) return "No context metrics yet";
     const lines = [
-      `Context used: ${metrics.inputTokens.toLocaleString()} / ${metrics.contextWindow.toLocaleString()} tokens`,
+      `Context: ${metrics.inputTokens.toLocaleString()} / ${metrics.contextWindow.toLocaleString()} tokens`,
     ];
     for (const segment of cockpitContextLegend.value) {
       lines.push(

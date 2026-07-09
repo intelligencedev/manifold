@@ -423,7 +423,7 @@ func evolvingSimilarityScenarios() []Scenario {
 		{
 			ID:          "evolving-similarity-threshold-strict",
 			Subsystem:   SubsystemEvolving,
-			Description: "retrievalSimilarityThreshold=0.95 filters every dense candidate; keyword fallback carries retrieval.",
+			Description: "retrievalSimilarityThreshold=0.95 filters every dense candidate; no keyword-only degradation.",
 			Knobs:       []string{KnobEvolvingSimilarityThreshold},
 			Mutate:      func(k *Knobs) { k.EvolvingSimilarityThreshold = 0.95 },
 			Seed: Seed{TenantID: gymTenant, Episodes: []EvolvingEpisode{
@@ -435,9 +435,10 @@ func evolvingSimilarityScenarios() []Scenario {
 				Name: "search",
 				EvolvingQuery: &EvolvingSearchProbe{
 					Query:                   "canary deploy rollback",
-					ExpectMode:              "keyword",
+					ExpectMode:              "vector_below_threshold",
 					ExpectVectorFilteredMin: 1,
-					ExpectInputsContain:     []string{"rollback rehearsal"},
+					ExpectInputsContain:     []string{},
+					ExpectInputsAbsent:      []string{"rollback", "traffic", "paperwork"},
 				},
 			}},
 		},

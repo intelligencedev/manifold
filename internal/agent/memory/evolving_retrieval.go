@@ -119,7 +119,11 @@ func inMemoryKeywordSearch(entries []*MemoryEntry, query string, k int) []Scored
 		if matches == 0 {
 			continue
 		}
-		scores = append(scores, ScoredMemoryEntry{Entry: entry, Score: float64(matches) / float64(len(terms))})
+		score := float64(matches) / float64(len(terms))
+		if !keywordMatchAdmitted(matches, score) {
+			continue
+		}
+		scores = append(scores, ScoredMemoryEntry{Entry: entry, Score: score})
 	}
 	sort.Slice(scores, func(i, j int) bool {
 		return scores[i].Score > scores[j].Score
@@ -130,6 +134,42 @@ func inMemoryKeywordSearch(entries []*MemoryEntry, query string, k int) []Scored
 	return scores[:k]
 }
 
+// KeywordQueryTerms returns the stopword-filtered token set used for keyword retrieval.
+func KeywordQueryTerms(text string) map[string]struct{} {
+	return keywordTerms(text)
+}
+
+// KeywordMatchAdmitted reports whether a keyword match is strong enough to enter fusion.
+func KeywordMatchAdmitted(matchedDistinctTerms int, score float64) bool {
+	return keywordMatchAdmitted(matchedDistinctTerms, score)
+}
+
+func keywordMatchAdmitted(matchedDistinctTerms int, score float64) bool {
+	return matchedDistinctTerms >= 2 || score >= 0.5
+}
+
+var keywordStopwords = map[string]struct{}{
+	"the": {}, "a": {}, "an": {}, "and": {}, "or": {}, "but": {}, "if": {}, "then": {}, "else": {},
+	"for": {}, "of": {}, "to": {}, "in": {}, "on": {}, "at": {}, "by": {}, "with": {}, "from": {},
+	"as": {}, "is": {}, "are": {}, "was": {}, "were": {}, "be": {}, "been": {}, "being": {},
+	"it": {}, "its": {}, "this": {}, "that": {}, "these": {}, "those": {},
+	"i": {}, "you": {}, "we": {}, "they": {}, "he": {}, "she": {},
+	"do": {}, "does": {}, "did": {}, "done": {},
+	"can": {}, "could": {}, "should": {}, "would": {}, "will": {}, "shall": {},
+	"may": {}, "might": {}, "must": {}, "not": {}, "no": {}, "yes": {},
+	"so": {}, "such": {}, "than": {}, "too": {}, "very": {}, "just": {},
+	"about": {}, "into": {}, "over": {}, "under": {}, "again": {}, "also": {},
+	"how": {}, "what": {}, "when": {}, "where": {}, "which": {}, "who": {}, "whom": {}, "why": {},
+	"all": {}, "any": {}, "both": {}, "each": {}, "few": {}, "more": {}, "most": {},
+	"other": {}, "some": {}, "own": {}, "same": {}, "only": {}, "now": {}, "please": {},
+	// high-frequency agentic vocabulary
+	"task": {}, "memory": {}, "file": {}, "files": {}, "code": {}, "error": {},
+	"test": {}, "tests": {}, "run": {}, "use": {}, "using": {}, "used": {},
+	"make": {}, "made": {}, "create": {}, "created": {}, "add": {}, "added": {},
+	"update": {}, "updated": {}, "fix": {}, "fixed": {}, "check": {}, "ensure": {},
+	"implement": {}, "work": {}, "working": {},
+}
+
 func keywordTerms(text string) map[string]struct{} {
 	fields := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
 		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' || r == '-' || r == '.' || r == '/')
@@ -137,7 +177,10 @@ func keywordTerms(text string) map[string]struct{} {
 	terms := make(map[string]struct{}, len(fields))
 	for _, field := range fields {
 		field = strings.Trim(field, "._-/")
-		if len(field) < 2 {
+		if len(field) < 3 {
+			continue
+		}
+		if _, stop := keywordStopwords[field]; stop {
 			continue
 		}
 		terms[field] = struct{}{}
@@ -153,7 +196,7 @@ func rrfFuse(rankings [][]ScoredMemoryEntry, k int, constant int) []ScoredMemory
 		constant = 60
 	}
 	type fusedCandidate struct {
-		entry *MemoryEntry
+		item  ScoredMemoryEntry
 		score float64
 	}
 	fused := make(map[string]fusedCandidate)
@@ -164,8 +207,17 @@ func rrfFuse(rankings [][]ScoredMemoryEntry, k int, constant int) []ScoredMemory
 			}
 			key := candidate.Entry.ID
 			current := fused[key]
-			if current.entry == nil {
-				current.entry = candidate.Entry
+			if current.item.Entry == nil {
+				current.item = candidate
+			} else {
+				if candidate.HasDense && !current.item.HasDense {
+					current.item.Dense = candidate.Dense
+					current.item.HasDense = true
+				}
+				if candidate.HasKeyword && !current.item.HasKeyword {
+					current.item.Keyword = candidate.Keyword
+					current.item.HasKeyword = true
+				}
 			}
 			current.score += 1 / float64(constant+rank+1)
 			fused[key] = current
@@ -180,11 +232,18 @@ func rrfFuse(rankings [][]ScoredMemoryEntry, k int, constant int) []ScoredMemory
 		if candidate.score > maxScore {
 			maxScore = candidate.score
 		}
-		out = append(out, ScoredMemoryEntry{Entry: candidate.entry, Score: candidate.score})
+		item := candidate.item
+		item.Score = candidate.score
+		out = append(out, item)
 	}
 	if maxScore > 0 {
 		for i := range out {
 			out[i].Score /= maxScore
+			out[i].RRF = out[i].Score
+		}
+	} else {
+		for i := range out {
+			out[i].RRF = out[i].Score
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {

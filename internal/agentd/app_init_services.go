@@ -18,6 +18,7 @@ import (
 	"manifold/internal/config"
 	"manifold/internal/constitution"
 	"manifold/internal/durable"
+	"manifold/internal/embedding"
 	"manifold/internal/fleet"
 	"manifold/internal/httpapi"
 	llmpkg "manifold/internal/llm"
@@ -380,6 +381,7 @@ func (a *app) evolvingMemoryConfig(cfg *config.Config, memLLM llmpkg.Provider, m
 		WindowSize:                   cfg.EvolvingMemory.WindowSize,
 		EnableRAG:                    cfg.EvolvingMemory.EnableRAG,
 		RetrievalSimilarityThreshold: cfg.EvolvingMemory.RetrievalSimilarityThreshold,
+		MinRerankScore:               cfg.EvolvingMemory.MinRerankScore,
 		EnableSmartPrune:             cfg.EvolvingMemory.EnableSmartPrune,
 		PruneThreshold:               cfg.EvolvingMemory.PruneThreshold,
 		RelevanceDecay:               cfg.EvolvingMemory.RelevanceDecay,
@@ -406,10 +408,22 @@ func (a *app) logEvolvingMemoryInitialized(cfg *config.Config, memProvider, memM
 		Int("maxSize", cfg.EvolvingMemory.MaxSize).
 		Int("topK", cfg.EvolvingMemory.TopK).
 		Float64("retrievalSimilarityThreshold", cfg.EvolvingMemory.RetrievalSimilarityThreshold).
+		Float64("minRerankScore", cfg.EvolvingMemory.MinRerankScore).
 		Bool("rag", cfg.EvolvingMemory.EnableRAG).
 		Bool("rerank", cfg.Reranking.Enabled).
 		Bool("smartPrune", cfg.EvolvingMemory.EnableSmartPrune).
 		Msg("evolving_memory_initialized")
+
+	mode := strings.ToLower(strings.TrimSpace(cfg.Embedding.Instructions.Mode))
+	if mode == "" {
+		mode = "auto"
+	}
+	if mode == "auto" && !embedding.AutoInstructionMatches(cfg.Embedding.Model) {
+		log.Warn().
+			Str("model", cfg.Embedding.Model).
+			Str("mode", mode).
+			Msg("embedding_instructions_auto_not_matched; query instructions disabled. set embedding.instructions.mode=enabled if the model expects instruction-prefixed queries")
+	}
 }
 
 func (a *app) initReMemController(cfg *config.Config, memLLM llmpkg.Provider, memModel string) {

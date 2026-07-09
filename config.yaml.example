@@ -344,7 +344,10 @@ embedding:
   instructions:
     # auto applies built-in query instructions when the model looks like Qwen3
     # Embedding; enabled applies them for any model; disabled leaves queries raw.
-    mode: auto # auto | enabled | disabled
+    # Documents are embedded without instructions. Qwen3-Embedding expects
+    # instruction-prefixed queries against plain documents, so no corpus
+    # re-embedding is required when changing this mode.
+    mode: enabled # auto | enabled | disabled
     format: qwen
     # Recommended to leave blank to use the built-in per-surface defaults.
     defaultQuery: ""
@@ -363,7 +366,7 @@ reranking:
   # Optional query-side instruction formatted as:
   # Instruct: {instruction}
   # Query: {query}
-  instruction: "Classify whether the document matches the query topic"
+  instruction: "Given the current task, judge whether this past experience contains a strategy, lesson, or solution that would help complete the task."
   apiKey: "${LLAMA_API_KEY}"
   apiHeader: Authorization
   headers: {}
@@ -446,7 +449,9 @@ memory:
     topK: 4
     windowSize: 20
     enableRAG: true
-    retrievalSimilarityThreshold: 0.0
+    # 0 disables each gate; defaults below are conservative floors for Qwen embeddings / reranker.
+    retrievalSimilarityThreshold: 0.35
+    minRerankScore: 0.30
     reMemEnabled: false
     maxInnerSteps: 3
     model: gpt-4o-mini

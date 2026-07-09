@@ -103,7 +103,16 @@ func formatScoredExperience(item ScoredMemoryEntry) string {
 		return ""
 	}
 	s := formatExperience(item.Entry)
-	if item.Score != 0 {
+	if item.HasDense || item.HasRerank {
+		s += "**Relevance:**"
+		if item.HasDense {
+			s += fmt.Sprintf(" similarity %.3f", item.Dense)
+		}
+		if item.HasRerank {
+			s += fmt.Sprintf(" rerank %.3f", item.Rerank)
+		}
+		s += "\n"
+	} else if item.Score != 0 {
 		s += fmt.Sprintf("**Retrieval Score:** %.3f\n", item.Score)
 	}
 	return s

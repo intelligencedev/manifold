@@ -454,6 +454,9 @@ func (e *Engine) storeExperience(ctx context.Context, userInput, final string, r
 	if e == nil || e.DisableEvolvingMemory || e.EvolvingMemory == nil {
 		return ""
 	}
+	if len(strings.TrimSpace(userInput)) < 20 {
+		return ""
+	}
 	if strings.TrimSpace(final) == "" && runErr == nil {
 		return ""
 	}

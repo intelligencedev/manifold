@@ -55,7 +55,7 @@ func TestRunStreamBeliefEpisodeLinksEvolvingEntry(t *testing.T) {
 		EvolvingMemory: em,
 	}
 
-	if _, err := eng.RunStream(context.Background(), "remember this", nil); err != nil {
+	if _, err := eng.RunStream(context.Background(), "please remember this important detail", nil); err != nil {
 		t.Fatalf("RunStream failed: %v", err)
 	}
 	if beliefStore.episode.EvolvingEntryID == "" {

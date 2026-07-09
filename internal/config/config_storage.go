@@ -248,6 +248,7 @@ type EvolvingMemoryConfig struct {
 	WindowSize                   int             `yaml:"windowSize" json:"windowSize"`                                     // ExpRecent window (default 20)
 	EnableRAG                    bool            `yaml:"enableRAG" json:"enableRAG"`                                       // enable ExpRAG retrieval
 	RetrievalSimilarityThreshold float64         `yaml:"retrievalSimilarityThreshold" json:"retrievalSimilarityThreshold"` // minimum dense/vector similarity to retrieve (0 disables)
+	MinRerankScore               float64         `yaml:"minRerankScore" json:"minRerankScore"`                             // minimum post-rerank relevance in [0,1] (0 disables)
 	ReMemEnabled                 bool            `yaml:"reMemEnabled" json:"reMemEnabled"`                                 // enable Think-Act-Refine mode
 	MaxInnerSteps                int             `yaml:"maxInnerSteps" json:"maxInnerSteps"`                               // ReMem max inner loops (default 5)
 	Model                        string          `yaml:"model" json:"model"`                                               // LLM model for summarization

@@ -144,3 +144,9 @@ func normalizedFormat(format string) string {
 func looksLikeQwen3Embedding(model string) bool {
 	return strings.Contains(strings.ToLower(model), "qwen3-embedding")
 }
+
+// AutoInstructionMatches reports whether the configured model name would cause
+// InstructionModeAuto to enable query-side instructions.
+func AutoInstructionMatches(model string) bool {
+	return looksLikeQwen3Embedding(model)
+}

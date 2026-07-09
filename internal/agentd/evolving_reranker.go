@@ -50,6 +50,8 @@ func (r evolvingMemoryRAGReranker) RerankEvolvingMemory(ctx context.Context, que
 		if !ok {
 			continue
 		}
+		original.Rerank = item.Score
+		original.HasRerank = true
 		original.Score = item.Score
 		out = append(out, original)
 		used[item.ID] = struct{}{}

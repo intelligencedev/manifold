@@ -135,7 +135,7 @@ func TestRunStreamStoresEvolvingMemory(t *testing.T) {
 		Tools:          tools.NewRegistry(),
 	}
 
-	final, err := eng.RunStream(context.Background(), "remember this", nil)
+	final, err := eng.RunStream(context.Background(), "please remember this important detail", nil)
 	if err != nil {
 		t.Fatalf("RunStream failed: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestRunStreamStoresEvolvingMemory(t *testing.T) {
 		if saved[0] == nil {
 			t.Fatalf("expected saved memory entry")
 		}
-		if saved[0].Input != "remember this" {
+		if saved[0].Input != "please remember this important detail" {
 			t.Fatalf("expected saved input to match prompt, got %q", saved[0].Input)
 		}
 		if saved[0].Output != "streamed final" {
@@ -191,7 +191,7 @@ func TestRunWithReMemStoresStructuredFeedback(t *testing.T) {
 		}),
 	}
 
-	final, err := eng.Run(context.Background(), "remember from remem", nil)
+	final, err := eng.Run(context.Background(), "please remember this from remem path", nil)
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -264,7 +264,7 @@ func TestEvolvingMemoryImprovesSecondSimilarRun(t *testing.T) {
 		Tools:          tools.NewRegistry(),
 	}
 
-	first, err := eng.RunStream(context.Background(), "frobnicate task", nil)
+	first, err := eng.RunStream(context.Background(), "please frobnicate this primary task", nil)
 	if err != nil {
 		t.Fatalf("first RunStream failed: %v", err)
 	}
@@ -280,7 +280,7 @@ func TestEvolvingMemoryImprovesSecondSimilarRun(t *testing.T) {
 		}
 	}
 
-	second, err := eng.RunStream(context.Background(), "similar frobnicate request", nil)
+	second, err := eng.RunStream(context.Background(), "similar frobnicate request please handle", nil)
 	if err != nil {
 		t.Fatalf("second RunStream failed: %v", err)
 	}

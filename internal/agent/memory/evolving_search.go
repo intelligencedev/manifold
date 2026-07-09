@@ -89,8 +89,17 @@ func (em *EvolvingMemory) searchWithScores(ctx context.Context, query string, up
 	}
 
 	denseCandidates := em.denseCandidates(ctx, queryVec, entries, fetchK, &diag, log)
+	denseBeforeFilter := len(denseCandidates)
+	diag.DenseBeforeFilter = denseBeforeFilter
 	denseCandidates = em.filterDenseCandidatesByThreshold(denseCandidates, &diag)
 	diag.VectorCandidates = len(denseCandidates)
+	if denseBeforeFilter > 0 && len(denseCandidates) == 0 {
+		// Dense retrieval ran and nothing cleared the similarity bar: do not
+		// degrade to ungated keyword-only noise.
+		diag.Mode = "vector_below_threshold"
+		em.finishSearch(ctx, searchReport{start: start, query: query, entries: entries, diag: diag, callbacks: cb})
+		return nil, diag, nil
+	}
 	candidates := mergeMemoryCandidates(denseCandidates, keywordCandidates, fetchK, &diag)
 	if len(candidates) == 0 {
 		em.finishSearch(ctx, searchReport{start: start, query: query, entries: entries, diag: diag, callbacks: cb})
@@ -101,7 +110,7 @@ func (em *EvolvingMemory) searchWithScores(ctx context.Context, query string, up
 	ranked = em.rerankMemoryCandidates(ctx, query, ranked, &diag, log)
 	out := applyMMR(ranked, min(em.topK, len(ranked)), em.mmrLambda)
 	retrievedIDs := scoredMemoryIDs(out)
-	if updateAccess {
+	if updateAccess && diag.Mode != "keyword" {
 		go em.updateAccessMetrics(retrievedIDs)
 	}
 	em.finishSearch(ctx, searchReport{start: start, query: query, entries: entries, out: out, retrievedIDs: retrievedIDs, diag: diag, callbacks: cb})
@@ -133,6 +142,7 @@ func (em *EvolvingMemory) denseCandidates(ctx context.Context, queryVec []float3
 	if len(queryVec) == 0 {
 		return nil
 	}
+	var candidates []ScoredMemoryEntry
 	if searchStore, ok := em.store.(EvolvingMemorySearchStore); ok {
 		storeCandidates, err := searchStore.SearchTopK(ctx, em.userID, em.sessionID, queryVec, fetchK)
 		if err != nil {
@@ -140,11 +150,14 @@ func (em *EvolvingMemory) denseCandidates(ctx context.Context, queryVec []float3
 		} else {
 			diag.UsedServerVector = true
 			if len(storeCandidates) > 0 {
-				return storeCandidates
+				candidates = storeCandidates
 			}
 		}
 	}
-	return localDenseCandidates(queryVec, entries)
+	if candidates == nil {
+		candidates = localDenseCandidates(queryVec, entries)
+	}
+	return annotateDenseCandidates(candidates)
 }
 
 func localDenseCandidates(queryVec []float32, entries []*MemoryEntry) []ScoredMemoryEntry {
@@ -158,17 +171,29 @@ func localDenseCandidates(queryVec []float32, entries []*MemoryEntry) []ScoredMe
 	return candidates
 }
 
+func annotateDenseCandidates(candidates []ScoredMemoryEntry) []ScoredMemoryEntry {
+	for i := range candidates {
+		candidates[i].Dense = candidates[i].Score
+		candidates[i].HasDense = true
+	}
+	return candidates
+}
+
 func (em *EvolvingMemory) filterDenseCandidatesByThreshold(candidates []ScoredMemoryEntry, diag *SearchDiagnostics) []ScoredMemoryEntry {
 	threshold := em.retrievalSimilarityThreshold
-	if threshold <= 0 {
-		return candidates
-	}
 	if diag != nil {
 		diag.SimilarityThreshold = threshold
 	}
+	if threshold <= 0 {
+		return candidates
+	}
 	filtered := make([]ScoredMemoryEntry, 0, len(candidates))
 	for _, candidate := range candidates {
-		if candidate.Score >= threshold {
+		sim := candidate.Score
+		if candidate.HasDense {
+			sim = candidate.Dense
+		}
+		if sim >= threshold {
 			filtered = append(filtered, candidate)
 			continue
 		}
@@ -198,9 +223,16 @@ func mergeMemoryCandidates(denseCandidates, keywordCandidates []ScoredMemoryEntr
 func (em *EvolvingMemory) scoreMemoryCandidates(candidates []ScoredMemoryEntry) []ScoredMemoryEntry {
 	now := time.Now()
 	for i, candidate := range candidates {
-		if candidate.Entry != nil {
-			candidates[i].Score = em.compositeScore(candidate.Score, candidate.Entry, now)
+		if candidate.Entry == nil {
+			continue
 		}
+		sim := candidate.Score
+		if candidate.HasDense {
+			sim = candidate.Dense
+		}
+		composite := em.compositeScore(sim, candidate.Entry, now)
+		candidates[i].Composite = composite
+		candidates[i].Score = composite
 	}
 	sort.Slice(candidates, func(i, j int) bool {
 		return candidates[i].Score > candidates[j].Score
@@ -242,7 +274,53 @@ func (em *EvolvingMemory) rerankMemoryCandidates(ctx context.Context, query stri
 	if diag != nil {
 		diag.RerankApplied = true
 	}
-	return reranked
+	normalizeRerankScores(reranked)
+	return em.filterRerankedCandidates(reranked, diag)
+}
+
+func normalizeRerankScores(candidates []ScoredMemoryEntry) {
+	needsSigmoid := false
+	for _, candidate := range candidates {
+		if !candidate.HasRerank {
+			continue
+		}
+		if candidate.Rerank < 0 || candidate.Rerank > 1 {
+			needsSigmoid = true
+			break
+		}
+	}
+	if !needsSigmoid {
+		return
+	}
+	for i := range candidates {
+		if !candidates[i].HasRerank {
+			continue
+		}
+		candidates[i].Rerank = 1 / (1 + math.Exp(-candidates[i].Rerank))
+		candidates[i].Score = candidates[i].Rerank
+	}
+}
+
+func (em *EvolvingMemory) filterRerankedCandidates(candidates []ScoredMemoryEntry, diag *SearchDiagnostics) []ScoredMemoryEntry {
+	floor := em.minRerankScore
+	if floor <= 0 {
+		return candidates
+	}
+	filtered := make([]ScoredMemoryEntry, 0, len(candidates))
+	for _, candidate := range candidates {
+		score := candidate.Score
+		if candidate.HasRerank {
+			score = candidate.Rerank
+		}
+		if score >= floor {
+			filtered = append(filtered, candidate)
+			continue
+		}
+		if diag != nil {
+			diag.RerankFiltered++
+		}
+	}
+	return filtered
 }
 
 func scoredMemoryIDs(scored []ScoredMemoryEntry) []string {
@@ -306,91 +384,28 @@ func relevanceInfo(scored []ScoredMemoryEntry) map[string]float64 {
 // plus the ranking components used to score and diversify them. It does not update
 // access counters.
 func (em *EvolvingMemory) ExplainSearch(ctx context.Context, query string) ([]MemoryScoreExplanation, error) {
-	em.mu.RLock()
-	entries := filterExpiredEntries(em.snapshotEntriesLocked(), time.Now())
-	ragEnabled := em.enableRAG
-	em.mu.RUnlock()
-	if !ragEnabled {
-		return nil, nil
-	}
-
-	fetchK := em.searchFetchK()
-	log := observability.LoggerWithTrace(ctx)
-	keywordCandidates := em.keywordCandidates(ctx, query, entries, fetchK, log)
-	queryVec, _, err := em.embedQuery(ctx, query)
+	scored, _, err := em.searchWithScores(ctx, query, false)
 	if err != nil {
-		if len(keywordCandidates) == 0 {
-			return nil, fmt.Errorf("embed query: %w", err)
-		}
+		return nil, err
 	}
-	candidates := make([]ScoredMemoryEntry, 0, len(entries))
-	if len(queryVec) > 0 {
-		if searchStore, ok := em.store.(EvolvingMemorySearchStore); ok {
-			if storeCandidates, err := searchStore.SearchTopK(ctx, em.userID, em.sessionID, queryVec, fetchK); err == nil {
-				candidates = storeCandidates
-			}
-		}
-		if len(candidates) == 0 {
-			for _, entry := range entries {
-				if entry == nil || len(entry.Embedding) == 0 {
-					continue
-				}
-				candidates = append(candidates, ScoredMemoryEntry{Entry: entry, Score: dotProduct(queryVec, entry.Embedding)})
-			}
-		}
-		candidates = em.filterDenseCandidatesByThreshold(candidates, nil)
-	}
-	if len(candidates) > 0 && len(keywordCandidates) > 0 {
-		candidates = rrfFuse([][]ScoredMemoryEntry{candidates, keywordCandidates}, fetchK, 60)
-	} else if len(candidates) == 0 {
-		candidates = keywordCandidates
-	}
-
 	now := time.Now()
-	explanations := make([]MemoryScoreExplanation, 0, len(candidates))
-	for _, candidate := range candidates {
+	explanations := make([]MemoryScoreExplanation, 0, len(scored))
+	for _, candidate := range scored {
 		if candidate.Entry == nil {
 			continue
 		}
-		components := em.scoreComponents(candidate.Score, candidate.Entry, now)
+		sim := candidate.Score
+		if candidate.HasDense {
+			sim = candidate.Dense
+		}
+		components := em.scoreComponents(sim, candidate.Entry, now)
+		if candidate.Composite != 0 {
+			components.Composite = candidate.Composite
+		}
+		components.FinalScore = candidate.Score
 		explanations = append(explanations, components)
 	}
-	sort.Slice(explanations, func(i, j int) bool {
-		return explanations[i].Composite > explanations[j].Composite
-	})
-	if len(explanations) > fetchK {
-		explanations = explanations[:fetchK]
-	}
-	selected := make([]MemoryScoreExplanation, 0, em.topK)
-	used := make([]bool, len(explanations))
-	for len(selected) < em.topK && len(selected) < len(explanations) {
-		bestIdx := -1
-		bestScore := math.Inf(-1)
-		for i, candidate := range explanations {
-			if used[i] || candidate.Entry == nil {
-				continue
-			}
-			maxSimilarity := 0.0
-			for _, chosen := range selected {
-				if chosen.Entry != nil {
-					maxSimilarity = math.Max(maxSimilarity, dotProduct(candidate.Entry.Embedding, chosen.Entry.Embedding))
-				}
-			}
-			candidate.MMRPenalty = maxSimilarity
-			candidate.FinalScore = em.mmrLambda*candidate.Composite - (1-em.mmrLambda)*maxSimilarity
-			if bestIdx == -1 || candidate.FinalScore > bestScore {
-				bestIdx = i
-				bestScore = candidate.FinalScore
-				explanations[i] = candidate
-			}
-		}
-		if bestIdx == -1 {
-			break
-		}
-		used[bestIdx] = true
-		selected = append(selected, explanations[bestIdx])
-	}
-	return selected, nil
+	return explanations, nil
 }
 
 func (em *EvolvingMemory) searchFetchK() int {
@@ -402,6 +417,7 @@ func (em *EvolvingMemory) searchFetchK() int {
 }
 
 func (em *EvolvingMemory) keywordCandidates(ctx context.Context, query string, entries []*MemoryEntry, k int, log *zerolog.Logger) []ScoredMemoryEntry {
+	var candidates []ScoredMemoryEntry
 	if keywordStore, ok := em.store.(EvolvingMemoryKeywordStore); ok {
 		storeCandidates, err := keywordStore.KeywordSearch(ctx, em.userID, em.sessionID, query, k)
 		if err != nil {
@@ -409,10 +425,21 @@ func (em *EvolvingMemory) keywordCandidates(ctx context.Context, query string, e
 				log.Warn().Err(err).Msg("evolving_memory_keyword_search_failed")
 			}
 		} else if len(storeCandidates) > 0 {
-			return storeCandidates
+			candidates = storeCandidates
 		}
 	}
-	return inMemoryKeywordSearch(entries, query, k)
+	if candidates == nil {
+		candidates = inMemoryKeywordSearch(entries, query, k)
+	}
+	return annotateKeywordCandidates(candidates)
+}
+
+func annotateKeywordCandidates(candidates []ScoredMemoryEntry) []ScoredMemoryEntry {
+	for i := range candidates {
+		candidates[i].Keyword = candidates[i].Score
+		candidates[i].HasKeyword = true
+	}
+	return candidates
 }
 
 // updateAccessMetrics increments access counts and updates last accessed time.

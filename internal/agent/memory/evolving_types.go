@@ -132,11 +132,21 @@ type MemoryEntry struct {
 	RelevanceScore     float64             `json:"relevance_score"`               // Cumulative relevance metric
 }
 
-// ScoredMemoryEntry represents a memory entry paired with its similarity score
-// to a particular query. Higher scores indicate closer matches.
+// ScoredMemoryEntry represents a memory entry paired with its ranking score.
+// Score is the pipeline's current ordering score (composite, then rerank when applied).
+// Component fields keep dense cosine, keyword, RRF, composite, and rerank distinct.
 type ScoredMemoryEntry struct {
 	Entry *MemoryEntry `json:"entry"`
 	Score float64      `json:"score"`
+	// Component scores. Zero value + Has* flag distinguishes "absent" from 0.
+	Dense      float64 `json:"dense,omitempty"` // cosine similarity of query vs doc embedding
+	HasDense   bool    `json:"hasDense,omitempty"`
+	Keyword    float64 `json:"keyword,omitempty"` // lexical match score
+	HasKeyword bool    `json:"hasKeyword,omitempty"`
+	RRF        float64 `json:"rrf,omitempty"`       // normalized fusion rank score
+	Composite  float64 `json:"composite,omitempty"` // sim*decay*quality*accessBoost
+	Rerank     float64 `json:"rerank,omitempty"`    // reranker relevance
+	HasRerank  bool    `json:"hasRerank,omitempty"`
 }
 
 // MemoryScoreExplanation exposes the ranking components used by debug APIs.
@@ -158,6 +168,7 @@ type SearchDiagnostics struct {
 	Mode                        string  `json:"mode"`
 	VectorCandidates            int     `json:"vectorCandidates"`
 	VectorFiltered              int     `json:"vectorFiltered"`
+	DenseBeforeFilter           int     `json:"denseBeforeFilter,omitempty"`
 	SimilarityThreshold         float64 `json:"similarityThreshold,omitempty"`
 	KeywordCandidates           int     `json:"keywordCandidates"`
 	UsedServerVector            bool    `json:"usedServerVector"`
@@ -172,6 +183,7 @@ type SearchDiagnostics struct {
 	RerankEnabled               bool    `json:"rerankEnabled"`
 	RerankApplied               bool    `json:"rerankApplied"`
 	RerankCandidates            int     `json:"rerankCandidates,omitempty"`
+	RerankFiltered              int     `json:"rerankFiltered,omitempty"`
 	RerankDurationMs            int64   `json:"rerankDurationMs,omitempty"`
 	RerankError                 string  `json:"rerankError,omitempty"`
 }
@@ -270,6 +282,7 @@ type EvolvingMemory struct {
 	// Similarity-based pruning configuration (from paper analysis)
 	pruneThreshold               float64 // similarity threshold for auto-pruning duplicates
 	retrievalSimilarityThreshold float64 // minimum query-time dense/vector similarity to retrieve
+	minRerankScore               float64 // minimum post-rerank relevance; 0 disables
 	relevanceDecay               float64 // decay factor for relevance scores over time
 	minRelevance                 float64 // minimum relevance to keep entry during pruning
 	enableSmartPrune             bool    // enable similarity-based pruning
@@ -352,6 +365,7 @@ type EvolvingMemoryConfig struct {
 	// Similarity-based pruning configuration
 	PruneThreshold               float64 // default 0.95 - entries above this similarity are candidates for merge
 	RetrievalSimilarityThreshold float64 // minimum dense/vector similarity to retrieve; 0 disables
+	MinRerankScore               float64 // minimum post-rerank relevance in [0,1]; 0 disables
 	RelevanceDecay               float64 // default 0.99 - daily decay factor for relevance scores
 	MinRelevance                 float64 // default 0.1 - entries below this relevance may be pruned
 	EnableSmartPrune             bool    // default false - enable intelligent pruning

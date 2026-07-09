@@ -310,6 +310,10 @@ func (s *sqliteEvolvingMemoryStore) KeywordSearch(ctx context.Context, userID in
 	if query == "" {
 		return nil, nil
 	}
+	terms := memory.KeywordQueryTerms(query)
+	if len(terms) == 0 {
+		return nil, nil
+	}
 	entries, err := s.loadSearchEntries(ctx, userID, sessionID)
 	if err != nil {
 		return nil, err
@@ -317,17 +321,26 @@ func (s *sqliteEvolvingMemoryStore) KeywordSearch(ctx context.Context, userID in
 	if k <= 0 {
 		k = 4
 	}
-	terms := strings.Fields(strings.ToLower(query))
 	out := make([]memory.ScoredMemoryEntry, 0, len(entries))
 	for _, entry := range entries {
-		text := strings.ToLower(strings.Join([]string{entry.Input, entry.Output, entry.Feedback, entry.Summary, entry.RawTrace, entry.StrategyCard}, "\n"))
+		textTerms := memory.KeywordQueryTerms(strings.Join([]string{entry.Input, entry.Summary, entry.StrategyCard}, " "))
+		if len(textTerms) == 0 {
+			continue
+		}
 		matches := 0
-		for _, term := range terms {
-			matches += strings.Count(text, term)
+		for term := range terms {
+			if _, ok := textTerms[term]; ok {
+				matches++
+			}
 		}
-		if matches > 0 {
-			out = append(out, memory.ScoredMemoryEntry{Entry: entry, Score: float64(matches) / float64(len(terms))})
+		if matches == 0 {
+			continue
 		}
+		score := float64(matches) / float64(len(terms))
+		if !memory.KeywordMatchAdmitted(matches, score) {
+			continue
+		}
+		out = append(out, memory.ScoredMemoryEntry{Entry: entry, Score: score})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Score == out[j].Score {

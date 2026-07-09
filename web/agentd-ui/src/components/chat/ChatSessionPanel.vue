@@ -191,7 +191,7 @@
               >
                 <div>
                   <strong>{{ model.cockpitContextPercent }}%</strong>
-                  <span>Context used</span>
+                  <span>Context</span>
                 </div>
               </div>
               <div class="cockpit-readout-list">

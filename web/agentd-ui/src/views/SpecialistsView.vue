@@ -584,6 +584,21 @@ function setErr(e: unknown, fallback: string) {
   actionError.value = String(msg);
 }
 
+// Bootstrap tool allow-list applied to newly created specialists. Keep in sync
+// with config.DefaultAgentToolAllowList() in the Go backend.
+const DEFAULT_AGENT_ALLOW_TOOLS = [
+  "run_cli",
+  "web_fetch",
+  "transit_create",
+  "transit_get",
+  "transit_update",
+  "transit_delete",
+  "transit_search",
+  "transit_discover",
+  "transit_list_keys",
+  "transit_list_recent",
+];
+
 function startCreate() {
   activeListTab.value = "specialists";
   const defaultProvider = providerOptions.value[0] || "openai";
@@ -593,14 +608,14 @@ function startCreate() {
     provider: defaultProvider,
     model: "",
     baseURL: "",
-    enableTools: false,
+    enableTools: true,
     requestInfoEnabled: true,
     imageGeneration: false,
     videoGeneration: false,
-    autoDiscover: false,
+    autoDiscover: true,
     paused: false,
     system: "",
-    allowTools: [],
+    allowTools: [...DEFAULT_AGENT_ALLOW_TOOLS],
     extraHeaders: {},
     extraParams: {},
   };

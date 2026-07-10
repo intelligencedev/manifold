@@ -200,6 +200,12 @@ func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.
 		defaultProvider = "openai"
 	}
 	baseModel, baseURL, baseKey, baseHeaders, baseParams := a.providerDefaults(defaultProvider)
+	// New-agent defaults: a lean tool allow-list plus auto-discovery and
+	// request_info on. A configured global allow-list takes precedence.
+	allowTools := a.cfg.ToolAllowList
+	if len(allowTools) == 0 {
+		allowTools = config.DefaultAgentToolAllowList()
+	}
 	out := persist.Specialist{
 		ID:                         0,
 		UserID:                     userID,
@@ -210,16 +216,19 @@ func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.
 		APIKey:                     baseKey,
 		Model:                      baseModel,
 		SummaryContextWindowTokens: 0,
-		EnableTools:                a.cfg.EnableTools,
-		RequestInfoEnabled:         boolPtr(config.RequestInfoEnabled(a.cfg.RequestInfoEnabled)),
-		AutoDiscover:               boolPtr(a.cfg.AutoDiscover),
+		EnableTools:                true,
+		RequestInfoEnabled:         boolPtr(true),
+		AutoDiscover:               boolPtr(true),
 		Paused:                     false,
-		AllowTools:                 a.cfg.ToolAllowList,
+		AllowTools:                 allowTools,
 		System:                     a.orchestratorSystemPrompt(),
 		ExtraHeaders:               baseHeaders,
 		ExtraParams:                baseParams,
 	}
 	// Apply per-user overlay if present
+	if a.specStore == nil {
+		return out
+	}
 	if sp, ok, _ := a.specStore.GetByName(ctx, userID, specialists.OrchestratorName); ok {
 		out.ID = sp.ID
 		out.Description = sp.Description

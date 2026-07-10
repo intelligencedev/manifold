@@ -94,6 +94,8 @@ type app struct {
 	mcpManager         *mcpclient.Manager
 	mcpPool            *mcpclient.MCPServerPool
 	startupMCPOAuthIDs []int64
+	listenAddr         string
+	publicURL          string
 	tokenMetrics       []tokenMetricsProvider
 	memoryMetrics      []memoryMetricsProvider
 	traceMetrics       []traceMetricsProvider

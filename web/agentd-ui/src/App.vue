@@ -1,5 +1,8 @@
 <template>
-  <AppShell :inspector="false">
+  <div v-if="isSetupRoute" class="min-h-screen bg-background text-foreground">
+    <RouterView />
+  </div>
+  <AppShell v-else :inspector="false">
     <template #rail>
       <IconRail />
     </template>
@@ -27,6 +30,7 @@ import IconRail from "@/components/ui/IconRail.vue";
 import MCommandBar from "@/components/ui/MCommandBar.vue";
 
 const route = useRoute();
+const isSetupRoute = computed(() => route.name === "setup");
 
 const user = ref<{ name?: string; email?: string; picture?: string } | null>(
   null,

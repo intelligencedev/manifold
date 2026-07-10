@@ -2,7 +2,6 @@ package agentd
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"manifold/internal/config"
@@ -10,6 +9,7 @@ import (
 
 func currentAgentdSettings(cfg *config.Config) agentdSettings {
 	settings := currentSummaryAgentdSettings(cfg)
+	projectPrimaryLLMAgentdSettings(&settings, cfg)
 	projectPromptAgentdSettings(&settings, cfg)
 	projectEmbeddingAgentdSettings(&settings, cfg)
 	projectRerankAgentdSettings(&settings, cfg)
@@ -17,6 +17,23 @@ func currentAgentdSettings(cfg *config.Config) agentdSettings {
 	projectOpsAgentdSettings(&settings, cfg)
 	projectDatabaseAgentdSettings(&settings, cfg)
 	return settings
+}
+
+func projectPrimaryLLMAgentdSettings(settings *agentdSettings, cfg *config.Config) {
+	settings.LLMProvider = strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider))
+	settings.LLMModel = resolveLLMClientModel(cfg.LLMClient)
+	switch settings.LLMProvider {
+	case "anthropic":
+		settings.LLMAPIKey = cfg.LLMClient.Anthropic.APIKey
+		settings.LLMBaseURL = cfg.LLMClient.Anthropic.BaseURL
+	case "google":
+		settings.LLMAPIKey = cfg.LLMClient.Google.APIKey
+		settings.LLMBaseURL = cfg.LLMClient.Google.BaseURL
+	default:
+		settings.LLMAPIKey = cfg.LLMClient.OpenAI.APIKey
+		settings.LLMBaseURL = cfg.LLMClient.OpenAI.BaseURL
+	}
+	settings.MemoryEnabled = cfg.Memory.Enabled
 }
 
 func currentSummaryAgentdSettings(cfg *config.Config) agentdSettings {
@@ -200,6 +217,9 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 		return fmt.Errorf("rerankBaseUrl is required when rerankEnabled is true")
 	}
 
+	if err := applyPrimaryLLMSettings(cfg, settings); err != nil {
+		return err
+	}
 	applySummarySettings(cfg, settings)
 	applyRequestInfoSettings(cfg, settings)
 	applyPromptOverrideSettings(cfg, settings)
@@ -508,14 +528,67 @@ func setNestedMapValue(root map[string]any, path []string, value any) {
 	current[path[len(path)-1]] = value
 }
 
-func findConfigYAMLPath() string {
-	if _, err := os.Stat("config.yaml"); err == nil {
-		return "config.yaml"
+
+func applyPrimaryLLMSettings(cfg *config.Config, settings agentdSettings) error {
+	provider := strings.ToLower(strings.TrimSpace(settings.LLMProvider))
+	if provider == "" {
+		provider = strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider))
 	}
-	if _, err := os.Stat("config.yml"); err == nil {
-		return "config.yml"
+	if provider == "" {
+		provider = "openai"
 	}
-	return "config.yaml"
+	switch provider {
+	case "openai", "anthropic", "google", "local":
+	default:
+		return fmt.Errorf("llmProvider must be one of openai, anthropic, google, or local (got %q)", settings.LLMProvider)
+	}
+	cfg.LLMClient.Provider = provider
+	apiKey := strings.TrimSpace(settings.LLMAPIKey)
+	model := strings.TrimSpace(settings.LLMModel)
+	baseURL := strings.TrimSpace(settings.LLMBaseURL)
+	switch provider {
+	case "anthropic":
+		if apiKey != "" {
+			cfg.LLMClient.Anthropic.APIKey = apiKey
+		}
+		if model != "" {
+			cfg.LLMClient.Anthropic.Model = model
+		}
+		if baseURL != "" {
+			cfg.LLMClient.Anthropic.BaseURL = baseURL
+		}
+	case "google":
+		if apiKey != "" {
+			cfg.LLMClient.Google.APIKey = apiKey
+		}
+		if model != "" {
+			cfg.LLMClient.Google.Model = model
+		}
+		if baseURL != "" {
+			cfg.LLMClient.Google.BaseURL = baseURL
+		}
+	default:
+		if apiKey != "" {
+			cfg.LLMClient.OpenAI.APIKey = apiKey
+		}
+		if model != "" {
+			cfg.LLMClient.OpenAI.Model = model
+		}
+		if baseURL != "" {
+			cfg.LLMClient.OpenAI.BaseURL = baseURL
+		}
+		if provider == "local" {
+			cfg.LLMClient.OpenAI.API = "completions"
+		}
+	}
+	cfg.OpenAI = cfg.LLMClient.OpenAI
+
+	cfg.Memory.Enabled = settings.MemoryEnabled
+	cfg.MemoryConfigured = true
+	cfg.EvolvingMemory.Enabled = settings.MemoryEnabled
+	cfg.BeliefMemory.Enabled = settings.MemoryEnabled
+	cfg.Magma.Enabled = settings.MemoryEnabled
+	return nil
 }
 
 func firstNonEmptyTrimmed(values ...string) string {

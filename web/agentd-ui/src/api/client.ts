@@ -243,6 +243,12 @@ export async function deleteUser(id: number): Promise<void> {
 }
 
 export interface AgentdSettings {
+  llmProvider: string;
+  llmApiKey: string;
+  llmModel: string;
+  llmBaseUrl: string;
+  memoryEnabled: boolean;
+
   openaiSummaryModel: string;
   openaiSummaryUrl: string;
   summaryEnabled: boolean;
@@ -363,3 +369,40 @@ export async function updateAgentdSettings(
   err.response = lastErr?.response;
   throw err;
 }
+
+export interface SetupStatus {
+  ready: boolean;
+  needsSetup: boolean;
+  provider: string;
+  model: string;
+  hasCredentials: boolean;
+  memoryEnabled: boolean;
+  embeddingRequired: boolean;
+  configPath: string;
+  baseUrl?: string;
+  listenAddr?: string;
+}
+
+export interface SetupCompleteRequest {
+  provider: string;
+  apiKey: string;
+  model?: string;
+  baseUrl?: string;
+  memoryEnabled?: boolean;
+  embedApiKey?: string;
+  embedBaseUrl?: string;
+  embedModel?: string;
+}
+
+export async function fetchSetupStatus(): Promise<SetupStatus> {
+  const { data } = await apiClient.get<SetupStatus>("/setup/status");
+  return data;
+}
+
+export async function completeSetup(
+  payload: SetupCompleteRequest,
+): Promise<SetupStatus> {
+  const { data } = await apiClient.post<SetupStatus>("/setup/complete", payload);
+  return data;
+}
+

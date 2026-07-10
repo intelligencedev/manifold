@@ -20,7 +20,7 @@ func Load() (Config, error) {
 	cfg := Config{}
 	cfg.Tokenization.FallbackToHeuristic = true
 
-	configPath, found, err := findOptionalConfigFile("", "config.yaml", "config.yml")
+	configPath, found, err := ResolveConfigPath()
 	if err != nil {
 		return Config{}, err
 	}
@@ -28,6 +28,9 @@ func Load() (Config, error) {
 		if err := loadMainConfig(configPath, &cfg); err != nil {
 			return Config{}, err
 		}
+		cfg.ConfigPath = configPath
+	} else {
+		cfg.ConfigPath = DefaultConfigPath()
 	}
 	if err := loadExternalConfigs(&cfg); err != nil {
 		return Config{}, err
@@ -315,21 +318,28 @@ func validateConfigHarnesses(cfg *Config) error {
 }
 
 func validateConfigProviderCredentials(cfg *Config) error {
-	switch cfg.LLMClient.Provider {
-	case "openai":
-		if strings.TrimSpace(cfg.LLMClient.OpenAI.APIKey) == "" {
-			return errors.New("llm_client.openai.apiKey is required")
-		}
-	case "anthropic":
-		if strings.TrimSpace(cfg.LLMClient.Anthropic.APIKey) == "" {
-			return errors.New("llm_client.anthropic.apiKey is required")
-		}
-	case "google":
-		if strings.TrimSpace(cfg.LLMClient.Google.APIKey) == "" {
-			return errors.New("llm_client.google.apiKey is required")
-		}
-	}
+	// Credentials are collected during first-run onboarding. Startup must succeed
+	// without an API key so the setup UI can configure the primary provider.
+	_ = cfg
 	return nil
+}
+
+// HasPrimaryLLMCredentials reports whether the configured primary provider has an API key.
+func HasPrimaryLLMCredentials(cfg *Config) bool {
+	if cfg == nil {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider)) {
+	case "anthropic":
+		return strings.TrimSpace(cfg.LLMClient.Anthropic.APIKey) != ""
+	case "google":
+		return strings.TrimSpace(cfg.LLMClient.Google.APIKey) != ""
+	case "local":
+		// Local OpenAI-compatible servers often do not require a key.
+		return true
+	default:
+		return strings.TrimSpace(cfg.LLMClient.OpenAI.APIKey) != ""
+	}
 }
 
 func validateConfigWorkdir(cfg *Config) error {

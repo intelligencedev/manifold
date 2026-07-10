@@ -6,11 +6,21 @@ import (
 	"net/http"
 
 	"manifold/internal/config"
+	llmproviders "manifold/internal/llm/providers"
 	"manifold/internal/observability"
 )
 
 // agentdSettings mirrors the frontend AgentdSettings shape.
 type agentdSettings struct {
+	// Primary LLM (propagates to chat/summary/specialists by default).
+	LLMProvider string `json:"llmProvider"`
+	LLMAPIKey   string `json:"llmApiKey"`
+	LLMModel    string `json:"llmModel"`
+	LLMBaseURL  string `json:"llmBaseUrl"`
+
+	// Unified memory master switch. Embeddings only apply when true.
+	MemoryEnabled bool `json:"memoryEnabled"`
+
 	OpenAISummaryModel                  string `json:"openaiSummaryModel"`
 	OpenAISummaryURL                    string `json:"openaiSummaryUrl"`
 	SummaryProvider                     string `json:"summaryProvider"`
@@ -148,6 +158,17 @@ func (a *app) handleUpdateAgentdConfig(w http.ResponseWriter, r *http.Request) {
 	if err := applyAgentdSettings(a.cfg, payload); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
+	}
+
+	// Rebuild primary LLM when provider credentials changed.
+	if a.httpClient != nil {
+		if llm, err := llmproviders.Build(*a.cfg, a.httpClient); err == nil {
+			a.llm = llm
+			if a.engine != nil {
+				a.engine.LLM = llm
+				a.engine.Model = resolveLLMClientModel(a.cfg.LLMClient)
+			}
+		}
 	}
 
 	// Persist to config.yaml to survive restarts.

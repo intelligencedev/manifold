@@ -166,10 +166,22 @@ func registerBaseTools(opts baseToolOptions) {
 	opts.toolRegistry.Register(tts.New(*opts.cfg, opts.httpClient))
 }
 
+// shouldCheckEmbeddingReachability reports whether startup should fail-fast on an
+// unreachable embedding endpoint. During onboarding (before any primary LLM
+// credentials exist) the check is skipped so a fresh install can boot to /setup
+// instead of crashing; once configured, the fail-fast health gate is restored.
+func shouldCheckEmbeddingReachability(cfg *config.Config) bool {
+	return config.HasPrimaryLLMCredentials(cfg)
+}
+
 func buildRAGOptions(ctx context.Context, cfg *config.Config, httpClient *http.Client, llm llmpkg.Provider) ([]ragservice.Option, error) {
 	emb := embedder.NewClient(cfg.Embedding, cfg.Databases.Vector.Dimensions)
-	if err := emb.Ping(ctx); err != nil {
-		return nil, fmt.Errorf("embedding service reachability check failed: %w", err)
+	if shouldCheckEmbeddingReachability(cfg) {
+		if err := emb.Ping(ctx); err != nil {
+			return nil, fmt.Errorf("embedding service reachability check failed: %w", err)
+		}
+	} else {
+		log.Info().Msg("embedding reachability check skipped: no primary LLM credentials (onboarding)")
 	}
 	magmaCfg := cfg.Magma
 	magmaLLM := llm

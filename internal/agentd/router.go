@@ -107,6 +107,8 @@ func registerCoreAPIRoutes(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("/api/observability/memory/", a.memoryObservabilityHandler())
 	// Agentd configuration (GET + POST/PUT/PATCH)
 	mux.HandleFunc("/api/config/agentd", a.agentdConfigHandler())
+	mux.HandleFunc("/api/setup/status", a.setupStatusHandler())
+	mux.HandleFunc("/api/setup/complete", a.setupCompleteHandler())
 	mux.HandleFunc("/api/flows/v2/tools", a.flowV2ToolsHandler())
 	mux.HandleFunc("/api/flows/v2/workflows", a.flowV2WorkflowsHandler())
 	mux.HandleFunc("/api/flows/v2/workflows/", a.flowV2WorkflowDetailHandler())

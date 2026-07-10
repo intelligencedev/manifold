@@ -103,7 +103,7 @@ const title = computed(() => {
     `${formatNumber(metrics.inputTokens)} / ${formatNumber(metrics.summaryThreshold)} summary budget tokens`,
   ];
   if (metrics.phase !== "summary_triggered") {
-    lines.push(`Context window: ${formatNumber(metrics.contextWindow)}`);
+    lines.push(`Context: ${formatNumber(metrics.contextWindow)}`);
     lines.push(`Reserve: ${formatNumber(metrics.reserveTokens)}`);
   }
   if (metrics.phase === "client_estimate") {

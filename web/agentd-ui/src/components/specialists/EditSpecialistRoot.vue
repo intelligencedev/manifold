@@ -1288,7 +1288,7 @@ const draft = reactive({
   toolPolicy: "none" as ToolPolicy,
   autoDiscover: false,
   requestInfoEnabled: true,
-  harnessEnabled: true,
+  harnessEnabled: false,
   harnessMode: "guarded_chat" as HarnessMode,
   harnessRescueEnabled: true,
   harnessMaxRetriesPerStep: "3",
@@ -1746,7 +1746,7 @@ function normalizeHarnessPrerequisites(
 
 function defaultHarnessConfig(): SpecialistHarness {
   return {
-    enabled: true,
+    enabled: false,
     mode: "guarded_chat",
     rescueEnabled: true,
     maxRetriesPerStep: 3,

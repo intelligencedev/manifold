@@ -196,7 +196,7 @@
               </div>
               <div class="cockpit-readout-list">
                 <div class="cockpit-readout-row">
-                  <span>Context window</span>
+                  <span>Context</span>
                   <strong>{{ model.cockpitContextLabel }}</strong>
                 </div>
               </div>

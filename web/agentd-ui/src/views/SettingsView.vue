@@ -214,6 +214,106 @@
         </fieldset>
       </template>
 
+      <!-- Primary LLM -->
+      <template v-if="activeSection === 'llm'">
+        <fieldset class="space-y-4">
+          <legend class="text-sm font-semibold text-foreground">
+            Primary LLM Provider
+          </legend>
+          <p class="text-xs text-subtle-foreground">
+            One provider powers chat, summarization, and specialists by default.
+          </p>
+          <div class="grid gap-4 grid-cols-2">
+            <div class="space-y-1">
+              <label
+                for="llm-provider"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Provider</label
+              >
+              <select
+                id="llm-provider"
+                v-model="agentdSettings.llmProvider"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              >
+                <option value="openai">OpenAI / compatible</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="google">Google</option>
+                <option value="local">Local</option>
+              </select>
+            </div>
+            <div class="space-y-1">
+              <label
+                for="llm-model"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Model</label
+              >
+              <input
+                id="llm-model"
+                type="text"
+                v-model="agentdSettings.llmModel"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              />
+            </div>
+            <div class="space-y-1">
+              <label
+                for="llm-key"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >API Key</label
+              >
+              <input
+                id="llm-key"
+                type="password"
+                autocomplete="off"
+                v-model="agentdSettings.llmApiKey"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              />
+            </div>
+            <div class="space-y-1">
+              <label
+                for="llm-base"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Base URL</label
+              >
+              <input
+                id="llm-base"
+                type="url"
+                v-model="agentdSettings.llmBaseUrl"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+        </fieldset>
+      </template>
+
+      <!-- Memory -->
+      <template v-if="activeSection === 'memory'">
+        <fieldset class="space-y-4">
+          <legend class="text-sm font-semibold text-foreground">
+            Agent Memory
+          </legend>
+          <p class="text-xs text-subtle-foreground">
+            Leave memory off until the core chat path works. Enabling memory
+            activates evolving memory, beliefs, and MAGMA.
+          </p>
+          <label class="inline-flex items-center gap-2">
+            <input
+              id="memory-enabled"
+              type="checkbox"
+              class="h-4 w-4"
+              v-model="agentdSettings.memoryEnabled"
+            />
+            <span class="text-sm text-foreground">Enable memory</span>
+          </label>
+          <p
+            v-if="agentdSettings.memoryEnabled"
+            class="text-xs text-subtle-foreground"
+          >
+            Configure the embedding endpoint under the Embeddings section. It is
+            only used while memory is enabled.
+          </p>
+        </fieldset>
+      </template>
+
       <!-- Summarization -->
       <template v-if="activeSection === 'summarization'">
         <fieldset class="space-y-4">
@@ -264,7 +364,7 @@
               <label
                 for="summary-context-window"
                 class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >Chat Context Window</label
+                >Chat Context</label
               >
               <input
                 id="summary-context-window"
@@ -449,7 +549,17 @@
 
       <!-- Embeddings -->
       <template v-if="activeSection === 'embeddings'">
-        <fieldset class="space-y-4">
+        
+        <div
+          v-if="!agentdSettings.memoryEnabled"
+          data-memory-gate
+          class="rounded-md border border-border/60 bg-surface-muted/40 p-3 text-sm text-subtle-foreground"
+        >
+          Embeddings apply only when memory is enabled. Turn on Memory first, then
+          configure this single embedding endpoint.
+        </div>
+        <div v-if="agentdSettings.memoryEnabled" class="space-y-6">
+<fieldset class="space-y-4">
           <legend class="text-sm font-semibold text-foreground">
             Embedding Provider
           </legend>
@@ -771,6 +881,7 @@
             </div>
           </div>
         </fieldset>
+        </div>
       </template>
 
       <!-- Timeouts & Safety -->
@@ -1413,6 +1524,11 @@ type Settings = {
 };
 
 const defaultAgentdSettings: AgentdSettings = {
+  llmProvider: "openai",
+  llmApiKey: "",
+  llmModel: "",
+  llmBaseUrl: "",
+  memoryEnabled: false,
   openaiSummaryModel: "",
   openaiSummaryUrl: "",
   summaryEnabled: false,
@@ -1555,6 +1671,7 @@ type NumericSettingKey =
 type BooleanSettingKey =
   | "summaryEnabled"
   | "requestInfoEnabled"
+  | "memoryEnabled"
   | "rerankEnabled"
   | "logPayloads"
   | "logRawPrompts";
@@ -1578,6 +1695,7 @@ const numericSettingKeys: NumericSettingKey[] = [
 const booleanSettingKeys: BooleanSettingKey[] = [
   "summaryEnabled",
   "requestInfoEnabled",
+  "memoryEnabled",
   "rerankEnabled",
   "logPayloads",
   "logRawPrompts",
@@ -1793,6 +1911,8 @@ function handleMessage(event: MessageEvent) {
 // Sections (sidebar navigation)
 type SectionKey =
   | "general"
+  | "llm"
+  | "memory"
   | "summarization"
   | "prompts"
   | "embeddings"
@@ -1803,6 +1923,8 @@ type SectionKey =
   | "mcp";
 const sections: { key: SectionKey; label: string }[] = [
   { key: "general", label: "General" },
+  { key: "llm", label: "Primary LLM" },
+  { key: "memory", label: "Memory" },
   { key: "summarization", label: "Summarization" },
   { key: "prompts", label: "Prompts" },
   { key: "embeddings", label: "Embeddings" },
@@ -1815,10 +1937,12 @@ const sections: { key: SectionKey; label: string }[] = [
 const activeSection = ref<SectionKey>("general");
 const sectionDescriptions: Record<SectionKey, string> = {
   general: "Client-local app settings and runtime identifiers.",
+  llm: "Primary provider credentials. Propagates to chat, summary, and specialists by default.",
+  memory: "Toggle coordinated agent memory. Embeddings only apply when memory is on.",
   summarization: "Control conversation summarization cadence and retention.",
   prompts:
     "Override built-in prompt blocks while keeping custom orchestrator and specialist instructions additive.",
-  embeddings: "Configure embedding provider parameters.",
+  embeddings: "Single embedding endpoint used when memory is enabled.",
   timeouts: "Global execution time limits and shell safety.",
   observability: "Telemetry export and logging verbosity.",
   web: "Search service integration exposed to tools/UI.",

@@ -3,6 +3,9 @@ package config
 // Config is the top-level runtime configuration for the agent.
 type Config struct {
 	Workdir string `yaml:"workdir" json:"workdir"`
+	// ConfigPath is the resolved path of the loaded (or destination) config file.
+	// It is not read from YAML; Load sets it when resolving candidates.
+	ConfigPath string `yaml:"-" json:"-"`
 	// Deprecated: systemPrompt is retained only to read older config files.
 	// New orchestrator system instructions should be configured through the
 	// persisted orchestrator specialist, and shared prompt blocks should be

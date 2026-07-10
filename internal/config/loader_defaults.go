@@ -229,6 +229,9 @@ func applyObservabilityDefaults(cfg *Config) {
 }
 
 func applyRuntimeDefaults(cfg *Config) {
+	if strings.TrimSpace(cfg.LogPath) == "" {
+		cfg.LogPath = DefaultLogPath()
+	}
 	if cfg.Web.SearXNGURL == "" {
 		cfg.Web.SearXNGURL = "http://localhost:8080"
 	}

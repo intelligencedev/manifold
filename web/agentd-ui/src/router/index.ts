@@ -130,6 +130,16 @@ const router = createRouter({
       component: () => import("@/views/BeliefsView.vue"),
     },
     {
+      path: "/setup",
+      name: "setup",
+      meta: {
+        nav: false,
+        title: "Setup",
+        purpose: "First-run provider configuration",
+      },
+      component: () => import("@/views/SetupView.vue"),
+    },
+    {
       path: "/settings",
       name: "settings",
       meta: {
@@ -199,6 +209,33 @@ const router = createRouter({
       component: () => import("@/views/NotFoundView.vue"),
     },
   ],
+});
+
+let setupChecked = false;
+let setupReady = true;
+
+router.beforeEach(async (to) => {
+  if (to.name === "setup") {
+    return true;
+  }
+  if (!setupChecked) {
+    try {
+      const res = await fetch("/api/setup/status", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setupReady = Boolean(data?.ready);
+      } else {
+        setupReady = true;
+      }
+    } catch {
+      setupReady = true;
+    }
+    setupChecked = true;
+  }
+  if (!setupReady) {
+    return { name: "setup" };
+  }
+  return true;
 });
 
 export default router;

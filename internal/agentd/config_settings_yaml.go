@@ -9,6 +9,9 @@ import (
 func persistToConfigYAML(settings agentdSettings) error {
 	settings = normalizeAgentdSettings(settings)
 	path := findConfigYAMLPath()
+	if err := ensureConfigParentDir(path); err != nil {
+		return err
+	}
 
 	root := map[string]any{}
 	if b, err := os.ReadFile(path); err == nil {
@@ -27,6 +30,7 @@ func persistToConfigYAML(settings agentdSettings) error {
 func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	settings = normalizeAgentdSettings(settings)
 
+	applyPrimaryLLMSettingsYAML(root, settings)
 	applySummarySettingsYAML(root, settings)
 	setNestedMapValue(root, []string{"requestInfoEnabled"}, settings.RequestInfoEnabled)
 	applyPromptOverrideSettingsYAML(root, settings)
@@ -38,6 +42,47 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	applyLogSettingsYAML(root, settings)
 	applyWebSettingsYAML(root, settings)
 	applyDatabaseSettingsYAML(root, settings)
+}
+
+
+func applyPrimaryLLMSettingsYAML(root map[string]any, settings agentdSettings) {
+	provider := firstNonEmptyTrimmed(settings.LLMProvider)
+	if provider != "" {
+		setNestedMapValue(root, []string{"llm_client", "provider"}, provider)
+	}
+	switch provider {
+	case "anthropic":
+		if settings.LLMAPIKey != "" {
+			setNestedMapValue(root, []string{"llm_client", "anthropic", "apiKey"}, settings.LLMAPIKey)
+		}
+		if settings.LLMModel != "" {
+			setNestedMapValue(root, []string{"llm_client", "anthropic", "model"}, settings.LLMModel)
+		}
+		if settings.LLMBaseURL != "" {
+			setNestedMapValue(root, []string{"llm_client", "anthropic", "baseURL"}, settings.LLMBaseURL)
+		}
+	case "google":
+		if settings.LLMAPIKey != "" {
+			setNestedMapValue(root, []string{"llm_client", "google", "apiKey"}, settings.LLMAPIKey)
+		}
+		if settings.LLMModel != "" {
+			setNestedMapValue(root, []string{"llm_client", "google", "model"}, settings.LLMModel)
+		}
+		if settings.LLMBaseURL != "" {
+			setNestedMapValue(root, []string{"llm_client", "google", "baseURL"}, settings.LLMBaseURL)
+		}
+	default:
+		if settings.LLMAPIKey != "" {
+			setNestedMapValue(root, []string{"llm_client", "openai", "apiKey"}, settings.LLMAPIKey)
+		}
+		if settings.LLMModel != "" {
+			setNestedMapValue(root, []string{"llm_client", "openai", "model"}, settings.LLMModel)
+		}
+		if settings.LLMBaseURL != "" {
+			setNestedMapValue(root, []string{"llm_client", "openai", "baseURL"}, settings.LLMBaseURL)
+		}
+	}
+	setNestedMapValue(root, []string{"memory", "enabled"}, settings.MemoryEnabled)
 }
 
 func applyPromptOverrideSettingsYAML(root map[string]any, settings agentdSettings) {

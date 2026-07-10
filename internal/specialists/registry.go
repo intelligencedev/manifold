@@ -153,7 +153,7 @@ func buildProvider(provider string, base config.LLMClientConfig, sc config.Speci
 	}
 	hc = &http.Client{Transport: tr}
 
-	switch strings.ToLower(provider) {
+	switch config.ProviderBackend(provider) {
 	case "google":
 		cfg := base.Google
 		if strings.TrimSpace(sc.BaseURL) != "" {

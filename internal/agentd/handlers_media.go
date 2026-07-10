@@ -462,9 +462,7 @@ func (a *app) visionFromConfig(llmCfg config.LLMClientConfig, provider, modelOve
 	if provider == "" {
 		provider = strings.ToLower(strings.TrimSpace(llmCfg.Provider))
 	}
-	switch provider {
-	case "", "openai", "local":
-		return visionClientSelection{Provider: "openai", Model: visionModel(modelOverride, llmCfg.OpenAI.Model), OpenAI: openaillm.New(llmCfg.OpenAI, a.httpClient)}, 0, nil
+	switch config.ProviderBackend(provider) {
 	case "anthropic":
 		return visionClientSelection{Provider: "anthropic", Model: visionModel(modelOverride, llmCfg.Anthropic.Model), Anthropic: anthropicllm.New(llmCfg.Anthropic, a.httpClient)}, 0, nil
 	case "google":
@@ -474,7 +472,7 @@ func (a *app) visionFromConfig(llmCfg config.LLMClientConfig, provider, modelOve
 		}
 		return visionClientSelection{Provider: "google", Model: visionModel(modelOverride, llmCfg.Google.Model), Google: client}, 0, nil
 	default:
-		return visionClientSelection{}, http.StatusBadRequest, unsupportedErr
+		return visionClientSelection{Provider: "openai", Model: visionModel(modelOverride, llmCfg.OpenAI.Model), OpenAI: openaillm.New(llmCfg.OpenAI, a.httpClient)}, 0, nil
 	}
 }
 

@@ -21,7 +21,7 @@ func ApplyLLMClientOverride(base config.LLMClientConfig, sp persistence.Speciali
 	cfg := base
 	cfg.Provider = provider
 
-	switch provider {
+	switch config.ProviderBackend(provider) {
 	case "anthropic":
 		if strings.TrimSpace(sp.BaseURL) != "" {
 			cfg.Anthropic.BaseURL = strings.TrimSpace(sp.BaseURL)

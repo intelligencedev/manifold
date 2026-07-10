@@ -80,7 +80,7 @@ func (a *app) specialistDefaultsHandler() http.HandlerFunc {
 			return
 		}
 		out := map[string]persist.Specialist{}
-		for _, p := range []string{"openai", "anthropic", "google", "local"} {
+		for _, p := range config.KnownProviders() {
 			model, baseURL, apiKey, headers, params := a.providerDefaults(p)
 			out[p] = persist.Specialist{
 				Provider:     p,
@@ -267,24 +267,42 @@ func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.
 	return out
 }
 
+// providerDefaults returns the default card for a provider: its built-in static
+// baseURL/ExtraParams (from config.ProviderDefaults) overlaid with the live
+// config for the provider that owns that config block. OpenAI-compatible
+// variants (openai/local/openrouter/llamacpp) share the OpenAI sub-config, so it
+// is only overlaid onto the currently active provider's card; the others show
+// their static defaults. This lets every provider expose correct defaults in the
+// frontend regardless of which provider is currently active.
 func (a *app) providerDefaults(provider string) (model, baseURL, apiKey string, headers map[string]string, params map[string]any) {
-	switch provider {
-	case "anthropic":
-		baseURL = strings.TrimSpace(a.cfg.LLMClient.Anthropic.BaseURL)
-		apiKey = strings.TrimSpace(a.cfg.LLMClient.Anthropic.APIKey)
-		model = strings.TrimSpace(a.cfg.LLMClient.Anthropic.Model)
-		params = copyAnyMap(a.cfg.LLMClient.Anthropic.ExtraParams)
+	prov := config.NormalizeProvider(provider)
+	pd, _ := config.ProviderDefaults(prov)
+	baseURL = pd.BaseURL
+	params = config.DefaultProviderExtraParams(prov)
+	headers = map[string]string{}
+
+	active := config.NormalizeProvider(a.cfg.LLMClient.Provider)
+	switch pd.Backend {
 	case "google":
-		baseURL = strings.TrimSpace(a.cfg.LLMClient.Google.BaseURL)
-		apiKey = strings.TrimSpace(a.cfg.LLMClient.Google.APIKey)
-		model = strings.TrimSpace(a.cfg.LLMClient.Google.Model)
-		params = copyAnyMap(a.cfg.LLMClient.Google.ExtraParams)
-	default:
-		baseURL = strings.TrimSpace(a.cfg.LLMClient.OpenAI.BaseURL)
-		apiKey = strings.TrimSpace(a.cfg.LLMClient.OpenAI.APIKey)
-		model = strings.TrimSpace(a.cfg.LLMClient.OpenAI.Model)
-		headers = copyStringMap(a.cfg.LLMClient.OpenAI.ExtraHeaders)
-		params = copyAnyMap(a.cfg.LLMClient.OpenAI.ExtraParams)
+		// google is not shared; its card always reflects the Google sub-config.
+		overlayProviderCard(&model, &baseURL, &apiKey, &params,
+			a.cfg.LLMClient.Google.Model, a.cfg.LLMClient.Google.BaseURL,
+			a.cfg.LLMClient.Google.APIKey, a.cfg.LLMClient.Google.ExtraParams)
+	case "anthropic":
+		// anthropic + openrouter share the Anthropic sub-config; overlay it only
+		// onto the currently active provider's card.
+		if prov == active {
+			overlayProviderCard(&model, &baseURL, &apiKey, &params,
+				a.cfg.LLMClient.Anthropic.Model, a.cfg.LLMClient.Anthropic.BaseURL,
+				a.cfg.LLMClient.Anthropic.APIKey, a.cfg.LLMClient.Anthropic.ExtraParams)
+		}
+	default: // openai (openai/local/llamacpp share the OpenAI sub-config)
+		if prov == active {
+			overlayProviderCard(&model, &baseURL, &apiKey, &params,
+				a.cfg.LLMClient.OpenAI.Model, a.cfg.LLMClient.OpenAI.BaseURL,
+				a.cfg.LLMClient.OpenAI.APIKey, a.cfg.LLMClient.OpenAI.ExtraParams)
+			headers = copyStringMap(a.cfg.LLMClient.OpenAI.ExtraHeaders)
+		}
 	}
 	if headers == nil {
 		headers = map[string]string{}
@@ -293,6 +311,24 @@ func (a *app) providerDefaults(provider string) (model, baseURL, apiKey string, 
 		params = map[string]any{}
 	}
 	return model, baseURL, apiKey, headers, params
+}
+
+// overlayProviderCard overwrites the non-empty live-config values onto a provider
+// default card; config ExtraParams replace the static defaults only when the user
+// has configured some.
+func overlayProviderCard(model, baseURL, apiKey *string, params *map[string]any, cfgModel, cfgBaseURL, cfgKey string, cfgParams map[string]any) {
+	if v := strings.TrimSpace(cfgBaseURL); v != "" {
+		*baseURL = v
+	}
+	if v := strings.TrimSpace(cfgKey); v != "" {
+		*apiKey = v
+	}
+	if v := strings.TrimSpace(cfgModel); v != "" {
+		*model = v
+	}
+	if len(cfgParams) > 0 {
+		*params = copyAnyMap(cfgParams)
+	}
 }
 
 func (a *app) teamMembershipsForUser(ctx context.Context, userID int64) map[string][]string {
@@ -410,7 +446,7 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 		SummaryContextWindowTokens: sp.SummaryContextWindowTokens,
 		Harness:                    sp.Harness,
 	}
-	switch provider {
+	switch config.ProviderBackend(provider) {
 	case "anthropic":
 		toSave.BaseURL = a.cfg.LLMClient.Anthropic.BaseURL
 		toSave.APIKey = a.cfg.LLMClient.Anthropic.APIKey
@@ -454,7 +490,7 @@ func (a *app) orchestratorModel(provider string, override string) string {
 	if currentModel := strings.TrimSpace(override); currentModel != "" {
 		return currentModel
 	}
-	switch provider {
+	switch config.ProviderBackend(provider) {
 	case "anthropic":
 		return strings.TrimSpace(a.cfg.LLMClient.Anthropic.Model)
 	case "google":

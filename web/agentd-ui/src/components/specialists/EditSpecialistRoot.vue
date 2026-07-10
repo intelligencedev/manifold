@@ -2117,7 +2117,17 @@ function onProviderChange() {
     if (draft.useDefaultEndpoint) {
       draft.customBaseURL = "";
     }
+    // Replace the Advanced-tab extra params with the selected provider's defaults.
+    applyProviderExtraParamDefaults(defaults.extraParams || {});
   }
+}
+
+// applyProviderExtraParamDefaults populates the Advanced-tab extra params from a
+// provider's default params object (deep-copied so edits don't mutate defaults).
+function applyProviderExtraParamDefaults(params: Record<string, any>) {
+  const next = { ...(params || {}) };
+  extraParamsObj.value = next;
+  extraParamsRows.value = objectToRows(next);
 }
 
 async function ensurePromptsLoaded() {
@@ -2532,9 +2542,15 @@ function initFromInitial(sp: Specialist, clearFeedback = true) {
 
   // advanced
   extraHeadersObj.value = normalized.extraHeaders || {};
-  extraParamsObj.value = normalized.extraParams || {};
   extraHeadersRows.value = objectToRows(extraHeadersObj.value);
-  extraParamsRows.value = objectToRows(extraParamsObj.value);
+  // Seed the provider's default extra params when the specialist has none saved
+  // (e.g. a newly created specialist), so defaults are visible in the Advanced tab.
+  const savedParams = normalized.extraParams || {};
+  const seedParams =
+    Object.keys(savedParams).length > 0
+      ? savedParams
+      : props.providerDefaults?.[draft.provider]?.extraParams || {};
+  applyProviderExtraParamDefaults(seedParams);
   initHarnessDraft(normalized.harness);
 
   // never preload secret into the draft

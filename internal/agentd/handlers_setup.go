@@ -111,10 +111,8 @@ func (a *app) applySetupComplete(req setupCompleteRequest) error {
 	if provider == "" {
 		provider = "openai"
 	}
-	switch provider {
-	case "openai", "anthropic", "google", "local":
-	default:
-		return fmt.Errorf("provider must be one of openai, anthropic, google, or local")
+	if _, ok := config.ProviderDefaults(provider); !ok {
+		return fmt.Errorf("provider must be one of %s", strings.Join(config.KnownProviders(), ", "))
 	}
 
 	apiKey := strings.TrimSpace(req.APIKey)
@@ -122,17 +120,21 @@ func (a *app) applySetupComplete(req setupCompleteRequest) error {
 	baseURL := strings.TrimSpace(req.BaseURL)
 
 	a.cfg.LLMClient.Provider = provider
-	switch provider {
-	case "anthropic":
+	pd, _ := config.ProviderDefaults(provider)
+	switch pd.Backend {
+	case "anthropic": // anthropic + openrouter (Anthropic Messages API)
 		if apiKey == "" {
-			return fmt.Errorf("apiKey is required for anthropic")
+			return fmt.Errorf("apiKey is required for %s", provider)
 		}
 		a.cfg.LLMClient.Anthropic.APIKey = apiKey
 		if model != "" {
 			a.cfg.LLMClient.Anthropic.Model = model
 		}
-		if baseURL != "" {
+		switch {
+		case baseURL != "":
 			a.cfg.LLMClient.Anthropic.BaseURL = baseURL
+		case pd.BaseURL != "":
+			a.cfg.LLMClient.Anthropic.BaseURL = pd.BaseURL
 		}
 	case "google":
 		if apiKey == "" {
@@ -145,9 +147,14 @@ func (a *app) applySetupComplete(req setupCompleteRequest) error {
 		if baseURL != "" {
 			a.cfg.LLMClient.Google.BaseURL = baseURL
 		}
-	default: // openai + local
-		if provider != "local" && apiKey == "" {
+	default: // openai (openai/local/llamacpp)
+		// openai requires a key; local/llamacpp servers usually do not.
+		if provider == "openai" && apiKey == "" {
 			return fmt.Errorf("apiKey is required for openai")
+		}
+		// llamacpp has no fixed endpoint; the user must supply one.
+		if provider == "llamacpp" && baseURL == "" {
+			return fmt.Errorf("baseURL is required for llamacpp")
 		}
 		if apiKey != "" {
 			a.cfg.LLMClient.OpenAI.APIKey = apiKey
@@ -155,13 +162,19 @@ func (a *app) applySetupComplete(req setupCompleteRequest) error {
 		if model != "" {
 			a.cfg.LLMClient.OpenAI.Model = model
 		}
-		if baseURL != "" {
+		switch {
+		case baseURL != "":
 			a.cfg.LLMClient.OpenAI.BaseURL = baseURL
+		case pd.BaseURL != "":
+			a.cfg.LLMClient.OpenAI.BaseURL = pd.BaseURL
 		}
 		if provider == "local" {
 			a.cfg.LLMClient.OpenAI.API = "completions"
+		} else if pd.API != "" {
+			a.cfg.LLMClient.OpenAI.API = pd.API
 		}
 	}
+	applyProviderDefaultExtraParams(a.cfg, provider)
 	a.cfg.OpenAI = a.cfg.LLMClient.OpenAI
 
 	if req.MemoryEnabled != nil {
@@ -208,6 +221,25 @@ func (a *app) applySetupComplete(req setupCompleteRequest) error {
 	return nil
 }
 
+// applyProviderDefaultExtraParams sets the chosen provider's ExtraParams to the
+// built-in defaults during onboarding so they appear (and can be edited) in the
+// UI. Providers with no defaults (e.g. local) are left untouched.
+func applyProviderDefaultExtraParams(cfg *config.Config, provider string) {
+	params := config.DefaultProviderExtraParams(provider)
+	if len(params) == 0 {
+		return
+	}
+	pd, _ := config.ProviderDefaults(provider)
+	switch pd.Backend {
+	case "anthropic":
+		cfg.LLMClient.Anthropic.ExtraParams = params
+	case "google":
+		cfg.LLMClient.Google.ExtraParams = params
+	default:
+		cfg.LLMClient.OpenAI.ExtraParams = params
+	}
+}
+
 func persistPrimaryLLMConfig(cfg *config.Config) error {
 	if cfg == nil {
 		return fmt.Errorf("nil config")
@@ -223,7 +255,11 @@ func persistPrimaryLLMConfig(cfg *config.Config) error {
 	}
 
 	setNestedMapValue(root, []string{"llm_client", "provider"}, cfg.LLMClient.Provider)
-	switch strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider)) {
+	persistBackend := "openai"
+	if pd, ok := config.ProviderDefaults(cfg.LLMClient.Provider); ok {
+		persistBackend = pd.Backend
+	}
+	switch persistBackend {
 	case "anthropic":
 		setNestedMapValue(root, []string{"llm_client", "anthropic", "apiKey"}, cfg.LLMClient.Anthropic.APIKey)
 		if cfg.LLMClient.Anthropic.Model != "" {
@@ -232,6 +268,9 @@ func persistPrimaryLLMConfig(cfg *config.Config) error {
 		if cfg.LLMClient.Anthropic.BaseURL != "" {
 			setNestedMapValue(root, []string{"llm_client", "anthropic", "baseURL"}, cfg.LLMClient.Anthropic.BaseURL)
 		}
+		if len(cfg.LLMClient.Anthropic.ExtraParams) > 0 {
+			setNestedMapValue(root, []string{"llm_client", "anthropic", "extraParams"}, cfg.LLMClient.Anthropic.ExtraParams)
+		}
 	case "google":
 		setNestedMapValue(root, []string{"llm_client", "google", "apiKey"}, cfg.LLMClient.Google.APIKey)
 		if cfg.LLMClient.Google.Model != "" {
@@ -239,6 +278,9 @@ func persistPrimaryLLMConfig(cfg *config.Config) error {
 		}
 		if cfg.LLMClient.Google.BaseURL != "" {
 			setNestedMapValue(root, []string{"llm_client", "google", "baseURL"}, cfg.LLMClient.Google.BaseURL)
+		}
+		if len(cfg.LLMClient.Google.ExtraParams) > 0 {
+			setNestedMapValue(root, []string{"llm_client", "google", "extraParams"}, cfg.LLMClient.Google.ExtraParams)
 		}
 	default:
 		setNestedMapValue(root, []string{"llm_client", "openai", "apiKey"}, cfg.LLMClient.OpenAI.APIKey)
@@ -250,6 +292,9 @@ func persistPrimaryLLMConfig(cfg *config.Config) error {
 		}
 		if cfg.LLMClient.OpenAI.API != "" {
 			setNestedMapValue(root, []string{"llm_client", "openai", "api"}, cfg.LLMClient.OpenAI.API)
+		}
+		if len(cfg.LLMClient.OpenAI.ExtraParams) > 0 {
+			setNestedMapValue(root, []string{"llm_client", "openai", "extraParams"}, cfg.LLMClient.OpenAI.ExtraParams)
 		}
 	}
 

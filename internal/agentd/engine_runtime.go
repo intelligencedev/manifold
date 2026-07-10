@@ -103,7 +103,7 @@ func currentSpecialistModel(sp persistence.Specialist, llmCfg config.LLMClientCo
 	if currentModel != "" {
 		return currentModel
 	}
-	switch provider {
+	switch config.ProviderBackend(provider) {
 	case "anthropic":
 		return strings.TrimSpace(llmCfg.Anthropic.Model)
 	case "google":

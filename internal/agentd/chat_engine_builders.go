@@ -493,7 +493,7 @@ func chatTeamModel(provider string, llmCfg config.LLMClientConfig, sp persist.Sp
 	if currentModel != "" {
 		return currentModel
 	}
-	switch provider {
+	switch config.ProviderBackend(provider) {
 	case "anthropic":
 		return strings.TrimSpace(llmCfg.Anthropic.Model)
 	case "google":

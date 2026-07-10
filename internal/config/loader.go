@@ -329,14 +329,19 @@ func HasPrimaryLLMCredentials(cfg *Config) bool {
 	if cfg == nil {
 		return false
 	}
-	switch strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider)) {
+	prov := NormalizeProvider(cfg.LLMClient.Provider)
+	// Local OpenAI-compatible servers (local, llama.cpp) often need no key.
+	if prov == "local" || prov == "llamacpp" {
+		return true
+	}
+	// Check the key on the sub-config that backs the provider (openrouter is
+	// Anthropic-backed, so its key lives in the Anthropic sub-config).
+	pd, _ := ProviderDefaults(prov)
+	switch pd.Backend {
 	case "anthropic":
 		return strings.TrimSpace(cfg.LLMClient.Anthropic.APIKey) != ""
 	case "google":
 		return strings.TrimSpace(cfg.LLMClient.Google.APIKey) != ""
-	case "local":
-		// Local OpenAI-compatible servers often do not require a key.
-		return true
 	default:
 		return strings.TrimSpace(cfg.LLMClient.OpenAI.APIKey) != ""
 	}
@@ -461,12 +466,10 @@ func validateHarnessConfig(path string, cfg HarnessConfig) error {
 }
 
 func validateProvider(path, provider string) error {
-	switch provider {
-	case "openai", "anthropic", "google", "local":
+	if _, ok := ProviderDefaults(provider); ok {
 		return nil
-	default:
-		return fmt.Errorf("%s must be one of openai, anthropic, google, or local (got %q)", path, provider)
 	}
+	return fmt.Errorf("%s must be one of %s (got %q)", path, strings.Join(KnownProviders(), ", "), provider)
 }
 
 func validateBeliefMemoryConfig(cfg BeliefMemoryConfig) error {

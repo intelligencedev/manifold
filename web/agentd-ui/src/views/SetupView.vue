@@ -37,6 +37,8 @@
           <option value="openai">OpenAI / compatible</option>
           <option value="anthropic">Anthropic</option>
           <option value="google">Google</option>
+          <option value="openrouter">OpenRouter</option>
+          <option value="llamacpp">llama.cpp (OpenAI-compatible)</option>
           <option value="local">Local (OpenAI-compatible)</option>
         </select>
       </div>
@@ -53,7 +55,7 @@
           type="password"
           autocomplete="off"
           :placeholder="
-            form.provider === 'local'
+            form.provider === 'local' || form.provider === 'llamacpp'
               ? 'Optional for most local servers'
               : 'sk-…'
           "
@@ -142,7 +144,10 @@ const modelPlaceholder = computed(() => {
       return "claude-sonnet-4-6";
     case "google":
       return "gemini-2.5-pro";
+    case "openrouter":
+      return "openai/gpt-4o-mini";
     case "local":
+    case "llamacpp":
       return "local-model";
     default:
       return "gpt-5-mini";
@@ -155,6 +160,10 @@ const baseUrlPlaceholder = computed(() => {
       return "https://api.anthropic.com";
     case "google":
       return "https://generativelanguage.googleapis.com/";
+    case "openrouter":
+      return "https://openrouter.ai/api";
+    case "llamacpp":
+      return "http://localhost:8080/v1 (required)";
     case "local":
       return "http://localhost:11434/v1";
     default:

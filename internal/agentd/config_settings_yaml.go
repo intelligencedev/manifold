@@ -4,6 +4,8 @@ import (
 	"os"
 
 	yaml "gopkg.in/yaml.v3"
+
+	"manifold/internal/config"
 )
 
 func persistToConfigYAML(settings agentdSettings) error {
@@ -50,37 +52,17 @@ func applyPrimaryLLMSettingsYAML(root map[string]any, settings agentdSettings) {
 	if provider != "" {
 		setNestedMapValue(root, []string{"llm_client", "provider"}, provider)
 	}
-	switch provider {
-	case "anthropic":
-		if settings.LLMAPIKey != "" {
-			setNestedMapValue(root, []string{"llm_client", "anthropic", "apiKey"}, settings.LLMAPIKey)
-		}
-		if settings.LLMModel != "" {
-			setNestedMapValue(root, []string{"llm_client", "anthropic", "model"}, settings.LLMModel)
-		}
-		if settings.LLMBaseURL != "" {
-			setNestedMapValue(root, []string{"llm_client", "anthropic", "baseURL"}, settings.LLMBaseURL)
-		}
-	case "google":
-		if settings.LLMAPIKey != "" {
-			setNestedMapValue(root, []string{"llm_client", "google", "apiKey"}, settings.LLMAPIKey)
-		}
-		if settings.LLMModel != "" {
-			setNestedMapValue(root, []string{"llm_client", "google", "model"}, settings.LLMModel)
-		}
-		if settings.LLMBaseURL != "" {
-			setNestedMapValue(root, []string{"llm_client", "google", "baseURL"}, settings.LLMBaseURL)
-		}
-	default:
-		if settings.LLMAPIKey != "" {
-			setNestedMapValue(root, []string{"llm_client", "openai", "apiKey"}, settings.LLMAPIKey)
-		}
-		if settings.LLMModel != "" {
-			setNestedMapValue(root, []string{"llm_client", "openai", "model"}, settings.LLMModel)
-		}
-		if settings.LLMBaseURL != "" {
-			setNestedMapValue(root, []string{"llm_client", "openai", "baseURL"}, settings.LLMBaseURL)
-		}
+	// The YAML sub-block is named by the provider's backend (openai/anthropic/
+	// google), so OpenRouter writes under the anthropic block.
+	block := config.ProviderBackend(provider)
+	if settings.LLMAPIKey != "" {
+		setNestedMapValue(root, []string{"llm_client", block, "apiKey"}, settings.LLMAPIKey)
+	}
+	if settings.LLMModel != "" {
+		setNestedMapValue(root, []string{"llm_client", block, "model"}, settings.LLMModel)
+	}
+	if settings.LLMBaseURL != "" {
+		setNestedMapValue(root, []string{"llm_client", block, "baseURL"}, settings.LLMBaseURL)
 	}
 	setNestedMapValue(root, []string{"memory", "enabled"}, settings.MemoryEnabled)
 }

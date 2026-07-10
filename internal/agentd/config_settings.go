@@ -22,17 +22,8 @@ func currentAgentdSettings(cfg *config.Config) agentdSettings {
 func projectPrimaryLLMAgentdSettings(settings *agentdSettings, cfg *config.Config) {
 	settings.LLMProvider = strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider))
 	settings.LLMModel = resolveLLMClientModel(cfg.LLMClient)
-	switch settings.LLMProvider {
-	case "anthropic":
-		settings.LLMAPIKey = cfg.LLMClient.Anthropic.APIKey
-		settings.LLMBaseURL = cfg.LLMClient.Anthropic.BaseURL
-	case "google":
-		settings.LLMAPIKey = cfg.LLMClient.Google.APIKey
-		settings.LLMBaseURL = cfg.LLMClient.Google.BaseURL
-	default:
-		settings.LLMAPIKey = cfg.LLMClient.OpenAI.APIKey
-		settings.LLMBaseURL = cfg.LLMClient.OpenAI.BaseURL
-	}
+	settings.LLMAPIKey = cfg.LLMClient.ActiveAPIKey()
+	settings.LLMBaseURL = cfg.LLMClient.ActiveBaseURL()
 	settings.MemoryEnabled = cfg.Memory.Enabled
 }
 
@@ -197,15 +188,7 @@ func normalizeAgentdSettings(settings agentdSettings) agentdSettings {
 }
 
 func applySummaryModel(cfg *config.Config, model string) {
-	providerName := strings.ToLower(strings.TrimSpace(cfg.Summary.LLMClient.Provider))
-	switch providerName {
-	case "anthropic":
-		cfg.Summary.LLMClient.Anthropic.Model = model
-	case "google":
-		cfg.Summary.LLMClient.Google.Model = model
-	default:
-		cfg.Summary.LLMClient.OpenAI.Model = model
-	}
+	cfg.Summary.LLMClient.SetActiveModel(model)
 }
 
 func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
@@ -537,48 +520,31 @@ func applyPrimaryLLMSettings(cfg *config.Config, settings agentdSettings) error 
 	if provider == "" {
 		provider = "openai"
 	}
-	switch provider {
-	case "openai", "anthropic", "google", "local":
-	default:
-		return fmt.Errorf("llmProvider must be one of openai, anthropic, google, or local (got %q)", settings.LLMProvider)
+	if _, ok := config.ProviderDefaults(provider); !ok {
+		return fmt.Errorf("llmProvider must be one of %s (got %q)", strings.Join(config.KnownProviders(), ", "), settings.LLMProvider)
 	}
 	cfg.LLMClient.Provider = provider
+	pd, _ := config.ProviderDefaults(provider)
 	apiKey := strings.TrimSpace(settings.LLMAPIKey)
 	model := strings.TrimSpace(settings.LLMModel)
 	baseURL := strings.TrimSpace(settings.LLMBaseURL)
-	switch provider {
-	case "anthropic":
-		if apiKey != "" {
-			cfg.LLMClient.Anthropic.APIKey = apiKey
-		}
-		if model != "" {
-			cfg.LLMClient.Anthropic.Model = model
-		}
-		if baseURL != "" {
-			cfg.LLMClient.Anthropic.BaseURL = baseURL
-		}
-	case "google":
-		if apiKey != "" {
-			cfg.LLMClient.Google.APIKey = apiKey
-		}
-		if model != "" {
-			cfg.LLMClient.Google.Model = model
-		}
-		if baseURL != "" {
-			cfg.LLMClient.Google.BaseURL = baseURL
-		}
-	default:
-		if apiKey != "" {
-			cfg.LLMClient.OpenAI.APIKey = apiKey
-		}
-		if model != "" {
-			cfg.LLMClient.OpenAI.Model = model
-		}
-		if baseURL != "" {
-			cfg.LLMClient.OpenAI.BaseURL = baseURL
-		}
+	if apiKey != "" {
+		cfg.LLMClient.SetActiveAPIKey(apiKey)
+	}
+	if model != "" {
+		cfg.LLMClient.SetActiveModel(model)
+	}
+	switch {
+	case baseURL != "":
+		cfg.LLMClient.SetActiveBaseURL(baseURL)
+	case pd.BaseURL != "":
+		cfg.LLMClient.SetActiveBaseURL(pd.BaseURL)
+	}
+	if config.ProviderBackend(provider) == "openai" {
 		if provider == "local" {
 			cfg.LLMClient.OpenAI.API = "completions"
+		} else if pd.API != "" {
+			cfg.LLMClient.OpenAI.API = pd.API
 		}
 	}
 	cfg.OpenAI = cfg.LLMClient.OpenAI

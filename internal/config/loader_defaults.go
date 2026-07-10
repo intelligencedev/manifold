@@ -143,7 +143,58 @@ func applyLLMDefaults(cfg *Config) {
 	if cfg.LLMClient.Google.BaseURL == "" {
 		cfg.LLMClient.Google.BaseURL = "https://generativelanguage.googleapis.com/"
 	}
+	applyProviderEndpointDefaults(cfg)
+	applyProviderExtraParamDefaults(cfg)
 	applySummaryDefaults(cfg)
+}
+
+// applyProviderEndpointDefaults points a variant provider's backing sub-config at
+// its fixed endpoint (e.g. OpenRouter's Anthropic URL) when the user has not set
+// a custom base URL. Providers whose ProviderDefaults BaseURL matches the
+// backend's default or is blank are left as configured.
+func applyProviderEndpointDefaults(cfg *Config) {
+	pd, ok := ProviderDefaults(cfg.LLMClient.Provider)
+	if !ok || pd.BaseURL == "" {
+		return
+	}
+	switch pd.Backend {
+	case "anthropic":
+		const anthropicDefaultBaseURL = "https://api.anthropic.com"
+		if pd.BaseURL != anthropicDefaultBaseURL &&
+			(cfg.LLMClient.Anthropic.BaseURL == "" || cfg.LLMClient.Anthropic.BaseURL == anthropicDefaultBaseURL) {
+			cfg.LLMClient.Anthropic.BaseURL = pd.BaseURL
+		}
+	case "openai":
+		if pd.BaseURL != OpenAIAPIV1BaseURL &&
+			(cfg.LLMClient.OpenAI.BaseURL == "" || cfg.LLMClient.OpenAI.BaseURL == OpenAIAPIV1BaseURL) {
+			cfg.LLMClient.OpenAI.BaseURL = pd.BaseURL
+		}
+	}
+}
+
+// applyProviderExtraParamDefaults seeds the active provider's ExtraParams from
+// the built-in defaults when the user has not configured any. Providers sharing
+// a backend share that sub-config, so the blob is chosen by the active provider.
+func applyProviderExtraParamDefaults(cfg *Config) {
+	prov := NormalizeProvider(cfg.LLMClient.Provider)
+	pd, ok := ProviderDefaults(prov)
+	if !ok {
+		return
+	}
+	switch pd.Backend {
+	case "anthropic":
+		if len(cfg.LLMClient.Anthropic.ExtraParams) == 0 {
+			cfg.LLMClient.Anthropic.ExtraParams = DefaultProviderExtraParams(prov)
+		}
+	case "google":
+		if len(cfg.LLMClient.Google.ExtraParams) == 0 {
+			cfg.LLMClient.Google.ExtraParams = DefaultProviderExtraParams(prov)
+		}
+	default: // openai
+		if len(cfg.LLMClient.OpenAI.ExtraParams) == 0 {
+			cfg.LLMClient.OpenAI.ExtraParams = DefaultProviderExtraParams(prov)
+		}
+	}
 }
 
 func applyLLMEnvDefaults(cfg *Config) {

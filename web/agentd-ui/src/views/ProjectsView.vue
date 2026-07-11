@@ -27,6 +27,7 @@ const fieldClass =
 
 const store = useProjectsStore();
 const newProjectName = ref("");
+const newProjectInput = ref<HTMLInputElement | null>(null);
 const uploadInput = ref<HTMLInputElement | null>(null);
 const treeRef = ref<InstanceType<typeof FileTree> | null>(null);
 const splitPaneRef = ref<HTMLElement | null>(null);
@@ -434,6 +435,10 @@ async function createProject() {
   await store.ensureTree(".");
 }
 
+function focusNewProject() {
+  newProjectInput.value?.focus();
+}
+
 function openFile(path: string) {
   selectedFile.value = path;
 }
@@ -451,6 +456,15 @@ async function loadEditorFile(path: string) {
     editorError.value = "Failed to load file.";
   } finally {
     editorLoading.value = false;
+  }
+}
+
+function onEditorKeydown(event: KeyboardEvent) {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+    event.preventDefault();
+    if (editorDirty.value && !editorSaving.value && !editorLoading.value) {
+      void saveEditor();
+    }
   }
 }
 
@@ -559,32 +573,8 @@ function startPaneResize(event: PointerEvent) {
       class="halo-hairline-b shrink-0 pb-3"
     >
       <div class="flex flex-wrap items-center gap-3">
-        <div class="flex flex-wrap items-center gap-2">
-          <label class="sr-only" for="new-project">New project name</label>
-          <input
-            id="new-project"
-            v-model="newProjectName"
-            placeholder="New project name"
-            :class="[fieldClass, 'h-9 w-48']"
-            @keydown.enter="createProject"
-          />
-          <AppButton variant="accent" size="sm" @click="createProject">
-            Create
-          </AppButton>
-          <AppButton
-            variant="danger"
-            size="sm"
-            class="px-2.5"
-            :disabled="!current"
-            title="Delete current project"
-            aria-label="Delete current project"
-            @click="openDeleteProjectDialog"
-          >
-            <SolarTrashIcon class="h-4 w-4" />
-          </AppButton>
-        </div>
-
-        <div class="flex flex-wrap items-center gap-2">
+        <!-- Current project + its actions -->
+        <div class="flex items-center gap-2">
           <DropdownSelect
             id="project-select"
             v-model="selectedProjectId"
@@ -598,26 +588,59 @@ function startPaneResize(event: PointerEvent) {
             variant="neutral"
             size="sm"
             title="Download project as .tar.gz"
+            aria-label="Download project"
             @click="downloadProject"
           >
-            Download
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 3v11m0 0 4-4m-4 4-4-4" />
+              <path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2" />
+            </svg>
+          </AppButton>
+          <AppButton
+            variant="danger"
+            size="sm"
+            :disabled="!current"
+            title="Delete current project"
+            aria-label="Delete current project"
+            @click="openDeleteProjectDialog"
+          >
+            <SolarTrashIcon class="h-4 w-4" />
           </AppButton>
         </div>
 
+        <!-- Project meta -->
         <div
           v-if="current"
-          class="ml-auto flex flex-wrap items-center gap-2 text-xs text-faint-foreground"
+          class="flex items-center gap-2 text-xs text-faint-foreground"
         >
-          <span
-            >Created
-            {{ new Date(current.createdAt).toLocaleDateString() }}</span
+          <span>Created {{ new Date(current.createdAt).toLocaleDateString() }}</span>
+          <Pill v-if="current.usageLoaded" tone="neutral" size="sm">{{ current.files }} files</Pill>
+          <Pill v-if="current.usageLoaded" tone="neutral" size="sm">{{ (current.sizeBytes / 1024).toFixed(1) }} KB</Pill>
+        </div>
+
+        <!-- New project -->
+        <div class="ml-auto flex items-center gap-2">
+          <label class="sr-only" for="new-project">New project name</label>
+          <input
+            id="new-project"
+            ref="newProjectInput"
+            v-model="newProjectName"
+            placeholder="New project name"
+            :class="[fieldClass, 'h-9 w-44']"
+            @keydown.enter="createProject"
+          />
+          <AppButton
+            variant="accent"
+            size="sm"
+            :disabled="!newProjectName.trim()"
+            title="Create project"
+            aria-label="Create project"
+            @click="createProject"
           >
-          <Pill v-if="current.usageLoaded" tone="neutral" size="sm"
-            >{{ current.files }} files</Pill
-          >
-          <Pill v-if="current.usageLoaded" tone="neutral" size="sm"
-            >{{ (current.sizeBytes / 1024).toFixed(1) }} KB</Pill
-          >
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </AppButton>
         </div>
       </div>
     </Panel>
@@ -632,36 +655,68 @@ function startPaneResize(event: PointerEvent) {
         class="flex h-full min-h-0 min-w-0 shrink-0 flex-col p-6 pr-6"
         :style="leftPaneStyle"
       >
-        <div class="mb-4 flex items-center gap-3">
-          <AppButton variant="ghost" size="sm" @click="() => openDir('.')">
-            Root
+        <div class="mb-4 flex items-center gap-2">
+          <AppButton
+            variant="ghost"
+            size="sm"
+            title="Go to project root"
+            aria-label="Go to project root"
+            @click="() => openDir('.')"
+          >
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 11.5 12 4l9 7.5" />
+              <path d="M5 10v9a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-9" />
+            </svg>
           </AppButton>
-          <div class="truncate text-sm text-faint-foreground">{{ cwd }}</div>
-          <div class="ml-auto flex flex-wrap items-center gap-2">
-            <AppButton variant="neutral" size="sm" @click="mkdir">
-              New Folder
+          <div class="min-w-0 flex-1 truncate text-sm text-faint-foreground">{{ cwd }}</div>
+
+          <div class="flex items-center gap-2">
+            <!-- Selection actions (contextual) -->
+            <template v-if="canDeleteSelectedItems">
+              <span class="whitespace-nowrap text-xs text-subtle-foreground">{{ selectedCount }} selected</span>
+              <AppButton
+                variant="neutral"
+                size="sm"
+                title="Download selected"
+                aria-label="Download selected"
+                @click="bulkDownload"
+              >
+                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M12 3v11m0 0 4-4m-4 4-4-4" />
+                  <path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2" />
+                </svg>
+              </AppButton>
+              <AppButton
+                variant="danger"
+                size="sm"
+                title="Delete selected"
+                aria-label="Delete selected"
+                @click="bulkDelete"
+              >
+                <SolarTrashIcon class="h-4 w-4" />
+              </AppButton>
+              <div class="mx-1 h-5 w-px bg-border"></div>
+            </template>
+
+            <!-- Create / upload -->
+            <AppButton variant="neutral" size="sm" title="New folder" aria-label="New folder" @click="mkdir">
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 7a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" />
+                <path d="M12 11v5M9.5 13.5h5" />
+              </svg>
             </AppButton>
-            <AppButton variant="neutral" size="sm" @click="createFile">
-              New File
+            <AppButton variant="neutral" size="sm" title="New file" aria-label="New file" @click="createFile">
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M14 4H7a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V8z" />
+                <path d="M14 4v4h4" />
+                <path d="M12 12v5M9.5 14.5h5" />
+              </svg>
             </AppButton>
-            <AppButton variant="neutral" size="sm" @click="pickUpload">
-              Upload
-            </AppButton>
-            <AppButton
-              variant="neutral"
-              size="sm"
-              :disabled="!canDeleteSelectedItems"
-              @click="bulkDownload"
-            >
-              Download Selected
-            </AppButton>
-            <AppButton
-              variant="danger"
-              size="sm"
-              :disabled="!canDeleteSelectedItems"
-              @click="bulkDelete"
-            >
-              Delete Selected
+            <AppButton variant="neutral" size="sm" title="Upload files" aria-label="Upload files" @click="pickUpload">
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 16V5m0 0 4 4m-4-4-4 4" />
+                <path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2" />
+              </svg>
             </AppButton>
             <input
               ref="uploadInput"
@@ -702,11 +757,18 @@ function startPaneResize(event: PointerEvent) {
         class="flex h-full min-h-0 min-w-0 shrink-0 flex-col p-6 pl-6"
         :style="rightPaneStyle"
       >
-        <div
-          class="mb-3 flex items-center justify-between text-sm text-faint-foreground"
-        >
-          <div class="flex items-center gap-3">
-            <div class="uppercase tracking-wide">Preview</div>
+        <div class="mb-3 flex items-center justify-between gap-3">
+          <div class="flex min-w-0 items-center gap-2">
+            <svg class="h-4 w-4 shrink-0 text-faint-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7z" />
+              <path d="M14 3v4h4" />
+            </svg>
+            <span class="truncate text-sm text-foreground">{{ selectedFile || "No file selected" }}</span>
+            <span v-if="editorError" class="shrink-0 text-xs text-danger">{{ editorError }}</span>
+            <span v-else-if="editorLoading" class="shrink-0 text-xs text-subtle-foreground">Loading…</span>
+            <span v-else-if="editorDirty" class="shrink-0 text-xs text-warning">• Unsaved</span>
+          </div>
+          <div class="flex shrink-0 items-center gap-2">
             <MSegmented
               v-if="isMarkdownFile"
               v-model="previewMode"
@@ -715,12 +777,22 @@ function startPaneResize(event: PointerEvent) {
                 { value: 'markdown', label: 'Markdown' },
               ]"
             />
-          </div>
-          <div
-            class="max-w-[70%] truncate text-subtle-foreground"
-            v-if="selectedFile"
-          >
-            {{ selectedFile }}
+            <AppButton
+              v-if="isTextFile"
+              variant="accent"
+              size="sm"
+              :loading="editorSaving"
+              :disabled="editorLoading || editorSaving || !editorDirty"
+              title="Save (⌘S)"
+              aria-label="Save file"
+              @click="saveEditor"
+            >
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z" />
+                <path d="M8 4v5h7" />
+                <path d="M8 21v-6h8v6" />
+              </svg>
+            </AppButton>
           </div>
         </div>
         <div class="scrollbar-inset min-h-0 flex-1 overflow-auto">
@@ -728,37 +800,14 @@ function startPaneResize(event: PointerEvent) {
             Select a file to preview
           </div>
           <template v-else>
-            <div v-if="isTextFile" class="flex h-full flex-col gap-3">
-              <div class="flex flex-wrap items-center gap-2">
-                <AppButton
-                  variant="accent"
-                  size="sm"
-                  :loading="editorSaving"
-                  :disabled="editorLoading || editorSaving || !editorDirty"
-                  @click="saveEditor"
-                >
-                  Save
-                </AppButton>
-                <span
-                  v-if="editorLoading"
-                  class="text-xs text-subtle-foreground"
-                  >Loading...</span
-                >
-                <span v-if="editorError" class="text-xs text-danger">
-                  {{ editorError }}
-                </span>
-                <span
-                  v-else-if="editorDirty"
-                  class="text-xs text-subtle-foreground"
-                  >Unsaved changes</span
-                >
-              </div>
+            <div v-if="isTextFile" class="flex h-full flex-col">
               <textarea
                 v-if="!isMarkdownFile || previewMode === 'raw'"
                 v-model="editorContent"
                 class="min-h-[360px] flex-1 resize-none rounded-md border border-border bg-surface p-3 text-sm text-foreground shadow-inner focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 spellcheck="false"
                 @input="editorDirty = true"
+                @keydown="onEditorKeydown"
               />
               <div
                 v-else
@@ -792,13 +841,23 @@ function startPaneResize(event: PointerEvent) {
       </GlassCard>
     </div>
 
-    <GlassCard
+    <div
       v-else
-      flat
-      class="flex min-h-0 flex-1 items-center justify-center p-6 text-subtle-foreground"
+      class="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 text-center"
     >
-      No project selected. Create one to get started.
-    </GlassCard>
+      <div class="flex h-14 w-14 items-center justify-center rounded-xl border border-[rgb(var(--line-strong))] bg-surface-muted text-accent">
+        <svg class="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 7a1 1 0 0 1 1-1h5l2 2h8a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" />
+        </svg>
+      </div>
+      <div>
+        <p class="text-sm font-semibold">No project selected</p>
+        <p class="mx-auto mt-1 max-w-sm text-sm text-subtle-foreground">
+          Projects are isolated workspaces where agents read and write files. Pick one from the selector, or name a new one and create it.
+        </p>
+      </div>
+      <AppButton variant="accent" size="sm" @click="focusNewProject">New project</AppButton>
+    </div>
 
     <div
       v-if="showDeleteProjectDialog"

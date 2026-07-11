@@ -181,7 +181,6 @@ func (a *app) applySetupComplete(req setupCompleteRequest) error {
 		}
 	}
 	applyProviderDefaultExtraParams(a.cfg, provider)
-	a.cfg.OpenAI = a.cfg.LLMClient.OpenAI
 	seedDependentLLMClients(a.cfg)
 
 	if req.MemoryEnabled != nil {

@@ -60,8 +60,8 @@ type appStartupDeps struct {
 
 func buildAppStartup(ctx context.Context, cfg *config.Config) (appStartupDeps, error) {
 	httpClient := observability.NewHTTPClient(nil)
-	if len(cfg.OpenAI.ExtraHeaders) > 0 {
-		httpClient = observability.WithHeaders(httpClient, cfg.OpenAI.ExtraHeaders)
+	if len(cfg.LLMClient.OpenAI.ExtraHeaders) > 0 {
+		httpClient = observability.WithHeaders(httpClient, cfg.LLMClient.OpenAI.ExtraHeaders)
 	}
 	llmpkg.ConfigureLogging(cfg.LogPayloads, cfg.LogRawPrompts, cfg.OutputTruncateByte)
 	llm, err := llmproviders.Build(*cfg, httpClient)
@@ -280,7 +280,7 @@ func (a *app) initAgentRuntime(deps agentRuntimeDeps) error {
 }
 
 func (a *app) initEngine(cfg *config.Config, llm llmpkg.Provider, toolRegistry tools.Registry) {
-	ctxSize, _ := llmpkg.ContextSize(cfg.OpenAI.Model)
+	ctxSize, _ := llmpkg.ContextSize(cfg.LLMClient.OpenAI.Model)
 	a.engine = &agent.Engine{
 		LLM:                          llm,
 		Tools:                        toolRegistry,
@@ -288,7 +288,7 @@ func (a *app) initEngine(cfg *config.Config, llm llmpkg.Provider, toolRegistry t
 		MaxToolParallelism:           cfg.MaxToolParallelism,
 		System:                       a.composeSystemPrompt(),
 		UserPromptContext:            a.composeUserPromptContext(),
-		Model:                        cfg.OpenAI.Model,
+		Model:                        cfg.LLMClient.OpenAI.Model,
 		ContextWindowTokens:          ctxSize,
 		SummaryEnabled:               cfg.SummaryEnabled,
 		SummaryReserveBufferTokens:   cfg.SummaryReserveBufferTokens,
@@ -488,7 +488,7 @@ func (a *app) initPlaygroundServices(cfg *config.Config, mgr databases.Manager, 
 	playgroundDataset := dataset.NewService(mgr.Playground)
 	playgroundRepo := experiment.NewRepository()
 	playgroundPlanner := experiment.NewPlanner(experiment.PlannerConfig{MaxRowsPerShard: 32, MaxVariantsPerShard: 4})
-	playgroundProvider := provider.NewLLMAdapter(llm, cfg.OpenAI.Model)
+	playgroundProvider := provider.NewLLMAdapter(llm, cfg.LLMClient.OpenAI.Model)
 	playgroundRunner := newPlaygroundSpecialistRunner(a, worker.NewProviderRunner(playgroundProvider))
 	playgroundWorker := worker.NewWorkerWithRunner(playgroundRunner, artifactStore)
 	playgroundEvals := eval.NewRunner(eval.NewRegistry(), playgroundProvider)

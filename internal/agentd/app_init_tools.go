@@ -161,7 +161,7 @@ func registerBaseTools(opts baseToolOptions) {
 	opts.toolRegistry.Register(utility.NewAgentResponseTool())
 	opts.toolRegistry.Register(matrixroomtool.New())
 	opts.toolRegistry.Register(pulsetool.New(opts.mgr.Pulse))
-	opts.toolRegistry.Register(llmparallel.New(opts.httpClient, opts.cfg.OpenAI.BaseURL, opts.cfg.OpenAI.Model, opts.cfg.OpenAI.APIKey))
+	opts.toolRegistry.Register(llmparallel.New(opts.httpClient, opts.cfg.LLMClient.OpenAI.BaseURL, opts.cfg.LLMClient.OpenAI.Model, opts.cfg.LLMClient.OpenAI.APIKey))
 	opts.toolRegistry.Register(multitool.NewParallel(opts.baseToolRegistry, multitool.WithMaxParallel(opts.cfg.MaxToolParallelism)))
 	opts.toolRegistry.Register(tts.New(*opts.cfg, opts.httpClient))
 }

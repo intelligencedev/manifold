@@ -95,7 +95,7 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 	}
 	request := t.callRequest(args)
 
-	logger.Debug().Str("config_tts_baseURL", t.cfg.TTS.BaseURL).Str("config_openai_baseURL", t.cfg.OpenAI.BaseURL).Msg("tts_config_urls")
+	logger.Debug().Str("config_tts_baseURL", t.cfg.TTS.BaseURL).Str("config_openai_baseURL", t.cfg.LLMClient.OpenAI.BaseURL).Msg("tts_config_urls")
 	logger.Debug().Str("final_baseURL", request.baseURL).Msg("tts_request")
 	req, err := request.httpRequest(ctx)
 	if err != nil {
@@ -159,7 +159,7 @@ func (t *Tool) callRequest(args callArgs) callRequest {
 	}
 	baseURL := t.cfg.TTS.BaseURL
 	if baseURL == "" {
-		baseURL = t.cfg.OpenAI.BaseURL
+		baseURL = t.cfg.LLMClient.OpenAI.BaseURL
 	}
 	if baseURL == "" {
 		baseURL = config.OpenAIAPIBaseURL
@@ -172,7 +172,7 @@ func (t *Tool) callRequest(args callArgs) callRequest {
 	return callRequest{
 		url:     url,
 		body:    callBody{Model: model, Voice: voice, Input: args.Text},
-		apiKey:  t.cfg.OpenAI.APIKey,
+		apiKey:  t.cfg.LLMClient.OpenAI.APIKey,
 		stream:  args.Stream,
 		baseURL: baseURL,
 	}

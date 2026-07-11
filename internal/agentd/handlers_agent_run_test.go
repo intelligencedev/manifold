@@ -71,10 +71,6 @@ func TestAgentRunHandlerOrchestratorFallbackRecordsSingleRun(t *testing.T) {
 		cfg: &config.Config{
 			Workdir:  ".",
 			MaxSteps: 2,
-			OpenAI: config.OpenAIConfig{
-				APIKey: "test",
-				Model:  "orchestrator-model",
-			},
 			LLMClient: config.LLMClientConfig{
 				Provider: "openai",
 				OpenAI: config.OpenAIConfig{
@@ -168,10 +164,6 @@ func TestAgentRunHandlerDeletesEphemeralSessionAfterSuccess(t *testing.T) {
 		cfg: &config.Config{
 			Workdir:  ".",
 			MaxSteps: 2,
-			OpenAI: config.OpenAIConfig{
-				APIKey: "test",
-				Model:  "orchestrator-model",
-			},
 			LLMClient: config.LLMClientConfig{
 				Provider: "openai",
 				OpenAI: config.OpenAIConfig{
@@ -488,10 +480,6 @@ func newHarnessAgentRunTestApp(provider llm.Provider, baseTools tools.Registry, 
 	cfg := &config.Config{
 		Workdir:  ".",
 		MaxSteps: 4,
-		OpenAI: config.OpenAIConfig{
-			APIKey: "test",
-			Model:  "orchestrator-model",
-		},
 		LLMClient: config.LLMClientConfig{
 			Provider: "openai",
 			OpenAI: config.OpenAIConfig{

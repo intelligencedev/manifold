@@ -58,10 +58,8 @@ type Config struct {
 	Exec               ExecConfig    `yaml:"exec" json:"exec"`
 	// LLMClient controls which LLM provider to use and holds provider-specific settings.
 	LLMClient LLMClientConfig `yaml:"llm_client" json:"llmClient"`
-	// OpenAI retains the active OpenAI-compatible configuration for backward compatibility.
-	OpenAI OpenAIConfig `yaml:"openai" json:"openai"`
-	Obs    ObsConfig    `yaml:"obs" json:"obs"`
-	Web    WebConfig    `yaml:"web" json:"web"`
+	Obs       ObsConfig       `yaml:"obs" json:"obs"`
+	Web       WebConfig       `yaml:"web" json:"web"`
 	// Matrix configures the built-in Matrix gateway.
 	Matrix MatrixConfig `yaml:"matrix" json:"matrix"`
 	// Auth configures optional user authentication (OIDC/OAuth2) and RBAC.

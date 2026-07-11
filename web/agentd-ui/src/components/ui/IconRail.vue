@@ -131,7 +131,7 @@ function isActive(name: string) {
 }
 
 function navTarget(name: string) {
-  if (name === "playground") return { name: "playground-overview" };
+  if (name === "playground") return { name: "playground-prompts" };
   return { name };
 }
 

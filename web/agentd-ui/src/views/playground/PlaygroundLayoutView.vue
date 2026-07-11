@@ -28,7 +28,6 @@ const route = useRoute();
 const router = useRouter();
 
 const tabs = [
-  { label: "Overview", value: "/playground" },
   { label: "Prompts", value: "/playground/prompts" },
   { label: "Datasets", value: "/playground/datasets" },
   { label: "Experiments", value: "/playground/experiments" },
@@ -39,7 +38,7 @@ const activeTab = computed({
     const match = [...tabs]
       .reverse()
       .find((item) => route.path === item.value || route.path.startsWith(`${item.value}/`));
-    return match?.value ?? "/playground";
+    return match?.value ?? "/playground/prompts";
   },
   set: (value: string) => {
     void router.push(value);

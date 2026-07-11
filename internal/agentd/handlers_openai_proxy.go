@@ -144,8 +144,8 @@ func (a *app) proxyDefaultModel() string {
 	if a != nil && a.engine != nil && strings.TrimSpace(a.engine.Model) != "" {
 		return strings.TrimSpace(a.engine.Model)
 	}
-	if a != nil && a.cfg != nil && strings.TrimSpace(a.cfg.OpenAI.Model) != "" {
-		return strings.TrimSpace(a.cfg.OpenAI.Model)
+	if a != nil && a.cfg != nil && strings.TrimSpace(a.cfg.LLMClient.OpenAI.Model) != "" {
+		return strings.TrimSpace(a.cfg.LLMClient.OpenAI.Model)
 	}
 	return "model"
 }

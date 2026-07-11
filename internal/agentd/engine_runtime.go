@@ -86,7 +86,6 @@ func (a *app) applyUserOrchestratorLLM(eng *agent.Engine, sp persistence.Special
 	userCfg := *a.cfg
 	userCfg.LLMClient = llmCfg
 	if provider == "" || provider == "openai" || provider == "local" {
-		userCfg.OpenAI = llmCfg.OpenAI
 	}
 	if userLLM, err := llmproviders.Build(userCfg, a.httpClient); err != nil {
 		log.Warn().Err(err).Msg("failed to build per-user llm provider")

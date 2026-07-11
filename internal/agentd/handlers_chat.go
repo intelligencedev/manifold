@@ -244,7 +244,7 @@ func (a *app) agentRunHandler() http.HandlerFunc {
 			MemorySettings:       memorySettings,
 		})
 
-		if a.cfg.OpenAI.APIKey == "" && !hasCustomTarget {
+		if a.cfg.LLMClient.OpenAI.APIKey == "" && !hasCustomTarget {
 			a.handleDevMockChat(w, r, req.Prompt)
 			return
 		}
@@ -318,7 +318,7 @@ func (a *app) promptHandler() http.HandlerFunc {
 			MemorySettings:       memorySettings,
 		})
 
-		if a.cfg.OpenAI.APIKey == "" && !hasCustomTarget {
+		if a.cfg.LLMClient.OpenAI.APIKey == "" && !hasCustomTarget {
 			a.handleDevMockChat(w, r, req.Prompt)
 			return
 		}

@@ -2275,12 +2275,6 @@ const providerConfigGroups: ConfigGroup[] = [
     description:
       "The dedicated summary LLM client and full rolling-summary configuration.",
   },
-  {
-    key: "openai",
-    title: "Legacy OpenAI compatibility",
-    description:
-      "Backward-compatible OpenAI settings retained for older deployments.",
-  },
 ];
 
 const modelServiceConfigGroups: ConfigGroup[] = [

@@ -211,7 +211,7 @@ func (a *app) prepareVisionClientData(w http.ResponseWriter, r *http.Request, re
 		return req, false
 	}
 	if strings.TrimSpace(visionSel.Model) == "" {
-		visionSel.Model = strings.TrimSpace(a.cfg.OpenAI.Model)
+		visionSel.Model = strings.TrimSpace(a.cfg.LLMClient.OpenAI.Model)
 	}
 	req.Client = visionSel
 	if a.isMockVisionRequest(req) {
@@ -284,7 +284,7 @@ func readVisionImage(w http.ResponseWriter, fh *multipart.FileHeader) (visionIma
 }
 
 func (a *app) isMockVisionRequest(req visionRequest) bool {
-	return req.Specialist == "" && req.Team == "" && strings.EqualFold(req.Client.Provider, "openai") && a.cfg.OpenAI.APIKey == ""
+	return req.Specialist == "" && req.Team == "" && strings.EqualFold(req.Client.Provider, "openai") && a.cfg.LLMClient.OpenAI.APIKey == ""
 }
 
 func (a *app) writeMockVisionResponseIfNeeded(w http.ResponseWriter, r *http.Request, req visionRequest) bool {

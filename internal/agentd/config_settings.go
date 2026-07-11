@@ -511,7 +511,6 @@ func setNestedMapValue(root map[string]any, path []string, value any) {
 	current[path[len(path)-1]] = value
 }
 
-
 func applyPrimaryLLMSettings(cfg *config.Config, settings agentdSettings) error {
 	provider := strings.ToLower(strings.TrimSpace(settings.LLMProvider))
 	if provider == "" {
@@ -547,7 +546,6 @@ func applyPrimaryLLMSettings(cfg *config.Config, settings agentdSettings) error 
 			cfg.LLMClient.OpenAI.API = pd.API
 		}
 	}
-	cfg.OpenAI = cfg.LLMClient.OpenAI
 
 	cfg.Memory.Enabled = settings.MemoryEnabled
 	cfg.MemoryConfigured = true

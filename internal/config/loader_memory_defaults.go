@@ -110,36 +110,6 @@ func googleContextCacheConfigured(cfg GoogleContextCacheConfig) bool {
 		strings.TrimSpace(cfg.DisplayName) != ""
 }
 
-func mergeOpenAIConfig(dst *OpenAIConfig, src OpenAIConfig) {
-	if dst.APIKey == "" {
-		dst.APIKey = src.APIKey
-	}
-	if dst.Model == "" {
-		dst.Model = src.Model
-	}
-	if dst.BaseURL == "" {
-		dst.BaseURL = src.BaseURL
-	}
-	if dst.SummaryModel == "" {
-		dst.SummaryModel = src.SummaryModel
-	}
-	if dst.SummaryBaseURL == "" {
-		dst.SummaryBaseURL = src.SummaryBaseURL
-	}
-	if dst.API == "" {
-		dst.API = src.API
-	}
-	if len(dst.ExtraHeaders) == 0 && len(src.ExtraHeaders) > 0 {
-		dst.ExtraHeaders = src.ExtraHeaders
-	}
-	if len(dst.ExtraParams) == 0 && len(src.ExtraParams) > 0 {
-		dst.ExtraParams = src.ExtraParams
-	}
-	if !dst.LogPayloads && src.LogPayloads {
-		dst.LogPayloads = true
-	}
-}
-
 func applySummaryDefaults(cfg *Config) {
 	syncSummarySettingsDefaults(cfg)
 	applySummaryOpenAIDefaults(cfg)
@@ -199,10 +169,10 @@ func applySummaryOpenAIDefaults(cfg *Config) {
 		cfg.Summary.LLMClient.OpenAI.APIKey = cfg.LLMClient.OpenAI.APIKey
 	}
 	if cfg.Summary.LLMClient.OpenAI.Model == "" {
-		cfg.Summary.LLMClient.OpenAI.Model = firstNonEmpty(cfg.LLMClient.OpenAI.SummaryModel, cfg.OpenAI.SummaryModel, cfg.LLMClient.OpenAI.Model)
+		cfg.Summary.LLMClient.OpenAI.Model = firstNonEmpty(cfg.LLMClient.OpenAI.SummaryModel, cfg.LLMClient.OpenAI.Model)
 	}
 	if cfg.Summary.LLMClient.OpenAI.BaseURL == "" {
-		cfg.Summary.LLMClient.OpenAI.BaseURL = firstNonEmpty(cfg.LLMClient.OpenAI.SummaryBaseURL, cfg.OpenAI.SummaryBaseURL, cfg.LLMClient.OpenAI.BaseURL)
+		cfg.Summary.LLMClient.OpenAI.BaseURL = firstNonEmpty(cfg.LLMClient.OpenAI.SummaryBaseURL, cfg.LLMClient.OpenAI.BaseURL)
 	}
 	if cfg.Summary.LLMClient.OpenAI.API == "" {
 		cfg.Summary.LLMClient.OpenAI.API = cfg.LLMClient.OpenAI.API
@@ -263,6 +233,4 @@ func applySummaryGoogleDefaults(cfg *Config) {
 func syncSummaryModelAliases(cfg *Config) {
 	cfg.LLMClient.OpenAI.SummaryModel = cfg.Summary.LLMClient.OpenAI.Model
 	cfg.LLMClient.OpenAI.SummaryBaseURL = cfg.Summary.LLMClient.OpenAI.BaseURL
-	cfg.OpenAI.SummaryModel = cfg.Summary.LLMClient.OpenAI.Model
-	cfg.OpenAI.SummaryBaseURL = cfg.Summary.LLMClient.OpenAI.BaseURL
 }

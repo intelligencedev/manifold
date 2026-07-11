@@ -171,9 +171,7 @@ const router = createRouter({
       children: [
         {
           path: "",
-          name: "playground-overview",
-          component: () =>
-            import("@/views/playground/PlaygroundOverviewView.vue"),
+          redirect: { name: "playground-prompts" },
         },
         {
           path: "prompts",

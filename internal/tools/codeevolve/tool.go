@@ -128,7 +128,7 @@ func (t *Tool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
 	if p == nil {
 		return callResult{OK: false, Error: "no LLM provider available"}, nil
 	}
-	model := t.Cfg.OpenAI.Model
+	model := t.Cfg.LLMClient.OpenAI.Model
 	if model == "" {
 		model = t.Cfg.LLMClient.OpenAI.Model
 	}

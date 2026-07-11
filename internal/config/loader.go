@@ -36,7 +36,6 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
-	mergeOpenAIConfig(&cfg.LLMClient.OpenAI, cfg.OpenAI)
 	applyDefaults(&cfg)
 	applyDerivedConfig(&cfg)
 	if err := validateConfig(&cfg); err != nil {
@@ -221,8 +220,6 @@ func applyDerivedConfig(cfg *Config) {
 	if cfg.Summary.LLMClient.Provider == "local" {
 		cfg.Summary.LLMClient.OpenAI.API = "completions"
 	}
-	cfg.OpenAI = cfg.LLMClient.OpenAI
-
 	for i := range cfg.Specialists {
 		if strings.TrimSpace(cfg.Specialists[i].Provider) == "" {
 			cfg.Specialists[i].Provider = cfg.LLMClient.Provider

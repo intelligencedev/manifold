@@ -8,9 +8,9 @@ import (
 func TestDefaultAgentToolAllowList(t *testing.T) {
 	got := DefaultAgentToolAllowList()
 	want := []string{
-		"run_cli", "web_fetch",
-		"transit_create", "transit_get", "transit_update", "transit_delete",
-		"transit_search", "transit_discover", "transit_list_keys", "transit_list_recent",
+		"run_cli", "terminal_start", "terminal_read", "terminal_write", "terminal_stop", "terminal_list",
+		"web_screenshot", "web_fetch", "file_read", "file_write", "file_patch", "file_delete",
+		"multi_tool_use_parallel", "describe_image", "ask_agent", "request_info",
 	}
 	for _, name := range want {
 		if !slices.Contains(got, name) {

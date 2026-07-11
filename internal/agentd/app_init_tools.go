@@ -167,21 +167,23 @@ func registerBaseTools(opts baseToolOptions) {
 }
 
 // shouldCheckEmbeddingReachability reports whether startup should fail-fast on an
-// unreachable embedding endpoint. During onboarding (before any primary LLM
-// credentials exist) the check is skipped so a fresh install can boot to /setup
-// instead of crashing; once configured, the fail-fast health gate is restored.
+// unreachable embedding endpoint. Embeddings are opt-in, and the check runs
+// only after both embeddings and primary LLM credentials are configured.
 func shouldCheckEmbeddingReachability(cfg *config.Config) bool {
-	return config.HasPrimaryLLMCredentials(cfg)
+	return cfg != nil && cfg.Embedding.Enabled && config.HasPrimaryLLMCredentials(cfg)
 }
 
 func buildRAGOptions(ctx context.Context, cfg *config.Config, httpClient *http.Client, llm llmpkg.Provider) ([]ragservice.Option, error) {
-	emb := embedder.NewClient(cfg.Embedding, cfg.Databases.Vector.Dimensions)
+	var emb embedder.Embedder
+	if cfg.Embedding.Enabled {
+		emb = embedder.NewClient(cfg.Embedding, cfg.Databases.Vector.Dimensions)
+	}
 	if shouldCheckEmbeddingReachability(cfg) {
 		if err := emb.Ping(ctx); err != nil {
 			return nil, fmt.Errorf("embedding service reachability check failed: %w", err)
 		}
 	} else {
-		log.Info().Msg("embedding reachability check skipped: no primary LLM credentials (onboarding)")
+		log.Info().Bool("enabled", cfg.Embedding.Enabled).Msg("embedding reachability check skipped")
 	}
 	magmaCfg := cfg.Magma
 	magmaLLM := llm
@@ -199,11 +201,11 @@ func buildRAGOptions(ctx context.Context, cfg *config.Config, httpClient *http.C
 		log.Info().Bool("enabled", true).Str("provider", providerName).Str("model", model).Msg("magma_memory_llm_initialized")
 	}
 	ragOpts := []ragservice.Option{
-		ragservice.WithEmbedder(emb),
 		ragservice.WithEmbeddingConfig(cfg.Embedding),
 		ragservice.WithMagmaConfig(magmaCfg),
 		ragservice.WithMagmaLLM(magmaLLM),
 	}
+	ragOpts = append(ragOpts, ragservice.WithEmbedder(emb))
 	if cfg.Reranking.Enabled {
 		rr := ragreranker.NewClient(cfg.Reranking)
 		if err := rr.Ping(ctx); err != nil {

@@ -5,6 +5,10 @@ const router = createRouter({
   routes: [
     {
       path: "/",
+      redirect: { name: "chat" },
+    },
+    {
+      path: "/overview",
       name: "overview",
       meta: {
         nav: true,

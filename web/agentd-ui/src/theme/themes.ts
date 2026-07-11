@@ -39,7 +39,7 @@ export type ThemeDefinition = {
   tokens: ThemeTokens;
 };
 
-export const defaultDarkTheme: ThemeId = "halo-dark";
+export const defaultDarkTheme: ThemeId = "halo-sodium";
 export const defaultLightTheme: ThemeId = "halo-light";
 
 const darkStatusTokens = {

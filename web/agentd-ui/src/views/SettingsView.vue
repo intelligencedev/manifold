@@ -283,6 +283,12 @@
             </div>
           </div>
         </fieldset>
+        <ConfigGroupsForm
+          :config="agentdSettings.serverConfig"
+          :groups="providerConfigGroups"
+          :saving="agentdSaving"
+          @save="saveConfigGroup"
+        />
       </template>
 
       <!-- Memory -->
@@ -312,6 +318,22 @@
             only used while memory is enabled.
           </p>
         </fieldset>
+        <fieldset class="space-y-4">
+          <legend class="text-sm font-semibold text-foreground">
+            Memory configuration
+          </legend>
+          <p class="text-xs text-subtle-foreground">
+            Configure each memory subsystem independently. These settings stay
+            visible even when memory is disabled, so the next enablement is
+            predictable.
+          </p>
+          <ConfigGroupsForm
+            :config="agentdSettings.serverConfig"
+            :groups="memoryConfigGroups"
+            :saving="agentdSaving"
+            @save="saveConfigGroup"
+          />
+        </fieldset>
       </template>
 
       <!-- Summarization -->
@@ -332,17 +354,30 @@
             >
           </div>
           <div class="grid gap-4 grid-cols-4">
-            <div class="space-y-1 col-span-2">
+            <div class="space-y-1">
+              <label
+                for="summary-provider"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Provider</label
+              >
+              <input
+                id="summary-provider"
+                v-model="agentdSettings.summaryProvider"
+                type="text"
+                placeholder="openai"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+              />
+            </div>
+            <div class="space-y-1">
               <label
                 for="summary-model"
                 class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >Summary Model</label
+                >Model</label
               >
               <input
                 id="summary-model"
+                v-model="agentdSettings.summaryModel"
                 type="text"
-                v-model="agentdSettings.openaiSummaryModel"
-                placeholder="gpt-4o-mini"
                 class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
               />
             </div>
@@ -350,13 +385,12 @@
               <label
                 for="summary-url"
                 class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >Endpoint</label
+                >Base URL</label
               >
               <input
                 id="summary-url"
+                v-model="agentdSettings.summaryUrl"
                 type="url"
-                v-model="agentdSettings.openaiSummaryUrl"
-                placeholder="https://api.openai.com"
                 class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
               />
             </div>
@@ -549,339 +583,348 @@
 
       <!-- Embeddings -->
       <template v-if="activeSection === 'embeddings'">
-        
         <div
           v-if="!agentdSettings.memoryEnabled"
           data-memory-gate
           class="rounded-md border border-border/60 bg-surface-muted/40 p-3 text-sm text-subtle-foreground"
         >
-          Embeddings apply only when memory is enabled. Turn on Memory first, then
-          configure this single embedding endpoint.
+          Embeddings apply only when memory is enabled. Turn on Memory first,
+          then configure this single embedding endpoint.
         </div>
         <div v-if="agentdSettings.memoryEnabled" class="space-y-6">
-<fieldset class="space-y-4">
-          <legend class="text-sm font-semibold text-foreground">
-            Embedding Provider
-          </legend>
-          <div class="grid gap-4 grid-cols-3">
-            <div class="space-y-1 col-span-3">
-              <label
-                for="embed-base"
-                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >Base URL</label
-              >
-              <input
-                id="embed-base"
-                type="url"
-                v-model="agentdSettings.embedBaseUrl"
-                placeholder="https://api.openai.com"
-                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
-              />
-            </div>
-            <div class="space-y-1">
-              <label
-                for="embed-model"
-                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >Model</label
-              >
-              <input
-                id="embed-model"
-                type="text"
-                v-model="agentdSettings.embedModel"
-                placeholder="text-embedding-3-small"
-                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
-              />
-            </div>
-            <div class="space-y-1">
-              <label
-                for="embed-path"
-                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >Path</label
-              >
-              <input
-                id="embed-path"
-                type="text"
-                v-model="agentdSettings.embedPath"
-                placeholder="/v1/embeddings"
-                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
-              />
-            </div>
-            <div class="space-y-1">
-              <label
-                for="embed-header"
-                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >API Header</label
-              >
-              <input
-                id="embed-header"
-                type="text"
-                v-model="agentdSettings.embedApiHeader"
-                placeholder="Authorization"
-                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
-              />
-            </div>
-            <div class="space-y-1 col-span-3">
-              <label
-                for="embed-key"
-                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >API Key</label
-              >
-              <input
-                id="embed-key"
-                type="password"
-                autocomplete="off"
-                v-model="agentdSettings.embedApiKey"
-                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
-              />
-            </div>
-
-            <div class="space-y-1">
-              <label
-                for="embed-instruction-mode"
-                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >Instruction Mode</label
-              >
-              <DropdownSelect
-                id="embed-instruction-mode"
-                v-model="agentdSettings.embedInstructionMode"
-                :options="embedInstructionModeDropdownOptions"
-                class="w-full"
-              />
-            </div>
-            <div class="space-y-1">
-              <label
-                for="embed-instruction-format"
-                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >Instruction Format</label
-              >
-              <DropdownSelect
-                id="embed-instruction-format"
-                v-model="agentdSettings.embedInstructionFormat"
-                :options="embedInstructionFormatDropdownOptions"
-                class="w-full"
-              />
-            </div>
-            <div class="space-y-1 col-span-3">
-              <label
-                for="embed-default-query-instruction"
-                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >Default Query Instruction</label
-              >
-              <textarea
-                id="embed-default-query-instruction"
-                v-model="agentdSettings.embedDefaultQueryInstruction"
-                rows="2"
-                placeholder="Built-in per-surface default"
-                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
-              ></textarea>
-            </div>
-            <div class="space-y-1 col-span-3">
-              <label
-                for="embed-rag-query-instruction"
-                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >RAG Query Instruction</label
-              >
-              <textarea
-                id="embed-rag-query-instruction"
-                v-model="agentdSettings.embedRagQueryInstruction"
-                rows="2"
-                placeholder="Given a search query, retrieve relevant passages that answer the query."
-                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
-              ></textarea>
-            </div>
-            <div class="space-y-1 col-span-3">
-              <label
-                for="embed-memory-query-instruction"
-                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >Evolving Memory Query Instruction</label
-              >
-              <textarea
-                id="embed-memory-query-instruction"
-                v-model="agentdSettings.embedEvolvingMemoryQueryInstruction"
-                rows="2"
-                placeholder="Given the current task, retrieve past experiences, lessons, and strategies relevant to the current task."
-                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
-              ></textarea>
-            </div>
-            <div class="space-y-1 col-span-3">
-              <label
-                for="embed-transit-query-instruction"
-                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >Transit Query Instruction</label
-              >
-              <textarea
-                id="embed-transit-query-instruction"
-                v-model="agentdSettings.embedTransitQueryInstruction"
-                rows="2"
-                placeholder="Given a search query, retrieve relevant stored shared-memory records."
-                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
-              ></textarea>
-            </div>
-
-            <div class="space-y-1 col-span-3">
-              <label
-                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >Additional Headers</label
-              >
-              <div class="space-y-2">
-                <div
-                  v-for="(v, k) in agentdSettings.embedApiHeaders"
-                  :key="k"
-                  class="flex gap-2"
+          <fieldset class="space-y-4">
+            <legend class="text-sm font-semibold text-foreground">
+              Embedding Provider
+            </legend>
+            <div class="grid gap-4 grid-cols-3">
+              <div class="space-y-1 col-span-3">
+                <label
+                  for="embed-base"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >Base URL</label
                 >
-                  <div class="w-48 space-y-1">
-                    <label class="text-xs text-subtle-foreground">Header</label>
+                <input
+                  id="embed-base"
+                  type="url"
+                  v-model="agentdSettings.embedBaseUrl"
+                  placeholder="https://api.openai.com"
+                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                />
+              </div>
+              <div class="space-y-1">
+                <label
+                  for="embed-model"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >Model</label
+                >
+                <input
+                  id="embed-model"
+                  type="text"
+                  v-model="agentdSettings.embedModel"
+                  placeholder="text-embedding-3-small"
+                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                />
+              </div>
+              <div class="space-y-1">
+                <label
+                  for="embed-path"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >Path</label
+                >
+                <input
+                  id="embed-path"
+                  type="text"
+                  v-model="agentdSettings.embedPath"
+                  placeholder="/v1/embeddings"
+                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                />
+              </div>
+              <div class="space-y-1">
+                <label
+                  for="embed-header"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >API Header</label
+                >
+                <input
+                  id="embed-header"
+                  type="text"
+                  v-model="agentdSettings.embedApiHeader"
+                  placeholder="Authorization"
+                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                />
+              </div>
+              <div class="space-y-1 col-span-3">
+                <label
+                  for="embed-key"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >API Key</label
+                >
+                <input
+                  id="embed-key"
+                  type="password"
+                  autocomplete="off"
+                  v-model="agentdSettings.embedApiKey"
+                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div class="space-y-1">
+                <label
+                  for="embed-instruction-mode"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >Instruction Mode</label
+                >
+                <DropdownSelect
+                  id="embed-instruction-mode"
+                  v-model="agentdSettings.embedInstructionMode"
+                  :options="embedInstructionModeDropdownOptions"
+                  class="w-full"
+                />
+              </div>
+              <div class="space-y-1">
+                <label
+                  for="embed-instruction-format"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >Instruction Format</label
+                >
+                <DropdownSelect
+                  id="embed-instruction-format"
+                  v-model="agentdSettings.embedInstructionFormat"
+                  :options="embedInstructionFormatDropdownOptions"
+                  class="w-full"
+                />
+              </div>
+              <div class="space-y-1 col-span-3">
+                <label
+                  for="embed-default-query-instruction"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >Default Query Instruction</label
+                >
+                <textarea
+                  id="embed-default-query-instruction"
+                  v-model="agentdSettings.embedDefaultQueryInstruction"
+                  rows="2"
+                  placeholder="Built-in per-surface default"
+                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                ></textarea>
+              </div>
+              <div class="space-y-1 col-span-3">
+                <label
+                  for="embed-rag-query-instruction"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >RAG Query Instruction</label
+                >
+                <textarea
+                  id="embed-rag-query-instruction"
+                  v-model="agentdSettings.embedRagQueryInstruction"
+                  rows="2"
+                  placeholder="Given a search query, retrieve relevant passages that answer the query."
+                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                ></textarea>
+              </div>
+              <div class="space-y-1 col-span-3">
+                <label
+                  for="embed-memory-query-instruction"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >Evolving Memory Query Instruction</label
+                >
+                <textarea
+                  id="embed-memory-query-instruction"
+                  v-model="agentdSettings.embedEvolvingMemoryQueryInstruction"
+                  rows="2"
+                  placeholder="Given the current task, retrieve past experiences, lessons, and strategies relevant to the current task."
+                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                ></textarea>
+              </div>
+              <div class="space-y-1 col-span-3">
+                <label
+                  for="embed-transit-query-instruction"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >Transit Query Instruction</label
+                >
+                <textarea
+                  id="embed-transit-query-instruction"
+                  v-model="agentdSettings.embedTransitQueryInstruction"
+                  rows="2"
+                  placeholder="Given a search query, retrieve relevant stored shared-memory records."
+                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                ></textarea>
+              </div>
+
+              <div class="space-y-1 col-span-3">
+                <label
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >Additional Headers</label
+                >
+                <div class="space-y-2">
+                  <div
+                    v-for="(v, k) in agentdSettings.embedApiHeaders"
+                    :key="k"
+                    class="flex gap-2"
+                  >
+                    <div class="w-48 space-y-1">
+                      <label class="text-xs text-subtle-foreground"
+                        >Header</label
+                      >
+                      <input
+                        type="text"
+                        :value="k"
+                        readonly
+                        class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                      />
+                    </div>
+                    <div class="flex-1 space-y-1">
+                      <label class="text-xs text-subtle-foreground"
+                        >Value</label
+                      >
+                      <input
+                        type="text"
+                        v-model="agentdSettings.embedApiHeaders[k]"
+                        class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                      />
+                    </div>
+                    <div class="flex items-end">
+                      <button
+                        type="button"
+                        class="rounded border border-danger/40 px-2 py-1 text-xs text-danger-foreground"
+                        @click="removeEmbedHeader(k)"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="flex gap-2">
                     <input
                       type="text"
-                      :value="k"
-                      readonly
-                      class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                      v-model="newEmbedHeaderKey"
+                      placeholder="Header name (e.g. x-api-key)"
+                      class="w-48 rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
                     />
-                  </div>
-                  <div class="flex-1 space-y-1">
-                    <label class="text-xs text-subtle-foreground">Value</label>
                     <input
                       type="text"
-                      v-model="agentdSettings.embedApiHeaders[k]"
-                      class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                      v-model="newEmbedHeaderValue"
+                      placeholder="Value"
+                      class="flex-1 rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
                     />
-                  </div>
-                  <div class="flex items-end">
                     <button
                       type="button"
-                      class="rounded border border-danger/40 px-2 py-1 text-xs text-danger-foreground"
-                      @click="removeEmbedHeader(k)"
+                      class="rounded bg-accent px-3 py-2 text-xs font-semibold text-accent-foreground"
+                      @click="addEmbedHeader"
                     >
-                      Remove
+                      Add
                     </button>
                   </div>
                 </div>
-
-                <div class="flex gap-2">
-                  <input
-                    type="text"
-                    v-model="newEmbedHeaderKey"
-                    placeholder="Header name (e.g. x-api-key)"
-                    class="w-48 rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
-                  />
-                  <input
-                    type="text"
-                    v-model="newEmbedHeaderValue"
-                    placeholder="Value"
-                    class="flex-1 rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
-                  />
-                  <button
-                    type="button"
-                    class="rounded bg-accent px-3 py-2 text-xs font-semibold text-accent-foreground"
-                    @click="addEmbedHeader"
-                  >
-                    Add
-                  </button>
-                </div>
               </div>
             </div>
-          </div>
-        </fieldset>
-        <fieldset class="space-y-4">
-          <legend class="text-sm font-semibold text-foreground">
-            Reranking Provider
-          </legend>
-          <div class="grid gap-4 grid-cols-3">
-            <label class="col-span-3 flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                v-model="agentdSettings.rerankEnabled"
-                class="h-4 w-4 rounded border-border text-accent"
-              />
-              <span>Enabled</span>
-            </label>
-            <div class="space-y-1 col-span-3">
-              <label
-                for="rerank-base"
-                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >Base URL</label
-              >
-              <input
-                id="rerank-base"
-                type="url"
-                v-model="agentdSettings.rerankBaseUrl"
-                placeholder="http://localhost:8203"
-                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
-              />
+          </fieldset>
+          <fieldset class="space-y-4">
+            <legend class="text-sm font-semibold text-foreground">
+              Reranking Provider
+            </legend>
+            <div class="grid gap-4 grid-cols-3">
+              <label class="col-span-3 flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  v-model="agentdSettings.rerankEnabled"
+                  class="h-4 w-4 rounded border-border text-accent"
+                />
+                <span>Enabled</span>
+              </label>
+              <div class="space-y-1 col-span-3">
+                <label
+                  for="rerank-base"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >Base URL</label
+                >
+                <input
+                  id="rerank-base"
+                  type="url"
+                  v-model="agentdSettings.rerankBaseUrl"
+                  placeholder="http://localhost:8203"
+                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                />
+              </div>
+              <div class="space-y-1">
+                <label
+                  for="rerank-model"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >Model</label
+                >
+                <input
+                  id="rerank-model"
+                  type="text"
+                  v-model="agentdSettings.rerankModel"
+                  placeholder="qwen3-reranker-0.6b"
+                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                />
+              </div>
+              <div class="space-y-1">
+                <label
+                  for="rerank-path"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >Path</label
+                >
+                <input
+                  id="rerank-path"
+                  type="text"
+                  v-model="agentdSettings.rerankPath"
+                  placeholder="/v1/rerank"
+                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                />
+              </div>
+              <div class="space-y-1">
+                <label
+                  for="rerank-header"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >API Header</label
+                >
+                <input
+                  id="rerank-header"
+                  type="text"
+                  v-model="agentdSettings.rerankApiHeader"
+                  placeholder="Authorization"
+                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                />
+              </div>
+              <div class="space-y-1 col-span-3">
+                <label
+                  for="rerank-key"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >API Key</label
+                >
+                <input
+                  id="rerank-key"
+                  type="password"
+                  autocomplete="off"
+                  v-model="agentdSettings.rerankApiKey"
+                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                />
+              </div>
+              <div class="space-y-1 col-span-3">
+                <label
+                  for="rerank-instruction"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >Instruction</label
+                >
+                <textarea
+                  id="rerank-instruction"
+                  v-model="agentdSettings.rerankInstruction"
+                  rows="2"
+                  placeholder="Classify whether the document matches the query topic"
+                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                ></textarea>
+              </div>
             </div>
-            <div class="space-y-1">
-              <label
-                for="rerank-model"
-                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >Model</label
-              >
-              <input
-                id="rerank-model"
-                type="text"
-                v-model="agentdSettings.rerankModel"
-                placeholder="qwen3-reranker-0.6b"
-                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
-              />
-            </div>
-            <div class="space-y-1">
-              <label
-                for="rerank-path"
-                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >Path</label
-              >
-              <input
-                id="rerank-path"
-                type="text"
-                v-model="agentdSettings.rerankPath"
-                placeholder="/v1/rerank"
-                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
-              />
-            </div>
-            <div class="space-y-1">
-              <label
-                for="rerank-header"
-                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >API Header</label
-              >
-              <input
-                id="rerank-header"
-                type="text"
-                v-model="agentdSettings.rerankApiHeader"
-                placeholder="Authorization"
-                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
-              />
-            </div>
-            <div class="space-y-1 col-span-3">
-              <label
-                for="rerank-key"
-                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >API Key</label
-              >
-              <input
-                id="rerank-key"
-                type="password"
-                autocomplete="off"
-                v-model="agentdSettings.rerankApiKey"
-                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
-              />
-            </div>
-            <div class="space-y-1 col-span-3">
-              <label
-                for="rerank-instruction"
-                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
-                >Instruction</label
-              >
-              <textarea
-                id="rerank-instruction"
-                v-model="agentdSettings.rerankInstruction"
-                rows="2"
-                placeholder="Classify whether the document matches the query topic"
-                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
-              ></textarea>
-            </div>
-          </div>
-        </fieldset>
+          </fieldset>
         </div>
+        <ConfigGroupsForm
+          :config="agentdSettings.serverConfig"
+          :groups="modelServiceConfigGroups"
+          :saving="agentdSaving"
+          @save="saveConfigGroup"
+        />
       </template>
 
       <!-- Timeouts & Safety -->
@@ -983,7 +1026,128 @@
               />
             </div>
           </div>
+          <div class="mt-5 border-t border-border/50 pt-4">
+            <h3 class="text-sm font-semibold text-foreground">Sandbox</h3>
+            <p class="mt-1 text-xs text-subtle-foreground">
+              Constrain terminal commands and explicitly control network access.
+            </p>
+            <div class="mt-3 grid gap-4 md:grid-cols-3">
+              <label class="flex items-center gap-2 text-sm text-foreground"
+                ><input
+                  v-model="agentdSettings.sandboxEnabled"
+                  type="checkbox"
+                  class="h-4 w-4"
+                />
+                Enable sandbox</label
+              >
+              <label class="flex items-center gap-2 text-sm text-foreground"
+                ><input
+                  v-model="agentdSettings.sandboxFailIfUnavailable"
+                  type="checkbox"
+                  class="h-4 w-4"
+                />
+                Fail when unavailable</label
+              >
+              <label class="flex items-center gap-2 text-sm text-foreground"
+                ><input
+                  v-model="agentdSettings.sandboxNetworkEnabled"
+                  type="checkbox"
+                  class="h-4 w-4"
+                />
+                Allow network</label
+              >
+              <div class="space-y-1 md:col-span-3">
+                <label
+                  for="sandbox-domains"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >Network Domains</label
+                >
+                <input
+                  id="sandbox-domains"
+                  :value="
+                    agentdSettings.sandboxNetworkAllowedDomains.join(', ')
+                  "
+                  type="text"
+                  placeholder="api.example.com, registry.npmjs.org"
+                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                  @input="
+                    agentdSettings.sandboxNetworkAllowedDomains = (
+                      $event.target as HTMLInputElement
+                    ).value
+                      .split(',')
+                      .map((value) => value.trim())
+                      .filter(Boolean)
+                  "
+                />
+              </div>
+            </div>
+          </div>
+          <div class="mt-5 border-t border-border/50 pt-4">
+            <h3 class="text-sm font-semibold text-foreground">
+              Terminal Capacity
+            </h3>
+            <div class="mt-3 grid gap-4 md:grid-cols-4">
+              <div class="space-y-1">
+                <label
+                  for="terminal-sessions"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >Terminal Sessions</label
+                ><input
+                  id="terminal-sessions"
+                  v-model.number="agentdSettings.maxTerminalSessions"
+                  type="number"
+                  min="0"
+                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                />
+              </div>
+              <div class="space-y-1">
+                <label
+                  for="terminal-runtime"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >Max Runtime (s)</label
+                ><input
+                  id="terminal-runtime"
+                  v-model.number="agentdSettings.maxTerminalRuntimeSeconds"
+                  type="number"
+                  min="0"
+                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                />
+              </div>
+              <div class="space-y-1">
+                <label
+                  for="terminal-idle"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >Idle TTL (s)</label
+                ><input
+                  id="terminal-idle"
+                  v-model.number="agentdSettings.terminalIdleTTLSeconds"
+                  type="number"
+                  min="0"
+                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                />
+              </div>
+              <div class="space-y-1">
+                <label
+                  for="terminal-buffer"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >Output Buffer (bytes)</label
+                ><input
+                  id="terminal-buffer"
+                  v-model.number="agentdSettings.terminalOutputBufferBytes"
+                  type="number"
+                  min="0"
+                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                />
+              </div>
+            </div>
+          </div>
         </fieldset>
+        <ConfigGroupsForm
+          :config="agentdSettings.serverConfig"
+          :groups="executionConfigGroups"
+          :saving="agentdSaving"
+          @save="saveConfigGroup"
+        />
       </template>
 
       <!-- Observability & Logging -->
@@ -1067,6 +1231,12 @@
             </div>
           </div>
         </fieldset>
+        <ConfigGroupsForm
+          :config="agentdSettings.serverConfig"
+          :groups="observabilityConfigGroups"
+          :saving="agentdSaving"
+          @save="saveConfigGroup"
+        />
       </template>
 
       <!-- Web / Search -->
@@ -1311,6 +1481,61 @@
             </div>
           </div>
         </fieldset>
+        <ConfigGroupsForm
+          :config="agentdSettings.serverConfig"
+          :groups="databaseConfigGroups"
+          :saving="agentdSaving"
+          @save="saveConfigGroup"
+        />
+      </template>
+
+      <!-- Archaeology -->
+      <template v-if="activeSection === 'archaeology'">
+        <fieldset class="space-y-4">
+          <legend class="text-sm font-semibold text-foreground">
+            Decision archaeology
+          </legend>
+          <p class="text-xs text-subtle-foreground">
+            Configure decision lineage, provenance capture, retrieval, and the
+            guardrails around candidate activation.
+          </p>
+          <ConfigGroupsForm
+            :config="agentdSettings.serverConfig"
+            :groups="archaeologyConfigGroups"
+            :saving="agentdSaving"
+            @save="saveConfigGroup"
+          />
+        </fieldset>
+      </template>
+
+      <!-- Runtime & Tools -->
+      <template v-if="activeSection === 'runtime'">
+        <fieldset class="space-y-4">
+          <legend class="text-sm font-semibold text-foreground">
+            Runtime and tool configuration
+          </legend>
+          <ConfigGroupsForm
+            :config="agentdSettings.serverConfig"
+            :groups="runtimeConfigGroups"
+            :saving="agentdSaving"
+            @save="saveConfigGroup"
+          />
+        </fieldset>
+      </template>
+
+      <!-- Integrations -->
+      <template v-if="activeSection === 'integrations'">
+        <fieldset class="space-y-4">
+          <legend class="text-sm font-semibold text-foreground">
+            Integration configuration
+          </legend>
+          <ConfigGroupsForm
+            :config="agentdSettings.serverConfig"
+            :groups="integrationConfigGroups"
+            :saving="agentdSaving"
+            @save="saveConfigGroup"
+          />
+        </fieldset>
       </template>
 
       <!-- MCP Servers -->
@@ -1494,6 +1719,9 @@ import {
 } from "@/api/mcp";
 import type { MCPServer, CreateMCPServerRequest } from "@/types/mcp";
 import DropdownSelect from "@/components/DropdownSelect.vue";
+import ConfigGroupsForm, {
+  type ConfigGroup,
+} from "@/components/settings/ConfigGroupsForm.vue";
 import { useThemeStore } from "@/stores/theme";
 import type { ThemeChoice } from "@/theme/themes";
 
@@ -1524,6 +1752,9 @@ type Settings = {
 };
 
 const defaultAgentdSettings: AgentdSettings = {
+  serverConfig: {},
+  configSource: "",
+  configPatch: {},
   llmProvider: "openai",
   llmApiKey: "",
   llmModel: "",
@@ -1531,6 +1762,9 @@ const defaultAgentdSettings: AgentdSettings = {
   memoryEnabled: false,
   openaiSummaryModel: "",
   openaiSummaryUrl: "",
+  summaryProvider: "",
+  summaryModel: "",
+  summaryUrl: "",
   summaryEnabled: false,
   summaryContextWindowTokens: 32000,
   summaryPlainTextContextWindowTokens: 0,
@@ -1569,8 +1803,16 @@ const defaultAgentdSettings: AgentdSettings = {
   streamRunTimeoutSeconds: 0,
   workflowTimeoutSeconds: 0,
   blockBinaries: "rm,sudo,chown,chmod,dd,mkfs,mount,umount",
+  sandboxEnabled: null,
+  sandboxFailIfUnavailable: null,
+  sandboxNetworkEnabled: null,
+  sandboxNetworkAllowedDomains: [],
   maxCommandSeconds: 30,
   outputTruncateBytes: 65536,
+  maxTerminalSessions: 0,
+  maxTerminalRuntimeSeconds: 0,
+  terminalIdleTTLSeconds: 0,
+  terminalOutputBufferBytes: 0,
   otelServiceName: "manifold",
   serviceVersion: "0.1.0",
   environment: "dev",
@@ -1666,6 +1908,10 @@ type NumericSettingKey =
   | "workflowTimeoutSeconds"
   | "maxCommandSeconds"
   | "outputTruncateBytes"
+  | "maxTerminalSessions"
+  | "maxTerminalRuntimeSeconds"
+  | "terminalIdleTTLSeconds"
+  | "terminalOutputBufferBytes"
   | "vectorDimensions";
 
 type BooleanSettingKey =
@@ -1690,6 +1936,10 @@ const numericSettingKeys: NumericSettingKey[] = [
   "workflowTimeoutSeconds",
   "maxCommandSeconds",
   "outputTruncateBytes",
+  "maxTerminalSessions",
+  "maxTerminalRuntimeSeconds",
+  "terminalIdleTTLSeconds",
+  "terminalOutputBufferBytes",
   "vectorDimensions",
 ];
 const booleanSettingKeys: BooleanSettingKey[] = [
@@ -1786,6 +2036,25 @@ async function loadAgentdSettings() {
     agentdSettings.value = normalizeAgentdSettings(agentdSettings.value);
   } finally {
     agentdLoading.value = false;
+  }
+}
+
+async function saveConfigGroup(group: string, value: unknown) {
+  if (agentdSaving.value) return;
+  agentdSaving.value = true;
+  agentdSaveError.value = "";
+  try {
+    const saved = await updateAgentdSettings({
+      ...normalizeAgentdSettings(agentdSettings.value),
+      configPatch: { [group]: value },
+    });
+    agentdSettings.value = normalizeAgentdSettings(saved);
+    agentdSuccess.value = `${group} saved. Restart required.`;
+  } catch (error: any) {
+    agentdSaveError.value =
+      error?.response?.data?.error ?? `Unable to save ${group}`;
+  } finally {
+    agentdSaving.value = false;
   }
 }
 
@@ -1913,6 +2182,7 @@ type SectionKey =
   | "general"
   | "llm"
   | "memory"
+  | "archaeology"
   | "summarization"
   | "prompts"
   | "embeddings"
@@ -1920,11 +2190,14 @@ type SectionKey =
   | "observability"
   | "web"
   | "databases"
+  | "runtime"
+  | "integrations"
   | "mcp";
 const sections: { key: SectionKey; label: string }[] = [
   { key: "general", label: "General" },
   { key: "llm", label: "Primary LLM" },
   { key: "memory", label: "Memory" },
+  { key: "archaeology", label: "Archaeology" },
   { key: "summarization", label: "Summarization" },
   { key: "prompts", label: "Prompts" },
   { key: "embeddings", label: "Embeddings" },
@@ -1932,13 +2205,17 @@ const sections: { key: SectionKey; label: string }[] = [
   { key: "observability", label: "Observability & Logging" },
   { key: "web", label: "Search & Web" },
   { key: "databases", label: "Databases" },
+  { key: "runtime", label: "Runtime & Tools" },
+  { key: "integrations", label: "Integrations" },
   { key: "mcp", label: "MCP Servers" },
 ];
 const activeSection = ref<SectionKey>("general");
 const sectionDescriptions: Record<SectionKey, string> = {
   general: "Client-local app settings and runtime identifiers.",
   llm: "Primary provider credentials. Propagates to chat, summary, and specialists by default.",
-  memory: "Toggle coordinated agent memory. Embeddings only apply when memory is on.",
+  memory:
+    "Toggle coordinated agent memory. Embeddings only apply when memory is on.",
+  archaeology: "Decision lineage, provenance capture, and retrieval controls.",
   summarization: "Control conversation summarization cadence and retention.",
   prompts:
     "Override built-in prompt blocks while keeping custom orchestrator and specialist instructions additive.",
@@ -1947,8 +2224,191 @@ const sectionDescriptions: Record<SectionKey, string> = {
   observability: "Telemetry export and logging verbosity.",
   web: "Search service integration exposed to tools/UI.",
   databases: "Primary, search, vector, and graph database connection settings.",
+  runtime: "Harness, tokenization, evaluation, and agent-runtime controls.",
+  integrations: "Authentication, messaging, speech, and MCP configuration.",
   mcp: "Manage Model Context Protocol servers and connections.",
 };
+
+const memoryConfigGroups: ConfigGroup[] = [
+  {
+    key: "memory",
+    title: "Unified memory",
+    description:
+      "Master switch, retrieval budget, dedicated clients, and unified subsystem settings.",
+  },
+  {
+    key: "evolvingMemory",
+    title: "Evolving memory",
+    description:
+      "Search-synthesis-evolve behavior, RAG, pruning, and lifecycle tuning.",
+  },
+  {
+    key: "beliefMemory",
+    title: "Belief memory",
+    description:
+      "Distillation, retrieval, evidence, promotion, and enforcement controls.",
+  },
+  {
+    key: "magma",
+    title: "MAGMA memory",
+    description:
+      "Multi-graph consolidation, graph lanes, retrieval, and lifecycle behavior.",
+  },
+  {
+    key: "transit",
+    title: "Transit memory",
+    description:
+      "Shared durable-memory search, listing, batch, and vector-search limits.",
+  },
+];
+
+const providerConfigGroups: ConfigGroup[] = [
+  {
+    key: "llmClient",
+    title: "Provider capabilities",
+    description:
+      "All OpenAI-compatible, Anthropic, Google, caching, headers, and extra-parameter settings.",
+  },
+  {
+    key: "summary",
+    title: "Summary provider",
+    description:
+      "The dedicated summary LLM client and full rolling-summary configuration.",
+  },
+  {
+    key: "openai",
+    title: "Legacy OpenAI compatibility",
+    description:
+      "Backward-compatible OpenAI settings retained for older deployments.",
+  },
+];
+
+const modelServiceConfigGroups: ConfigGroup[] = [
+  {
+    key: "embedding",
+    title: "Embedding service",
+    description:
+      "Endpoint timeout, headers, instructions, and vector-generation settings.",
+  },
+  {
+    key: "reranking",
+    title: "Reranking service",
+    description:
+      "Endpoint timeout, headers, model, and query-instruction settings.",
+  },
+];
+
+const executionConfigGroups: ConfigGroup[] = [
+  {
+    key: "exec",
+    title: "Execution policy",
+    description:
+      "Command rules, sandbox read paths, terminal capacity, and network policy.",
+  },
+];
+
+const observabilityConfigGroups: ConfigGroup[] = [
+  {
+    key: "obs",
+    title: "Observability backends",
+    description:
+      "Local telemetry limits, OTLP export, and ClickHouse reporting configuration.",
+  },
+];
+
+const databaseConfigGroups: ConfigGroup[] = [
+  {
+    key: "databases",
+    title: "Storage backends",
+    description:
+      "SQLite, search, vector, graph, chat, connection, and index configuration.",
+  },
+];
+
+const archaeologyConfigGroups: ConfigGroup[] = [
+  {
+    key: "archaeology",
+    title: "Context archaeology",
+    description:
+      "Decision archival, distillation, grounding, retrieval, and auto-activation controls.",
+  },
+];
+
+const runtimeConfigGroups: ConfigGroup[] = [
+  {
+    key: "__root",
+    title: "Core agent runtime",
+    description:
+      "Workspace, reasoning limits, tool exposure, discovery, and run-time limits.",
+    rootKeys: [
+      "workdir",
+      "systemPrompt",
+      "maxSteps",
+      "maxToolParallelism",
+      "enableTools",
+      "requestInfoEnabled",
+      "allowTools",
+      "autoDiscover",
+      "maxDiscoveredTools",
+      "agentRunTimeoutSeconds",
+      "streamRunTimeoutSeconds",
+      "workflowTimeoutSeconds",
+      "outputTruncateBytes",
+    ],
+  },
+  {
+    key: "harness",
+    title: "Forge harness",
+    description:
+      "Guarded-loop mode, recovery, terminal prerequisites, and compaction behavior.",
+  },
+  {
+    key: "codeQA",
+    title: "Code quality",
+    description:
+      "Evaluation limits, policy gates, models, and auto-apply behavior.",
+  },
+  {
+    key: "tokenization",
+    title: "Tokenization",
+    description: "Accurate-counting cache and heuristic-fallback controls.",
+  },
+  {
+    key: "imageTool",
+    title: "Image tool",
+    description: "Image-description endpoint and model overrides.",
+  },
+];
+
+const integrationConfigGroups: ConfigGroup[] = [
+  {
+    key: "auth",
+    title: "Authentication",
+    description: "OIDC, OAuth2, session, cookie, and domain-access settings.",
+  },
+  {
+    key: "matrix",
+    title: "Matrix gateway",
+    description:
+      "Homeserver, room routing, sync, and message-processing controls.",
+  },
+  {
+    key: "tts",
+    title: "Text to speech",
+    description: "Speech endpoint, model, and voice defaults.",
+  },
+  {
+    key: "stt",
+    title: "Speech to text",
+    description: "Transcription endpoint and model defaults.",
+  },
+  {
+    key: "mcp",
+    title: "MCP configuration",
+    description:
+      "Configured MCP client-server definitions and transport settings.",
+  },
+];
 const currentSectionLabel = computed(
   () => sections.find((s) => s.key === activeSection.value)?.label || "",
 );

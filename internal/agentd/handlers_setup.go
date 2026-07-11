@@ -15,29 +15,29 @@ import (
 )
 
 type setupStatusResponse struct {
-	Ready              bool   `json:"ready"`
-	NeedsSetup         bool   `json:"needsSetup"`
-	Provider           string `json:"provider"`
-	Model              string `json:"model"`
-	HasCredentials     bool   `json:"hasCredentials"`
-	MemoryEnabled      bool   `json:"memoryEnabled"`
-	EmbeddingRequired  bool   `json:"embeddingRequired"`
-	ConfigPath         string `json:"configPath"`
-	BaseURL            string `json:"baseUrl,omitempty"`
-	ListenAddr         string `json:"listenAddr,omitempty"`
+	Ready             bool   `json:"ready"`
+	NeedsSetup        bool   `json:"needsSetup"`
+	Provider          string `json:"provider"`
+	Model             string `json:"model"`
+	HasCredentials    bool   `json:"hasCredentials"`
+	MemoryEnabled     bool   `json:"memoryEnabled"`
+	EmbeddingRequired bool   `json:"embeddingRequired"`
+	ConfigPath        string `json:"configPath"`
+	BaseURL           string `json:"baseUrl,omitempty"`
+	ListenAddr        string `json:"listenAddr,omitempty"`
 }
 
 type setupCompleteRequest struct {
-	Provider    string `json:"provider"`
-	APIKey      string `json:"apiKey"`
-	Model       string `json:"model"`
-	BaseURL     string `json:"baseUrl"`
+	Provider string `json:"provider"`
+	APIKey   string `json:"apiKey"`
+	Model    string `json:"model"`
+	BaseURL  string `json:"baseUrl"`
 	// MemoryEnabled is optional; defaults remain off for first run.
 	MemoryEnabled *bool `json:"memoryEnabled,omitempty"`
 	// EmbedAPIKey is optional and only written when memory is enabled.
-	EmbedAPIKey   string `json:"embedApiKey,omitempty"`
-	EmbedBaseURL  string `json:"embedBaseUrl,omitempty"`
-	EmbedModel    string `json:"embedModel,omitempty"`
+	EmbedAPIKey  string `json:"embedApiKey,omitempty"`
+	EmbedBaseURL string `json:"embedBaseUrl,omitempty"`
+	EmbedModel   string `json:"embedModel,omitempty"`
 }
 
 func (a *app) setupStatusHandler() http.HandlerFunc {
@@ -53,7 +53,7 @@ func (a *app) setupStatusHandler() http.HandlerFunc {
 			NeedsSetup:        !ready,
 			Provider:          strings.ToLower(strings.TrimSpace(a.cfg.LLMClient.Provider)),
 			Model:             resolveLLMClientModel(a.cfg.LLMClient),
-			HasCredentials:     ready,
+			HasCredentials:    ready,
 			MemoryEnabled:     a.cfg.Memory.Enabled,
 			EmbeddingRequired: a.cfg.Memory.Enabled,
 			ConfigPath:        firstNonEmptyTrimmed(a.cfg.ConfigPath, findConfigYAMLPath()),
@@ -93,7 +93,7 @@ func (a *app) setupCompleteHandler() http.HandlerFunc {
 			NeedsSetup:        !ready,
 			Provider:          strings.ToLower(strings.TrimSpace(a.cfg.LLMClient.Provider)),
 			Model:             resolveLLMClientModel(a.cfg.LLMClient),
-			HasCredentials:     ready,
+			HasCredentials:    ready,
 			MemoryEnabled:     a.cfg.Memory.Enabled,
 			EmbeddingRequired: a.cfg.Memory.Enabled,
 			ConfigPath:        firstNonEmptyTrimmed(a.cfg.ConfigPath, findConfigYAMLPath()),
@@ -176,6 +176,7 @@ func (a *app) applySetupComplete(req setupCompleteRequest) error {
 	}
 	applyProviderDefaultExtraParams(a.cfg, provider)
 	a.cfg.OpenAI = a.cfg.LLMClient.OpenAI
+	seedDependentLLMClients(a.cfg)
 
 	if req.MemoryEnabled != nil {
 		a.cfg.Memory.Enabled = *req.MemoryEnabled
@@ -240,6 +241,73 @@ func applyProviderDefaultExtraParams(cfg *config.Config, provider string) {
 	}
 }
 
+// seedDependentLLMClients gives every optional subsystem a complete, usable
+// client configuration during onboarding without enabling that subsystem.
+func seedDependentLLMClients(cfg *config.Config) {
+	if cfg == nil {
+		return
+	}
+
+	cfg.Summary.LLMClient = cloneSetupLLMClient(cfg.LLMClient)
+	cfg.Memory.LLMClients.Evolving = cloneSetupLLMClient(cfg.LLMClient)
+	cfg.Memory.LLMClients.BeliefDistillation = cloneSetupLLMClient(cfg.LLMClient)
+	cfg.Memory.LLMClients.MagmaConsolidation = cloneSetupLLMClient(cfg.LLMClient)
+	cfg.EvolvingMemory.LLMClient = cloneSetupLLMClient(cfg.LLMClient)
+	cfg.BeliefMemory.LLMClient = cloneSetupLLMClient(cfg.LLMClient)
+	cfg.Magma.Consolidation.LLMClient = cloneSetupLLMClient(cfg.LLMClient)
+	cfg.Memory.Evolving.LLMClient = cloneSetupLLMClient(cfg.LLMClient)
+	cfg.Memory.Belief.LLMClient = cloneSetupLLMClient(cfg.LLMClient)
+	cfg.Memory.Magma.Consolidation.LLMClient = cloneSetupLLMClient(cfg.LLMClient)
+}
+
+func cloneSetupLLMClient(in config.LLMClientConfig) config.LLMClientConfig {
+	out := in
+	out.OpenAI.ExtraHeaders = cloneSetupStringMap(in.OpenAI.ExtraHeaders)
+	out.OpenAI.ExtraParams = cloneSetupAnyMap(in.OpenAI.ExtraParams)
+	out.Anthropic.ExtraParams = cloneSetupAnyMap(in.Anthropic.ExtraParams)
+	out.Google.ExtraParams = cloneSetupAnyMap(in.Google.ExtraParams)
+	return out
+}
+
+func cloneSetupStringMap(in map[string]string) map[string]string {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
+func cloneSetupAnyMap(in map[string]any) map[string]any {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for key, value := range in {
+		out[key] = cloneSetupAnyValue(value)
+	}
+	return out
+}
+
+func cloneSetupAnyValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneSetupAnyMap(typed)
+	case []any:
+		out := make([]any, len(typed))
+		for index, item := range typed {
+			out[index] = cloneSetupAnyValue(item)
+		}
+		return out
+	case []string:
+		return append([]string(nil), typed...)
+	default:
+		return value
+	}
+}
+
 func persistPrimaryLLMConfig(cfg *config.Config) error {
 	if cfg == nil {
 		return fmt.Errorf("nil config")
@@ -297,6 +365,11 @@ func persistPrimaryLLMConfig(cfg *config.Config) error {
 			setNestedMapValue(root, []string{"llm_client", "openai", "extraParams"}, cfg.LLMClient.OpenAI.ExtraParams)
 		}
 	}
+
+	setNestedMapValue(root, []string{"summary", "llm_client"}, cfg.Summary.LLMClient)
+	setNestedMapValue(root, []string{"memory", "llmClients", "evolving"}, cfg.Memory.LLMClients.Evolving)
+	setNestedMapValue(root, []string{"memory", "llmClients", "beliefDistillation"}, cfg.Memory.LLMClients.BeliefDistillation)
+	setNestedMapValue(root, []string{"memory", "llmClients", "magmaConsolidation"}, cfg.Memory.LLMClients.MagmaConsolidation)
 
 	setNestedMapValue(root, []string{"memory", "enabled"}, cfg.Memory.Enabled)
 	if cfg.Memory.Enabled {

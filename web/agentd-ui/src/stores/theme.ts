@@ -1,6 +1,7 @@
 import { computed, onScopeDispose, ref, watch } from "vue";
 import { defineStore } from "pinia";
 import {
+  defaultDarkTheme,
   getTheme,
   isThemeId,
   resolveSystemTheme,
@@ -36,7 +37,7 @@ function applyTheme(theme: ThemeDefinition) {
 }
 
 export const useThemeStore = defineStore("theme", () => {
-  const selection = ref<ThemeChoice>("system");
+  const selection = ref<ThemeChoice>(defaultDarkTheme);
 
   if (isClient) {
     const params = new URLSearchParams(window.location.search);

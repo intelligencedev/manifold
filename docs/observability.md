@@ -15,10 +15,16 @@ backend, so a host run does not need an external database or telemetry service.
 Configure logging via environment variables in `.env`:
 
 ```env
-LOG_PATH=manifold.log      # File path for logs
+# Leave LOG_PATH unset to write structured logs to the console (default).
+LOG_PATH=manifold.log      # Optional file path for persistent logs
 LOG_LEVEL=info             # Log level: trace, debug, info, warn, error
 LOG_PAYLOADS=false         # Whether to log request/response payloads
 ```
+
+Console output is the default, which lets container runtimes and service
+managers collect logs. Set `LOG_PATH` only when a persistent local log file is
+required. Set `MANIFOLD_LOG_STDOUT=true` to also tee an explicitly configured
+file log to the console.
 
 ### Log Format
 

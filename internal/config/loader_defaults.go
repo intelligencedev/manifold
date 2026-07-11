@@ -280,9 +280,6 @@ func applyObservabilityDefaults(cfg *Config) {
 }
 
 func applyRuntimeDefaults(cfg *Config) {
-	if strings.TrimSpace(cfg.LogPath) == "" {
-		cfg.LogPath = DefaultLogPath()
-	}
 	if cfg.Web.SearXNGURL == "" {
 		cfg.Web.SearXNGURL = "http://localhost:8080"
 	}
@@ -539,6 +536,9 @@ func applyMCPAndDatabaseDefaults(cfg *Config) {
 func applyAuthAndTransitDefaults(cfg *Config) {
 	if strings.TrimSpace(cfg.Auth.Provider) == "" {
 		cfg.Auth.Provider = "oidc"
+	}
+	if strings.TrimSpace(cfg.Auth.RedirectURL) == "" {
+		cfg.Auth.RedirectURL = "http://localhost:32180/auth/callback"
 	}
 	if cfg.Transit.DefaultSearchLimit <= 0 {
 		cfg.Transit.DefaultSearchLimit = 10

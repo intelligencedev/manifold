@@ -15,12 +15,12 @@ func TestShouldCheckEmbeddingReachability(t *testing.T) {
 		}
 	})
 
-	t.Run("runs once primary LLM credentials are configured", func(t *testing.T) {
+	t.Run("skips when embeddings are disabled", func(t *testing.T) {
 		cfg := &config.Config{}
 		cfg.LLMClient.Provider = "openai"
 		cfg.LLMClient.OpenAI.APIKey = "sk-configured"
-		if !shouldCheckEmbeddingReachability(cfg) {
-			t.Fatalf("expected reachability check to run for a configured install")
+		if shouldCheckEmbeddingReachability(cfg) {
+			t.Fatalf("expected reachability check to be skipped when embeddings are disabled")
 		}
 	})
 

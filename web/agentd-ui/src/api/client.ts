@@ -243,6 +243,9 @@ export async function deleteUser(id: number): Promise<void> {
 }
 
 export interface AgentdSettings {
+  serverConfig: Record<string, unknown>;
+  configSource: string;
+  configPatch: Record<string, unknown>;
   llmProvider: string;
   llmApiKey: string;
   llmModel: string;
@@ -251,6 +254,9 @@ export interface AgentdSettings {
 
   openaiSummaryModel: string;
   openaiSummaryUrl: string;
+  summaryProvider: string;
+  summaryModel: string;
+  summaryUrl: string;
   summaryEnabled: boolean;
   summaryContextWindowTokens: number;
   summaryPlainTextContextWindowTokens: number;
@@ -294,8 +300,16 @@ export interface AgentdSettings {
   workflowTimeoutSeconds: number;
 
   blockBinaries: string;
+  sandboxEnabled: boolean | null;
+  sandboxFailIfUnavailable: boolean | null;
+  sandboxNetworkEnabled: boolean | null;
+  sandboxNetworkAllowedDomains: string[];
   maxCommandSeconds: number;
   outputTruncateBytes: number;
+  maxTerminalSessions: number;
+  maxTerminalRuntimeSeconds: number;
+  terminalIdleTTLSeconds: number;
+  terminalOutputBufferBytes: number;
 
   otelServiceName: string;
   serviceVersion: string;
@@ -402,7 +416,9 @@ export async function fetchSetupStatus(): Promise<SetupStatus> {
 export async function completeSetup(
   payload: SetupCompleteRequest,
 ): Promise<SetupStatus> {
-  const { data } = await apiClient.post<SetupStatus>("/setup/complete", payload);
+  const { data } = await apiClient.post<SetupStatus>(
+    "/setup/complete",
+    payload,
+  );
   return data;
 }
-

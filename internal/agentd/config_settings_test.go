@@ -1,10 +1,41 @@
 package agentd
 
 import (
+	"encoding/json"
+	"net/http/httptest"
 	"testing"
 
 	"manifold/internal/config"
 )
+
+func TestAgentdSettings_ServerConfigIsSerializedForTheFrontend(t *testing.T) {
+	t.Parallel()
+
+	recorder := httptest.NewRecorder()
+	writeJSON(recorder, 200, agentdSettings{
+		ServerConfig: &config.Config{Workdir: "/workspace", MaxSteps: 12},
+	})
+
+	var response map[string]json.RawMessage
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode settings response: %v", err)
+	}
+	var serverConfig map[string]any
+	if err := json.Unmarshal(response["serverConfig"], &serverConfig); err != nil {
+		t.Fatalf("decode server config: %v", err)
+	}
+	if serverConfig["workdir"] != "/workspace" || serverConfig["maxSteps"] != float64(12) {
+		t.Fatalf("expected complete server config in response, got %#v", serverConfig)
+	}
+}
+
+func TestValidateConfigSource_RejectsInvalidYAML(t *testing.T) {
+	t.Parallel()
+
+	if err := validateConfigSource("memory: ["); err == nil {
+		t.Fatal("expected invalid YAML to be rejected")
+	}
+}
 
 func TestNormalizeAgentdSettings_PrefersCanonicalAliases(t *testing.T) {
 	t.Parallel()

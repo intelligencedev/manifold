@@ -66,6 +66,50 @@ func TestSetupCompleteOpenRouterAppliesDefaults(t *testing.T) {
 	}
 }
 
+func TestSetupCompleteSeedsAllDependentLLMClients(t *testing.T) {
+	a, cfgPath, mux := newSetupApp(t)
+
+	rec := postSetup(t, mux, `{"provider":"openrouter","apiKey":"sk-shared","model":"anthropic/claude-sonnet-4"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code %d body %s", rec.Code, rec.Body.String())
+	}
+
+	clients := map[string]config.LLMClientConfig{
+		"summary":            a.cfg.Summary.LLMClient,
+		"evolving":           a.cfg.Memory.LLMClients.Evolving,
+		"beliefDistillation": a.cfg.Memory.LLMClients.BeliefDistillation,
+		"magmaConsolidation": a.cfg.Memory.LLMClients.MagmaConsolidation,
+		"legacyEvolving":     a.cfg.EvolvingMemory.LLMClient,
+		"legacyBelief":       a.cfg.BeliefMemory.LLMClient,
+		"legacyMagma":        a.cfg.Magma.Consolidation.LLMClient,
+	}
+	for name, client := range clients {
+		if client.Provider != "openrouter" {
+			t.Errorf("%s provider = %q, want openrouter", name, client.Provider)
+		}
+		if client.Anthropic.APIKey != "sk-shared" || client.Anthropic.Model != "anthropic/claude-sonnet-4" {
+			t.Errorf("%s did not inherit credentials/model: %+v", name, client.Anthropic)
+		}
+		if client.Anthropic.BaseURL != "https://openrouter.ai/api" || client.Anthropic.ExtraParams["max_tokens"] != 16384 {
+			t.Errorf("%s did not inherit endpoint/params: %+v", name, client.Anthropic)
+		}
+	}
+	if a.cfg.Summary.Enabled || a.cfg.Memory.Enabled {
+		t.Fatal("onboarding must not enable summary or memory while seeding their clients")
+	}
+
+	raw, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	contents := string(raw)
+	for _, expected := range []string{"summary:", "llmClients:", "beliefDistillation:", "magmaConsolidation:"} {
+		if !strings.Contains(contents, expected) {
+			t.Fatalf("expected %q in persisted config:\n%s", expected, contents)
+		}
+	}
+}
+
 func TestSetupCompleteLlamaCppRequiresEndpoint(t *testing.T) {
 	_, _, mux := newSetupApp(t)
 	rec := postSetup(t, mux, `{"provider":"llamacpp","model":"local-model"}`)

@@ -34,12 +34,13 @@
           v-model="form.provider"
           class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
         >
-          <option value="openai">OpenAI / compatible</option>
-          <option value="anthropic">Anthropic</option>
-          <option value="google">Google</option>
-          <option value="openrouter">OpenRouter</option>
-          <option value="llamacpp">llama.cpp (OpenAI-compatible)</option>
-          <option value="local">Local (OpenAI-compatible)</option>
+          <option
+            v-for="option in llmProviderOptions"
+            :key="option.value"
+            :value="option.value"
+          >
+            {{ option.label }}
+          </option>
         </select>
       </div>
 
@@ -125,6 +126,7 @@ import {
   fetchSetupStatus,
   type SetupCompleteRequest,
 } from "@/api/client";
+import { llmProviderOptions } from "@/constants/llmProviders";
 
 const router = useRouter();
 const saving = ref(false);
@@ -201,15 +203,14 @@ async function submit() {
     };
     const result = await completeSetup(payload);
     if (!result.ready) {
-      saveError.value = "Setup did not complete. Check the API key and try again.";
+      saveError.value =
+        "Setup did not complete. Check the API key and try again.";
       return;
     }
     await router.replace({ name: "chat" });
   } catch (error: any) {
     saveError.value =
-      error?.response?.data?.error ||
-      error?.message ||
-      "Failed to save setup";
+      error?.response?.data?.error || error?.message || "Failed to save setup";
   } finally {
     saving.value = false;
   }

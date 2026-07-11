@@ -32,7 +32,8 @@ func DefaultConfigPath() string {
 	return filepath.Join(dir, "config.yaml")
 }
 
-// DefaultLogPath returns the default log file path under ~/.manifold/logs.
+// DefaultLogPath returns the conventional log file path under ~/.manifold/logs
+// for deployments that explicitly opt into file logging.
 func DefaultLogPath() string {
 	dir, err := DefaultConfigDir()
 	if err != nil {

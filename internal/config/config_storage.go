@@ -125,6 +125,9 @@ type MCPTLSConfig struct {
 
 // EmbeddingConfig configures the embedding service endpoint.
 type EmbeddingConfig struct {
+	// Enabled opts into embedding generation and vector retrieval. It defaults
+	// to false so a basic installation requires only an LLM configuration.
+	Enabled      bool                       `yaml:"enabled" json:"enabled"`
 	BaseURL      string                     `yaml:"baseURL" json:"baseURL"`
 	Model        string                     `yaml:"model" json:"model"`
 	APIKey       string                     `yaml:"apiKey" json:"apiKey"`

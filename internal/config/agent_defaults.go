@@ -1,20 +1,25 @@
 package config
 
 // defaultAgentToolAllowList is the bootstrap tool allow-list applied to newly
-// created orchestrators and specialists. It is intentionally lean — auto
-// discovery expands it at runtime. Keep in sync with the tool Name()s in
-// internal/tools (run_cli, web_fetch, and the transit_* tools).
+// created orchestrators and specialists. Keep this list focused on the core
+// tools needed for a useful first run; explicit configuration can override it.
 var defaultAgentToolAllowList = []string{
 	"run_cli",
+	"terminal_start",
+	"terminal_read",
+	"terminal_write",
+	"terminal_stop",
+	"terminal_list",
+	"web_screenshot",
 	"web_fetch",
-	"transit_create",
-	"transit_get",
-	"transit_update",
-	"transit_delete",
-	"transit_search",
-	"transit_discover",
-	"transit_list_keys",
-	"transit_list_recent",
+	"file_read",
+	"file_write",
+	"file_patch",
+	"file_delete",
+	"multi_tool_use_parallel",
+	"describe_image",
+	"ask_agent",
+	"request_info",
 }
 
 // DefaultAgentToolAllowList returns a copy of the default bootstrap allow-list

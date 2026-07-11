@@ -33,6 +33,29 @@ func TestParseInt(t *testing.T) {
 	})
 }
 
+func TestApplyRuntimeDefaultsLeavesLogPathEmpty(t *testing.T) {
+	cfg := Config{}
+
+	applyRuntimeDefaults(&cfg)
+
+	if cfg.LogPath != "" {
+		t.Fatalf("expected empty log path to preserve console logging, got %q", cfg.LogPath)
+	}
+}
+
+func TestApplyAuthAndTransitDefaultsSetsLocalRedirectURL(t *testing.T) {
+	cfg := Config{}
+
+	applyAuthAndTransitDefaults(&cfg)
+
+	if cfg.Auth.RedirectURL != "http://localhost:32180/auth/callback" {
+		t.Fatalf("expected local auth redirect URL, got %q", cfg.Auth.RedirectURL)
+	}
+	if cfg.Auth.Enabled {
+		t.Fatal("expected auth to remain disabled by default")
+	}
+}
+
 func TestLoad_FromYAML(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)

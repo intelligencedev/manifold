@@ -25,7 +25,7 @@ func TestOrchestratorSeedDefaults(t *testing.T) {
 	if sp.RequestInfoEnabled == nil || !*sp.RequestInfoEnabled {
 		t.Errorf("expected RequestInfoEnabled=true, got %v", sp.RequestInfoEnabled)
 	}
-	for _, tool := range []string{"run_cli", "web_fetch", "transit_search", "transit_discover"} {
+	for _, tool := range config.DefaultAgentToolAllowList() {
 		if !slices.Contains(sp.AllowTools, tool) {
 			t.Errorf("expected default allow-list to include %q; got %v", tool, sp.AllowTools)
 		}

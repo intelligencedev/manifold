@@ -50,7 +50,7 @@
 
     <!-- Create panel (collapsible) -->
     <Transition name="reveal">
-      <GlassCard v-if="showCreate" as="section" subtle class="shrink-0">
+      <GlassCard v-if="showCreate" as="section" subtle padded class="shrink-0 p-5">
         <form class="grid grid-cols-2 gap-4" @submit.prevent="handleCreate">
           <div class="col-span-2 flex items-center justify-between">
             <div>

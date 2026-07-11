@@ -4,7 +4,6 @@
     <aside
       class="halo-hairline-r w-60 shrink-0 space-y-4 overflow-y-auto p-4 pr-5"
     >
-      <h1 class="text-lg font-semibold text-foreground">Settings</h1>
       <nav class="space-y-1">
         <button
           v-for="s in sections"

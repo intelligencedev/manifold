@@ -3,7 +3,6 @@
     <!-- Slim functional page header. No hero, no marketing copy. -->
     <header class="flex items-center justify-between gap-3">
       <div class="min-w-0">
-        <h1 class="text-2xl font-semibold text-foreground">Code QA</h1>
         <p class="text-sm text-subtle-foreground">
           Gate runs and judge verdicts on candidate diffs.
         </p>

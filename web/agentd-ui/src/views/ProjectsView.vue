@@ -554,7 +554,6 @@ function startPaneResize(event: PointerEvent) {
 <template>
   <section class="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
     <Panel
-      title="Projects"
       flat
       :padded="false"
       class="halo-hairline-b shrink-0 pb-3"

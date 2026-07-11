@@ -70,8 +70,10 @@ func (a *app) setupCompleteHandler() http.HandlerFunc {
 			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 			return
 		}
+		userID := systemUserID
 		if a.cfg.Auth.Enabled {
-			if _, err := a.requireUserID(r); err != nil {
+			var err error
+			if userID, err = a.requireUserID(r); err != nil {
 				w.Header().Set("WWW-Authenticate", `Bearer realm="sio"`)
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
@@ -85,6 +87,10 @@ func (a *app) setupCompleteHandler() http.HandlerFunc {
 		}
 		if err := a.applySetupComplete(req); err != nil {
 			writeError(w, http.StatusBadRequest, err)
+			return
+		}
+		if err := a.seedOnboardingPrompt(r.Context(), userID); err != nil {
+			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
 		ready := config.HasPrimaryLLMCredentials(a.cfg)

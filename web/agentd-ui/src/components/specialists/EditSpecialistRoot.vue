@@ -1810,6 +1810,8 @@ function normalizeComparable(sp: Specialist): SpecialistComparable {
     paused: !!sp.paused,
     allowTools,
     system: sp.system || "",
+    promptId: sp.promptId || "",
+    promptVersionId: sp.promptVersionId || "",
     extraHeaders: sp.extraHeaders || {},
     extraParams: sp.extraParams || {},
     teams,
@@ -1836,6 +1838,8 @@ function normalizePayload(sp: Specialist): Specialist {
     apiKey: sp.apiKey && sp.apiKey !== "[REDACTED]" ? sp.apiKey : undefined,
     allowTools: Array.isArray(sp.allowTools) ? sp.allowTools : [],
     system: sp.system || "",
+    promptId: sp.promptId || "",
+    promptVersionId: sp.promptVersionId || "",
     extraHeaders: sp.extraHeaders || {},
     extraParams: sp.extraParams || {},
     teams: Array.isArray(sp.teams) ? sp.teams : [],
@@ -1970,6 +1974,8 @@ function buildPayloadFromDraft(): Specialist {
     paused: !!draft.paused,
     allowTools: allow,
     system: draft.system,
+    promptId: promptApply.value.promptId,
+    promptVersionId: promptApply.value.versionId,
     extraHeaders: extraHeadersObj.value,
     extraParams: extraParamsObj.value,
     teams: selectedTeams.value,
@@ -2189,7 +2195,28 @@ async function loadPromptVersions(promptId: string) {
 }
 
 async function restorePromptSelection() {
-  const selection = readPromptSelection();
+  let selection =
+    props.initial.promptId && props.initial.promptVersionId
+      ? {
+          promptId: props.initial.promptId,
+          versionId: props.initial.promptVersionId,
+        }
+      : readPromptSelection();
+  if (!selection?.promptId && !props.lockName) {
+    const manifoldPrompt = availablePrompts.value.find(
+      (prompt) => prompt.name.trim().toLowerCase() === "manifold",
+    );
+    if (manifoldPrompt) {
+      await loadPromptVersions(manifoldPrompt.id);
+      const manifoldVersion = availableVersions.value.find(
+        (version) => version.semver === "1.0",
+      );
+      selection = {
+        promptId: manifoldPrompt.id,
+        versionId: manifoldVersion?.id || "",
+      };
+    }
+  }
   if (!selection?.promptId) return;
   if (
     availablePrompts.value.length &&
@@ -2503,6 +2530,10 @@ function initFromInitial(sp: Specialist, clearFeedback = true) {
   draft.videoGeneration = !!normalized.videoGeneration;
   draft.paused = !!normalized.paused;
   draft.system = normalized.system || "";
+  promptApply.value = {
+    promptId: normalized.promptId || "",
+    versionId: normalized.promptVersionId || "",
+  };
   draft.summaryContextWindowTokens = normalized.summaryContextWindowTokens
     ? String(normalized.summaryContextWindowTokens)
     : "";
@@ -2571,6 +2602,10 @@ watch(
     const clearFeedback = !preserveNextInitialFeedback.value;
     preserveNextInitialFeedback.value = false;
     initFromInitial({ ...sp, apiKey: "" }, clearFeedback);
+    void (async () => {
+      await ensurePromptsLoaded();
+      await restorePromptSelection();
+    })();
   },
   { immediate: true },
 );

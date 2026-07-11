@@ -502,6 +502,7 @@ func (a *app) initPlaygroundServices(cfg *config.Config, mgr databases.Manager, 
 		Store:       mgr.Playground,
 	})
 	a.playgroundHandler = httpapi.NewServer(playgroundService)
+	a.playgroundService = playgroundService
 	return nil
 }
 

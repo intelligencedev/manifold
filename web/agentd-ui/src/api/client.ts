@@ -74,6 +74,8 @@ export interface Specialist {
   paused: boolean;
   allowTools?: string[];
   system?: string;
+  promptId?: string;
+  promptVersionId?: string;
   extraHeaders?: Record<string, string>;
   extraParams?: Record<string, any>;
   teams?: string[];

@@ -615,6 +615,8 @@ function startCreate() {
     autoDiscover: true,
     paused: false,
     system: "",
+    promptId: "",
+    promptVersionId: "",
     allowTools: [...DEFAULT_AGENT_ALLOW_TOOLS],
     extraHeaders: {},
     extraParams: {},

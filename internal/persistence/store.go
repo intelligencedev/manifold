@@ -193,6 +193,8 @@ type Specialist struct {
 	AllowTools                 []string           `json:"allowTools"`
 	ReasoningEffort            string             `json:"reasoningEffort"`
 	System                     string             `json:"system"`
+	PromptID                   string             `json:"promptId,omitempty"`
+	PromptVersionID            string             `json:"promptVersionId,omitempty"`
 	ExtraHeaders               map[string]string  `json:"extraHeaders"`
 	ExtraParams                map[string]any     `json:"extraParams"`
 	Teams                      []string           `json:"teams,omitempty"`

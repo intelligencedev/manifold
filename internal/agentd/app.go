@@ -21,6 +21,7 @@ import (
 	"manifold/internal/mcpclient"
 	persist "manifold/internal/persistence"
 	"manifold/internal/persistence/databases"
+	"manifold/internal/playground"
 	"manifold/internal/projects"
 	ragservice "manifold/internal/rag/service"
 	"manifold/internal/specialists"
@@ -80,6 +81,7 @@ type app struct {
 	runs               *runStore
 	inputRequests      *inputRequestBroker
 	playgroundHandler  http.Handler
+	playgroundService  *playground.Service
 	projectsService    projects.ProjectService
 	workspaceManager   workspaces.WorkspaceManager
 	warppToolMu        sync.Mutex

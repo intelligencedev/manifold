@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"manifold/internal/config"
+	"manifold/internal/defaultprompt"
 	llmproviders "manifold/internal/llm/providers"
 	persist "manifold/internal/persistence"
 	"manifold/internal/specialists"
@@ -195,6 +196,7 @@ func (a *app) specialistDetailHandler() http.HandlerFunc {
 }
 
 func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.Specialist {
+	promptID, promptVersionID := defaultPromptIDs(userID)
 	defaultProvider := strings.TrimSpace(a.cfg.LLMClient.Provider)
 	if defaultProvider == "" {
 		defaultProvider = "openai"
@@ -221,7 +223,9 @@ func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.
 		AutoDiscover:               boolPtr(true),
 		Paused:                     false,
 		AllowTools:                 allowTools,
-		System:                     a.orchestratorSystemPrompt(),
+		System:                     defaultprompt.Content,
+		PromptID:                   promptID,
+		PromptVersionID:            promptVersionID,
 		ExtraHeaders:               baseHeaders,
 		ExtraParams:                baseParams,
 	}
@@ -262,6 +266,12 @@ func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.
 		out.ReasoningEffort = sp.ReasoningEffort
 		if strings.TrimSpace(sp.System) != "" {
 			out.System = sp.System
+		}
+		if strings.TrimSpace(sp.PromptID) != "" {
+			out.PromptID = sp.PromptID
+		}
+		if strings.TrimSpace(sp.PromptVersionID) != "" {
+			out.PromptVersionID = sp.PromptVersionID
 		}
 		if sp.ExtraHeaders != nil {
 			out.ExtraHeaders = sp.ExtraHeaders

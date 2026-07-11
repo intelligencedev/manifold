@@ -122,7 +122,7 @@ func (a *app) applySetupComplete(req setupCompleteRequest) error {
 	a.cfg.LLMClient.Provider = provider
 	pd, _ := config.ProviderDefaults(provider)
 	switch pd.Backend {
-	case "anthropic": // anthropic + openrouter (Anthropic Messages API)
+	case "anthropic":
 		if apiKey == "" {
 			return fmt.Errorf("apiKey is required for %s", provider)
 		}

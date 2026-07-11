@@ -61,13 +61,14 @@ var providerDefaults = map[string]ProviderDefault{
 		},
 	},
 	"openrouter": {
-		// OpenRouter is used via its Anthropic Messages API surface. The Anthropic
-		// SDK appends /v1/messages to BaseURL -> https://openrouter.ai/api/v1/messages.
-		Backend: "anthropic",
-		BaseURL: "https://openrouter.ai/api",
+		// OpenRouter exposes an OpenAI-compatible Responses API at /api/v1/responses.
+		Backend: "openai",
+		API:     "responses",
+		BaseURL: "https://openrouter.ai/api/v1",
 		ExtraParams: map[string]any{
-			"max_tokens": 16384,
-			"reasoning":  map[string]any{"enabled": true, "effort": "medium"},
+			"max_output_tokens":   16384,
+			"parallel_tool_calls": true,
+			"reasoning":           map[string]any{"effort": "medium"},
 		},
 	},
 	"llamacpp": {

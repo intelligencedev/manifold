@@ -47,22 +47,24 @@ func TestSetupCompleteOpenRouterAppliesDefaults(t *testing.T) {
 	if a.cfg.LLMClient.Provider != "openrouter" {
 		t.Errorf("provider = %q, want openrouter", a.cfg.LLMClient.Provider)
 	}
-	// OpenRouter is Anthropic-backed: settings land in the Anthropic sub-config.
-	if got := a.cfg.LLMClient.Anthropic.BaseURL; got != "https://openrouter.ai/api" {
-		t.Errorf("Anthropic.BaseURL = %q, want openrouter endpoint", got)
+	if got := a.cfg.LLMClient.OpenAI.BaseURL; got != "https://openrouter.ai/api/v1" {
+		t.Errorf("OpenAI.BaseURL = %q, want openrouter endpoint", got)
 	}
-	if got := a.cfg.LLMClient.Anthropic.APIKey; got != "sk-or-test" {
-		t.Errorf("Anthropic.APIKey = %q, want sk-or-test", got)
+	if got := a.cfg.LLMClient.OpenAI.APIKey; got != "sk-or-test" {
+		t.Errorf("OpenAI.APIKey = %q, want sk-or-test", got)
 	}
-	if got := a.cfg.LLMClient.Anthropic.ExtraParams["max_tokens"]; got != 16384 {
-		t.Errorf("Anthropic.ExtraParams[max_tokens] = %v, want 16384", got)
+	if got := a.cfg.LLMClient.OpenAI.API; got != "responses" {
+		t.Errorf("OpenAI.API = %q, want responses", got)
+	}
+	if got := a.cfg.LLMClient.OpenAI.ExtraParams["max_output_tokens"]; got != 16384 {
+		t.Errorf("OpenAI.ExtraParams[max_output_tokens] = %v, want 16384", got)
 	}
 	raw, _ := os.ReadFile(cfgPath)
-	if !strings.Contains(string(raw), "max_tokens") || !strings.Contains(string(raw), "openrouter.ai") {
+	if !strings.Contains(string(raw), "max_output_tokens") || !strings.Contains(string(raw), "openrouter.ai") {
 		t.Fatalf("expected extraParams + baseURL persisted, got:\n%s", raw)
 	}
-	if !strings.Contains(string(raw), "anthropic") {
-		t.Fatalf("expected openrouter persisted under anthropic block, got:\n%s", raw)
+	if !strings.Contains(string(raw), "openai") || !strings.Contains(string(raw), "api: responses") {
+		t.Fatalf("expected openrouter persisted as OpenAI Responses, got:\n%s", raw)
 	}
 }
 
@@ -87,11 +89,11 @@ func TestSetupCompleteSeedsAllDependentLLMClients(t *testing.T) {
 		if client.Provider != "openrouter" {
 			t.Errorf("%s provider = %q, want openrouter", name, client.Provider)
 		}
-		if client.Anthropic.APIKey != "sk-shared" || client.Anthropic.Model != "anthropic/claude-sonnet-4" {
-			t.Errorf("%s did not inherit credentials/model: %+v", name, client.Anthropic)
+		if client.OpenAI.APIKey != "sk-shared" || client.OpenAI.Model != "anthropic/claude-sonnet-4" {
+			t.Errorf("%s did not inherit credentials/model: %+v", name, client.OpenAI)
 		}
-		if client.Anthropic.BaseURL != "https://openrouter.ai/api" || client.Anthropic.ExtraParams["max_tokens"] != 16384 {
-			t.Errorf("%s did not inherit endpoint/params: %+v", name, client.Anthropic)
+		if client.OpenAI.API != "responses" || client.OpenAI.BaseURL != "https://openrouter.ai/api/v1" || client.OpenAI.ExtraParams["max_output_tokens"] != 16384 {
+			t.Errorf("%s did not inherit Responses endpoint/params: %+v", name, client.OpenAI)
 		}
 	}
 	if a.cfg.Summary.Enabled || a.cfg.Memory.Enabled {

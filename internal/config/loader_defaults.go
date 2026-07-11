@@ -149,7 +149,7 @@ func applyLLMDefaults(cfg *Config) {
 }
 
 // applyProviderEndpointDefaults points a variant provider's backing sub-config at
-// its fixed endpoint (e.g. OpenRouter's Anthropic URL) when the user has not set
+// its fixed endpoint (e.g. OpenRouter's Responses URL) when the user has not set
 // a custom base URL. Providers whose ProviderDefaults BaseURL matches the
 // backend's default or is blank are left as configured.
 func applyProviderEndpointDefaults(cfg *Config) {

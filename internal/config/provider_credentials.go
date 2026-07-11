@@ -6,7 +6,7 @@ import "strings"
 // "google") that serves the given provider. Unknown or empty providers default
 // to "openai". This is the single place that maps a provider identifier to the
 // LLM client and config sub-block that back it, so OpenAI-compatible variants
-// (local, llamacpp) resolve to "openai" and OpenRouter resolves to "anthropic".
+// (local, llamacpp, openrouter) resolve to "openai".
 func ProviderBackend(provider string) string {
 	if pd, ok := ProviderDefaults(provider); ok && pd.Backend != "" {
 		return pd.Backend

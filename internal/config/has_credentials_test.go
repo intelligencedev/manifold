@@ -3,12 +3,12 @@ package config
 import "testing"
 
 func TestHasPrimaryLLMCredentialsByBackend(t *testing.T) {
-	t.Run("openrouter uses the anthropic key", func(t *testing.T) {
+	t.Run("openrouter uses the openai key", func(t *testing.T) {
 		cfg := &Config{}
 		cfg.LLMClient.Provider = "openrouter"
-		cfg.LLMClient.Anthropic.APIKey = "sk-or-test"
+		cfg.LLMClient.OpenAI.APIKey = "sk-or-test"
 		if !HasPrimaryLLMCredentials(cfg) {
-			t.Fatalf("expected openrouter with an Anthropic-sub-config key to be configured")
+			t.Fatalf("expected openrouter with an OpenAI-sub-config key to be configured")
 		}
 	})
 

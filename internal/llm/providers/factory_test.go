@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"manifold/internal/config"
-	anthropicllm "manifold/internal/llm/anthropic"
 	openaillm "manifold/internal/llm/openai"
 )
 
@@ -21,17 +20,17 @@ func TestBuildLlamaCppUsesOpenAIClient(t *testing.T) {
 	}
 }
 
-func TestBuildOpenRouterUsesAnthropicClient(t *testing.T) {
+func TestBuildOpenRouterUsesOpenAIResponsesClient(t *testing.T) {
 	cfg := config.LLMClientConfig{Provider: "openrouter"}
-	cfg.Anthropic.Model = "anthropic/claude-3.5-sonnet"
-	cfg.Anthropic.BaseURL = "https://openrouter.ai/api"
+	cfg.OpenAI.Model = "openai/gpt-5"
+	cfg.OpenAI.BaseURL = "https://openrouter.ai/api/v1"
 
 	p, err := BuildFromLLMClientConfig(cfg, nil)
 	if err != nil {
 		t.Fatalf("BuildFromLLMClientConfig(openrouter) error: %v", err)
 	}
-	if _, ok := p.(*anthropicllm.Client); !ok {
-		t.Fatalf("expected *anthropic.Client for openrouter, got %T", p)
+	if _, ok := p.(*openaillm.Client); !ok {
+		t.Fatalf("expected *openai.Client for openrouter, got %T", p)
 	}
 }
 

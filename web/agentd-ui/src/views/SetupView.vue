@@ -163,7 +163,7 @@ const baseUrlPlaceholder = computed(() => {
     case "google":
       return "https://generativelanguage.googleapis.com/";
     case "openrouter":
-      return "https://openrouter.ai/api";
+      return "https://openrouter.ai/api/v1";
     case "llamacpp":
       return "http://localhost:8080/v1 (required)";
     case "local":

@@ -334,8 +334,7 @@ func HasPrimaryLLMCredentials(cfg *Config) bool {
 	if prov == "local" || prov == "llamacpp" {
 		return true
 	}
-	// Check the key on the sub-config that backs the provider (openrouter is
-	// Anthropic-backed, so its key lives in the Anthropic sub-config).
+	// Check the key on the sub-config that backs the provider.
 	pd, _ := ProviderDefaults(prov)
 	switch pd.Backend {
 	case "anthropic":

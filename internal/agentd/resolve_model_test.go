@@ -7,11 +7,11 @@ import (
 )
 
 func TestResolveLLMClientModelByBackend(t *testing.T) {
-	t.Run("openrouter uses the anthropic model", func(t *testing.T) {
+	t.Run("openrouter uses the openai model", func(t *testing.T) {
 		cfg := config.LLMClientConfig{Provider: "openrouter"}
-		cfg.Anthropic.Model = "anthropic/claude-3.5-sonnet"
+		cfg.OpenAI.Model = "anthropic/claude-3.5-sonnet"
 		if got := resolveLLMClientModel(cfg); got != "anthropic/claude-3.5-sonnet" {
-			t.Fatalf("resolveLLMClientModel(openrouter) = %q, want anthropic model", got)
+			t.Fatalf("resolveLLMClientModel(openrouter) = %q, want OpenAI-sub-config model", got)
 		}
 	})
 

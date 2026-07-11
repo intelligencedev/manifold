@@ -25,7 +25,7 @@ func TestProviderDefaultsShape(t *testing.T) {
 		{"openai", "openai", "responses", "https://api.openai.com/v1", "reasoning_effort", "medium"},
 		{"anthropic", "anthropic", "", "https://api.anthropic.com", "max_tokens", 16384},
 		{"google", "google", "", "https://generativelanguage.googleapis.com/", "generation_config", nil},
-		{"openrouter", "anthropic", "", "https://openrouter.ai/api", "max_tokens", 16384},
+		{"openrouter", "openai", "responses", "https://openrouter.ai/api/v1", "max_output_tokens", 16384},
 		{"llamacpp", "openai", "responses", "", "cache_prompt", true},
 		{"local", "openai", "completions", "", "", nil},
 	}

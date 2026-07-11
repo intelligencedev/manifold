@@ -46,14 +46,13 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	applyDatabaseSettingsYAML(root, settings)
 }
 
-
 func applyPrimaryLLMSettingsYAML(root map[string]any, settings agentdSettings) {
 	provider := firstNonEmptyTrimmed(settings.LLMProvider)
 	if provider != "" {
 		setNestedMapValue(root, []string{"llm_client", "provider"}, provider)
 	}
 	// The YAML sub-block is named by the provider's backend (openai/anthropic/
-	// google), so OpenRouter writes under the anthropic block.
+	// google), so OpenRouter writes under the OpenAI block.
 	block := config.ProviderBackend(provider)
 	if settings.LLMAPIKey != "" {
 		setNestedMapValue(root, []string{"llm_client", block, "apiKey"}, settings.LLMAPIKey)

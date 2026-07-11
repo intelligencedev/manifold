@@ -8,15 +8,17 @@ func TestSeedsOpenRouterDefaultsWhenEmpty(t *testing.T) {
 
 	applyLLMDefaults(cfg)
 
-	// OpenRouter is Anthropic-backed: settings land in the Anthropic sub-config.
-	if got := cfg.LLMClient.Anthropic.BaseURL; got != "https://openrouter.ai/api" {
-		t.Errorf("Anthropic.BaseURL = %q, want openrouter endpoint", got)
+	if got := cfg.LLMClient.OpenAI.BaseURL; got != "https://openrouter.ai/api/v1" {
+		t.Errorf("OpenAI.BaseURL = %q, want openrouter endpoint", got)
 	}
-	if got := cfg.LLMClient.Anthropic.ExtraParams["max_tokens"]; got != 16384 {
-		t.Errorf("Anthropic.ExtraParams[max_tokens] = %v, want 16384", got)
+	if got := cfg.LLMClient.OpenAI.API; got != "responses" {
+		t.Errorf("OpenAI.API = %q, want responses", got)
 	}
-	if _, ok := cfg.LLMClient.Anthropic.ExtraParams["reasoning"]; !ok {
-		t.Errorf("expected openrouter reasoning param to be seeded; got %v", cfg.LLMClient.Anthropic.ExtraParams)
+	if got := cfg.LLMClient.OpenAI.ExtraParams["max_output_tokens"]; got != 16384 {
+		t.Errorf("OpenAI.ExtraParams[max_output_tokens] = %v, want 16384", got)
+	}
+	if _, ok := cfg.LLMClient.OpenAI.ExtraParams["reasoning"]; !ok {
+		t.Errorf("expected openrouter reasoning param to be seeded; got %v", cfg.LLMClient.OpenAI.ExtraParams)
 	}
 }
 

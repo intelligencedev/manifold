@@ -22,14 +22,14 @@ func TestApplyPrimaryLLMSettingsOpenRouter(t *testing.T) {
 	if cfg.LLMClient.Provider != "openrouter" {
 		t.Errorf("provider = %q, want openrouter", cfg.LLMClient.Provider)
 	}
-	if cfg.LLMClient.Anthropic.APIKey != "sk-or-settings" {
-		t.Errorf("Anthropic.APIKey = %q, want sk-or-settings", cfg.LLMClient.Anthropic.APIKey)
+	if cfg.LLMClient.OpenAI.APIKey != "sk-or-settings" {
+		t.Errorf("OpenAI.APIKey = %q, want sk-or-settings", cfg.LLMClient.OpenAI.APIKey)
 	}
-	if cfg.LLMClient.Anthropic.Model != "anthropic/claude-3.5-sonnet" {
-		t.Errorf("Anthropic.Model = %q", cfg.LLMClient.Anthropic.Model)
+	if cfg.LLMClient.OpenAI.Model != "anthropic/claude-3.5-sonnet" {
+		t.Errorf("OpenAI.Model = %q", cfg.LLMClient.OpenAI.Model)
 	}
-	if cfg.LLMClient.Anthropic.BaseURL != "https://openrouter.ai/api" {
-		t.Errorf("Anthropic.BaseURL = %q, want openrouter endpoint", cfg.LLMClient.Anthropic.BaseURL)
+	if cfg.LLMClient.OpenAI.BaseURL != "https://openrouter.ai/api/v1" || cfg.LLMClient.OpenAI.API != "responses" {
+		t.Errorf("OpenAI config = %+v, want OpenRouter Responses endpoint", cfg.LLMClient.OpenAI)
 	}
 	if !config.HasPrimaryLLMCredentials(cfg) {
 		t.Errorf("expected openrouter settings to be considered configured")
@@ -44,11 +44,11 @@ func TestApplyPrimaryLLMSettingsYAMLOpenRouterBlock(t *testing.T) {
 		LLMModel:    "anthropic/claude-3.5-sonnet",
 	})
 	llm, _ := root["llm_client"].(map[string]any)
-	anth, _ := llm["anthropic"].(map[string]any)
-	if anth == nil || anth["apiKey"] != "sk-or" {
-		t.Fatalf("expected openrouter creds under llm_client.anthropic, got: %#v", root)
+	openai, _ := llm["openai"].(map[string]any)
+	if openai == nil || openai["apiKey"] != "sk-or" {
+		t.Fatalf("expected openrouter creds under llm_client.openai, got: %#v", root)
 	}
-	if _, hasOpenAI := llm["openai"]; hasOpenAI {
-		t.Fatalf("openrouter must not write an openai block: %#v", llm)
+	if _, hasAnthropic := llm["anthropic"]; hasAnthropic {
+		t.Fatalf("openrouter must not write an anthropic block: %#v", llm)
 	}
 }

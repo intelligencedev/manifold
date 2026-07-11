@@ -2,7 +2,7 @@ export const llmProviderOptions = [
   { value: "openai", label: "OpenAI / compatible", backend: "openai" },
   { value: "anthropic", label: "Anthropic", backend: "anthropic" },
   { value: "google", label: "Google", backend: "google" },
-  { value: "openrouter", label: "OpenRouter", backend: "anthropic" },
+  { value: "openrouter", label: "OpenRouter", backend: "openai" },
   {
     value: "llamacpp",
     label: "llama.cpp (OpenAI-compatible)",

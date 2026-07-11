@@ -7,7 +7,7 @@ func TestProviderBackend(t *testing.T) {
 		"openai":     "openai",
 		"local":      "openai",
 		"llamacpp":   "openai",
-		"openrouter": "anthropic",
+		"openrouter": "openai",
 		"anthropic":  "anthropic",
 		"google":     "google",
 		"":           "openai",
@@ -21,13 +21,12 @@ func TestProviderBackend(t *testing.T) {
 }
 
 func TestLLMClientConfigActiveAccessors(t *testing.T) {
-	// OpenRouter (anthropic-backed) reads/writes the Anthropic sub-config.
+	// OpenRouter reads/writes the OpenAI sub-config used by Responses.
 	c := LLMClientConfig{Provider: "openrouter"}
-	c.Anthropic.Model = "anthropic/claude-3.5-sonnet"
-	c.Anthropic.APIKey = "sk-or"
-	c.Anthropic.BaseURL = "https://openrouter.ai/api"
-	// The OpenAI sub-config must be ignored for openrouter.
-	c.OpenAI.Model = "gpt-should-not-be-used"
+	c.OpenAI.Model = "anthropic/claude-3.5-sonnet"
+	c.OpenAI.APIKey = "sk-or"
+	c.OpenAI.BaseURL = "https://openrouter.ai/api/v1"
+	c.Anthropic.Model = "should-not-be-used"
 
 	if got := c.ActiveModel(); got != "anthropic/claude-3.5-sonnet" {
 		t.Errorf("ActiveModel = %q", got)
@@ -35,7 +34,7 @@ func TestLLMClientConfigActiveAccessors(t *testing.T) {
 	if got := c.ActiveAPIKey(); got != "sk-or" {
 		t.Errorf("ActiveAPIKey = %q", got)
 	}
-	if got := c.ActiveBaseURL(); got != "https://openrouter.ai/api" {
+	if got := c.ActiveBaseURL(); got != "https://openrouter.ai/api/v1" {
 		t.Errorf("ActiveBaseURL = %q", got)
 	}
 }
@@ -45,11 +44,11 @@ func TestLLMClientConfigSetActive(t *testing.T) {
 	c.SetActiveModel("m")
 	c.SetActiveAPIKey("k")
 	c.SetActiveBaseURL("u")
-	if c.Anthropic.Model != "m" || c.Anthropic.APIKey != "k" || c.Anthropic.BaseURL != "u" {
-		t.Fatalf("openrouter setters did not target Anthropic sub-config: %+v", c.Anthropic)
+	if c.OpenAI.Model != "m" || c.OpenAI.APIKey != "k" || c.OpenAI.BaseURL != "u" {
+		t.Fatalf("openrouter setters did not target OpenAI sub-config: %+v", c.OpenAI)
 	}
-	if c.OpenAI.Model != "" {
-		t.Fatalf("openrouter setter leaked into OpenAI sub-config")
+	if c.Anthropic.Model != "" {
+		t.Fatalf("openrouter setter leaked into Anthropic sub-config")
 	}
 
 	o := &LLMClientConfig{Provider: "llamacpp"}

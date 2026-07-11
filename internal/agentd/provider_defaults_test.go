@@ -14,27 +14,27 @@ func TestProviderDefaultsReturnsStaticPerProvider(t *testing.T) {
 	cfg.LLMClient.OpenAI.ExtraParams = config.DefaultProviderExtraParams("openai")
 	a := &app{cfg: cfg}
 
-	t.Run("openrouter (non-active, anthropic-backed)", func(t *testing.T) {
+	t.Run("openrouter (non-active, responses-backed)", func(t *testing.T) {
 		_, baseURL, _, _, params := a.providerDefaults("openrouter")
-		if baseURL != "https://openrouter.ai/api" {
-			t.Errorf("baseURL = %q, want openrouter anthropic endpoint", baseURL)
+		if baseURL != "https://openrouter.ai/api/v1" {
+			t.Errorf("baseURL = %q, want openrouter responses endpoint", baseURL)
 		}
-		if params["max_tokens"] != 16384 {
-			t.Errorf("params[max_tokens] = %v, want 16384; got %v", params["max_tokens"], params)
+		if params["max_output_tokens"] != 16384 {
+			t.Errorf("params[max_output_tokens] = %v, want 16384; got %v", params["max_output_tokens"], params)
 		}
 	})
 
-	t.Run("openrouter active reflects Anthropic sub-config", func(t *testing.T) {
+	t.Run("openrouter active reflects OpenAI sub-config", func(t *testing.T) {
 		orCfg := &config.Config{}
 		orCfg.LLMClient.Provider = "openrouter"
-		orCfg.LLMClient.Anthropic.APIKey = "sk-or-live"
-		orCfg.LLMClient.Anthropic.BaseURL = "https://openrouter.ai/api"
+		orCfg.LLMClient.OpenAI.APIKey = "sk-or-live"
+		orCfg.LLMClient.OpenAI.BaseURL = "https://openrouter.ai/api/v1"
 		orApp := &app{cfg: orCfg}
 		_, baseURL, apiKey, _, _ := orApp.providerDefaults("openrouter")
 		if apiKey != "sk-or-live" {
 			t.Errorf("apiKey = %q, want sk-or-live", apiKey)
 		}
-		if baseURL != "https://openrouter.ai/api" {
+		if baseURL != "https://openrouter.ai/api/v1" {
 			t.Errorf("baseURL = %q, want openrouter endpoint", baseURL)
 		}
 		// The anthropic card must NOT show openrouter's live creds.

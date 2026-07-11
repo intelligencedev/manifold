@@ -2,8 +2,13 @@ import { mount } from "@vue/test-utils";
 import { describe, expect, it } from "vitest";
 
 import ConfigValueField from "@/components/settings/ConfigValueField.vue";
+import { llmProviderBackend } from "@/constants/llmProviders";
 
 describe("ConfigValueField LLM clients", () => {
+  it("routes OpenRouter settings through the OpenAI Responses config", () => {
+    expect(llmProviderBackend("openrouter")).toBe("openai");
+  });
+
   it("shows one supported provider configuration at a time", async () => {
     const wrapper = mount(ConfigValueField, {
       props: {

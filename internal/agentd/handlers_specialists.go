@@ -298,14 +298,13 @@ func (a *app) providerDefaults(provider string) (model, baseURL, apiKey string, 
 			a.cfg.LLMClient.Google.Model, a.cfg.LLMClient.Google.BaseURL,
 			a.cfg.LLMClient.Google.APIKey, a.cfg.LLMClient.Google.ExtraParams)
 	case "anthropic":
-		// anthropic + openrouter share the Anthropic sub-config; overlay it only
-		// onto the currently active provider's card.
+		// Overlay the Anthropic sub-config onto its active provider card.
 		if prov == active {
 			overlayProviderCard(&model, &baseURL, &apiKey, &params,
 				a.cfg.LLMClient.Anthropic.Model, a.cfg.LLMClient.Anthropic.BaseURL,
 				a.cfg.LLMClient.Anthropic.APIKey, a.cfg.LLMClient.Anthropic.ExtraParams)
 		}
-	default: // openai (openai/local/llamacpp share the OpenAI sub-config)
+	default: // OpenAI-compatible providers share the OpenAI sub-config.
 		if prov == active {
 			overlayProviderCard(&model, &baseURL, &apiKey, &params,
 				a.cfg.LLMClient.OpenAI.Model, a.cfg.LLMClient.OpenAI.BaseURL,

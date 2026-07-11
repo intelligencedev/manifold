@@ -4,12 +4,7 @@
     <template v-if="!selectedDatasetId">
       <!-- Toolbar -->
       <header class="flex shrink-0 flex-wrap items-center justify-between gap-3">
-        <div class="flex items-baseline gap-2.5">
-          <h2 class="text-base font-semibold leading-none">Datasets</h2>
-          <span class="font-mono text-xs text-faint-foreground">{{ countLabel }}</span>
-        </div>
-
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-3">
           <div class="relative">
             <svg
               class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-faint-foreground"
@@ -28,12 +23,35 @@
               type="search"
               placeholder="Search name or tag"
               aria-label="Search datasets"
-              class="halo-focus w-56 rounded-md border border-[rgb(var(--line-strong))] bg-surface py-2 pl-9 pr-3 text-sm text-foreground outline-none placeholder:text-faint-foreground focus:w-64 transition-[width]"
+              class="halo-focus w-72 rounded-md border border-[rgb(var(--line-strong))] bg-surface py-2 pl-9 pr-3 text-sm text-foreground outline-none placeholder:text-faint-foreground"
             />
           </div>
-          <AppButton variant="ghost" size="sm" @click="store.loadDatasets()">
-            Refresh
-          </AppButton>
+          <span class="font-mono text-xs text-faint-foreground">{{ countLabel }}</span>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            aria-label="Refresh datasets"
+            class="halo-focus rounded-md border border-[rgb(var(--line-strong))] bg-surface-muted p-2 text-muted-foreground transition-colors hover:bg-input hover:text-foreground"
+            @click="store.loadDatasets()"
+          >
+            <svg
+              class="h-4 w-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+              <path d="M21 3v5h-5" />
+              <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+              <path d="M3 21v-5h5" />
+            </svg>
+          </button>
           <AppButton variant="accent" size="sm" @click="toggleUpload">
             <svg
               class="h-4 w-4"

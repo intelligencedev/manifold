@@ -59,6 +59,7 @@ type app struct {
 	durableRegistry    *durable.Registry
 	durableWorker      *durable.Worker
 	flowV2             *flowV2Runtime
+	warpp              *warppRuntime
 	codeQARuntime      *codeQARuntime
 	codeQAService      *codeqaservice.Service
 	cliExecutor        *clitool.ExecutorImpl

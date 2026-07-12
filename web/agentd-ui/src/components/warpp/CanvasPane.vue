@@ -137,7 +137,7 @@ const editor = useWarppEditor();
 const nodeTypes = { warpp: markRaw(NodeCard) };
 const wrapper = ref<HTMLElement | null>(null);
 const locked = ref(false);
-const showMiniMap = ref(true);
+const showMiniMap = ref(false);
 
 const { project, zoomIn, zoomOut, fitView } = useVueFlow();
 

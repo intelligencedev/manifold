@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"manifold/internal/fleet"
-	"manifold/internal/flow"
 	persist "manifold/internal/persistence"
 )
 
@@ -113,13 +112,13 @@ func (a *app) runTimelineHandler() http.HandlerFunc {
 		if run, ok := a.runs.get(runID); ok {
 			status = run.Status
 		}
-		if strings.HasPrefix(runID, "flowrun_") {
-			events, flowStatus, ok := a.flowV2State().getRunEvents(userID, runID)
+		if strings.HasPrefix(runID, "warpprun_") {
+			events, warppStatus, ok := a.warppState().getRunEvents(userID, runID)
 			if !ok {
 				http.NotFound(w, r)
 				return
 			}
-			resp := runTimelineResponse{RunID: runID, Status: flowStatus, Events: make([]any, 0, len(events))}
+			resp := runTimelineResponse{RunID: runID, Status: warppStatus, Events: make([]any, 0, len(events))}
 			for _, ev := range events {
 				resp.Events = append(resp.Events, ev)
 			}
@@ -147,12 +146,4 @@ func (a *app) runTimelineHandler() http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, resp)
 	}
-}
-
-func normalizeFlowEvents(events []flow.RunEvent) []any {
-	out := make([]any, 0, len(events))
-	for _, ev := range events {
-		out = append(out, ev)
-	}
-	return out
 }

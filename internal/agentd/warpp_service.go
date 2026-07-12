@@ -18,7 +18,7 @@ const (
 )
 
 // warppExecutionRegistry returns the policy-aware tool registry, falling back
-// to the base registry (mirrors flowV2ExecutionRegistry).
+// to the base registry.
 func (a *app) warppExecutionRegistry() tools.Registry {
 	if a.toolRegistry != nil {
 		return a.toolRegistry

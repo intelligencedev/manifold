@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"manifold/internal/config"
-	"manifold/internal/flow"
 	"manifold/internal/warpp"
 )
 
@@ -411,24 +410,6 @@ type SpecialistActivityStore interface {
 	UpsertSessionActivities(ctx context.Context, userID *int64, sessionID string, activities []SpecialistActivityRecord) error
 	DeleteSessionActivities(ctx context.Context, userID *int64, sessionID string) error
 	DeleteRunActivities(ctx context.Context, userID *int64, sessionID string, runID string) error
-}
-
-// FlowV2WorkflowRecord is the persisted representation of a Flow v2 workflow.
-type FlowV2WorkflowRecord struct {
-	UserID    int64               `json:"user_id"`
-	Workflow  flow.Workflow       `json:"workflow"`
-	Canvas    flow.WorkflowCanvas `json:"canvas"`
-	CreatedAt time.Time           `json:"created_at"`
-	UpdatedAt time.Time           `json:"updated_at"`
-}
-
-// FlowV2WorkflowStore persists Flow v2 workflows by workflow id.
-type FlowV2WorkflowStore interface {
-	Init(ctx context.Context) error
-	ListWorkflows(ctx context.Context, userID int64) ([]FlowV2WorkflowRecord, error)
-	GetWorkflow(ctx context.Context, userID int64, workflowID string) (FlowV2WorkflowRecord, bool, error)
-	UpsertWorkflow(ctx context.Context, userID int64, record FlowV2WorkflowRecord) (FlowV2WorkflowRecord, bool, error)
-	DeleteWorkflow(ctx context.Context, userID int64, workflowID string) error
 }
 
 // WarppWorkflowRecord is the persisted representation of a WARPP workflow.

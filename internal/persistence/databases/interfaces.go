@@ -75,7 +75,6 @@ type Manager struct {
 	SpecialistTeams    persistence.SpecialistTeamsStore
 	EvolvingMemory     memory.EvolvingMemoryStore
 	Playground         *PlaygroundStore
-	FlowV2             persistence.FlowV2WorkflowStore
 	Warpp              persistence.WarppWorkflowStore
 	Durable            durable.Store
 	MCP                persistence.MCPStore
@@ -103,7 +102,6 @@ func (m Manager) Close() {
 	closeIfPossible(m.SpecialistTeams)
 	closeIfPossible(m.EvolvingMemory)
 	closeIfPossible(m.Playground)
-	closeIfPossible(m.FlowV2)
 	closeIfPossible(m.Warpp)
 	closeIfPossible(m.MCP)
 	closeIfPossible(m.Durable)

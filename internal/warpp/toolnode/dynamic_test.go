@@ -42,6 +42,10 @@ func TestDeriveDynamicToolTypedPorts(t *testing.T) {
 	if dt.manifest.Type != "tool.brave_search" || dt.manifest.Category != "tool" {
 		t.Fatalf("manifest header: %+v", dt.manifest)
 	}
+	// Title must be the actual registry name, not a humanized/friendly label.
+	if dt.manifest.Title != "brave_search" {
+		t.Fatalf("title must be the actual tool name, got %q", dt.manifest.Title)
+	}
 	want := map[string]string{
 		"query": "text", "count": "number", "safe": "boolean",
 		"tags": "list<text>", "filter": "json", "nullable": "text",
@@ -66,6 +70,14 @@ func TestDeriveDynamicToolTypedPorts(t *testing.T) {
 	for _, p := range dt.manifest.Inputs {
 		if _, err := warpp.ParseType(p.Type); err != nil {
 			t.Fatalf("port %s bad type %q: %v", p.Name, p.Type, err)
+		}
+	}
+}
+
+func TestCuratedAdaptersUseActualToolName(t *testing.T) {
+	for _, a := range Builtin() {
+		if a.Manifest.Title != a.Tool {
+			t.Fatalf("curated node %s title = %q, want actual tool name %q", a.NodeType, a.Manifest.Title, a.Tool)
 		}
 	}
 }

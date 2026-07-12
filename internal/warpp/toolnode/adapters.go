@@ -18,8 +18,18 @@ func out(name, typ string) warpp.PortSpec {
 // rawOut is the whole-result JSON output every adapter exposes.
 var rawOut = out("raw", "json")
 
-// Builtin returns the curated tool adapters (spec §6).
+// Builtin returns the curated tool adapters (spec §6). Each node's title is
+// forced to the actual registry tool name so Flow nodes show the real tool,
+// not a friendly label.
 func Builtin() []Adapter {
+	adapters := builtinAdapters()
+	for i := range adapters {
+		adapters[i].Manifest.Title = adapters[i].Tool
+	}
+	return adapters
+}
+
+func builtinAdapters() []Adapter {
 	return []Adapter{
 		{
 			NodeType: "tool.web_search", Tool: "web_search",

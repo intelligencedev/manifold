@@ -40,15 +40,13 @@ func dynamicTools(reg tools.Registry, exclude map[string]bool) []dynamicTool {
 	return out
 }
 
-// deriveDynamicTool builds a node descriptor from a tool's JSON schema.
+// deriveDynamicTool builds a node descriptor from a tool's JSON schema. The
+// node title is the tool's actual registry name (not the humanized/friendly
+// title) so Flow nodes are unambiguous about which tool they call.
 func deriveDynamicTool(schema llm.ToolSchema) dynamicTool {
-	title := schema.Title
-	if title == "" {
-		title = schema.Name
-	}
 	m := warpp.Manifest{
 		Type:        "tool." + schema.Name,
-		Title:       title,
+		Title:       schema.Name,
 		Category:    "tool",
 		Description: schema.Description,
 		Outputs:     []warpp.PortSpec{{Name: "result", Type: "json"}},

@@ -5,6 +5,7 @@
       class="warpp-catalog__search"
       placeholder="Search nodes…"
     />
+    <p class="warpp-catalog__hint">Drag onto the canvas, or click to add.</p>
     <div v-for="group in groups" :key="group.category" class="warpp-catalog__group">
       <div class="warpp-catalog__heading">{{ group.category }}</div>
       <button
@@ -12,6 +13,8 @@
         :key="m.type"
         class="warpp-catalog__item"
         :title="m.description"
+        draggable="true"
+        @dragstart="onDragStart($event, m.type)"
         @click="emit('add', m.type)"
       >
         {{ m.title }}
@@ -28,6 +31,13 @@ import type { WarppManifest } from "@/types/warpp";
 const emit = defineEmits<{ (e: "add", type: string): void }>();
 const editor = useWarppEditor();
 const query = ref("");
+
+function onDragStart(event: DragEvent, type: string): void {
+  if (!event.dataTransfer) return;
+  event.dataTransfer.setData("application/warpp-node-type", type);
+  event.dataTransfer.setData("text/plain", type);
+  event.dataTransfer.effectAllowed = "copyMove";
+}
 
 const groups = computed(() => {
   const q = query.value.trim().toLowerCase();
@@ -62,6 +72,14 @@ const groups = computed(() => {
   border: 1px solid var(--halo-border, #2b3242);
   background: var(--halo-surface, #161a22);
   color: inherit;
+}
+.warpp-catalog__hint {
+  font-size: 11px;
+  opacity: 0.55;
+  margin: 0;
+}
+.warpp-catalog__item {
+  cursor: grab;
 }
 .warpp-catalog__heading {
   font-size: 11px;

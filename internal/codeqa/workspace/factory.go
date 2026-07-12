@@ -128,7 +128,7 @@ func (f *Factory) gitRoot(ctx context.Context, repoPath string) (string, bool) {
 }
 
 func (f *Factory) isDirty(ctx context.Context, repoRoot string) (bool, error) {
-	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "status", "--porcelain", "--untracked-files=no")
+	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "status", "--porcelain")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return false, fmt.Errorf("check dirty worktree: %w: %s", err, strings.TrimSpace(string(output)))

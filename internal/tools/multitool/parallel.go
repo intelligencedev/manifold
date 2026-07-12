@@ -13,8 +13,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"manifold/internal/agent/inputrequest"
-	"manifold/internal/durable"
 	"manifold/internal/tools"
 )
 
@@ -127,6 +125,8 @@ type callResult struct {
 	DurationMS    int64           `json:"duration_ms"`
 	Payload       json.RawMessage `json:"payload,omitempty"`
 	Error         string          `json:"error,omitempty"`
+}
+
 // Call executes the configured tool uses concurrently and aggregates the
 // payloads. Each tool call inherits the provided context and optional timeout.
 func (t *ParallelTool) Call(ctx context.Context, raw json.RawMessage) (any, error) {
@@ -142,7 +142,7 @@ func (t *ParallelTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	if err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}, nil
 	}
-	return exec.run(ctx)
+	return exec.run(ctx), nil
 }
 
 type parallelExecution struct {
@@ -213,28 +213,19 @@ func (t *ParallelTool) effectiveMaxParallel(callCount int) int {
 	return maxParallel
 }
 
-func (e parallelExecution) run(ctx context.Context) (any, error) {
+func (e parallelExecution) run(ctx context.Context) map[string]any {
 	results := make([]callResult, len(e.calls))
 	var errs []string
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	var firstErr error
 	sem := make(chan struct{}, e.maxParallel)
 
 	for idx, call := range e.calls {
 		wg.Add(1)
 		go func(i int, call preparedParallelCall) {
 			defer wg.Done()
-			result, errText, err := e.executeOne(ctx, sem, call)
+			result, errText := e.executeOne(ctx, sem, call)
 			results[i] = result
-			if err != nil {
-				mu.Lock()
-				if firstErr == nil {
-					firstErr = err
-				}
-				mu.Unlock()
-				return
-			}
 			if errText != "" {
 				mu.Lock()
 				errs = append(errs, errText)
@@ -243,19 +234,16 @@ func (e parallelExecution) run(ctx context.Context) (any, error) {
 		}(idx, call)
 	}
 	wg.Wait()
-	if firstErr != nil {
-		return nil, firstErr
-	}
 
 	ok := len(errs) == 0
 	resp := map[string]any{"ok": ok, "results": results}
 	if !ok {
 		resp["error"] = strings.Join(errs, "; ")
 	}
-	return resp, nil
+	return resp
 }
 
-func (e parallelExecution) executeOne(ctx context.Context, sem chan struct{}, call preparedParallelCall) (callResult, string, error) {
+func (e parallelExecution) executeOne(ctx context.Context, sem chan struct{}, call preparedParallelCall) (callResult, string) {
 	select {
 	case sem <- struct{}{}:
 	case <-ctx.Done():
@@ -265,39 +253,29 @@ func (e parallelExecution) executeOne(ctx context.Context, sem chan struct{}, ca
 			ToolName:      call.toolName,
 			ToolCallID:    call.toolCallID,
 			Error:         errMsg,
-		}, fmt.Sprintf("%s: %s", call.toolName, errMsg), nil
-result, err := durable.Step(ctx, parallelChildStepKey(ctx, call), func(stepCtx context.Context) (callResult, error) {
-		dispatchCtx := stepCtx
-		if e.timeout > 0 {
-			var cancel context.CancelFunc
-			dispatchCtx, cancel = context.WithTimeout(stepCtx, e.timeout)
-			defer cancel()
-		}
-		dispatchCtx = withNestedToolMetadata(dispatchCtx, call.toolCallID)
-		start := time.Now()
-		payload, err := e.dispatch(dispatchCtx, call)
-		out := callResult{
-			RecipientName: call.spec.RecipientName,
-			ToolName:      call.toolName,
-			ToolCallID:    call.toolCallID,
-			DurationMS:    time.Since(start).Milliseconds(),
-		}
-		if err != nil {
-			if errors.Is(err, durable.ErrSuspended) {
-				return callResult{}, err
-			}
-			out.Error = err.Error()
-			return out, nil
-		}
-		return resultWithPayload(out, payload)
-	})
+		}, fmt.Sprintf("%s: %s", call.toolName, errMsg)
+	}
+	defer func() { <-sem }()
+
+	dispatchCtx := ctx
+	if e.timeout > 0 {
+		var cancel context.CancelFunc
+		dispatchCtx, cancel = context.WithTimeout(ctx, e.timeout)
+		defer cancel()
+	}
+	start := time.Now()
+	payload, err := e.dispatch(dispatchCtx, call)
+	result := callResult{
+		RecipientName: call.spec.RecipientName,
+		ToolName:      call.toolName,
+		ToolCallID:    call.toolCallID,
+		DurationMS:    time.Since(start).Milliseconds(),
+	}
 	if err != nil {
-		return callResult{}, "", err
+		result.Error = err.Error()
+		return result, fmt.Sprintf("%s: %v", call.toolName, err)
 	}
-	if result.Error != "" {
-		return result, fmt.Sprintf("%s: %s", result.ToolName, result.Error), nil
-	}
-	return result, "", nil
+	return resultWithPayload(result, payload)
 }
 
 func (e parallelExecution) dispatch(ctx context.Context, call preparedParallelCall) ([]byte, error) {
@@ -313,40 +291,18 @@ func (e parallelExecution) dispatch(ctx context.Context, call preparedParallelCa
 	return e.registry.Dispatch(ctx, call.toolName, argsPayload)
 }
 
-func withNestedToolMetadata(ctx context.Context, toolCallID string) context.Context {
-	toolCallID = strings.TrimSpace(toolCallID)
-	if toolCallID == "" {
-		return ctx
-	}
-	meta := inputrequest.RunMetadataFromContext(ctx)
-	meta.ToolID = toolCallID
-	return inputrequest.WithRunMetadata(ctx, meta)
-}
-
-func parallelChildStepKey(ctx context.Context, call preparedParallelCall) string {
-	id := strings.TrimSpace(call.toolCallID)
-	if id == "" {
-		id = strings.TrimSpace(call.toolName)
-	}
-	parent := strings.TrimSpace(inputrequest.RunMetadataFromContext(ctx).ToolID)
-	if parent == "" {
-		return "multi_tool_use_parallel:" + id
-	}
-	return "multi_tool_use_parallel:" + parent + ":" + id
-}
-
-func resultWithPayload(result callResult, payload []byte) (callResult, error) {
+func resultWithPayload(result callResult, payload []byte) (callResult, string) {
 	if len(payload) == 0 {
 		payload = []byte("null")
 	}
 	if embeddedErr := detectEmbeddedError(payload); embeddedErr != "" {
 		result.Error = embeddedErr
-		return result, nil
+		return result, fmt.Sprintf("%s: %s", result.ToolName, embeddedErr)
 	}
 	cp := make([]byte, len(payload))
 	copy(cp, payload)
 	result.Payload = json.RawMessage(cp)
-	return result, nil
+	return result, ""
 }
 
 func (t *ParallelTool) registryView() tools.Registry {
@@ -357,18 +313,6 @@ func (t *ParallelTool) registryView() tools.Registry {
 
 func normalizeRecipient(v string) (string, error) {
 	v = strings.TrimSpace(v)
-	if v == "" {
-		return "", errors.New("recipient_name is empty")
-	}
-	v = strings.TrimPrefix(v, "functions.")
-	if v == "multi_tool_use.parallel" {
-		v = ToolName
-	}
-	if strings.TrimSpace(v) == "" {
-		return "", errors.New("recipient_name missing tool identifier")
-	}
-	return v, nil
-}
 	if v == "" {
 		return "", errors.New("recipient_name is empty")
 	}

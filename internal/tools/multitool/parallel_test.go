@@ -12,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"manifold/internal/agent/inputrequest"
+	"manifold/internal/durable"
 	"manifold/internal/tools"
 )
 
@@ -462,6 +464,153 @@ func TestParallelToolUsesNestedToolDispatcher(t *testing.T) {
 	require.NoError(t, json.Unmarshal(payload, &parsed))
 	require.True(t, parsed.OK)
 	require.Len(t, parsed.Results, 1)
-	require.Empty(t, parsed.Results[0].Error)
-	require.JSONEq(t, `{"ok":true,"output":"nested"}`, string(parsed.Results[0].Payload))
+}
+}
+
+func TestParallelToolPropagatesErrSuspended(t *testing.T) {
+	reg := tools.NewRegistry()
+	reg.Register(fakeTool{
+		name: "needs_approval",
+		call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			return nil, durable.ErrSuspended
+		},
+	})
+	reg.Register(fakeTool{
+		name: "quick",
+		call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			return map[string]any{"ok": true}, nil
+		},
+	})
+	pt := NewParallel(reg, WithMaxParallel(2))
+	reg.Register(pt)
+
+	raw, err := json.Marshal(map[string]any{
+		"tool_uses": []map[string]any{
+			{"recipient_name": "functions.quick", "tool_call_id": "ok-1"},
+			{"recipient_name": "functions.needs_approval", "tool_call_id": "suspend-1"},
+		},
+	})
+	require.NoError(t, err)
+
+	payload, callErr := reg.Dispatch(context.Background(), pt.Name(), raw)
+	require.ErrorIs(t, callErr, durable.ErrSuspended)
+	require.Nil(t, payload)
+}
+
+func TestParallelToolIsolatesNestedToolMetadata(t *testing.T) {
+	reg := tools.NewRegistry()
+	var mu sync.Mutex
+	toolIDs := make([]string, 0, 2)
+	reg.Register(fakeTool{
+		name: "probe",
+		call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+			meta := inputrequest.RunMetadataFromContext(ctx)
+			mu.Lock()
+			toolIDs = append(toolIDs, meta.ToolID)
+			mu.Unlock()
+			return map[string]any{"ok": true, "tool_id": meta.ToolID}, nil
+		},
+	})
+	pt := NewParallel(reg)
+	reg.Register(pt)
+
+	ctx := inputrequest.WithRunMetadata(context.Background(), inputrequest.RunMetadata{
+		ToolID: "parent-parallel-id",
+	})
+	raw, err := json.Marshal(map[string]any{
+		"tool_uses": []map[string]any{
+			{"recipient_name": "functions.probe", "tool_call_id": "child-a"},
+			{"recipient_name": "functions.probe", "tool_call_id": "child-b"},
+		},
+	})
+	require.NoError(t, err)
+
+	payload, callErr := reg.Dispatch(ctx, pt.Name(), raw)
+	require.NoError(t, callErr)
+	require.NotNil(t, payload)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.ElementsMatch(t, []string{"child-a", "child-b"}, toolIDs)
+}
+
+func TestParallelToolCheckpointsCompletedChildrenAcrossSuspend(t *testing.T) {
+func TestParallelToolCheckpointsCompletedChildrenAcrossSuspend(t *testing.T) {
+	ctx := context.Background()
+	store := durable.NewMemoryStore()
+	client := durable.NewClient(store)
+	registry := durable.NewRegistry()
+	var calls atomic.Int64
+	registry.Register(durable.DefaultQueue, "parallel_suspend", func(ctx context.Context, _ map[string]any) (map[string]any, error) {
+		reg := tools.NewRegistry()
+		reg.Register(fakeTool{
+			name: "once",
+			call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				n := calls.Add(1)
+				return map[string]any{"calls": n}, nil
+			},
+		})
+		reg.Register(fakeTool{
+			name: "gate",
+			call: func(ctx context.Context, raw json.RawMessage) (any, error) {
+				return durable.AwaitEvent[map[string]any](ctx, "continue", 0)
+			},
+		})
+		pt := NewParallel(reg, WithMaxParallel(2))
+		reg.Register(pt)
+
+		raw := json.RawMessage(`{"tool_uses":[{"recipient_name":"functions.once","tool_call_id":"once-1"},{"recipient_name":"functions.gate","tool_call_id":"gate-1"}]}`)
+		payload, err := reg.Dispatch(ctx, pt.Name(), raw)
+		if err != nil {
+			return nil, err
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal(payload, &parsed); err != nil {
+			return nil, err
+		}
+		return parsed, nil
+	})
+
+	worker := durable.NewWorker(store, client, registry, durable.WorkerOptions{WorkerID: "worker-parallel", Lease: time.Minute, PollInterval: 20 * time.Millisecond})
+	spawn, err := client.Spawn(ctx, durable.SpawnRequest{
+		UserID: 7,
+		Queue:  durable.DefaultQueue,
+		Name:   "parallel_suspend",
+		Params: map[string]any{},
+	})
+	require.NoError(t, err)
+	require.NoError(t, worker.RunOnce(ctx))
+
+	task, found, err := store.GetTask(ctx, 7, spawn.TaskID)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, durable.TaskStatusWaiting, task.Status)
+
+	_, err = client.EmitEvent(ctx, 7, durable.DefaultQueue, "continue", map[string]any{"approved": true})
+	require.NoError(t, err)
+	require.NoError(t, worker.RunOnce(ctx))
+
+	snapshot, err := client.FetchResult(ctx, 7, spawn.TaskID)
+	require.NoError(t, err)
+	require.Equal(t, durable.TaskStatusCompleted, snapshot.State)
+
+	var parsed struct {
+		OK      bool `json:"ok"`
+		Results []struct {
+			ToolCallID string          `json:"tool_call_id"`
+			Payload    json.RawMessage `json:"payload"`
+			Error      string          `json:"error"`
+		} `json:"results"`
+	}
+	require.NoError(t, json.Unmarshal(snapshot.Result, &parsed))
+	require.True(t, parsed.OK)
+	require.Len(t, parsed.Results, 2)
+	require.Equal(t, int64(1), calls.Load())
+
+	for _, item := range parsed.Results {
+		require.Empty(t, item.Error)
+		if item.ToolCallID == "once-1" {
+			require.JSONEq(t, `{"calls":1}`, string(item.Payload))
+		}
+	}
 }

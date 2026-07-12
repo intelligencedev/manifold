@@ -85,9 +85,9 @@ const router = createRouter({
         label: "Flow",
         glyph: "FL",
         title: "Flow",
-        purpose: "Visual workflow builder and execution (beta)",
+        purpose: "Typed-port workflow builder",
       },
-      component: () => import("@/views/FlowView.vue"),
+      component: () => import("@/views/WarppView.vue"),
     },
     {
       path: "/durable",

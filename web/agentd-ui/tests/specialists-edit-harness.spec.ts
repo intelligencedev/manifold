@@ -18,8 +18,8 @@ vi.mock("@/api/playground", () => ({
   ],
 }));
 
-vi.mock("@/api/flow", () => ({
-  fetchFlowTools: async () => [
+vi.mock("@/api/tools", () => ({
+  fetchToolCatalog: async () => [
     { name: "agent_response", description: "Return the final answer" },
     { name: "fetch", description: "Fetch a URL" },
     { name: "search", description: "Search the web" },

@@ -115,6 +115,7 @@ func registerCoreAPIRoutes(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("/api/warpp/runs", a.warppRunsHandler())
 	mux.HandleFunc("/api/warpp/runs/", a.warppRunEventsHandler())
 	mux.HandleFunc("/api/warpp/catalog", a.warppCatalogHandler())
+	mux.HandleFunc("/api/tools/catalog", a.toolsCatalogHandler())
 }
 
 func registerAgentRoutes(mux *http.ServeMux, a *app) {

@@ -127,7 +127,7 @@ func TestServiceRunOptimizeCreatesCandidateArtifacts(t *testing.T) {
 		t.Fatalf("expected optimize mode, got %s", result.Mode)
 	}
 	if result.Aggregate.Action != codeqa.ActionAccept {
-		t.Fatalf("expected accept, got %s", result.Aggregate.Action)
+		t.Fatalf("expected accept, got %s aggregate=%+v error=%s", result.Aggregate.Action, result.Aggregate, result.Error)
 	}
 	if _, ok := result.Artifacts["patches/iteration-000.patch"]; !ok {
 		t.Fatalf("expected patch artifact, got %+v", result.Artifacts)

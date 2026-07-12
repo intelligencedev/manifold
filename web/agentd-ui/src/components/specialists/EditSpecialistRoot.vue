@@ -1229,8 +1229,8 @@ import {
   type Prompt,
   type PromptVersion,
 } from "@/api/playground";
-import { fetchFlowTools } from "@/api/flow";
-import type { FlowEditorTool } from "@/types/flowEditor";
+import { fetchToolCatalog } from "@/api/tools";
+import type { ToolCatalogEntry } from "@/api/tools";
 
 type TabId = "basics" | "prompt" | "tools" | "advanced";
 type ToolPolicy = "none" | "any" | "allow-list";
@@ -1311,7 +1311,7 @@ const extraHeadersObj = ref<Record<string, string>>({});
 const extraParamsObj = ref<Record<string, any>>({});
 
 const promptHelpOpen = ref(false);
-const tools = ref<FlowEditorTool[]>([]);
+const tools = ref<ToolCatalogEntry[]>([]);
 const toolsLoading = ref(false);
 const toolsError = ref("");
 const toolsSearch = ref("");
@@ -2332,7 +2332,7 @@ async function loadTools() {
   toolsLoading.value = true;
   toolsError.value = "";
   try {
-    const resp = await fetchFlowTools().catch(() => [] as FlowEditorTool[]);
+    const resp = await fetchToolCatalog().catch(() => [] as ToolCatalogEntry[]);
     tools.value = resp
       .filter((t) => !!t?.name)
       .sort((a, b) =>

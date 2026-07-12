@@ -372,16 +372,6 @@ func (a *app) warppCatalogHandler() http.HandlerFunc {
 	}
 }
 
-// publishedWorkflowManifests returns subflow manifests. Filled in Task 13.
-func (a *app) publishedWorkflowManifests(ctx context.Context, userID int64) []warpp.Manifest {
-	return nil
-}
-
-// checkSubflowCycles detects recursive flow.<id> inclusion. Filled in Task 13.
-func (a *app) checkSubflowCycles(ctx context.Context, userID int64, doc warpp.Document) []warpp.Diagnostic {
-	return nil
-}
-
 func writeWarppJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

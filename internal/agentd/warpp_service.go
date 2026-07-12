@@ -99,17 +99,3 @@ func (a *app) executeWarppRun(ctx context.Context, userID int64, runID string, d
 	eng := a.newWarppEngine(ctx, userID, runID, doc)
 	return eng.Execute(ctx, doc, input)
 }
-
-// syncPublishedWorkflowTools registers system-user workflows that opt in to
-// tool publishing. Implemented in warpp_agent_tools.go (Task 13).
-func (a *app) syncPublishedWorkflowTools(ctx context.Context) {}
-
-// warppSubflowResolver resolves flow.<id> node types to published workflow
-// manifests. Filled in warpp_agent_tools.go (Task 13).
-func (a *app) warppSubflowResolver(ctx context.Context, userID int64) warpp.Resolver {
-	return func(string) (warpp.Manifest, bool) { return warpp.Manifest{}, false }
-}
-
-// registerSubflowRunners adds flow.<id> runners. Filled in Task 13.
-func (a *app) registerSubflowRunners(ctx context.Context, userID int64, runners map[string]warpp.NodeRunner) {
-}

@@ -58,9 +58,10 @@ type app struct {
 	durableClient      *durable.Client
 	durableRegistry    *durable.Registry
 	durableWorker      *durable.Worker
-	flowV2             *flowV2Runtime
-	warpp              *warppRuntime
-	codeQARuntime      *codeQARuntime
+	flowV2                  *flowV2Runtime
+	warpp                   *warppRuntime
+	warppPublishedToolNames []string
+	codeQARuntime           *codeQARuntime
 	codeQAService      *codeqaservice.Service
 	cliExecutor        *clitool.ExecutorImpl
 	terminalManager    *terminaltool.Manager

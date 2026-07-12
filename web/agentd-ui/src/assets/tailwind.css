@@ -64,12 +64,12 @@
       radial-gradient(
         circle at 18% 0%,
         rgb(var(--color-accent) / 0.16),
-        transparent 34rem
+        rgb(var(--color-accent) / 0) 34rem
       ),
       radial-gradient(
         circle at 92% 12%,
         rgb(var(--color-info) / 0.09),
-        transparent 30rem
+        rgb(var(--color-info) / 0) 30rem
       ),
       rgb(var(--color-background));
   }

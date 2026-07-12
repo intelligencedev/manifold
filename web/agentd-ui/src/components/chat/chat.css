@@ -13,12 +13,12 @@
     radial-gradient(
       circle at 28% 0%,
       rgb(var(--color-accent) / 0.1),
-      transparent 28rem
+      rgb(var(--color-accent) / 0) 28rem
     ),
     linear-gradient(
       180deg,
       rgb(var(--color-background) / 0.34),
-      transparent 10rem
+      rgb(var(--color-background) / 0) 10rem
     );
 }
 
@@ -502,10 +502,10 @@
 .chat-message-scroll {
   mask-image: linear-gradient(
     to bottom,
-    transparent 0,
+    rgb(0 0 0 / 0) 0,
     black 0.85rem,
     black calc(100% - 0.75rem),
-    transparent 100%
+    rgb(0 0 0 / 0) 100%
   );
 }
 
@@ -712,8 +712,8 @@
     ),
     repeating-linear-gradient(
       90deg,
-      transparent 0,
-      transparent calc(16.666% - 1px),
+      rgb(var(--color-border) / 0) 0,
+      rgb(var(--color-border) / 0) calc(16.666% - 1px),
       rgb(var(--color-border) / 0.18) calc(16.666% - 1px),
       rgb(var(--color-border) / 0.18) 16.666%
     );
@@ -925,7 +925,7 @@
     radial-gradient(
       circle at center,
       rgb(var(--color-surface) / 0.98) 0 59%,
-      transparent 60%
+      rgb(var(--color-surface) / 0) 60%
     ),
     var(
       --context-gradient,
@@ -1958,7 +1958,7 @@
     radial-gradient(
       circle at 8% 0%,
       rgb(var(--color-accent) / 0.04),
-      transparent 12rem
+      rgb(var(--color-accent) / 0) 12rem
     );
 }
 

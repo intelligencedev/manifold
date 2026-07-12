@@ -2,6 +2,14 @@
 import { computed, inject } from "vue";
 import type { FileEntry } from "@/api/client";
 import { useProjectsStore } from "@/stores/projects";
+import FileTreeIcon from "./FileTreeIcon.vue";
+
+function formatSize(bytes: number) {
+  if (!bytes) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 const props = defineProps<{
   path: string;
@@ -147,15 +155,16 @@ function onDragLeave() {
 </script>
 
 <template>
-  <ul>
+  <ul class="select-none">
     <template v-for="e in list" :key="e.path">
       <li
-        class="group flex items-center gap-2 h-9 pr-2 border-b border-border/70 last:border-b-0 hover:bg-surface-muted cursor-pointer"
+        class="group relative flex h-7 cursor-pointer items-center rounded-[4px] pr-2 transition-colors"
         :class="{
-          'bg-surface-muted': selected === e.path,
-          'ring-2 ring-accent/50 ring-offset-0 bg-accent/10':
+          'bg-accent/12 text-foreground': selected === e.path,
+          'hover:bg-surface-muted/70': selected !== e.path,
+          'ring-1 ring-inset ring-accent/60 bg-accent/10':
             e.isDir && dropTargetDir === normalizeDir(e.path),
-          'outline outline-1 outline-accent/50':
+          'ring-1 ring-inset ring-accent/40':
             !e.isDir && dropTargetDir === normalizeDir(parentPath(e.path)),
         }"
         :draggable="true"
@@ -164,46 +173,79 @@ function onDragLeave() {
         @dragover.prevent="onDragOver($event, e)"
         @drop.stop.prevent="onDrop($event, e)"
         @dragleave.prevent="onDragLeave"
+        @click="e.isDir ? openDir(e.path) : select(e.path)"
       >
+        <!-- selection accent bar -->
+        <span
+          v-if="selected === e.path"
+          class="absolute inset-y-0 left-0 w-[2px] rounded-full bg-accent"
+        ></span>
+
         <div
-          class="flex items-center shrink-0"
-          :style="{ paddingLeft: `${12 + depth * 16}px` }"
+          class="flex min-w-0 flex-1 items-center gap-1.5"
+          :style="{ paddingLeft: `${8 + depth * 14}px` }"
         >
+          <!-- checkbox: hidden until hover / when checked -->
           <input
             type="checkbox"
-            class="w-5 h-5 mr-2 rounded-3 border-border text-danger focus-visible:outline-none focus-visible:shadow-outline"
+            class="h-3.5 w-3.5 shrink-0 rounded-[3px] border-[rgb(var(--line-strong))] bg-surface text-accent opacity-0 transition-opacity focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100"
+            :class="{ '!opacity-100': isChecked(e.path) }"
             :checked="isChecked(e.path)"
             @click.stop
             @change.stop="() => toggleCheck(e.path)"
             :aria-label="`Select ${e.name}`"
           />
+
+          <!-- chevron (dirs) -->
           <button
             v-if="e.isDir"
-            class="w-5 h-5 mr-1 rounded-3 text-subtle-foreground hover:bg-surface-muted/70 focus-visible:outline-none focus-visible:shadow-outline"
+            class="grid h-4 w-4 shrink-0 place-items-center rounded-[3px] text-faint-foreground transition-colors hover:text-foreground focus-visible:outline-none"
             :title="isExpanded(e.path) ? 'Collapse' : 'Expand'"
+            :aria-expanded="isExpanded(e.path)"
             @click.stop="toggle(e.path)"
           >
-            {{ isExpanded(e.path) ? "▾" : "▸" }}
+            <svg
+              class="h-3.5 w-3.5 transition-transform"
+              :class="{ 'rotate-90': isExpanded(e.path) }"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="m9 6 6 6-6 6" />
+            </svg>
           </button>
-          <span v-else class="w-5 h-5 mr-1" />
-          <span class="w-5 text-subtle-foreground">{{
-            e.isDir ? "📁" : "📄"
-          }}</span>
+          <span v-else class="h-4 w-4 shrink-0" />
+
+          <FileTreeIcon
+            class="h-4 w-4"
+            :name="e.name"
+            :is-dir="e.isDir"
+            :expanded="e.isDir && isExpanded(e.path)"
+          />
+
+          <span
+            class="truncate text-[13px] leading-none"
+            :class="selected === e.path ? 'text-foreground' : 'text-foreground/90'"
+          >
+            {{ e.name }}
+          </span>
         </div>
+
         <span
-          class="text-foreground truncate flex-1 min-w-0"
-          @click.stop="e.isDir ? openDir(e.path) : select(e.path)"
+          v-if="!e.isDir"
+          class="ml-2 shrink-0 font-mono text-[10px] text-faint-foreground opacity-0 transition-opacity group-hover:opacity-100"
         >
-          {{ e.name }}
+          {{ formatSize(e.sizeBytes) }}
         </span>
-        <span class="ml-auto text-xs text-faint-foreground">{{
-          e.isDir ? "" : `${e.sizeBytes} B`
-        }}</span>
       </li>
       <li
         v-if="e.isDir && isExpanded(e.path)"
         :key="e.path + '__children'"
-        class="border-0 p-0 m-0"
+        class="m-0 border-0 p-0"
       >
         <FileTreeNode
           :path="e.path"

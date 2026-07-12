@@ -200,13 +200,13 @@ func TestDelegatorTracerUsesFriendlyToolTitles(t *testing.T) {
 		t.Fatalf("expected one trace event, got %d", len(recorder.events))
 	}
 	ev := recorder.events[0]
-	if ev.Title != "Run Command" {
-		t.Fatalf("trace title = %q, want %q", ev.Title, "Run Command")
+	if ev.Title != "Running a workspace command safely" {
+		t.Fatalf("trace title = %q, want %q", ev.Title, "Running a workspace command safely")
 	}
 	if ev.ToolName != "run_cli" {
 		t.Fatalf("trace tool name = %q, want %q", ev.ToolName, "run_cli")
 	}
-	if ev.ToolTitle != "Run Command" {
-		t.Fatalf("trace tool title = %q, want %q", ev.ToolTitle, "Run Command")
+	if ev.ToolTitle != "Running a workspace command safely" {
+		t.Fatalf("trace tool title = %q, want %q", ev.ToolTitle, "Running a workspace command safely")
 	}
 }

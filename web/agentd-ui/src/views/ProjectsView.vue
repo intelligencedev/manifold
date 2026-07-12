@@ -27,6 +27,7 @@ const fieldClass =
 
 const store = useProjectsStore();
 const newProjectName = ref("");
+const creatingProject = ref(false);
 const newProjectInput = ref<HTMLInputElement | null>(null);
 const uploadInput = ref<HTMLInputElement | null>(null);
 const treeRef = ref<InstanceType<typeof FileTree> | null>(null);
@@ -426,17 +427,24 @@ function downloadProject() {
   document.body.removeChild(a);
 }
 
+function startCreateProject() {
+  creatingProject.value = true;
+  void nextTick(() => newProjectInput.value?.focus());
+}
+
+function cancelCreateProject() {
+  creatingProject.value = false;
+  newProjectName.value = "";
+}
+
 async function createProject() {
   const name = newProjectName.value.trim();
   if (!name) return;
   await store.create(name);
   newProjectName.value = "";
+  creatingProject.value = false;
   cwd.value = ".";
   await store.ensureTree(".");
-}
-
-function focusNewProject() {
-  newProjectInput.value?.focus();
 }
 
 function openFile(path: string) {
@@ -573,7 +581,7 @@ function startPaneResize(event: PointerEvent) {
       class="halo-hairline-b shrink-0 pb-3"
     >
       <div class="flex flex-wrap items-center gap-3">
-        <!-- Current project + its actions -->
+        <!-- Project cluster: switch · create · act -->
         <div class="flex items-center gap-2">
           <DropdownSelect
             id="project-select"
@@ -583,64 +591,91 @@ function startPaneResize(event: PointerEvent) {
             aria-label="Project"
             title="Current project"
           />
+
+          <!-- New project (progressive disclosure) -->
           <AppButton
-            v-if="store.currentProjectId"
+            v-if="!creatingProject"
             variant="neutral"
             size="sm"
-            title="Download project as .tar.gz"
-            aria-label="Download project"
-            @click="downloadProject"
-          >
-            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M12 3v11m0 0 4-4m-4 4-4-4" />
-              <path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2" />
-            </svg>
-          </AppButton>
-          <AppButton
-            variant="danger"
-            size="sm"
-            :disabled="!current"
-            title="Delete current project"
-            aria-label="Delete current project"
-            @click="openDeleteProjectDialog"
-          >
-            <SolarTrashIcon class="h-4 w-4" />
-          </AppButton>
-        </div>
-
-        <!-- Project meta -->
-        <div
-          v-if="current"
-          class="flex items-center gap-2 text-xs text-faint-foreground"
-        >
-          <span>Created {{ new Date(current.createdAt).toLocaleDateString() }}</span>
-          <Pill v-if="current.usageLoaded" tone="neutral" size="sm">{{ current.files }} files</Pill>
-          <Pill v-if="current.usageLoaded" tone="neutral" size="sm">{{ (current.sizeBytes / 1024).toFixed(1) }} KB</Pill>
-        </div>
-
-        <!-- New project -->
-        <div class="ml-auto flex items-center gap-2">
-          <label class="sr-only" for="new-project">New project name</label>
-          <input
-            id="new-project"
-            ref="newProjectInput"
-            v-model="newProjectName"
-            placeholder="New project name"
-            :class="[fieldClass, 'h-9 w-44']"
-            @keydown.enter="createProject"
-          />
-          <AppButton
-            variant="accent"
-            size="sm"
-            :disabled="!newProjectName.trim()"
-            title="Create project"
-            aria-label="Create project"
-            @click="createProject"
+            title="Create a new project"
+            @click="startCreateProject"
           >
             <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
               <path d="M12 5v14M5 12h14" />
             </svg>
+            New project
           </AppButton>
+          <template v-else>
+            <label class="sr-only" for="new-project">New project name</label>
+            <input
+              id="new-project"
+              ref="newProjectInput"
+              v-model="newProjectName"
+              placeholder="Project name…"
+              :class="[fieldClass, 'h-9 w-48']"
+              @keydown.enter="createProject"
+              @keydown.esc="cancelCreateProject"
+            />
+            <AppButton
+              variant="accent"
+              size="sm"
+              :disabled="!newProjectName.trim()"
+              title="Create project"
+              aria-label="Create project"
+              @click="createProject"
+            >
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M5 12l4.5 4.5L19 7" />
+              </svg>
+            </AppButton>
+            <AppButton
+              variant="ghost"
+              size="sm"
+              title="Cancel"
+              aria-label="Cancel new project"
+              @click="cancelCreateProject"
+            >
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </AppButton>
+          </template>
+
+          <!-- Current-project actions -->
+          <template v-if="current">
+            <div class="mx-1 h-6 w-px bg-border"></div>
+            <AppButton
+              variant="neutral"
+              size="sm"
+              title="Download project as .tar.gz"
+              aria-label="Download project"
+              @click="downloadProject"
+            >
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3v11m0 0 4-4m-4 4-4-4" />
+                <path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2" />
+              </svg>
+            </AppButton>
+            <AppButton
+              variant="danger"
+              size="sm"
+              title="Delete current project"
+              aria-label="Delete current project"
+              @click="openDeleteProjectDialog"
+            >
+              <SolarTrashIcon class="h-4 w-4" />
+            </AppButton>
+          </template>
+        </div>
+
+        <!-- Project meta (far right) -->
+        <div
+          v-if="current"
+          class="ml-auto flex items-center gap-2 text-xs text-faint-foreground"
+        >
+          <span>Created {{ new Date(current.createdAt).toLocaleDateString() }}</span>
+          <Pill v-if="current.usageLoaded" tone="neutral" size="sm">{{ current.files }} files</Pill>
+          <Pill v-if="current.usageLoaded" tone="neutral" size="sm">{{ (current.sizeBytes / 1024).toFixed(1) }} KB</Pill>
         </div>
       </div>
     </Panel>
@@ -856,7 +891,7 @@ function startPaneResize(event: PointerEvent) {
           Projects are isolated workspaces where agents read and write files. Pick one from the selector, or name a new one and create it.
         </p>
       </div>
-      <AppButton variant="accent" size="sm" @click="focusNewProject">New project</AppButton>
+      <AppButton variant="accent" size="sm" @click="startCreateProject">New project</AppButton>
     </div>
 
     <div

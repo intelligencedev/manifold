@@ -4,19 +4,39 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/rs/zerolog/log"
 
+	"manifold/assets"
 	"manifold/internal/config"
 	"manifold/internal/observability"
 	"manifold/internal/secrets"
+	"manifold/internal/skills"
 )
+
+// installBundledSkills copies skills embedded in the binary into
+// <manifoldHome>/skills, overwriting any that changed since the last release.
+func installBundledSkills(home string) {
+	sub, err := fs.Sub(assets.Skills, "skills")
+	if err != nil {
+		log.Warn().Err(err).Msg("bundled_skills_fs_unavailable")
+		return
+	}
+	names, err := skills.InstallBundledSkills(sub, filepath.Join(home, "skills"))
+	if err != nil {
+		log.Warn().Err(err).Msg("bundled_skills_install_failed")
+		return
+	}
+	log.Info().Strs("skills", names).Msg("bundled_skills_installed")
+}
 
 func Run() {
 	if err := loadEnv(); err != nil {
@@ -24,8 +44,10 @@ func Run() {
 	}
 
 	// Create stable desktop dirs before config/log path materialization.
-	if _, err := config.EnsureManifoldHome(); err != nil {
+	if home, err := config.EnsureManifoldHome(); err != nil {
 		log.Debug().Err(err).Msg("unable to create ~/.manifold")
+	} else {
+		installBundledSkills(home)
 	}
 
 	// Auto-provision the secrets key on first run so database-backed secret

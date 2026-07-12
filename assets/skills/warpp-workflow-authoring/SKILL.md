@@ -25,19 +25,30 @@ use a data node (`data.extract`, `data.template`, `data.parse`, …).
 
 ## The authoring loop (do this every time)
 
-1. **`workflow_catalog`** — fetch the live node manifests, their exact port
-   names/types, and the coercion table. The catalog includes builtins, curated
-   tools, every MCP tool, and published sub-workflows. **Never guess a node
-   type or a port name — read them from the catalog.**
-2. **Build the document** (shape below). Prefer wiring (`from`) over literals
+1. **Discover tools with `tool_search`.** For every step that performs an
+   external action (web search/fetch, file I/O, calling an API or another
+   agent, sending a message, RAG, an MCP capability, …), call `tool_search`
+   with a natural-language description of the capability you need — e.g.
+   `"search the web"`, `"read a file"`, `"query a database"`,
+   `"send a slack message"`. The user may have configured MCP servers that
+   publish tools you cannot know ahead of time, so **do not assume a tool
+   exists or guess its name** — search, then pick the best-matching result for
+   the step. If several match, choose the most specific/appropriate one.
+2. **`workflow_catalog`** — fetch the live node manifests for the tools you
+   chose (plus the builtins), their exact port names/types, and the coercion
+   table. Every registry tool is available as a node typed `tool.<name>`.
+   **Never guess a node type or a port name — read them from the catalog.**
+3. **Build the document** (shape below). Prefer wiring (`from`) over literals
    for anything that should be dynamic.
-3. **`workflow_save`** — it validates and returns diagnostics. If any come
+4. **`workflow_save`** — it validates and returns diagnostics. If any come
    back, fix each one (they carry a `code`, `message`, and `path`) and save
    again. Do not stop until it saves with no error diagnostics.
-4. **`workflow_run`** (only if asked to test) — runs it and returns the
+5. **`workflow_run`** (only if asked to test) — runs it and returns the
    declared outputs.
 
-Generate → validate → self-correct. Do not hand back an unvalidated document.
+Discover → build → validate → self-correct. Do not hand back an unvalidated
+document, and do not invent a tool you did not find via `tool_search` or the
+catalog.
 
 ## Document shape
 
@@ -100,9 +111,13 @@ match the port type exactly** (`"5"` for a text port, `5` for a number port). A
 | `control.map` | `items: list<T>`, `concurrency: number`, `on_item_error: text` | `results: list<…>` |
 | `llm.generate` | `instruction: text`, `input: text`, `model: text` | `text: text` |
 
-**Tool nodes** are `tool.<name>` (e.g. `tool.web_search`, `tool.file_write`,
-`tool.brave_brave_web_search`). Each has a `result: json` output plus, for
-curated tools, typed outputs. Get the exact ports from `workflow_catalog`.
+**Tool nodes** are `tool.<name>` — one for every tool in the registry,
+including MCP-server tools (e.g. `tool.web_search`, `tool.file_write`,
+`tool.brave_brave_web_search`). The set is instance-specific and not known in
+advance, so **find tools with `tool_search`** (by capability) rather than
+assuming; then use the match as node type `tool.<its name>`. Each tool node has
+a `result: json` output plus, for curated tools, typed outputs. Get the exact
+input/output ports from `workflow_catalog`.
 
 `data.extract` / `data.constant` set their output type via the `as` config:
 one of `text`, `number`, `boolean`, `json`, `list<json>`.
@@ -131,7 +146,9 @@ one of `text`, `number`, `boolean`, `json`, `list<json>`.
 
 ## Common mistakes to avoid
 
-- Guessing a node type or port name instead of reading `workflow_catalog`.
+- Assuming a tool exists or guessing its name. Use `tool_search` to find the
+  right tool (MCP servers add tools you can't know in advance), then read its
+  exact ports from `workflow_catalog`.
 - Using an expression / template string in a binding. Use a `data.*` node.
 - Wiring `json` into a `text` port (or vice-versa) without a
   `data.stringify` / `data.parse` / `data.extract` between them.

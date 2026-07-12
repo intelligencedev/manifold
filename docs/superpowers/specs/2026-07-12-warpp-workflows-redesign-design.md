@@ -65,7 +65,7 @@ separate edges array (the canvas derives edges from `from` refs).
     },
     {
       "id": "summarize",
-      "type": "tool.llm_transform",
+      "type": "llm.generate",
       "inputs": {
         "instruction": { "value": "Summarize these results" },
         "input":       { "from": "search.results_text" }
@@ -90,6 +90,9 @@ Rules:
   `nodeID.portName`.
 - Workflow `outputs` bind names to node output ports; this is the run result.
 - `publish.tool: true` exposes the workflow as an agent tool (see §9).
+- Optional `project_id` scopes filesystem tools to a project sandbox at run
+  time (same semantics as today's `workflowToolContext`); the engine ignores
+  it — only the service layer reads it.
 - Canvas layout (positions, groups, sticky notes, sizes) stays in the existing
   canvas **sidecar**, keyed by node ID. It never affects execution.
 
@@ -161,10 +164,17 @@ declared outputs, the node fails with a contract-violation error naming the
 missing/mismatched field. The adapter is the only place that knows a tool's
 raw shape.
 
-**Initial curated set (10):** `tool.web_search`, `tool.web_fetch`,
-`tool.llm_transform`, `tool.file_read`, `tool.file_write`,
-`tool.rag_retrieve`, `tool.rag_ingest`, `tool.run_cli`, `tool.agent_call`,
-`tool.matrix_room_message`.
+**Initial curated set (9 adapters):** `tool.web_search`, `tool.web_fetch`,
+`tool.file_read`, `tool.file_write`, `tool.rag_retrieve`, `tool.rag_ingest`,
+`tool.run_cli`, `tool.agent_call`, `tool.matrix_room_message`. Every adapter
+also exposes a `raw: json` output carrying the tool's whole parsed result, so
+`data.extract` can reach anything not curated as a dedicated port.
+
+**LLM node (native, not an adapter):** `llm.generate` — inputs
+`instruction: text` (optional, default ""), `input: text` (required),
+`model: text` (optional); output `text: text`. Implemented directly against
+the configured `llm.Provider.Chat` (there is no plain single-completion tool
+in the registry to adapt).
 
 **Escape hatch:** `tool.generic` — inputs: `tool: text` (literal-typical),
 `args: json`; output: `result: json`. Covers the registry long tail; combine
@@ -318,19 +328,17 @@ Replace `FlowView.vue` (3,559 lines) with a feature folder:
 
 ```
 web/agentd-ui/src/
-  views/WarppView.vue            — shell: layout, routing, save/run actions
+  views/WarppView.vue            — shell: toolbar, panels, save/validate/run, diagnostics strip
   components/warpp/
-    CanvasPane.vue               — Vue Flow instance, edge derivation, drag-connect
+    CanvasPane.vue               — Vue Flow instance, connect validation, Map containers (parent/child)
     CatalogPanel.vue             — node palette from GET /catalog, search
-    NodeCard.vue                 — node rendering, typed handles, status chip
-    PortHandle.vue               — colored by port type; dims incompatible targets mid-drag
-    InspectorPanel.vue           — manifest-driven widgets for unwired ports
-    MapRegion.vue                — Map container (Vue Flow parent/child)
-    RunOverlay.vue               — SSE-driven statuses + output values on wires
+    NodeCard.vue                 — node rendering: typed colored handles, widget summary, run status, output values
+    InspectorPanel.vue           — manifest-driven widgets for unwired ports, policy, workflow inputs/outputs
     RunTimeline.vue              — event list for a run
-  stores/warppEditor.ts          — document state, undo, dirty tracking
-  stores/warppRun.ts             — run/event state
-  api/warpp.ts                   — API client
+  stores/warppEditor.ts          — document state, node/wire ops, derived graph, dirty tracking
+  stores/warppRun.ts             — run/event state folded from SSE
+  api/warpp.ts                   — API client + run event streaming
+  lib/warppTypes.ts              — type parsing, drag-time compatibility, port colors
   types/warpp.ts                 — document/manifest/event types
 ```
 
@@ -375,9 +383,12 @@ Backend (TDD):
 Frontend:
 - Type-compat unit tests driven by a catalog fixture (same cases as backend
   coercion tests).
-- Inspector widget rendering per port type; widget↔wire toggling.
-- One e2e: build a two-node flow in the editor → save → run → SSE statuses
-  appear on nodes.
+- Editor-store unit tests: node add/remove, wire/unwire (incl. variadic),
+  edge derivation, dangling-binding cleanup, dirty tracking. Run-store unit
+  tests: SSE event folding into node status/outputs.
+- One full-stack smoke (browser-driven, manual): build a constant → map →
+  stringify flow in the editor → save → run → node statuses and output
+  values appear live via SSE.
 
 ## 14. Non-goals
 

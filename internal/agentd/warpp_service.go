@@ -27,26 +27,42 @@ func (a *app) warppExecutionRegistry() tools.Registry {
 	return a.baseToolRegistry
 }
 
-// warppResolver builds the node-type resolver: builtins, tool adapters, then
-// published workflows as subflow nodes.
+// warppResolver builds the node-type resolver: builtins, curated tool
+// adapters, every other registry tool derived from its schema (including MCP
+// tools), then published workflows as subflow nodes.
 func (a *app) warppResolver(ctx context.Context, userID int64) warpp.Resolver {
 	return warpp.ChainResolvers(
 		warpp.BuiltinResolver(),
 		toolnode.Resolver(toolnode.Builtin()),
+		toolnode.DynamicResolver(a.warppCatalogRegistry(), toolnode.CuratedToolNames()),
 		a.warppSubflowResolver(ctx, userID),
 	)
 }
 
-// warppRunners builds the runner set: builtins, tool adapters, the LLM node,
-// and subflow nodes.
+// warppRunners builds the runner set: builtins, curated adapters, schema-derived
+// tools (incl. MCP), the LLM node, and subflow nodes.
 func (a *app) warppRunners(ctx context.Context, userID int64) map[string]warpp.NodeRunner {
 	runners := warpp.BuiltinRunners()
-	for k, v := range toolnode.Runners(a.warppExecutionRegistry(), toolnode.Builtin()) {
+	reg := a.warppExecutionRegistry()
+	for k, v := range toolnode.Runners(reg, toolnode.Builtin()) {
+		runners[k] = v
+	}
+	for k, v := range toolnode.DynamicRunners(a.warppCatalogRegistry(), reg, toolnode.CuratedToolNames()) {
 		runners[k] = v
 	}
 	runners["llm.generate"] = warpp.LLMRunner(a.warppChat)
 	a.registerSubflowRunners(ctx, userID, runners)
 	return runners
+}
+
+// warppCatalogRegistry returns the registry used to enumerate available tool
+// nodes. The base registry lists all tools (including MCP) for the palette and
+// validation; the policy-aware registry filters per user at dispatch time.
+func (a *app) warppCatalogRegistry() tools.Registry {
+	if a.baseToolRegistry != nil {
+		return a.baseToolRegistry
+	}
+	return a.toolRegistry
 }
 
 // warppChat is the ChatFunc backing the llm.generate node.

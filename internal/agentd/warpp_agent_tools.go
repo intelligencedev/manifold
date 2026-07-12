@@ -353,6 +353,7 @@ func (t *warppCatalogTool) JSONSchema() map[string]any {
 func (t *warppCatalogTool) Call(ctx context.Context, _ json.RawMessage) (any, error) {
 	manifests := warpp.BuiltinManifests()
 	manifests = append(manifests, toolnode.Manifests(toolnode.Builtin())...)
+	manifests = append(manifests, toolnode.DynamicManifests(t.app.warppCatalogRegistry(), toolnode.CuratedToolNames())...)
 	manifests = append(manifests, t.app.publishedWorkflowManifests(ctx, systemUserID)...)
 	return map[string]any{"ok": true, "manifests": manifests,
 		"coercions": [][2]string{{"number", "text"}, {"boolean", "text"}}}, nil

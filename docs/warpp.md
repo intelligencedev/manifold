@@ -162,9 +162,19 @@ output ports and also a `raw: json` port carrying the tool's whole result.
 | `tool.agent_call` | `text: text` |
 | `tool.matrix_room_message` | `raw: json` |
 
+**Every other registered tool is auto-exposed.** At catalog time each tool in
+the registry that lacks a curated adapter — including all MCP-server tools —
+is turned into a `tool.<name>` node whose input ports are derived from the
+tool's JSON schema (string→text, number/integer→number, boolean→boolean,
+array→list<…>, object→json) and whose output is `result: json`. MCP tools
+appear under names like `tool.brave_brave_web_search` or
+`tool.paper-search_search_arxiv`. Tools with a free-form schema expose a single
+`args: json` input. Derivation reflects the live registry, so tools from
+MCP servers that connect after boot appear automatically.
+
 **Escape hatch:** `tool.generic` takes `tool: text` and `args: json`, returns
-`result: json`. Combine with `data.extract` to reach any field of any
-registered tool that lacks a curated adapter.
+`result: json`. Use it for anything you'd rather call by raw name; combine with
+`data.extract` to reshape a tool's `result`.
 
 ## Execution semantics
 

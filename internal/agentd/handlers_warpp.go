@@ -368,6 +368,7 @@ func (a *app) warppCatalogHandler() http.HandlerFunc {
 		}
 		manifests := warpp.BuiltinManifests()
 		manifests = append(manifests, toolnode.Manifests(toolnode.Builtin())...)
+		manifests = append(manifests, toolnode.DynamicManifests(a.warppCatalogRegistry(), toolnode.CuratedToolNames())...)
 		manifests = append(manifests, a.publishedWorkflowManifests(r.Context(), userID)...)
 		workflows, _ := a.warppState().listWorkflowSummaries(r.Context(), userID)
 		writeWarppJSON(w, http.StatusOK, warppCatalogResponse{

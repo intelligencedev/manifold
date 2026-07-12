@@ -8,6 +8,7 @@ import (
 
 	"manifold/internal/config"
 	"manifold/internal/flow"
+	"manifold/internal/warpp"
 )
 
 var (
@@ -427,6 +428,24 @@ type FlowV2WorkflowStore interface {
 	ListWorkflows(ctx context.Context, userID int64) ([]FlowV2WorkflowRecord, error)
 	GetWorkflow(ctx context.Context, userID int64, workflowID string) (FlowV2WorkflowRecord, bool, error)
 	UpsertWorkflow(ctx context.Context, userID int64, record FlowV2WorkflowRecord) (FlowV2WorkflowRecord, bool, error)
+	DeleteWorkflow(ctx context.Context, userID int64, workflowID string) error
+}
+
+// WarppWorkflowRecord is the persisted representation of a WARPP workflow.
+type WarppWorkflowRecord struct {
+	UserID    int64          `json:"user_id"`
+	Document  warpp.Document `json:"document"`
+	Canvas    warpp.Canvas   `json:"canvas"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+}
+
+// WarppWorkflowStore persists WARPP workflows by workflow id.
+type WarppWorkflowStore interface {
+	Init(ctx context.Context) error
+	ListWorkflows(ctx context.Context, userID int64) ([]WarppWorkflowRecord, error)
+	GetWorkflow(ctx context.Context, userID int64, workflowID string) (WarppWorkflowRecord, bool, error)
+	UpsertWorkflow(ctx context.Context, userID int64, record WarppWorkflowRecord) (WarppWorkflowRecord, bool, error)
 	DeleteWorkflow(ctx context.Context, userID int64, workflowID string) error
 }
 

@@ -76,6 +76,7 @@ type Manager struct {
 	EvolvingMemory     memory.EvolvingMemoryStore
 	Playground         *PlaygroundStore
 	FlowV2             persistence.FlowV2WorkflowStore
+	Warpp              persistence.WarppWorkflowStore
 	Durable            durable.Store
 	MCP                persistence.MCPStore
 	Projects           persistence.ProjectsStore
@@ -103,6 +104,7 @@ func (m Manager) Close() {
 	closeIfPossible(m.EvolvingMemory)
 	closeIfPossible(m.Playground)
 	closeIfPossible(m.FlowV2)
+	closeIfPossible(m.Warpp)
 	closeIfPossible(m.MCP)
 	closeIfPossible(m.Durable)
 	closeIfPossible(m.Projects)

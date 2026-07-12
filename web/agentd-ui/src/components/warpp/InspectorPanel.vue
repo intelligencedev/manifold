@@ -50,6 +50,13 @@
       <div class="warpp-inspector__title">Workflow</div>
       <label>Name</label>
       <input v-model="doc.name" @input="markDirty" />
+      <label>Project <span class="warpp-inspector__type">for file tools</span></label>
+      <select :value="doc.project_id ?? ''" @change="onProject($event)">
+        <option value="">— none —</option>
+        <option v-for="p in projects" :key="p.id" :value="p.id">
+          {{ p.name || p.id }}
+        </option>
+      </select>
       <label class="warpp-inspector__check">
         <input type="checkbox" :checked="publishTool" @change="onPublish($event)" />
         Publish as agent tool
@@ -61,12 +68,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { parseType } from "@/lib/warppTypes";
 import { useWarppEditor } from "@/stores/warppEditor";
+import { listProjects, type ProjectSummary } from "@/api/client";
 import type { WarppBinding } from "@/types/warpp";
 
 const editor = useWarppEditor();
+const projects = ref<ProjectSummary[]>([]);
+
+onMounted(async () => {
+  try {
+    projects.value = await listProjects();
+  } catch {
+    projects.value = [];
+  }
+});
 
 const selectedPath = computed(() => editor.selectedPath);
 const node = computed(() =>
@@ -138,6 +155,13 @@ function onDelete(): void {
 function onPublish(e: Event): void {
   if (!editor.doc) return;
   editor.doc.publish = { tool: (e.target as HTMLInputElement).checked };
+  markDirty();
+}
+
+function onProject(e: Event): void {
+  if (!editor.doc) return;
+  const id = (e.target as HTMLSelectElement).value;
+  editor.doc.project_id = id || undefined;
   markDirty();
 }
 

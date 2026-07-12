@@ -34,6 +34,7 @@ type warppValidateResponse struct {
 type warppRunHTTPRequest struct {
 	WorkflowID string         `json:"workflow_id"`
 	Input      map[string]any `json:"input,omitempty"`
+	ProjectID  string         `json:"project_id,omitempty"`
 }
 
 type warppRunHTTPResponse struct {
@@ -244,6 +245,10 @@ func (a *app) warppRunsHandler() http.HandlerFunc {
 			writeWarppJSON(w, http.StatusUnprocessableEntity, warppValidateResponse{Valid: false, Diagnostics: diags})
 			return
 		}
+		// A per-run project_id overrides the workflow's saved default.
+		if pid := strings.TrimSpace(req.ProjectID); pid != "" {
+			doc.ProjectID = pid
+		}
 		ctx := context.WithoutCancel(r.Context())
 		if a.durableClient != nil {
 			a.spawnDurableWarppRun(w, ctx, userID, doc, req.Input)
@@ -271,6 +276,7 @@ func (a *app) spawnDurableWarppRun(w http.ResponseWriter, ctx context.Context, u
 		Params: map[string]any{
 			"workflow_id": doc.ID,
 			"input":       cloneMap(input),
+			"project_id":  strings.TrimSpace(doc.ProjectID),
 		},
 		RetryPolicy: durable.RetryPolicy{MaxAttempts: 3, Backoff: "exponential", BaseDelaySeconds: 1, MaxDelaySeconds: 30},
 	})

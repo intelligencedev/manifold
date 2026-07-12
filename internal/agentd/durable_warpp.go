@@ -39,6 +39,9 @@ func (a *app) runDurableWarppTask(ctx context.Context, params map[string]any) (m
 	if !found {
 		return nil, fmt.Errorf("workflow not found")
 	}
+	if pid, _ := params["project_id"].(string); strings.TrimSpace(pid) != "" {
+		doc.ProjectID = strings.TrimSpace(pid)
+	}
 	diags := warpp.Validate(doc, a.warppResolver(ctx, userID))
 	if warpp.HasErrors(diags) {
 		return nil, fmt.Errorf("workflow validation failed: %s", warppDiagSummary(diags))

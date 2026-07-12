@@ -55,6 +55,7 @@ func newApp(ctx context.Context, cfg *config.Config) (*app, error) {
 		cancelRefresh()
 	}
 	app.registerWarppAgentTools()
+	app.seedExampleWarppWorkflow(context.Background())
 	app.syncPublishedWorkflowTools(context.Background())
 
 	if err := app.matrixGateway.Start(ctx); err != nil {

@@ -7,6 +7,7 @@ import (
 
 	"manifold/internal/durable"
 	llmpkg "manifold/internal/llm"
+	"manifold/internal/sandbox"
 	"manifold/internal/tools"
 	"manifold/internal/warpp"
 	"manifold/internal/warpp/toolnode"
@@ -87,14 +88,43 @@ func (a *app) newWarppEngine(ctx context.Context, userID int64, runID string, do
 	}
 }
 
+// warppProjectContext scopes filesystem tools to a project for a run, using the
+// same workspace manager chat uses so paths resolve identically.
+func (a *app) warppProjectContext(ctx context.Context, userID int64, projectID, sessionID string) (context.Context, error) {
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		return ctx, nil
+	}
+	if a.workspaceManager != nil {
+		ws, err := a.workspaceManager.Checkout(ctx, userID, projectID, sessionID)
+		if err != nil {
+			return ctx, err
+		}
+		if ws.BaseDir != "" {
+			ctx = sandbox.WithBaseDir(ctx, ws.BaseDir)
+			ctx = sandbox.WithProjectID(ctx, projectID)
+		}
+		return ctx, nil
+	}
+	return workflowToolContext(ctx, a.cfg, userID, projectID)
+}
+
 // executeWarppRun runs a workflow document to completion, streaming events into
 // the runtime for the given runID.
 func (a *app) executeWarppRun(ctx context.Context, userID int64, runID string, doc warpp.Document, input map[string]any) warpp.Result {
 	if projectID := strings.TrimSpace(doc.ProjectID); projectID != "" {
-		pctx, err := workflowToolContext(ctx, a.cfg, userID, projectID)
-		if err == nil {
-			ctx = pctx
+		pctx, err := a.warppProjectContext(ctx, userID, projectID, "warpp-"+doc.ID)
+		if err != nil {
+			a.warppState().appendRunEvent(userID, runID, warpp.Event{Type: warpp.EventRunStarted, Status: warpp.StatusRunning, Message: "run started"})
+			a.warppState().appendRunEvent(userID, runID, warpp.Event{
+				Type:    warpp.EventRunFailed,
+				Status:  warpp.StatusFailed,
+				Error:   fmt.Sprintf("project %q: %v", projectID, err),
+				Message: "run failed",
+			})
+			return warpp.Result{Status: warpp.StatusFailed, Err: err}
 		}
+		ctx = pctx
 	}
 	eng := a.newWarppEngine(ctx, userID, runID, doc)
 	return eng.Execute(ctx, doc, input)

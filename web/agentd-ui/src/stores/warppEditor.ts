@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { computed, ref } from "vue";
 import {
+  deleteWorkflow as apiDeleteWorkflow,
   fetchCatalog,
   getWorkflow,
   listWorkflows,
@@ -330,6 +331,20 @@ export const useWarppEditor = defineStore("warppEditor", () => {
     selectedPath.value = null;
   }
 
+  // Delete a workflow by id. If it is the one currently open, the editor is
+  // reset to the empty state. The workflow list is refreshed either way.
+  async function remove(id: string): Promise<void> {
+    await apiDeleteWorkflow(id);
+    if (doc.value?.id === id) {
+      doc.value = null;
+      canvas.value = { nodes: {} };
+      diagnostics.value = [];
+      dirty.value = false;
+      selectedPath.value = null;
+    }
+    await loadList();
+  }
+
   async function save(): Promise<boolean> {
     if (!doc.value) return false;
     try {
@@ -379,6 +394,7 @@ export const useWarppEditor = defineStore("warppEditor", () => {
     loadList,
     load,
     create,
+    remove,
     save,
     runValidate,
   };

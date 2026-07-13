@@ -705,10 +705,6 @@ export function useChatViewController() {
     activeSession: activeSession.value,
     activeSummaryEvent: activeSummaryEvent.value,
     clearSummaryEvent: chat.clearSummaryEvent,
-    commandPolicyAllowAllActive: commandPolicyAllowAllActive.value,
-    commandPolicyDisablePending: commandPolicyDisablePending.value,
-    commandPolicyDisableError: commandPolicyDisableError.value,
-    disableSessionCommandPolicyAllowAll,
     projectOptions: projectOptions.value,
     selectedProjectId: selectedProjectId.value,
     setSelectedProjectId,
@@ -820,6 +816,11 @@ export function useChatViewController() {
     stopRecording: voiceRecording.stopRecording,
     imagePrompt: imagePrompt.value,
     setImagePromptValue: composerActions.setImagePromptValue,
+    commandPolicyAllowAllActive: commandPolicyAllowAllActive.value,
+    commandPolicyDisablePending: commandPolicyDisablePending.value,
+    commandPolicyDisableError: commandPolicyDisableError.value,
+    openCommandPolicyAllowAllDialog: modalsState.openAllowAllDialog,
+    disableSessionCommandPolicyAllowAll,
     sendCurrentPrompt: composerActions.sendCurrentPrompt,
     stopStreaming: composerActions.stopStreaming,
     isStreaming: isStreaming.value,
@@ -864,6 +865,15 @@ export function useChatViewController() {
     closeDeleteSessionDialog: modalsState.closeDeleteSessionDialog,
     confirmDeleteSession: () =>
       modalsState.confirmDeleteSession((id) => chat.deleteSession(id)),
+    showAllowAllDialog: modalsState.showAllowAllDialog.value,
+    allowAllPending: modalsState.allowAllPending.value,
+    allowAllError: modalsState.allowAllError.value,
+    canConfirmAllowAll: modalsState.canConfirmAllowAll.value,
+    closeAllowAllDialog: modalsState.closeAllowAllDialog,
+    confirmAllowAll: () =>
+      modalsState.confirmAllowAll(async (id) => {
+        await chat.updateSessionCommandPolicyAllowAll(id, true);
+      }),
     showBulkDeleteSessionDialog: modalsState.showBulkDeleteSessionDialog.value,
     bulkDeleteSessionPending: modalsState.bulkDeleteSessionPending.value,
     bulkDeleteSessionError: modalsState.bulkDeleteSessionError.value,

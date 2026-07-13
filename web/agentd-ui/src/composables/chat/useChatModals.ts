@@ -81,6 +81,43 @@ export function useChatModals({
     deleteSessionPending.value = false;
   }
 
+  // Allow-all-commands confirm dialog state
+  const showAllowAllDialog = ref(false);
+  const allowAllPending = ref(false);
+  const allowAllError = ref("");
+  const canConfirmAllowAll = computed(
+    () => !!activeSessionId.value && !allowAllPending.value,
+  );
+
+  function openAllowAllDialog() {
+    if (!activeSessionId.value) return;
+    allowAllPending.value = false;
+    allowAllError.value = "";
+    showAllowAllDialog.value = true;
+  }
+
+  function closeAllowAllDialog() {
+    if (allowAllPending.value) return;
+    showAllowAllDialog.value = false;
+    allowAllError.value = "";
+  }
+
+  async function confirmAllowAll(
+    enableAllowAll: (sessionId: string) => Promise<void>,
+  ) {
+    const sessionId = activeSessionId.value;
+    if (!sessionId || !canConfirmAllowAll.value) return;
+    allowAllPending.value = true;
+    allowAllError.value = "";
+    try {
+      await enableAllowAll(sessionId);
+      showAllowAllDialog.value = false;
+    } catch {
+      allowAllError.value = "Could not allow all commands for this session.";
+    }
+    allowAllPending.value = false;
+  }
+
   // Bulk delete session dialog state
   const showBulkDeleteSessionDialog = ref(false);
   const bulkDeleteSessionIds = ref<string[]>([]);
@@ -151,6 +188,13 @@ export function useChatModals({
     openDeleteSessionDialog,
     closeDeleteSessionDialog,
     confirmDeleteSession,
+    showAllowAllDialog,
+    allowAllPending,
+    allowAllError,
+    canConfirmAllowAll,
+    openAllowAllDialog,
+    closeAllowAllDialog,
+    confirmAllowAll,
     showBulkDeleteSessionDialog,
     bulkDeleteSessionIds,
     bulkDeleteSessionPending,

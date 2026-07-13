@@ -36,10 +36,12 @@ vi.mock("@/api/warpp", () => ({
   })),
   listWorkflows: vi.fn(async () => ({ workflows: [] })),
   saveWorkflow: vi.fn(async (_id: string, p: unknown) => p),
+  deleteWorkflow: vi.fn(async () => {}),
   validateWorkflow: vi.fn(async () => ({ valid: true })),
   WarppValidationError: class extends Error {},
 }));
 
+import { deleteWorkflow, listWorkflows } from "@/api/warpp";
 import { useWarppEditor } from "@/stores/warppEditor";
 
 describe("warppEditor", () => {
@@ -103,5 +105,29 @@ describe("warppEditor", () => {
     expect(store.nodeAtPath(a)!.inputs!.value).toEqual({ value: "hello" });
     await store.save();
     expect(store.dirty).toBe(false);
+  });
+
+  it("remove deletes via the API and refreshes the list", async () => {
+    const store = useWarppEditor();
+    vi.mocked(deleteWorkflow).mockClear();
+    vi.mocked(listWorkflows).mockClear();
+    await store.remove("wf");
+    expect(vi.mocked(deleteWorkflow)).toHaveBeenCalledWith("wf");
+    expect(vi.mocked(listWorkflows)).toHaveBeenCalledTimes(1);
+  });
+
+  it("remove clears the editor when deleting the open workflow", async () => {
+    const store = useWarppEditor();
+    expect(store.doc?.id).toBe("wf");
+    await store.remove("wf");
+    expect(store.doc).toBeNull();
+    expect(store.selectedPath).toBeNull();
+    expect(store.dirty).toBe(false);
+  });
+
+  it("remove keeps the open workflow when deleting a different one", async () => {
+    const store = useWarppEditor();
+    await store.remove("some-other-id");
+    expect(store.doc?.id).toBe("wf");
   });
 });

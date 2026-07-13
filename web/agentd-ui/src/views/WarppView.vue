@@ -17,6 +17,14 @@
       <button :disabled="!editor.doc" @click="editor.runValidate()">Validate</button>
       <button :disabled="!editor.doc" @click="showRun = true">Run</button>
       <button @click="showTimeline = !showTimeline">Timeline</button>
+      <button
+        class="warpp-view__danger"
+        :disabled="!editor.doc"
+        title="Delete this workflow"
+        @click="openDeleteConfirm"
+      >
+        Delete
+      </button>
       <span v-if="editor.dirty" class="warpp-view__dirty">● unsaved</span>
     </header>
 
@@ -63,6 +71,36 @@
         </div>
       </div>
     </div>
+
+    <div
+      v-if="showDeleteConfirm"
+      class="warpp-view__modal"
+      @click.self="closeDeleteConfirm"
+    >
+      <div class="warpp-view__dialog">
+        <div class="warpp-view__dialog-title">Delete workflow</div>
+        <p class="warpp-view__dialog-text">
+          Permanently delete
+          <strong>{{ editor.doc?.name || editor.doc?.id }}</strong>? This cannot
+          be undone.
+        </p>
+        <p v-if="deleteError" class="warpp-view__dialog-error">
+          {{ deleteError }}
+        </p>
+        <div class="warpp-view__dialog-actions">
+          <button :disabled="deletePending" @click="closeDeleteConfirm">
+            Cancel
+          </button>
+          <button
+            class="warpp-view__danger"
+            :disabled="deletePending"
+            @click="onDelete"
+          >
+            {{ deletePending ? "Deleting…" : "Delete" }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -81,6 +119,9 @@ const run = useWarppRun();
 const newId = ref("");
 const showRun = ref(false);
 const showTimeline = ref(false);
+const showDeleteConfirm = ref(false);
+const deletePending = ref(false);
+const deleteError = ref("");
 const runValues = reactive<Record<string, string>>({});
 
 const runInputs = computed(() => editor.doc?.inputs ?? []);
@@ -121,6 +162,31 @@ function onRun(): void {
   showRun.value = false;
   showTimeline.value = true;
   run.start(editor.doc.id, { ...runValues });
+}
+
+function openDeleteConfirm(): void {
+  if (!editor.doc) return;
+  deleteError.value = "";
+  showDeleteConfirm.value = true;
+}
+
+function closeDeleteConfirm(): void {
+  if (deletePending.value) return;
+  showDeleteConfirm.value = false;
+}
+
+async function onDelete(): Promise<void> {
+  const id = editor.doc?.id;
+  if (!id) return;
+  deletePending.value = true;
+  deleteError.value = "";
+  try {
+    await editor.remove(id);
+    showDeleteConfirm.value = false;
+  } catch {
+    deleteError.value = "Failed to delete workflow.";
+  }
+  deletePending.value = false;
 }
 </script>
 
@@ -228,5 +294,28 @@ function onRun(): void {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+.warpp-view__dialog-text {
+  font-size: 13px;
+  line-height: 1.4;
+  opacity: 0.85;
+}
+.warpp-view__dialog-error {
+  font-size: 12px;
+  color: #ff8f8f;
+}
+.warpp-view__toolbar button.warpp-view__danger {
+  border-color: rgba(255, 143, 143, 0.5);
+  color: #ff8f8f;
+}
+.warpp-view__toolbar button.warpp-view__danger:disabled {
+  opacity: 0.5;
+}
+.warpp-view__dialog button.warpp-view__danger {
+  border: 1px solid rgba(255, 143, 143, 0.5);
+  border-radius: 6px;
+  background: rgba(255, 143, 143, 0.12);
+  color: #ff8f8f;
+  padding: 5px 8px;
 }
 </style>

@@ -27,6 +27,25 @@
           <button
             type="button"
             class="warpp-ctl"
+            aria-label="Auto layout (vertical)"
+            title="Auto layout (vertical)"
+            @click="onAutoLayout('TB')"
+          >
+            <LayoutIcon class="h-4 w-4 rotate-90" />
+          </button>
+          <button
+            type="button"
+            class="warpp-ctl"
+            aria-label="Auto layout (horizontal)"
+            title="Auto layout (horizontal)"
+            @click="onAutoLayout('LR')"
+          >
+            <LayoutIcon class="h-4 w-4" />
+          </button>
+          <span class="mx-0.5 h-5 w-px bg-border/60" aria-hidden="true"></span>
+          <button
+            type="button"
+            class="warpp-ctl"
             aria-label="Zoom in"
             title="Zoom in"
             @click="onZoomIn"
@@ -108,7 +127,7 @@
 </template>
 
 <script setup lang="ts">
-import { markRaw, ref } from "vue";
+import { markRaw, nextTick, ref } from "vue";
 import {
   VueFlow,
   useVueFlow,
@@ -125,10 +144,15 @@ import NodeCard from "./NodeCard.vue";
 import ZoomInIcon from "@/components/icons/ZoomIn.vue";
 import ZoomOutIcon from "@/components/icons/ZoomOut.vue";
 import FullScreenIcon from "@/components/icons/FullScreen.vue";
+import LayoutIcon from "@/components/icons/FlowLayout.vue";
 import LockedIcon from "@/components/icons/LockedBold.vue";
 import UnlockedIcon from "@/components/icons/UnlockedBold.vue";
 import MapShowIcon from "@/components/icons/MapShow.vue";
 import { assignable, portColor } from "@/lib/warppTypes";
+import {
+  computeAutoLayout,
+  type LayoutDirection,
+} from "@/lib/warppLayout";
 import { useWarppEditor } from "@/stores/warppEditor";
 
 const DRAG_TYPE = "application/warpp-node-type";
@@ -139,7 +163,25 @@ const wrapper = ref<HTMLElement | null>(null);
 const locked = ref(false);
 const showMiniMap = ref(false);
 
-const { project, zoomIn, zoomOut, fitView } = useVueFlow();
+const { project, zoomIn, zoomOut, fitView, getNodes } = useVueFlow();
+
+// Auto-arrange nodes top-to-bottom (vertical) or left-to-right (horizontal),
+// then fit the re-laid-out graph into view.
+function onAutoLayout(direction: LayoutDirection): void {
+  const positions = computeAutoLayout(
+    getNodes.value.map((n: GraphNode) => ({
+      id: n.id,
+      parentNode: n.parentNode,
+      width: n.dimensions?.width ?? 0,
+      height: n.dimensions?.height ?? 0,
+    })),
+    editor.flowEdges,
+    direction,
+  );
+  if (!positions.size) return;
+  for (const [id, pos] of positions) editor.setPosition(id, pos.x, pos.y);
+  nextTick(() => fitView({ padding: 0.15 }));
+}
 
 function onZoomIn(): void {
   zoomIn();

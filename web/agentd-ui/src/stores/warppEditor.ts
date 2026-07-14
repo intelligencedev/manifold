@@ -255,7 +255,14 @@ export const useWarppEditor = defineStore("warppEditor", () => {
     if (!doc.value) return [];
     const out: VfNode[] = [];
     let counter = 0;
-    const walk = (nodes: WarppNode[], prefix: string, parent?: string) => {
+    // Every node — including Map body children — renders as a flat, top-level
+    // Vue Flow node in absolute canvas coordinates. We intentionally do NOT set
+    // parentNode/extent: Vue Flow would then treat child positions as
+    // parent-relative and clamp them into the parent's box, which conflicts
+    // with the absolute coordinates we store, drag, and auto-layout — producing
+    // teleport-behind and group-move bugs. Map membership lives in the document
+    // (body.nodes) and the "::"-path scheme, not in the render tree.
+    const walk = (nodes: WarppNode[], prefix: string) => {
       for (const n of nodes) {
         const path = refString(prefix, n.id);
         out.push({
@@ -263,9 +270,8 @@ export const useWarppEditor = defineStore("warppEditor", () => {
           type: "warpp",
           position: positionFor(path, counter++),
           data: { node: n, scopePath: prefix },
-          ...(parent ? { parentNode: parent, extent: "parent" } : {}),
         });
-        if (n.body) walk(n.body.nodes, path, path);
+        if (n.body) walk(n.body.nodes, path);
       }
     };
     walk(doc.value.nodes, "");

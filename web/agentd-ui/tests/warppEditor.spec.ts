@@ -76,15 +76,20 @@ describe("warppEditor", () => {
     expect(bindings).toHaveLength(2);
   });
 
-  it("map children live in the body with scope-local refs", () => {
+  it("map children live in the body and render as flat nodes", () => {
     const store = useWarppEditor();
     const m = store.addNode("control.map", { x: 0, y: 0 });
     const child = store.addNode("data.stringify", { x: 10, y: 10 }, m);
     expect(child).toBe(`${m}::${child.split("::")[1]}`);
     const mapNode = store.nodeAtPath(m)!;
     expect(mapNode.body!.nodes).toHaveLength(1);
+    // The child stays nested in the map body (document), but renders as a flat
+    // Vue Flow node in absolute coordinates — no parentNode, so dragging never
+    // clamps it to the parent or moves the group. (Regression: teleport/group-move.)
     const vf = store.flowNodes.find((n) => n.id === child)!;
-    expect(vf.parentNode).toBe(m);
+    expect(vf).toBeTruthy();
+    expect(vf.parentNode).toBeUndefined();
+    expect(vf.position).toEqual({ x: 10, y: 10 });
   });
 
   it("removeNode strips dangling bindings", () => {

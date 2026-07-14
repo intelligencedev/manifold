@@ -44,42 +44,14 @@ func (e *Engine) effectiveHarnessConfig() harness.RunConfig {
 }
 
 func (e *Engine) runHarnessLoop(ctx context.Context, msgs []llm.Message) (string, error) {
-	cfg := e.effectiveHarnessConfig()
-	restoreTools := e.withHarnessToolRegistry(cfg)
-	defer restoreTools()
-	state := newHarnessLoopState(cfg, msgs)
-	var final string
-	finalSet := false
-
-	for step := 0; e.stepAllowed(step); step++ {
-		msg, err := e.runHarnessStep(ctx, state, step, false)
-		if err != nil {
-			return "", err
-		}
-		if len(msg.ToolCalls) == 0 {
-			final = msg.Content
-			finalSet = true
-			break
-		}
-
-		var terminal bool
-		final, terminal, err = e.handleHarnessTools(ctx, state, msg, step, false)
-		if err != nil {
-			return "", err
-		}
-		if terminal {
-			finalSet = true
-			break
-		}
-	}
-
-	if !finalSet {
-		return "", MaxStepsExceededError{MaxSteps: e.MaxSteps}
-	}
-	return final, nil
+	return e.runHarnessLoopMode(ctx, msgs, false)
 }
 
 func (e *Engine) runHarnessStreamLoop(ctx context.Context, msgs []llm.Message) (string, error) {
+	return e.runHarnessLoopMode(ctx, msgs, true)
+}
+
+func (e *Engine) runHarnessLoopMode(ctx context.Context, msgs []llm.Message, stream bool) (string, error) {
 	cfg := e.effectiveHarnessConfig()
 	restoreTools := e.withHarnessToolRegistry(cfg)
 	defer restoreTools()
@@ -88,7 +60,7 @@ func (e *Engine) runHarnessStreamLoop(ctx context.Context, msgs []llm.Message) (
 	finalSet := false
 
 	for step := 0; e.stepAllowed(step); step++ {
-		msg, err := e.runHarnessStep(ctx, state, step, true)
+		msg, err := e.runHarnessStep(ctx, state, step, stream)
 		if err != nil {
 			return "", err
 		}
@@ -99,7 +71,7 @@ func (e *Engine) runHarnessStreamLoop(ctx context.Context, msgs []llm.Message) (
 		}
 
 		var terminal bool
-		final, terminal, err = e.handleHarnessTools(ctx, state, msg, step, true)
+		final, terminal, err = e.handleHarnessTools(ctx, state, msg, step, stream)
 		if err != nil {
 			return "", err
 		}

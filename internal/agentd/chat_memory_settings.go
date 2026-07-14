@@ -2,14 +2,11 @@ package agentd
 
 import (
 	"manifold/internal/agent"
+	chatpkg "manifold/internal/agentd/chat"
 	persist "manifold/internal/persistence"
 )
 
-type chatMemoryRunSettings struct {
-	MemoryEnabled         bool
-	EvolvingMemoryEnabled bool
-	BeliefMemoryEnabled   bool
-}
+type chatMemoryRunSettings = chatpkg.MemoryRunSettings
 
 func defaultChatMemoryRunSettings() chatMemoryRunSettings {
 	return chatMemoryRunSettings{
@@ -63,51 +60,9 @@ func withChatMemorySettings(settings []chatMemoryRunSettings) chatMemoryRunSetti
 }
 
 func applyChatMemorySettingsToEngine(eng *agent.Engine, settings chatMemoryRunSettings) {
-	if eng == nil {
-		return
-	}
-	settings = normalizeChatMemoryRunSettings(settings)
-	eng.DisableMemory = !settings.MemoryEnabled
-	eng.DisableEvolvingMemory = !settings.EvolvingMemoryEnabled
-	eng.DisableBeliefMemory = !settings.BeliefMemoryEnabled
-	if !settings.MemoryEnabled {
-		eng.Memory = nil
-		eng.DisableEvolvingMemory = true
-		eng.DisableBeliefMemory = true
-	}
-	if !settings.EvolvingMemoryEnabled {
-		eng.EvolvingMemory = nil
-		eng.ReMemEnabled = false
-		eng.ReMemController = nil
-	}
-	if !settings.BeliefMemoryEnabled {
-		eng.BeliefStore = nil
-		eng.BeliefDistiller = nil
-		eng.BeliefRetriever = nil
-		eng.BeliefGraph = nil
-		eng.BeliefMaxBeliefsPerPrompt = 0
-		eng.BeliefPromptTokenBudget = 0
-		eng.BeliefRetrievalMinConfidence = 0
-		eng.BeliefIncludeContradictions = false
-		eng.BeliefPromotionThreshold = 0
-		eng.BeliefPolicySink = nil
-		eng.BeliefMagmaSink = nil
-		eng.PolicyEnforcer = nil
-		// Archaeology rides on belief memory: when the session disables
-		// memory, decision distillation, auto-activation, and artifact
-		// capture must be disabled too.
-		eng.DecisionStore = nil
-		eng.DecisionDistiller = nil
-		eng.DecisionService = nil
-		eng.ArtifactCapture = nil
-	}
+	chatpkg.ApplyMemorySettings(eng, settings)
 }
 
 func normalizeChatMemoryRunSettings(settings chatMemoryRunSettings) chatMemoryRunSettings {
-	if !settings.MemoryEnabled && settings.EvolvingMemoryEnabled && settings.BeliefMemoryEnabled {
-		settings.MemoryEnabled = true
-	}
-	settings.EvolvingMemoryEnabled = settings.MemoryEnabled
-	settings.BeliefMemoryEnabled = settings.MemoryEnabled
-	return settings
+	return chatpkg.NormalizeMemoryRunSettings(settings)
 }

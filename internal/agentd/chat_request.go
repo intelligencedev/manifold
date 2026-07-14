@@ -1,120 +1,22 @@
 package agentd
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/url"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
+	chatpkg "manifold/internal/agentd/chat"
 	"manifold/internal/sandbox"
 	"manifold/internal/workspaces"
 )
 
-type chatRunRequest struct {
-	Prompt                string `json:"prompt"`
-	SessionID             string `json:"session_id,omitempty"`
-	UserMessageID         string `json:"user_message_id,omitempty"`
-	AssistantMessageID    string `json:"assistant_message_id,omitempty"`
-	EphemeralSession      bool   `json:"ephemeral_session,omitempty"`
-	ProjectID             string `json:"project_id,omitempty"`
-	ObjectiveID           string `json:"objective_id,omitempty"`
-	RoomID                string `json:"room_id,omitempty"`
-	RouteTarget           string `json:"route_target,omitempty"`
-	SystemPrompt          string `json:"system_prompt,omitempty"`
-	Image                 bool   `json:"image,omitempty"`
-	ImageSize             string `json:"image_size,omitempty"`
-	MemoryEnabled         *bool  `json:"memory_enabled,omitempty"`
-	EvolvingMemoryEnabled *bool  `json:"evolving_memory_enabled,omitempty"`
-	BeliefMemoryEnabled   *bool  `json:"belief_memory_enabled,omitempty"`
-}
+type chatRunRequest = chatpkg.RunRequest
+type chatDispatchTarget = chatpkg.DispatchTarget
 
-func (req *chatRunRequest) UnmarshalJSON(data []byte) error {
-	type rawChatRunRequest struct {
-		Prompt                      string `json:"prompt"`
-		SessionID                   string `json:"session_id,omitempty"`
-		UserMessageID               string `json:"user_message_id,omitempty"`
-		AssistantMessageID          string `json:"assistant_message_id,omitempty"`
-		EphemeralSession            bool   `json:"ephemeral_session,omitempty"`
-		ProjectID                   string `json:"project_id,omitempty"`
-		ObjectiveID                 string `json:"objective_id,omitempty"`
-		RoomID                      string `json:"room_id,omitempty"`
-		RouteTarget                 string `json:"route_target,omitempty"`
-		BotID                       string `json:"bot_id,omitempty"`
-		SystemPrompt                string `json:"system_prompt,omitempty"`
-		Image                       bool   `json:"image,omitempty"`
-		ImageSize                   string `json:"image_size,omitempty"`
-		MemoryEnabled               *bool  `json:"memoryEnabled,omitempty"`
-		LegacyMemoryEnabled         *bool  `json:"memory_enabled,omitempty"`
-		EvolvingMemoryEnabled       *bool  `json:"evolvingMemoryEnabled,omitempty"`
-		LegacyEvolvingMemoryEnabled *bool  `json:"evolving_memory_enabled,omitempty"`
-		BeliefMemoryEnabled         *bool  `json:"beliefMemoryEnabled,omitempty"`
-		LegacyBeliefMemoryEnabled   *bool  `json:"belief_memory_enabled,omitempty"`
-	}
-	var decoded rawChatRunRequest
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return err
-	}
-	req.Prompt = decoded.Prompt
-	req.SessionID = decoded.SessionID
-	req.UserMessageID = decoded.UserMessageID
-	req.AssistantMessageID = decoded.AssistantMessageID
-	req.EphemeralSession = decoded.EphemeralSession
-	req.ProjectID = decoded.ProjectID
-	req.ObjectiveID = decoded.ObjectiveID
-	req.RoomID = decoded.RoomID
-	req.RouteTarget = decoded.RouteTarget
-	if req.RouteTarget == "" {
-		req.RouteTarget = decoded.BotID
-	}
-	req.SystemPrompt = decoded.SystemPrompt
-	req.Image = decoded.Image
-	req.ImageSize = decoded.ImageSize
-	req.MemoryEnabled = decoded.MemoryEnabled
-	if req.MemoryEnabled == nil {
-		req.MemoryEnabled = decoded.LegacyMemoryEnabled
-	}
-	req.EvolvingMemoryEnabled = decoded.EvolvingMemoryEnabled
-	if req.EvolvingMemoryEnabled == nil {
-		req.EvolvingMemoryEnabled = decoded.LegacyEvolvingMemoryEnabled
-	}
-	req.BeliefMemoryEnabled = decoded.BeliefMemoryEnabled
-	if req.BeliefMemoryEnabled == nil {
-		req.BeliefMemoryEnabled = decoded.LegacyBeliefMemoryEnabled
-	}
-	return nil
-}
-
-type chatDispatchTarget struct {
-	SpecialistName string
-	TeamName       string
-}
-
-func (req *chatRunRequest) normalize() {
-	req.SessionID = normalizeClientChatSessionID(req.SessionID)
-	req.UserMessageID = strings.TrimSpace(req.UserMessageID)
-	req.AssistantMessageID = strings.TrimSpace(req.AssistantMessageID)
-	req.ProjectID = strings.TrimSpace(req.ProjectID)
-	req.ObjectiveID = strings.TrimSpace(req.ObjectiveID)
-	req.RoomID = strings.TrimSpace(req.RoomID)
-	req.RouteTarget = strings.TrimSpace(req.RouteTarget)
-	req.SystemPrompt = strings.TrimSpace(req.SystemPrompt)
-	req.ImageSize = strings.TrimSpace(req.ImageSize)
-}
-
-func normalizeClientChatSessionID(id string) string {
-	id = strings.TrimSpace(id)
-	if id == "" {
-		id = "default"
-	}
-	if _, err := uuid.Parse(id); err == nil {
-		return id
-	}
-	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(id)).String()
-}
+func normalizeClientChatSessionID(id string) string { return chatpkg.NormalizeSessionID(id) }
 
 func resolveChatDispatchTarget(query url.Values) chatDispatchTarget {
 	teamName := strings.TrimSpace(query.Get("team"))
@@ -139,7 +41,6 @@ func (a *app) prepareChatRunRequest(r *http.Request, userID *int64, req chatRunR
 	if req.RouteTarget != "" {
 		ctx = sandbox.WithRouteTarget(ctx, req.RouteTarget)
 	}
-
 	if a.cfg.Auth.Enabled {
 		cookieName := a.cfg.Auth.CookieName
 		if cookieName == "" {
@@ -149,18 +50,15 @@ func (a *app) prepareChatRunRequest(r *http.Request, userID *int64, req chatRunR
 			ctx = sandbox.WithAuthCookie(ctx, cookieName+"="+c.Value)
 		}
 	}
-
 	r = r.WithContext(ctx)
 	if req.ProjectID == "" {
 		return r, nil, 0, nil
 	}
-
 	var resolvedUserID int64
 	if userID != nil {
 		resolvedUserID = *userID
 	}
 	workspaceRef := req.ProjectID
-
 	ws, err := a.workspaceManager.Checkout(r.Context(), resolvedUserID, workspaceRef, req.SessionID)
 	if err != nil {
 		switch {
@@ -177,9 +75,7 @@ func (a *app) prepareChatRunRequest(r *http.Request, userID *int64, req chatRunR
 	if ws.BaseDir == "" {
 		return r, nil, 0, nil
 	}
-
 	ctx = sandbox.WithBaseDir(r.Context(), ws.BaseDir)
 	ctx = sandbox.WithProjectID(ctx, workspaceRef)
-	r = r.WithContext(ctx)
-	return r, &ws, 0, nil
+	return r.WithContext(ctx), &ws, 0, nil
 }

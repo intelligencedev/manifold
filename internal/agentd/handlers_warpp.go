@@ -70,7 +70,7 @@ func (a *app) warppWorkflowsHandler() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		workflows, err := a.warppState().listWorkflowSummaries(r.Context(), userID)
+		workflows, err := a.warppState().ListWorkflowSummaries(r.Context(), userID)
 		if err != nil {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
@@ -123,7 +123,7 @@ func warppWorkflowID(w http.ResponseWriter, r *http.Request) (string, bool) {
 }
 
 func (a *app) getWarppWorkflow(w http.ResponseWriter, r *http.Request, userID int64, workflowID string) {
-	doc, canvas, found, err := a.warppState().getWorkflow(r.Context(), userID, workflowID)
+	doc, canvas, found, err := a.warppState().GetWorkflow(r.Context(), userID, workflowID)
 	if err != nil {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
@@ -156,7 +156,7 @@ func (a *app) putWarppWorkflow(w http.ResponseWriter, r *http.Request, userID in
 		writeWarppJSON(w, http.StatusBadRequest, warppValidateResponse{Valid: false, Diagnostics: diags})
 		return
 	}
-	saved, created, err := a.warppState().upsertWorkflow(r.Context(), userID, req.Document, req.Canvas)
+	saved, created, err := a.warppState().UpsertWorkflow(r.Context(), userID, req.Document, req.Canvas)
 	if err != nil {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
@@ -172,7 +172,7 @@ func (a *app) putWarppWorkflow(w http.ResponseWriter, r *http.Request, userID in
 }
 
 func (a *app) deleteWarppWorkflow(w http.ResponseWriter, r *http.Request, userID int64, workflowID string) {
-	deleted, err := a.warppState().deleteWorkflow(r.Context(), userID, workflowID)
+	deleted, err := a.warppState().DeleteWorkflow(r.Context(), userID, workflowID)
 	if err != nil {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
@@ -231,7 +231,7 @@ func (a *app) warppRunsHandler() http.HandlerFunc {
 			http.Error(w, "workflow_id required", http.StatusBadRequest)
 			return
 		}
-		doc, _, found, err := a.warppState().getWorkflow(r.Context(), userID, req.WorkflowID)
+		doc, _, found, err := a.warppState().GetWorkflow(r.Context(), userID, req.WorkflowID)
 		if err != nil {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
@@ -254,7 +254,7 @@ func (a *app) warppRunsHandler() http.HandlerFunc {
 			a.spawnDurableWarppRun(w, ctx, userID, doc, req.Input)
 			return
 		}
-		runID := a.warppState().createRun(userID, doc.ID, req.Input)
+		runID := a.warppState().CreateRun(userID, doc.ID, req.Input)
 		seconds := a.cfg.WorkflowTimeoutSeconds
 		if seconds <= 0 {
 			seconds = a.cfg.AgentRunTimeoutSeconds
@@ -284,7 +284,7 @@ func (a *app) spawnDurableWarppRun(w http.ResponseWriter, ctx context.Context, u
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
-	a.warppState().createRunWithID(userID, doc.ID, spawn.TaskID, input)
+	a.warppState().CreateRunWithID(userID, doc.ID, spawn.TaskID, input)
 	writeWarppJSON(w, http.StatusAccepted, warppRunHTTPResponse{RunID: spawn.TaskID, Status: warpp.StatusRunning})
 }
 
@@ -314,7 +314,7 @@ func (a *app) warppRunEventsHandler() http.HandlerFunc {
 			a.streamWarppEvents(w, r, userID, runID)
 			return
 		}
-		events, status, ok := a.warppState().getRunEvents(userID, runID)
+		events, status, ok := a.warppState().GetRunEvents(userID, runID)
 		if !ok {
 			http.Error(w, "run not found", http.StatusNotFound)
 			return
@@ -331,7 +331,7 @@ func (a *app) streamWarppEvents(w http.ResponseWriter, r *http.Request, userID i
 		http.Error(w, "streaming not supported", http.StatusInternalServerError)
 		return
 	}
-	snapshot, ch, done, ok := a.warppState().subscribeRun(userID, runID)
+	snapshot, ch, done, ok := a.warppState().SubscribeRun(userID, runID)
 	if !ok {
 		http.Error(w, "run not found", http.StatusNotFound)
 		return
@@ -342,7 +342,7 @@ func (a *app) streamWarppEvents(w http.ResponseWriter, r *http.Request, userID i
 	if done {
 		return
 	}
-	defer a.warppState().unsubscribeRun(runID, ch)
+	defer a.warppState().UnsubscribeRun(runID, ch)
 	for {
 		select {
 		case <-r.Context().Done():
@@ -370,7 +370,7 @@ func (a *app) warppCatalogHandler() http.HandlerFunc {
 		manifests = append(manifests, toolnode.Manifests(toolnode.Builtin())...)
 		manifests = append(manifests, toolnode.DynamicManifests(a.warppCatalogRegistry(), toolnode.CuratedToolNames())...)
 		manifests = append(manifests, a.publishedWorkflowManifests(r.Context(), userID)...)
-		workflows, _ := a.warppState().listWorkflowSummaries(r.Context(), userID)
+		workflows, _ := a.warppState().ListWorkflowSummaries(r.Context(), userID)
 		writeWarppJSON(w, http.StatusOK, warppCatalogResponse{
 			Manifests: manifests,
 			Coercions: [][2]string{{"number", "text"}, {"boolean", "text"}},

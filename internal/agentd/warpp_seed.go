@@ -15,14 +15,14 @@ const exampleWarppWorkflowID = "example-intro"
 // with a working example that shows literal value entry and data flow.
 func (a *app) seedExampleWarppWorkflow(ctx context.Context) {
 	rt := a.warppState()
-	sums, err := rt.listWorkflowSummaries(ctx, systemUserID)
+	sums, err := rt.ListWorkflowSummaries(ctx, systemUserID)
 	if err != nil {
 		return
 	}
 	if len(sums) > 0 {
 		return // never clobber existing workflows
 	}
-	if _, _, err := rt.upsertWorkflow(ctx, systemUserID, exampleWarppDocument(), exampleWarppCanvas()); err != nil {
+	if _, _, err := rt.UpsertWorkflow(ctx, systemUserID, exampleWarppDocument(), exampleWarppCanvas()); err != nil {
 		log.Warn().Err(err).Msg("warpp_seed_example_failed")
 		return
 	}

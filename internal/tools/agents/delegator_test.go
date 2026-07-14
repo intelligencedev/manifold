@@ -66,6 +66,7 @@ func delegatorTestEmbedFn(_ context.Context, _ config.EmbeddingConfig, texts []s
 
 func TestDelegatorRunUsesSharedEvolvingMemory(t *testing.T) {
 	t.Parallel()
+	const prompt = "remember this important detail"
 
 	provider := &delegatorMemoryProvider{chatResponse: "summary", streamResponse: "delegated final"}
 	store := &delegatorRecordingStore{saveCh: make(chan []*memory.MemoryEntry, 1)}
@@ -83,7 +84,7 @@ func TestDelegatorRunUsesSharedEvolvingMemory(t *testing.T) {
 	ctx := tools.WithProvider(context.Background(), provider)
 
 	out, err := d.Run(ctx, agent.DelegateRequest{
-		Prompt:    "remember this",
+		Prompt:    prompt,
 		UserID:    7,
 		SessionID: "sess-1",
 	}, nil)
@@ -102,8 +103,8 @@ func TestDelegatorRunUsesSharedEvolvingMemory(t *testing.T) {
 		if saved[0] == nil {
 			t.Fatal("expected saved memory entry")
 		}
-		if saved[0].Input != "remember this" {
-			t.Fatalf("expected saved input remember this, got %q", saved[0].Input)
+		if saved[0].Input != prompt {
+			t.Fatalf("expected saved input %q, got %q", prompt, saved[0].Input)
 		}
 		if saved[0].Output != "delegated final" {
 			t.Fatalf("expected saved output delegated final, got %q", saved[0].Output)

@@ -2,7 +2,6 @@ package agentd
 
 import (
 	"context"
-	"encoding/json"
 	"maps"
 	"net/http"
 	"strings"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	specialistsapi "manifold/internal/agentd/specialistsapi"
 	"manifold/internal/config"
 	"manifold/internal/defaultprompt"
 	llmproviders "manifold/internal/llm/providers"
@@ -97,102 +97,23 @@ func (a *app) specialistDefaultsHandler() http.HandlerFunc {
 }
 
 func (a *app) specialistsHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		userID, err := a.requireUserID(r)
-		if err != nil {
-			if a.cfg.Auth.Enabled {
-				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
-			}
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		switch r.Method {
-		case http.MethodGet:
-			list, err := a.listSpecialistsForUser(r.Context(), userID)
-			if err != nil {
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			writeJSON(w, http.StatusOK, list)
-
-		case http.MethodPost:
-			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-			defer r.Body.Close()
-			var sp persist.Specialist
-			if err := json.NewDecoder(r.Body).Decode(&sp); err != nil {
-				http.Error(w, "bad request", http.StatusBadRequest)
-				return
-			}
-			saved, status, err := a.createSpecialistForUser(r.Context(), userID, sp)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-			writeJSON(w, status, saved)
-
-		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		}
-	}
+	return specialistsapi.CollectionHandler(specialistsapi.Deps{
+		RequireUserID: a.requireUserID,
+		AuthEnabled:   func() bool { return a.cfg != nil && a.cfg.Auth.Enabled },
+		List:          a.listSpecialistsForUser,
+		Create:        a.createSpecialistForUser,
+	})
 }
 
 func (a *app) specialistDetailHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		userID, err := a.requireUserID(r)
-		if err != nil {
-			if a.cfg.Auth.Enabled {
-				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
-			}
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		name := strings.TrimPrefix(r.URL.Path, "/api/specialists/")
-		name = strings.TrimSpace(name)
-		if name == "" {
-			http.NotFound(w, r)
-			return
-		}
-
-		switch r.Method {
-		case http.MethodGet:
-			sp, ok, err := a.getSpecialistForUser(r.Context(), userID, name)
-			if err != nil {
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			if !ok {
-				http.NotFound(w, r)
-				return
-			}
-			writeJSON(w, http.StatusOK, sp)
-		case http.MethodPut:
-			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-			defer r.Body.Close()
-			var sp persist.Specialist
-			if err := json.NewDecoder(r.Body).Decode(&sp); err != nil {
-				http.Error(w, "bad request", http.StatusBadRequest)
-				return
-			}
-			saved, err := a.updateSpecialistForUser(r.Context(), userID, name, sp)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-			writeJSON(w, http.StatusOK, saved)
-		case http.MethodDelete:
-			if err := a.deleteSpecialistForUser(r.Context(), userID, name); err != nil {
-				if err == errOrchestratorDelete {
-					http.Error(w, err.Error(), http.StatusBadRequest)
-					return
-				}
-				http.Error(w, "error", http.StatusInternalServerError)
-				return
-			}
-			w.WriteHeader(http.StatusNoContent)
-		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		}
-	}
+	return specialistsapi.DetailHandler(specialistsapi.Deps{
+		RequireUserID:    a.requireUserID,
+		AuthEnabled:      func() bool { return a.cfg != nil && a.cfg.Auth.Enabled },
+		Get:              a.getSpecialistForUser,
+		Update:           a.updateSpecialistForUser,
+		Delete:           a.deleteSpecialistForUser,
+		DeleteBadRequest: func(err error) bool { return err == errOrchestratorDelete },
+	})
 }
 
 func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.Specialist {

@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"strings"
 
-	"manifold/internal/durable"
 	llmpkg "manifold/internal/llm"
 	"manifold/internal/sandbox"
 	"manifold/internal/tools"
 	"manifold/internal/warpp"
-	"manifold/internal/warpp/toolnode"
+	warppservice "manifold/internal/warpp/service"
 )
 
 const (
@@ -18,8 +17,20 @@ const (
 	warppDurableRunTaskName = "warpp.run"
 )
 
-// warppExecutionRegistry returns the policy-aware tool registry, falling back
-// to the base registry.
+func (a *app) warppService() *warppservice.Service {
+	return a.warppState().WithDeps(warppservice.Deps{
+		CatalogRegistry:   a.warppCatalogRegistry,
+		ExecutionRegistry: a.warppExecutionRegistry,
+		Chat:              a.warppChat,
+		ProjectContext:    a.warppProjectContext,
+		SystemUserID:      systemUserID,
+		SaveWorkflow: func(ctx context.Context, userID int64, doc warpp.Document, canvas warpp.Canvas) (bool, error) {
+			_, created, err := a.warppState().UpsertWorkflow(ctx, userID, doc, canvas)
+			return created, err
+		},
+	})
+}
+
 func (a *app) warppExecutionRegistry() tools.Registry {
 	if a.toolRegistry != nil {
 		return a.toolRegistry
@@ -27,37 +38,14 @@ func (a *app) warppExecutionRegistry() tools.Registry {
 	return a.baseToolRegistry
 }
 
-// warppResolver builds the node-type resolver: builtins, curated tool
-// adapters, every other registry tool derived from its schema (including MCP
-// tools), then published workflows as subflow nodes.
 func (a *app) warppResolver(ctx context.Context, userID int64) warpp.Resolver {
-	return warpp.ChainResolvers(
-		warpp.BuiltinResolver(),
-		toolnode.Resolver(toolnode.Builtin()),
-		toolnode.DynamicResolver(a.warppCatalogRegistry(), toolnode.CuratedToolNames()),
-		a.warppSubflowResolver(ctx, userID),
-	)
+	return a.warppService().Resolver(ctx, userID)
 }
 
-// warppRunners builds the runner set: builtins, curated adapters, schema-derived
-// tools (incl. MCP), the LLM node, and subflow nodes.
 func (a *app) warppRunners(ctx context.Context, userID int64) map[string]warpp.NodeRunner {
-	runners := warpp.BuiltinRunners()
-	reg := a.warppExecutionRegistry()
-	for k, v := range toolnode.Runners(reg, toolnode.Builtin()) {
-		runners[k] = v
-	}
-	for k, v := range toolnode.DynamicRunners(a.warppCatalogRegistry(), reg, toolnode.CuratedToolNames()) {
-		runners[k] = v
-	}
-	runners["llm.generate"] = warpp.LLMRunner(a.warppChat)
-	a.registerSubflowRunners(ctx, userID, runners)
-	return runners
+	return a.warppService().Runners(ctx, userID)
 }
 
-// warppCatalogRegistry returns the registry used to enumerate available tool
-// nodes. The base registry lists all tools (including MCP) for the palette and
-// validation; the policy-aware registry filters per user at dispatch time.
 func (a *app) warppCatalogRegistry() tools.Registry {
 	if a.baseToolRegistry != nil {
 		return a.baseToolRegistry
@@ -65,7 +53,6 @@ func (a *app) warppCatalogRegistry() tools.Registry {
 	return a.toolRegistry
 }
 
-// warppChat is the ChatFunc backing the llm.generate node.
 func (a *app) warppChat(ctx context.Context, instruction, input, model string) (string, error) {
 	if a.llm == nil {
 		return "", fmt.Errorf("no llm provider available")
@@ -82,30 +69,10 @@ func (a *app) warppChat(ctx context.Context, instruction, input, model string) (
 	return reply.Content, nil
 }
 
-// newWarppEngine assembles an engine for a run, wiring event recording and
-// durable step checkpoints.
 func (a *app) newWarppEngine(ctx context.Context, userID int64, runID string, doc warpp.Document) *warpp.Engine {
-	emit := func(ev warpp.Event) {
-		if de, err := durable.RecordEvent(ctx, "warpp."+string(ev.Type), warppEventPayload(ev)); err == nil {
-			ev.Sequence = de.Sequence
-			ev.OccurredAt = de.OccurredAt
-		}
-		_ = a.warppState().appendRunEvent(userID, runID, ev)
-	}
-	step := func(sctx context.Context, key string, fn func(context.Context) (map[string]warpp.Value, error)) (map[string]warpp.Value, error) {
-		return durable.Step[map[string]warpp.Value](sctx, key, fn)
-	}
-	return &warpp.Engine{
-		Resolve:        a.warppResolver(ctx, userID),
-		Runners:        a.warppRunners(ctx, userID),
-		Emit:           emit,
-		Step:           step,
-		MaxConcurrency: doc.Settings.MaxConcurrency,
-	}
+	return a.warppService().NewEngine(ctx, userID, runID, doc)
 }
 
-// warppProjectContext scopes filesystem tools to a project for a run, using the
-// same workspace manager chat uses so paths resolve identically.
 func (a *app) warppProjectContext(ctx context.Context, userID int64, projectID, sessionID string) (context.Context, error) {
 	projectID = strings.TrimSpace(projectID)
 	if projectID == "" {
@@ -125,23 +92,6 @@ func (a *app) warppProjectContext(ctx context.Context, userID int64, projectID, 
 	return workflowToolContext(ctx, a.cfg, userID, projectID)
 }
 
-// executeWarppRun runs a workflow document to completion, streaming events into
-// the runtime for the given runID.
 func (a *app) executeWarppRun(ctx context.Context, userID int64, runID string, doc warpp.Document, input map[string]any) warpp.Result {
-	if projectID := strings.TrimSpace(doc.ProjectID); projectID != "" {
-		pctx, err := a.warppProjectContext(ctx, userID, projectID, "warpp-"+doc.ID)
-		if err != nil {
-			a.warppState().appendRunEvent(userID, runID, warpp.Event{Type: warpp.EventRunStarted, Status: warpp.StatusRunning, Message: "run started"})
-			a.warppState().appendRunEvent(userID, runID, warpp.Event{
-				Type:    warpp.EventRunFailed,
-				Status:  warpp.StatusFailed,
-				Error:   fmt.Sprintf("project %q: %v", projectID, err),
-				Message: "run failed",
-			})
-			return warpp.Result{Status: warpp.StatusFailed, Err: err}
-		}
-		ctx = pctx
-	}
-	eng := a.newWarppEngine(ctx, userID, runID, doc)
-	return eng.Execute(ctx, doc, input)
+	return a.warppService().Execute(ctx, userID, runID, doc, input)
 }

@@ -1,7 +1,6 @@
 package agentd
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -10,102 +9,33 @@ import (
 	"github.com/rs/zerolog/log"
 	yaml "gopkg.in/yaml.v3"
 
+	"manifold/internal/agentd/onboarding"
 	"manifold/internal/config"
 	llmproviders "manifold/internal/llm/providers"
 )
 
-type setupStatusResponse struct {
-	Ready             bool   `json:"ready"`
-	NeedsSetup        bool   `json:"needsSetup"`
-	Provider          string `json:"provider"`
-	Model             string `json:"model"`
-	HasCredentials    bool   `json:"hasCredentials"`
-	MemoryEnabled     bool   `json:"memoryEnabled"`
-	EmbeddingRequired bool   `json:"embeddingRequired"`
-	ConfigPath        string `json:"configPath"`
-	BaseURL           string `json:"baseUrl,omitempty"`
-	ListenAddr        string `json:"listenAddr,omitempty"`
-}
-
-type setupCompleteRequest struct {
-	Provider string `json:"provider"`
-	APIKey   string `json:"apiKey"`
-	Model    string `json:"model"`
-	BaseURL  string `json:"baseUrl"`
-	// MemoryEnabled is optional; defaults remain off for first run.
-	MemoryEnabled *bool `json:"memoryEnabled,omitempty"`
-	// EmbedAPIKey is optional and only written when memory is enabled.
-	EmbedAPIKey  string `json:"embedApiKey,omitempty"`
-	EmbedBaseURL string `json:"embedBaseUrl,omitempty"`
-	EmbedModel   string `json:"embedModel,omitempty"`
-}
+type setupStatusResponse = onboarding.StatusResponse
+type setupCompleteRequest = onboarding.CompleteRequest
 
 func (a *app) setupStatusHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			w.Header().Set("Allow", "GET")
-			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
-			return
-		}
-		ready := config.HasPrimaryLLMCredentials(a.cfg)
-		writeJSON(w, http.StatusOK, setupStatusResponse{
-			Ready:             ready,
-			NeedsSetup:        !ready,
-			Provider:          strings.ToLower(strings.TrimSpace(a.cfg.LLMClient.Provider)),
-			Model:             resolveLLMClientModel(a.cfg.LLMClient),
-			HasCredentials:    ready,
-			MemoryEnabled:     a.cfg.Memory.Enabled,
-			EmbeddingRequired: a.cfg.Memory.Enabled,
-			ConfigPath:        firstNonEmptyTrimmed(a.cfg.ConfigPath, findConfigYAMLPath()),
-			ListenAddr:        a.listenAddr,
-			BaseURL:           a.publicURL,
-		})
-	}
+	return onboarding.StatusHandler(a.setupHandlerDeps())
 }
 
 func (a *app) setupCompleteHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", "POST")
-			http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
-			return
-		}
-		userID := systemUserID
-		if a.cfg.Auth.Enabled {
-			var err error
-			if userID, err = a.requireUserID(r); err != nil {
-				w.Header().Set("WWW-Authenticate", `Bearer realm="sio"`)
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
-		}
+	return onboarding.CompleteHandler(a.setupHandlerDeps())
+}
 
-		var req setupCompleteRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, fmt.Errorf("invalid setup payload: %w", err))
-			return
-		}
-		if err := a.applySetupComplete(req); err != nil {
-			writeError(w, http.StatusBadRequest, err)
-			return
-		}
-		if err := a.seedOnboardingPrompt(r.Context(), userID); err != nil {
-			writeError(w, http.StatusInternalServerError, err)
-			return
-		}
-		ready := config.HasPrimaryLLMCredentials(a.cfg)
-		writeJSON(w, http.StatusOK, setupStatusResponse{
-			Ready:             ready,
-			NeedsSetup:        !ready,
-			Provider:          strings.ToLower(strings.TrimSpace(a.cfg.LLMClient.Provider)),
-			Model:             resolveLLMClientModel(a.cfg.LLMClient),
-			HasCredentials:    ready,
-			MemoryEnabled:     a.cfg.Memory.Enabled,
-			EmbeddingRequired: a.cfg.Memory.Enabled,
-			ConfigPath:        firstNonEmptyTrimmed(a.cfg.ConfigPath, findConfigYAMLPath()),
-			ListenAddr:        a.listenAddr,
-			BaseURL:           a.publicURL,
-		})
+func (a *app) setupHandlerDeps() onboarding.Deps {
+	return onboarding.Deps{
+		Config:        a.cfg,
+		AuthEnabled:   a.cfg.Auth.Enabled,
+		ListenAddr:    a.listenAddr,
+		PublicURL:     a.publicURL,
+		ConfigPath:    func() string { return firstNonEmptyTrimmed(a.cfg.ConfigPath, findConfigYAMLPath()) },
+		ResolveModel:  resolveLLMClientModel,
+		RequireUserID: a.requireUserID,
+		ApplyComplete: a.applySetupComplete,
+		SeedPrompt:    a.seedOnboardingPrompt,
 	}
 }
 

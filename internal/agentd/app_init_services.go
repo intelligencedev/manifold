@@ -165,7 +165,7 @@ func newAppShell(deps appShellDeps) *app {
 		userSpecRegs:       map[int64]*specialists.Registry{systemUserID: deps.specReg},
 		runs:               newRunStore(),
 		inputRequests:      newInputRequestBroker(),
-		warpp:              newWarppRuntime(deps.mgr.Warpp, deps.durableClient),
+		warpp:              newWarppService(deps.mgr.Warpp, deps.durableClient),
 		codeQARuntime:      newCodeQARuntime(),
 		codeQAService:      deps.tooling.codeQAService,
 		cliExecutor:        deps.tooling.cliExecutor,

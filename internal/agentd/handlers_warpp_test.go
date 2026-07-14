@@ -123,7 +123,7 @@ func TestWarppRunLifecycleLocal(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		events, status, ok := a.warppState().getRunEvents(systemUserID, run.RunID)
+		events, status, ok := a.warppState().GetRunEvents(systemUserID, run.RunID)
 		if ok && (status == warpp.StatusCompleted || status == warpp.StatusCompletedWithSkips) {
 			var found bool
 			for _, ev := range events {

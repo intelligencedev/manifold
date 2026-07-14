@@ -31,6 +31,7 @@ import (
 	terminaltool "manifold/internal/tools/terminal"
 	transitdomain "manifold/internal/transit"
 	"manifold/internal/trust"
+	warppservice "manifold/internal/warpp/service"
 	"manifold/internal/workspaces"
 )
 
@@ -58,7 +59,7 @@ type app struct {
 	durableClient           *durable.Client
 	durableRegistry         *durable.Registry
 	durableWorker           *durable.Worker
-	warpp                   *warppRuntime
+	warpp                   *warppservice.Service
 	warppPublishedToolNames []string
 	codeQARuntime           *codeQARuntime
 	codeQAService           *codeqaservice.Service

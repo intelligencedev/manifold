@@ -280,16 +280,7 @@ func (a *app) loadBuiltChatTarget(w http.ResponseWriter, r *http.Request, opts c
 	}
 	build = sanitizeImageGenerationBuild(build)
 
-	var history []llm.Message
-	var summary *memory.SummaryResult
-	if build.ImageGeneration || build.VideoGeneration {
-		return build, history, summary, true
-	}
-	var err error
-	history, summary, err = a.chatMemory.BuildContextForProvider(r.Context(), opts.UserID, opts.SessionID, build.Engine.LLM, build.Engine.Model, memory.SummaryPolicy{
-		TargetContextWindowTokens:    build.Engine.ContextWindowTokens,
-		PlainTextContextWindowTokens: a.cfg.Summary.PlainTextContextWindowTokens,
-	})
+	history, summary, err := a.prepareChatHistoryForBuild(r.Context(), opts.UserID, opts.SessionID, &build)
 	if err != nil {
 		if err == persist.ErrForbidden {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -299,7 +290,6 @@ func (a *app) loadBuiltChatTarget(w http.ResponseWriter, r *http.Request, opts c
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return chatEngineBuildResult{}, nil, nil, false
 	}
-	build.Engine.SkipInitialSummarization = summary != nil && summary.Triggered
 	return build, history, summary, true
 }
 

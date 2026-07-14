@@ -44,17 +44,17 @@ func (f *fakeWarppStore) DeleteWorkflow(ctx context.Context, userID int64, id st
 
 func TestWarppRuntimeRunLifecycle(t *testing.T) {
 	rt := newWarppRuntime(newFakeWarppStore())
-	runID := rt.createRun(1, "wf", map[string]any{"a": 1})
-	if !rt.appendRunEvent(1, runID, warpp.Event{Type: warpp.EventRunStarted, Status: warpp.StatusRunning}) {
+	runID := rt.CreateRun(1, "wf", map[string]any{"a": 1})
+	if !rt.AppendRunEvent(1, runID, warpp.Event{Type: warpp.EventRunStarted, Status: warpp.StatusRunning}) {
 		t.Fatal("append to own run failed")
 	}
-	if rt.appendRunEvent(2, runID, warpp.Event{Type: warpp.EventRunStarted}) {
+	if rt.AppendRunEvent(2, runID, warpp.Event{Type: warpp.EventRunStarted}) {
 		t.Fatal("cross-user append must fail")
 	}
-	rt.appendRunEvent(1, runID, warpp.Event{Type: warpp.EventNodeCompleted, NodePath: "n",
+	rt.AppendRunEvent(1, runID, warpp.Event{Type: warpp.EventNodeCompleted, NodePath: "n",
 		Outputs: map[string]any{"text": "x"}})
-	rt.appendRunEvent(1, runID, warpp.Event{Type: warpp.EventRunCompleted, Status: warpp.StatusCompletedWithSkips})
-	events, status, ok := rt.getRunEvents(1, runID)
+	rt.AppendRunEvent(1, runID, warpp.Event{Type: warpp.EventRunCompleted, Status: warpp.StatusCompletedWithSkips})
+	events, status, ok := rt.GetRunEvents(1, runID)
 	if !ok || status != warpp.StatusCompletedWithSkips || len(events) != 3 {
 		t.Fatalf("events=%d status=%s ok=%v", len(events), status, ok)
 	}
@@ -65,19 +65,19 @@ func TestWarppRuntimeRunLifecycle(t *testing.T) {
 
 func TestWarppRuntimeSubscribe(t *testing.T) {
 	rt := newWarppRuntime(newFakeWarppStore())
-	runID := rt.createRun(1, "wf", nil)
-	rt.appendRunEvent(1, runID, warpp.Event{Type: warpp.EventRunStarted, Status: warpp.StatusRunning})
-	snapshot, ch, done, ok := rt.subscribeRun(1, runID)
+	runID := rt.CreateRun(1, "wf", nil)
+	rt.AppendRunEvent(1, runID, warpp.Event{Type: warpp.EventRunStarted, Status: warpp.StatusRunning})
+	snapshot, ch, done, ok := rt.SubscribeRun(1, runID)
 	if !ok || done || len(snapshot) != 1 || ch == nil {
 		t.Fatalf("subscribe: %v %v %d", ok, done, len(snapshot))
 	}
-	rt.appendRunEvent(1, runID, warpp.Event{Type: warpp.EventRunCompleted, Status: warpp.StatusCompleted})
+	rt.AppendRunEvent(1, runID, warpp.Event{Type: warpp.EventRunCompleted, Status: warpp.StatusCompleted})
 	ev := <-ch
 	if ev.Type != warpp.EventRunCompleted {
 		t.Fatalf("live event: %+v", ev)
 	}
-	rt.unsubscribeRun(runID, ch)
-	_, ch2, done2, ok2 := rt.subscribeRun(1, runID)
+	rt.UnsubscribeRun(runID, ch)
+	_, ch2, done2, ok2 := rt.SubscribeRun(1, runID)
 	if !ok2 || !done2 || ch2 != nil {
 		t.Fatalf("finished-run subscribe: %v %v", ok2, done2)
 	}
@@ -89,18 +89,18 @@ func TestWarppRuntimeWorkflowCRUD(t *testing.T) {
 	doc := warpp.Document{ID: "w", Name: "W", Publish: warpp.Publish{Tool: true},
 		Nodes: []warpp.Node{{ID: "a", Type: "data.parse",
 			Inputs: map[string]warpp.Input{"text": {One: &warpp.Binding{Value: "{}", HasValue: true}}}}}}
-	if _, _, err := rt.upsertWorkflow(ctx, 1, doc, warpp.Canvas{}); err != nil {
+	if _, _, err := rt.UpsertWorkflow(ctx, 1, doc, warpp.Canvas{}); err != nil {
 		t.Fatal(err)
 	}
-	sums, err := rt.listWorkflowSummaries(ctx, 1)
+	sums, err := rt.ListWorkflowSummaries(ctx, 1)
 	if err != nil || len(sums) != 1 || !sums[0].PublishTool {
 		t.Fatalf("summaries: %v %+v", err, sums)
 	}
-	got, _, found, err := rt.getWorkflow(ctx, 1, "w")
+	got, _, found, err := rt.GetWorkflow(ctx, 1, "w")
 	if err != nil || !found || got.Name != "W" {
 		t.Fatalf("get: %v %v", err, found)
 	}
-	deleted, err := rt.deleteWorkflow(ctx, 1, "w")
+	deleted, err := rt.DeleteWorkflow(ctx, 1, "w")
 	if err != nil || !deleted {
 		t.Fatalf("delete: %v %v", err, deleted)
 	}

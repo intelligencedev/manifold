@@ -15,6 +15,7 @@ import (
 
 	"manifold/internal/agent"
 	agentmemory "manifold/internal/agent/memory"
+	chatpkg "manifold/internal/agentd/chat"
 	"manifold/internal/fleet"
 	"manifold/internal/llm"
 	"manifold/internal/sandbox"
@@ -82,6 +83,10 @@ func (s *chatSSEWriter) writeText(text string) {
 	fmt.Fprint(s.w, text)
 	s.fl.Flush()
 }
+
+func (s *chatSSEWriter) Write(payload any) { s.write(payload) }
+
+func (s *chatSSEWriter) WriteText(text string) { s.writeText(text) }
 
 type chatTurnCollector struct {
 	baseDir      string
@@ -392,64 +397,17 @@ func buildChatContextMetricsPayload(metrics agent.ContextMetrics) chatContextMet
 	return payload
 }
 
-type fleetCallbackRequest struct {
-	RunID       string
-	SessionID   string
-	ProjectID   string
-	ObjectiveID string
-	UserID      *int64
-}
+type fleetCallbackRequest = chatpkg.FleetCallbackRequest
 
 func configureFleetCallbacks(app *app, eng *agent.Engine, req fleetCallbackRequest) {
-	if app == nil || app.fleetBus == nil || eng == nil {
+	if app == nil {
 		return
 	}
-	uid := systemUserID
-	if req.UserID != nil {
-		uid = *req.UserID
-	}
-	prevToolStart := eng.OnToolStart
-	prevTool := eng.OnTool
-	prevTracer := eng.AgentTracer
-	eng.OnToolStart = func(name string, args []byte, toolID string) {
-		if prevToolStart != nil {
-			prevToolStart(name, args, toolID)
-		}
-		app.fleetBus.Publish(fleet.Event{Kind: fleet.EventToolStart, RunID: req.RunID, SessionID: req.SessionID, ProjectID: req.ProjectID, ObjectiveID: req.ObjectiveID, ToolID: toolID, UserID: uid, Title: name, Data: map[string]any{"args": string(args)}})
-	}
-	eng.OnTool = func(name string, args []byte, result []byte, toolID string) {
-		if prevTool != nil {
-			prevTool(name, args, result, toolID)
-		}
-		app.fleetBus.Publish(fleet.Event{Kind: fleet.EventToolResult, RunID: req.RunID, SessionID: req.SessionID, ProjectID: req.ProjectID, ObjectiveID: req.ObjectiveID, ToolID: toolID, UserID: uid, Title: name, Data: map[string]any{"args": string(args), "result": string(result)}})
-	}
-	eng.AgentTracer = fleetAgentTracer{bus: app.fleetBus, next: prevTracer, runID: req.RunID, sessionID: req.SessionID, projectID: req.ProjectID, objectiveID: req.ObjectiveID, userID: uid}
+	configureFleetCallbacksWithBus(app.fleetBus, eng, req)
 }
 
-type fleetAgentTracer struct {
-	bus         *fleet.Bus
-	next        agent.AgentTracer
-	runID       string
-	sessionID   string
-	projectID   string
-	objectiveID string
-	userID      int64
-}
-
-func (t fleetAgentTracer) Trace(ev agent.AgentTrace) {
-	if t.next != nil {
-		t.next.Trace(ev)
-	}
-	if t.bus == nil {
-		return
-	}
-	kind := fleet.EventDelegation
-	if ev.Type == "agent_error" {
-		kind = fleet.EventError
-	} else if ev.Type == "agent_final" {
-		kind = fleet.EventRunFinished
-	}
-	t.bus.Publish(fleet.Event{Kind: kind, RunID: t.runID, SessionID: t.sessionID, ProjectID: t.projectID, ObjectiveID: t.objectiveID, Specialist: ev.Agent, Agent: ev.Agent, CallID: ev.CallID, ParentCallID: ev.ParentCallID, ToolID: ev.ToolID, Depth: ev.Depth, UserID: t.userID, Title: ev.Title, Message: ev.Content, Data: map[string]any{"type": ev.Type, "team": ev.Team, "args": ev.Args, "data": ev.Data, "error": ev.Error, "thought_summary": ev.ThoughtSummary}})
+func configureFleetCallbacksWithBus(bus *fleet.Bus, eng *agent.Engine, req fleetCallbackRequest) {
+	chatpkg.AttachFleetCallbacks(bus, eng, req)
 }
 
 func trimPrefixOnce(value, prefix string) string {
@@ -532,15 +490,35 @@ func (a *app) executeStreamChat(w http.ResponseWriter, r *http.Request, exec cha
 		return
 	}
 
-	attachLLMRequestCapture(eng, llmRequestCaptureConfig{Store: a.llmRequestStore, SessionID: req.SessionID, UserID: userID, RunID: runID, MessageID: req.AssistantMessageID, ParentUserMessageID: req.UserMessageID, SpecialistID: streamAgentName(eng)})
 	activityCollector := a.newStreamActivityCollector(req, runID, userID)
 	defer a.flushStreamActivities(r.Context(), req, userID, activityCollector)
-	a.configureStreamExecutionCallbacks(eng, stream, opts, activityCollector, fleetCallbackRequest{
-		RunID:       runID,
-		SessionID:   req.SessionID,
-		ProjectID:   req.ProjectID,
-		ObjectiveID: req.ObjectiveID,
-		UserID:      userID,
+	attachChatEngineRuntime(a.chatDeps(), chatEngineAttachConfig{
+		Engine:             eng,
+		StreamWriter:       stream,
+		EmitThoughtSummary: opts.EmitThoughtSummary,
+		EmitSummaryEvents:  opts.EmitSummaryEvents,
+		Tracer:             opts.Tracer,
+		TracerMutex:        &stream.mu,
+		Activity: func(ev agent.AgentTrace) {
+			if activityCollector != nil {
+				activityCollector.Handle(ev)
+			}
+		},
+		Capture: llmRequestCaptureConfig{
+			SessionID:           req.SessionID,
+			UserID:              userID,
+			RunID:               runID,
+			MessageID:           req.AssistantMessageID,
+			ParentUserMessageID: req.UserMessageID,
+			SpecialistID:        streamAgentName(eng),
+		},
+		Fleet: fleetCallbackRequest{
+			RunID:       runID,
+			SessionID:   req.SessionID,
+			ProjectID:   req.ProjectID,
+			ObjectiveID: req.ObjectiveID,
+			UserID:      userID,
+		},
 	})
 	a.publishChatRunEvent(fleet.EventRunStarted, runID, req, userID, req.Prompt)
 	writeInitialSummaryEvent(stream, opts.InitialSummary)
@@ -610,13 +588,23 @@ func (a *app) executeInternalJSONChat(storeCtx context.Context, exec chatExecuti
 	if req.EphemeralSession {
 		defer cleanupEphemeralChatSession(a.chatStore, userID, req.SessionID)
 	}
-	attachLLMRequestCapture(eng, llmRequestCaptureConfig{Store: a.llmRequestStore, SessionID: req.SessionID, UserID: userID, RunID: runID, MessageID: req.AssistantMessageID, ParentUserMessageID: req.UserMessageID, SpecialistID: streamAgentName(eng)})
-	configureFleetCallbacks(a, eng, fleetCallbackRequest{
-		RunID:       runID,
-		SessionID:   req.SessionID,
-		ProjectID:   req.ProjectID,
-		ObjectiveID: req.ObjectiveID,
-		UserID:      userID,
+	attachChatEngineRuntime(a.chatDeps(), chatEngineAttachConfig{
+		Engine: eng,
+		Capture: llmRequestCaptureConfig{
+			SessionID:           req.SessionID,
+			UserID:              userID,
+			RunID:               runID,
+			MessageID:           req.AssistantMessageID,
+			ParentUserMessageID: req.UserMessageID,
+			SpecialistID:        streamAgentName(eng),
+		},
+		Fleet: fleetCallbackRequest{
+			RunID:       runID,
+			SessionID:   req.SessionID,
+			ProjectID:   req.ProjectID,
+			ObjectiveID: req.ObjectiveID,
+			UserID:      userID,
+		},
 	})
 	if a.fleetBus != nil {
 		a.fleetBus.Publish(fleet.Event{Kind: fleet.EventRunStarted, RunID: runID, SessionID: req.SessionID, ProjectID: req.ProjectID, ObjectiveID: req.ObjectiveID, UserID: derefInputUserID(userID), Message: req.Prompt})

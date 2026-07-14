@@ -44,7 +44,7 @@ func TestChatRunRequestNormalize(t *testing.T) {
 		ImageSize:    " 1024x1024 ",
 	}
 
-	req.normalize()
+	req.Normalize()
 
 	if req.SessionID != normalizeClientChatSessionID("default") {
 		t.Fatalf("expected normalized default session, got %q", req.SessionID)

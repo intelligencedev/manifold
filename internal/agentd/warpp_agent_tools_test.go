@@ -36,7 +36,7 @@ func newWarppToolTestApp() *app {
 
 func saveDoc(t *testing.T, a *app, doc warpp.Document) {
 	t.Helper()
-	if _, _, err := a.warppState().upsertWorkflow(context.Background(), systemUserID, doc, warpp.Canvas{}); err != nil {
+	if _, _, err := a.warppState().UpsertWorkflow(context.Background(), systemUserID, doc, warpp.Canvas{}); err != nil {
 		t.Fatalf("save %s: %v", doc.ID, err)
 	}
 }

@@ -6,17 +6,14 @@ import (
 	"fmt"
 	"strings"
 
+	"manifold/internal/agentd/onboarding"
 	"manifold/internal/defaultprompt"
 	"manifold/internal/playground/registry"
 	"manifold/internal/specialists"
 )
 
 func defaultPromptIDs(userID int64) (string, string) {
-	promptID := defaultprompt.Name
-	if userID != systemUserID {
-		promptID = fmt.Sprintf("%s-%d", defaultprompt.Name, userID)
-	}
-	return promptID, promptID + "-" + defaultprompt.Version
+	return onboarding.PromptIDs(userID, defaultprompt.Name, defaultprompt.Version)
 }
 
 func (a *app) defaultPromptReference(ctx context.Context, userID int64) (string, string, error) {

@@ -13,8 +13,8 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"manifold/internal/agent"
+	chatpkg "manifold/internal/agentd/chat"
 	"manifold/internal/auth"
-	persist "manifold/internal/persistence"
 	"manifold/internal/sandbox"
 	"manifold/internal/workspaces"
 )
@@ -136,84 +136,7 @@ func limitAgentRuns(runs []AgentRun, limit int) []AgentRun {
 }
 
 func (a *app) chatSessionsHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var (
-			userID      *int64
-			currentUser *auth.User
-			isAdmin     bool
-		)
-		if a.cfg.Auth.Enabled {
-			u, ok := auth.CurrentUser(r.Context())
-			if !ok {
-				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
-			currentUser = u
-			id, admin, err := resolveChatAccess(r.Context(), a.authStore, u)
-			if err != nil {
-				log.Error().Err(err).Msg("resolve_chat_access")
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			userID, isAdmin = id, admin
-		} else {
-			isAdmin = true
-		}
-		_ = isAdmin
-		setChatCORSHeaders(w, r, "GET, POST, OPTIONS")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		switch r.Method {
-		case http.MethodGet:
-			sessions, err := a.chatStore.ListSessions(r.Context(), userID)
-			if err != nil {
-				log.Error().Err(err).Msg("list_chat_sessions")
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			sessions = a.overlayCommandPolicySessionStates(r.Context(), userID, sessions)
-			w.Header().Set("Content-Type", "application/json")
-			if err := json.NewEncoder(w).Encode(sessions); err != nil {
-				log.Error().Err(err).Msg("encode_chat_sessions")
-			}
-		case http.MethodPost:
-			defer r.Body.Close()
-			var body struct {
-				Name string `json:"name"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
-				http.Error(w, "bad request", http.StatusBadRequest)
-				return
-			}
-			sess, err := a.chatStore.CreateSession(r.Context(), userID, body.Name)
-			if err != nil {
-				if errors.Is(err, persist.ErrForbidden) {
-					http.Error(w, "forbidden", http.StatusForbidden)
-					return
-				}
-				log.Error().Err(err).Msg("create_chat_session")
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			sess, err = a.ensureTemporaryChatProject(r, userID, chatRequestOwner(currentUser, userID), sess)
-			if err != nil {
-				log.Error().Err(err).Str("session", sess.ID).Msg("ensure_temporary_chat_project")
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			sess = a.overlayCommandPolicySessionState(r.Context(), userID, sess)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusCreated)
-			if err := json.NewEncoder(w).Encode(sess); err != nil {
-				log.Error().Err(err).Msg("encode_chat_session")
-			}
-		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		}
-	}
+	return chatpkg.SessionsHandler(a.chatSessionHandlerDeps())
 }
 
 func (a *app) agentRunHandler() http.HandlerFunc {

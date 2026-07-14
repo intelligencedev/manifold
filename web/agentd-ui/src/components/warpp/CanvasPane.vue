@@ -73,6 +73,29 @@
           <span class="mx-0.5 h-5 w-px bg-border/60" aria-hidden="true"></span>
           <button
             type="button"
+            class="warpp-ctl warpp-ctl--wide"
+            aria-label="Change wire style"
+            :title="`Wire style: ${edgeStyleLabel}`"
+            @click="cycleEdgeStyle"
+          >
+            <svg
+              class="h-4 w-4 shrink-0"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <path d="M3 18c3.5 0 4.5-12 8-12s4.5 6 8 6" />
+              <circle cx="3" cy="18" r="1.5" fill="currentColor" stroke="none" />
+              <circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none" />
+            </svg>
+            <span class="warpp-ctl__label">{{ edgeStyleLabel }}</span>
+          </button>
+          <span class="mx-0.5 h-5 w-px bg-border/60" aria-hidden="true"></span>
+          <button
+            type="button"
             class="warpp-ctl"
             :aria-pressed="locked"
             :aria-label="locked ? 'Unlock node positions' : 'Lock node positions'"
@@ -127,7 +150,7 @@
 </template>
 
 <script setup lang="ts">
-import { markRaw, nextTick, ref } from "vue";
+import { computed, markRaw, nextTick, ref } from "vue";
 import {
   VueFlow,
   useVueFlow,
@@ -164,6 +187,26 @@ const locked = ref(false);
 const showMiniMap = ref(false);
 
 const { project, zoomIn, zoomOut, fitView, getNodes } = useVueFlow();
+
+// Wire (edge) rendering styles, cycled by the toolbar button. The `type`
+// values are Vue Flow's builtin edge types.
+const EDGE_STYLES: { type: string; label: string }[] = [
+  { type: "default", label: "Curved" },
+  { type: "smoothstep", label: "Smooth" },
+  { type: "step", label: "Step" },
+  { type: "straight", label: "Straight" },
+];
+
+const edgeStyleLabel = computed(
+  () =>
+    EDGE_STYLES.find((s) => s.type === editor.edgeStyle)?.label ?? "Curved",
+);
+
+function cycleEdgeStyle(): void {
+  const idx = EDGE_STYLES.findIndex((s) => s.type === editor.edgeStyle);
+  const next = EDGE_STYLES[(idx + 1) % EDGE_STYLES.length];
+  editor.setEdgeStyle(next.type);
+}
 
 // Auto-arrange nodes top-to-bottom (vertical) or left-to-right (horizontal),
 // then fit the re-laid-out graph into view.
@@ -289,5 +332,16 @@ function onDrop(event: DragEvent): void {
 .warpp-ctl:hover {
   background: rgb(var(--color-surface-muted) / 0.8);
   color: rgb(var(--color-foreground));
+}
+.warpp-ctl--wide {
+  gap: 0.25rem;
+  padding: 0.5rem 0.5rem;
+}
+.warpp-ctl__label {
+  font-size: 10px;
+  line-height: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
 }
 </style>

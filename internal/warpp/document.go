@@ -155,9 +155,10 @@ func (in *Input) UnmarshalJSON(data []byte) error {
 // Canvas is editor-only layout metadata, persisted as a sidecar. It never
 // affects execution.
 type Canvas struct {
-	Nodes  map[string]CanvasNode `json:"nodes,omitempty"`
-	Groups []CanvasGroup         `json:"groups,omitempty"`
-	Notes  []CanvasNote          `json:"notes,omitempty"`
+	Nodes     map[string]CanvasNode `json:"nodes,omitempty"`
+	Groups    []CanvasGroup         `json:"groups,omitempty"`
+	Notes     []CanvasNote          `json:"notes,omitempty"`
+	EdgeStyle string                `json:"edge_style,omitempty"`
 }
 
 type CanvasNode struct {

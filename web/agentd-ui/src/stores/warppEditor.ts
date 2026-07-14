@@ -35,6 +35,7 @@ interface VfEdge {
   target: string;
   sourceHandle: string;
   targetHandle: string;
+  type?: string;
 }
 
 const SEP = "::";
@@ -62,6 +63,8 @@ export const useWarppEditor = defineStore("warppEditor", () => {
   const diagnostics = ref<WarppDiagnostic[]>([]);
   const dirty = ref(false);
   const workflows = ref<WarppWorkflowSummary[]>([]);
+  // Vue Flow edge type used to render the wires (default = bezier).
+  const edgeStyle = ref<string>("default");
 
   function manifestByType(type: string): WarppManifest | undefined {
     return catalog.value?.manifests.find((m) => m.type === type);
@@ -284,6 +287,7 @@ export const useWarppEditor = defineStore("warppEditor", () => {
         target,
         sourceHandle: rest.join("."),
         targetHandle: port,
+        type: edgeStyle.value,
       });
     };
     const walk = (nodes: WarppNode[], prefix: string) => {
@@ -306,6 +310,12 @@ export const useWarppEditor = defineStore("warppEditor", () => {
     return out;
   });
 
+  function setEdgeStyle(style: string): void {
+    edgeStyle.value = style;
+    canvas.value.edge_style = style;
+    dirty.value = true;
+  }
+
   async function loadCatalog(): Promise<void> {
     catalog.value = await fetchCatalog();
   }
@@ -318,6 +328,7 @@ export const useWarppEditor = defineStore("warppEditor", () => {
     const resp = await getWorkflow(id);
     doc.value = resp.document;
     canvas.value = resp.canvas ?? { nodes: {} };
+    edgeStyle.value = canvas.value.edge_style ?? "default";
     diagnostics.value = [];
     dirty.value = false;
     selectedPath.value = null;
@@ -326,6 +337,7 @@ export const useWarppEditor = defineStore("warppEditor", () => {
   function create(id: string, name: string): void {
     doc.value = { id, name, nodes: [], outputs: {} };
     canvas.value = { nodes: {} };
+    edgeStyle.value = "default";
     diagnostics.value = [];
     dirty.value = false;
     selectedPath.value = null;
@@ -378,6 +390,8 @@ export const useWarppEditor = defineStore("warppEditor", () => {
     diagnostics,
     dirty,
     workflows,
+    edgeStyle,
+    setEdgeStyle,
     manifestByType,
     nodeAtPath,
     flowNodes,

@@ -81,6 +81,7 @@ export interface WarppCanvas {
   nodes?: Record<string, WarppCanvasNode>;
   groups?: unknown[];
   notes?: unknown[];
+  edge_style?: string;
 }
 
 export interface WarppWorkflowSummary {

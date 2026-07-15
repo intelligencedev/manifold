@@ -202,3 +202,27 @@ result = {
 - [ ] **Step 3: Check acceptance criteria**
 
 The build is accepted only if the filepath matches the required path, `LowPolyFox` exists, `Fox_Root` has children, the body and face materials are present, the four walking legs and paws are present, and no unrelated pre-existing object names were removed.
+
+---
+
+### Task 6: Clean the scene and create the rig-ready continuous body
+
+**Files:**
+- Modify: the connected Blender scene through `mcp__blender__execute_blender_code`
+- Modify: `/Users/arturoaquino/Documents/manifold-tmp/users/0/projects/3eb68163-63b9-4957-bb56-415b63ceb5c2/manifold/low_poly_woodland_fox.blend`
+
+**Interfaces:**
+- Consumes: the saved `LowPolyFox` build from Task 5.
+- Produces: one watertight `Fox_Skinned` body mesh plus separate `Fox_Eye_L`, `Fox_Eye_R`, and `Fox_Nose` meshes.
+
+- [ ] **Step 1: Delete non-model objects**
+
+Delete every scene object that is not part of the fox model, including the ground patch, ground tufts, cameras, lights, and default starter objects. Keep only fox anatomy, `Fox_Root`, and the three separate facial detail meshes.
+
+- [ ] **Step 2: Voxel-remesh the structural anatomy**
+
+Join torso, neck, head, muzzle, ears, chest, upper/lower legs, paws, tail, and tail tip into one selected mesh. Apply transforms, add a Voxel Remesh modifier with `voxel_size=0.06`, apply it, recalculate outside normals, and flat-shade the resulting `Fox_Skinned` mesh. Keep the three facial detail meshes out of the join and parent them to `Fox_Root`.
+
+- [ ] **Step 3: Verify and save**
+
+Confirm that the scene contains only `Fox_Root`, `Fox_Skinned`, `Fox_Eye_L`, `Fox_Eye_R`, and `Fox_Nose`; confirm the body has one connected mesh component and no active camera or lights; then save the updated `.blend` file.

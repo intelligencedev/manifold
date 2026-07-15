@@ -32,6 +32,10 @@ type AgentCallTool struct {
 	// defaultTimeout, if > 0, is applied when the parent context has no deadline
 	// and the caller does not provide timeout_seconds.
 	defaultTimeout time.Duration
+	// lexMinify* copy server-wide provider minification settings into nested engines.
+	lexMinifyLevel      int
+	lexMinifyZones      int
+	lexMinifyCurrentMax int
 }
 
 type agentCallArgs struct {
@@ -51,6 +55,12 @@ func NewAgentCallTool(reg tools.Registry, specReg *specialists.Registry, wsMgr w
 
 func (t *AgentCallTool) SetDefaultMaxSteps(maxSteps int) {
 	t.defaultMaxSteps = maxSteps
+}
+
+func (t *AgentCallTool) SetLexMinify(level, zones, currentMax int) {
+	t.lexMinifyLevel = level
+	t.lexMinifyZones = zones
+	t.lexMinifyCurrentMax = currentMax
 }
 
 // SetDefaultTimeoutSeconds sets a default timeout applied when the parent context
@@ -209,7 +219,7 @@ func (t *AgentCallTool) newEngine(prov llm.Provider, args agentCallArgs) *agent.
 	} else if toolsReg == nil {
 		toolsReg = tools.NewRegistry()
 	}
-	eng := &agent.Engine{LLM: prov, Tools: toolsReg, MaxSteps: maxSteps, System: prompts.EnsureMemoryInstructions(t.defaultSys)}
+	eng := &agent.Engine{LLM: prov, Tools: toolsReg, MaxSteps: maxSteps, System: prompts.EnsureMemoryInstructions(t.defaultSys), LexMinifyLevel: t.lexMinifyLevel, LexMinifyZones: t.lexMinifyZones, LexMinifyCurrentMax: t.lexMinifyCurrentMax}
 	eng.AttachTokenizer(prov, nil)
 	return eng
 }

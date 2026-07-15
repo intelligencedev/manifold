@@ -258,3 +258,30 @@ func TestApplyAgentdSettingsYAML_UsesNormalizedAliases(t *testing.T) {
 		t.Fatalf("expected reranking instruction in YAML map, got %#v", root["reranking"])
 	}
 }
+
+func TestApplyAgentdSettings_LexMinifyDefaultsOff(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{}
+	if err := applyAgentdSettings(cfg, agentdSettings{}); err != nil {
+		t.Fatalf("applyAgentdSettings error: %v", err)
+	}
+	if cfg.LexMinify.Enabled || cfg.LexMinify.EffectiveLevel() != 0 {
+		t.Fatalf("expected lexMinify off, got %+v", cfg.LexMinify)
+	}
+}
+
+func TestApplyAgentdSettings_LexMinifyEnableRecommended(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Config{}
+	if err := applyAgentdSettings(cfg, agentdSettings{LexMinifyEnabled: true}); err != nil {
+		t.Fatalf("applyAgentdSettings error: %v", err)
+	}
+	if !cfg.LexMinify.Enabled || cfg.LexMinify.Level != config.RecommendedLexMinifyLevel {
+		t.Fatalf("expected enabled recommended level, got %+v", cfg.LexMinify)
+	}
+	got := currentAgentdSettings(cfg)
+	if !got.LexMinifyEnabled || got.LexMinifyLevel != config.RecommendedLexMinifyLevel {
+		t.Fatalf("projection mismatch: %+v", got)
+	}
+}
+

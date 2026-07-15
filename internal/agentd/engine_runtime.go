@@ -121,6 +121,8 @@ func (a *app) newRunDelegator(ctx context.Context, eng *agent.Engine, userID int
 	}
 	delegator := agenttools.NewDelegator(eng.Tools, reg, a.workspaceManager, a.cfg.MaxSteps)
 	delegator.SetDefaultTimeout(a.cfg.AgentRunTimeoutSeconds)
+	level, zones, currentMax := a.cfg.LexMinify.EngineSettings()
+	delegator.SetLexMinify(level, zones, currentMax)
 	applyChatMemorySettingsToEngine(eng, settings)
 	if eng.DisableEvolvingMemory {
 		em = nil

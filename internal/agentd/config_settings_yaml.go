@@ -35,6 +35,7 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	applyPrimaryLLMSettingsYAML(root, settings)
 	applySummarySettingsYAML(root, settings)
 	setNestedMapValue(root, []string{"requestInfoEnabled"}, settings.RequestInfoEnabled)
+	applyLexMinifySettingsYAML(root, settings)
 	applyPromptOverrideSettingsYAML(root, settings)
 	applyEmbeddingSettingsYAML(root, settings)
 	applyRerankSettingsYAML(root, settings)
@@ -275,3 +276,15 @@ func applyDatabaseSettingsYAML(root map[string]any, settings agentdSettings) {
 		setNestedMapValue(root, []string{"databases", "graph", "dsn"}, settings.GraphDSN)
 	}
 }
+
+func applyLexMinifySettingsYAML(root map[string]any, settings agentdSettings) {
+	setNestedMapValue(root, []string{"lexMinify", "enabled"}, settings.LexMinifyEnabled)
+	level := settings.LexMinifyLevel
+	if settings.LexMinifyEnabled && level == 0 {
+		level = config.RecommendedLexMinifyLevel
+	}
+	setNestedMapValue(root, []string{"lexMinify", "level"}, level)
+	setNestedMapValue(root, []string{"lexMinify", "zones"}, settings.LexMinifyZones)
+	setNestedMapValue(root, []string{"lexMinify", "currentRequestMaxLevel"}, settings.LexMinifyCurrentRequestMaxLevel)
+}
+

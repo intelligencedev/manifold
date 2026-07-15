@@ -290,6 +290,9 @@ func (a *app) initEngine(cfg *config.Config, llm llmpkg.Provider, toolRegistry t
 		UserPromptContext:            a.composeUserPromptContext(),
 		Model:                        cfg.LLMClient.OpenAI.Model,
 		ContextWindowTokens:          ctxSize,
+		LexMinifyLevel:               cfg.LexMinify.EffectiveLevel(),
+		LexMinifyZones:               cfg.LexMinify.Zones,
+		LexMinifyCurrentMax:          cfg.LexMinify.CurrentRequestMaxLevel,
 		SummaryEnabled:               cfg.SummaryEnabled,
 		SummaryReserveBufferTokens:   cfg.SummaryReserveBufferTokens,
 		SummaryMinKeepLastMessages:   cfg.SummaryMinKeepLastMessages,
@@ -318,6 +321,8 @@ func (a *app) initBeliefMemory(cfg *config.Config, llm llmpkg.Provider, httpClie
 func (a *app) initDelegator(cfg *config.Config, toolRegistry tools.Registry, specReg *specialists.Registry, wsMgr workspaces.WorkspaceManager) {
 	delegator := agenttools.NewDelegator(toolRegistry, specReg, wsMgr, cfg.MaxSteps)
 	delegator.SetDefaultTimeout(cfg.AgentRunTimeoutSeconds)
+	level, zones, currentMax := cfg.LexMinify.EngineSettings()
+	delegator.SetLexMinify(level, zones, currentMax)
 	delegator.SetTeamDelegator(a)
 	a.engine.Delegator = delegator
 	a.engine.TeamDelegator = a

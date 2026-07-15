@@ -14,6 +14,7 @@ func applyDefaults(cfg *Config) {
 	applyCodeQADefaults(cfg)
 	applyBeliefDefaults(cfg)
 	applyArchaeologyDefaults(cfg)
+	applyLexMinifyDefaults(cfg)
 	applyCodeQAFallbackDefaults(cfg)
 	applyTimeoutAndTokenDefaults(cfg)
 	applyEmbeddingAndRerankingDefaults(cfg)
@@ -609,3 +610,27 @@ func applyMagmaDefaults(cfg *Config) {
 		cfg.Magma.Lifecycle.RequireCausalGrounding = cfg.Archaeology.CausalGroundingRequired
 	}
 }
+
+func applyLexMinifyDefaults(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+	// Feature remains off unless enabled. When enabled with Level left unset,
+	// prefer the strongest progressive preset so operators only flip one switch.
+	if cfg.LexMinify.Enabled && cfg.LexMinify.Level == 0 {
+		cfg.LexMinify.Level = RecommendedLexMinifyLevel
+	}
+	if cfg.LexMinify.Level < 0 {
+		cfg.LexMinify.Level = 0
+	}
+	if cfg.LexMinify.Level > MaxLexMinifyLevel {
+		cfg.LexMinify.Level = MaxLexMinifyLevel
+	}
+	if cfg.LexMinify.CurrentRequestMaxLevel < 0 {
+		cfg.LexMinify.CurrentRequestMaxLevel = 0
+	}
+	if cfg.LexMinify.CurrentRequestMaxLevel > MaxLexMinifyLevel {
+		cfg.LexMinify.CurrentRequestMaxLevel = MaxLexMinifyLevel
+	}
+}
+

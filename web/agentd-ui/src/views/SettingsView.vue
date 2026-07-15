@@ -514,6 +514,92 @@
       </template>
 
       <!-- Prompts -->
+
+      <template v-if="activeSection === 'lexminify'">
+        <fieldset class="space-y-4">
+          <legend class="text-sm font-semibold text-foreground">
+            Lexical context minification
+          </legend>
+          <p class="text-xs text-subtle-foreground">
+            Deterministic character/word-level densification of provider-visible
+            message copies. Permanent chat history is never rewritten. Leave
+            disabled unless you want progressive compression (levels 1–6).
+          </p>
+          <div class="flex items-center gap-2">
+            <input
+              id="lexminify-enabled"
+              type="checkbox"
+              class="h-4 w-4"
+              v-model="agentdSettings.lexMinifyEnabled"
+            />
+            <label for="lexminify-enabled" class="text-sm text-foreground"
+              >Enable lex minify</label
+            >
+          </div>
+          <div class="grid gap-4 grid-cols-3">
+            <div class="space-y-1">
+              <label
+                for="lexminify-level"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Level (0–6)</label
+              >
+              <input
+                id="lexminify-level"
+                type="number"
+                min="0"
+                max="6"
+                v-model.number="agentdSettings.lexMinifyLevel"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                :disabled="!agentdSettings.lexMinifyEnabled"
+              />
+              <p class="text-xs text-subtle-foreground">
+                0 off/implicit. When enabled with 0, the server applies
+                recommended level 6 (aggressive). 1 whitespace … 6 densest.
+              </p>
+            </div>
+            <div class="space-y-1">
+              <label
+                for="lexminify-zones"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Zones bitmask</label
+              >
+              <input
+                id="lexminify-zones"
+                type="number"
+                min="0"
+                v-model.number="agentdSettings.lexMinifyZones"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                :disabled="!agentdSettings.lexMinifyEnabled"
+              />
+              <p class="text-xs text-subtle-foreground">
+                0 uses package defaults (runtime, history, tool, assistant,
+                system). Advanced: bitfield of zones.
+              </p>
+            </div>
+            <div class="space-y-1">
+              <label
+                for="lexminify-current-max"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Current request max</label
+              >
+              <input
+                id="lexminify-current-max"
+                type="number"
+                min="0"
+                max="6"
+                v-model.number="agentdSettings.lexMinifyCurrentRequestMaxLevel"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                :disabled="!agentdSettings.lexMinifyEnabled"
+              />
+              <p class="text-xs text-subtle-foreground">
+                Optional cap for [CURRENT REQUEST] when that zone is enabled.
+                0 keeps package default (light).
+              </p>
+            </div>
+          </div>
+        </fieldset>
+      </template>
+
       <template v-if="activeSection === 'prompts'">
         <fieldset class="space-y-4">
           <legend class="text-sm font-semibold text-foreground">
@@ -1759,6 +1845,10 @@ const defaultAgentdSettings: AgentdSettings = {
   llmModel: "",
   llmBaseUrl: "",
   memoryEnabled: false,
+  lexMinifyEnabled: false,
+  lexMinifyLevel: 0,
+  lexMinifyZones: 0,
+  lexMinifyCurrentRequestMaxLevel: 0,
   openaiSummaryModel: "",
   openaiSummaryUrl: "",
   summaryProvider: "",
@@ -1911,7 +2001,10 @@ type NumericSettingKey =
   | "maxTerminalRuntimeSeconds"
   | "terminalIdleTTLSeconds"
   | "terminalOutputBufferBytes"
-  | "vectorDimensions";
+  | "vectorDimensions"
+  | "lexMinifyLevel"
+  | "lexMinifyZones"
+  | "lexMinifyCurrentRequestMaxLevel";
 
 type BooleanSettingKey =
   | "summaryEnabled"
@@ -1919,7 +2012,8 @@ type BooleanSettingKey =
   | "memoryEnabled"
   | "rerankEnabled"
   | "logPayloads"
-  | "logRawPrompts";
+  | "logRawPrompts"
+  | "lexMinifyEnabled";
 
 const numericSettingKeys: NumericSettingKey[] = [
   "summaryContextWindowTokens",
@@ -1940,6 +2034,9 @@ const numericSettingKeys: NumericSettingKey[] = [
   "terminalIdleTTLSeconds",
   "terminalOutputBufferBytes",
   "vectorDimensions",
+  "lexMinifyLevel",
+  "lexMinifyZones",
+  "lexMinifyCurrentRequestMaxLevel",
 ];
 const booleanSettingKeys: BooleanSettingKey[] = [
   "summaryEnabled",
@@ -1948,6 +2045,7 @@ const booleanSettingKeys: BooleanSettingKey[] = [
   "rerankEnabled",
   "logPayloads",
   "logRawPrompts",
+  "lexMinifyEnabled",
 ];
 
 function toNumber(value: unknown, fallback: number): number {
@@ -2183,6 +2281,7 @@ type SectionKey =
   | "memory"
   | "archaeology"
   | "summarization"
+  | "lexminify"
   | "prompts"
   | "embeddings"
   | "timeouts"
@@ -2198,6 +2297,7 @@ const sections: { key: SectionKey; label: string }[] = [
   { key: "memory", label: "Memory" },
   { key: "archaeology", label: "Archaeology" },
   { key: "summarization", label: "Summarization" },
+  { key: "lexminify", label: "Lex Minify" },
   { key: "prompts", label: "Prompts" },
   { key: "embeddings", label: "Embeddings" },
   { key: "timeouts", label: "Timeouts & Safety" },
@@ -2216,6 +2316,8 @@ const sectionDescriptions: Record<SectionKey, string> = {
     "Toggle coordinated agent memory. Embeddings only apply when memory is on.",
   archaeology: "Decision lineage, provenance capture, and retrieval controls.",
   summarization: "Control conversation summarization cadence and retention.",
+  lexminify:
+    "Deterministic provider-path context densification. Default fully off.",
   prompts:
     "Override built-in prompt blocks while keeping custom orchestrator and specialist instructions additive.",
   embeddings: "Single embedding endpoint used when memory is enabled.",
@@ -2348,6 +2450,12 @@ const runtimeConfigGroups: ConfigGroup[] = [
       "workflowTimeoutSeconds",
       "outputTruncateBytes",
     ],
+  },
+  {
+    key: "lexMinify",
+    title: "Lexical minification",
+    description:
+      "Provider-bound algorithmic context densification (disabled by default).",
   },
   {
     key: "harness",

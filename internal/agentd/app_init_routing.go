@@ -56,6 +56,8 @@ func registerSpecialistTools(cfg *config.Config, httpClient *http.Client, toolRe
 	agentCallTool := agenttools.NewAgentCallTool(toolRegistry, specReg, wsMgr)
 	agentCallTool.SetDefaultMaxSteps(cfg.MaxSteps)
 	agentCallTool.SetDefaultTimeoutSeconds(cfg.AgentRunTimeoutSeconds)
+	level, zones, currentMax := cfg.LexMinify.EngineSettings()
+	agentCallTool.SetLexMinify(level, zones, currentMax)
 	toolRegistry.Register(agentCallTool)
 	toolRegistry.Register(agenttools.NewAskAgentTool(httpClient, "http://127.0.0.1:32180", cfg.AgentRunTimeoutSeconds))
 	toolRegistry.Register(agenttools.NewDelegateToTeamTool(httpClient, "http://127.0.0.1:32180", 0))

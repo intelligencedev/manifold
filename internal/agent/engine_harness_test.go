@@ -164,7 +164,8 @@ func TestRunStreamHarnessEmitsLLMRequestSnapshot(t *testing.T) {
 	require.Len(t, snapshots, 1)
 	require.Equal(t, "gpt-test", snapshots[0].Model)
 	require.Len(t, snapshots[0].Messages, 1)
-	require.Equal(t, "hello", snapshots[0].Messages[0].Content)
+	require.Contains(t, snapshots[0].Messages[0].Content, "[CURRENT REQUEST]")
+	require.True(t, strings.HasSuffix(snapshots[0].Messages[0].Content, "hello"))
 }
 
 func TestRunHarnessDisabledIgnoresWorkflowValidation(t *testing.T) {

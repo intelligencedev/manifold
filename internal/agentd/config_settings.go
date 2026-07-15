@@ -25,6 +25,10 @@ func projectPrimaryLLMAgentdSettings(settings *agentdSettings, cfg *config.Confi
 	settings.LLMAPIKey = cfg.LLMClient.ActiveAPIKey()
 	settings.LLMBaseURL = cfg.LLMClient.ActiveBaseURL()
 	settings.MemoryEnabled = cfg.Memory.Enabled
+	settings.LexMinifyEnabled = cfg.LexMinify.Enabled
+	settings.LexMinifyLevel = cfg.LexMinify.Level
+	settings.LexMinifyZones = cfg.LexMinify.Zones
+	settings.LexMinifyCurrentRequestMaxLevel = cfg.LexMinify.CurrentRequestMaxLevel
 }
 
 func currentSummaryAgentdSettings(cfg *config.Config) agentdSettings {
@@ -205,6 +209,7 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 	}
 	applySummarySettings(cfg, settings)
 	applyRequestInfoSettings(cfg, settings)
+	applyLexMinifySettings(cfg, settings)
 	applyPromptOverrideSettings(cfg, settings)
 	applyEmbeddingSettings(cfg, settings)
 	applyRerankSettings(cfg, settings)
@@ -564,3 +569,26 @@ func firstNonEmptyTrimmed(values ...string) string {
 	}
 	return ""
 }
+
+func applyLexMinifySettings(cfg *config.Config, settings agentdSettings) {
+	cfg.LexMinify.Enabled = settings.LexMinifyEnabled
+	cfg.LexMinify.Level = settings.LexMinifyLevel
+	cfg.LexMinify.Zones = settings.LexMinifyZones
+	cfg.LexMinify.CurrentRequestMaxLevel = settings.LexMinifyCurrentRequestMaxLevel
+	if cfg.LexMinify.Enabled && cfg.LexMinify.Level == 0 {
+		cfg.LexMinify.Level = config.RecommendedLexMinifyLevel
+	}
+	if cfg.LexMinify.Level < 0 {
+		cfg.LexMinify.Level = 0
+	}
+	if cfg.LexMinify.Level > config.MaxLexMinifyLevel {
+		cfg.LexMinify.Level = config.MaxLexMinifyLevel
+	}
+	if cfg.LexMinify.CurrentRequestMaxLevel < 0 {
+		cfg.LexMinify.CurrentRequestMaxLevel = 0
+	}
+	if cfg.LexMinify.CurrentRequestMaxLevel > config.MaxLexMinifyLevel {
+		cfg.LexMinify.CurrentRequestMaxLevel = config.MaxLexMinifyLevel
+	}
+}
+

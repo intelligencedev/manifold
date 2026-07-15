@@ -237,6 +237,9 @@ func validateConfig(cfg *Config) error {
 	if err := validateConfigHarnesses(cfg); err != nil {
 		return err
 	}
+	if err := validateLexMinifyConfig(cfg.LexMinify); err != nil {
+		return err
+	}
 	if err := validateConfigProviderCredentials(cfg); err != nil {
 		return err
 	}
@@ -448,6 +451,19 @@ func validateConfigReranking(cfg *Config) error {
 	}
 	if cfg.Reranking.Timeout < 0 {
 		return fmt.Errorf("reranking.timeoutSeconds must be non-negative")
+	}
+	return nil
+}
+
+func validateLexMinifyConfig(cfg LexMinifyConfig) error {
+	if cfg.Level < 0 || cfg.Level > MaxLexMinifyLevel {
+		return fmt.Errorf("lexMinify.level must be between 0 and %d (got %d)", MaxLexMinifyLevel, cfg.Level)
+	}
+	if cfg.CurrentRequestMaxLevel < 0 || cfg.CurrentRequestMaxLevel > MaxLexMinifyLevel {
+		return fmt.Errorf("lexMinify.currentRequestMaxLevel must be between 0 and %d (got %d)", MaxLexMinifyLevel, cfg.CurrentRequestMaxLevel)
+	}
+	if cfg.Enabled && cfg.Level <= 0 {
+		return fmt.Errorf("lexMinify.level must be between 1 and %d when enabled", MaxLexMinifyLevel)
 	}
 	return nil
 }

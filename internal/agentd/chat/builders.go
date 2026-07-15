@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"manifold/internal/agent"
+	"manifold/internal/config"
 	"manifold/internal/agent/harness"
 	"manifold/internal/agent/memory"
 	"manifold/internal/agent/prompts"
@@ -114,6 +115,9 @@ func (d Deps) BuildSpecialist(ctx context.Context, req BuildRequest) BuildResult
 		UserPromptContext:            combineUserPromptContext(sp.UserPromptContext, skillsContext),
 		Model:                        sp.Model,
 		ContextWindowTokens:          summaryContextSize(d, sp.SummaryContextWindowTokens, sp.Model),
+		LexMinifyLevel:              lexMinifyLevel(d.Cfg),
+		LexMinifyZones:              lexMinifyZones(d.Cfg),
+		LexMinifyCurrentMax:         lexMinifyCurrentMax(d.Cfg),
 		SummaryEnabled:               d.Cfg.SummaryEnabled,
 		SummaryReserveBufferTokens:   d.Cfg.SummaryReserveBufferTokens,
 		SummaryMinKeepLastMessages:   d.Cfg.SummaryMinKeepLastMessages,
@@ -196,6 +200,9 @@ func (d Deps) BuildTeam(ctx context.Context, req BuildRequest) BuildResult {
 		UserPromptContext:            combineUserPromptContext(teamReg.UserPromptContext(), skillsContext),
 		Model:                        currentModel,
 		ContextWindowTokens:          summaryContextSize(d, sp.SummaryContextWindowTokens, currentModel),
+		LexMinifyLevel:              lexMinifyLevel(d.Cfg),
+		LexMinifyZones:              lexMinifyZones(d.Cfg),
+		LexMinifyCurrentMax:         lexMinifyCurrentMax(d.Cfg),
 		SummaryEnabled:               d.Cfg.SummaryEnabled,
 		SummaryReserveBufferTokens:   d.Cfg.SummaryReserveBufferTokens,
 		SummaryMinKeepLastMessages:   d.Cfg.SummaryMinKeepLastMessages,
@@ -239,4 +246,25 @@ func (d Deps) projectDir(ctx context.Context, workspace *workspaces.Workspace) s
 		return baseDir
 	}
 	return ""
+}
+
+func lexMinifyLevel(cfg *config.Config) int {
+	if cfg == nil {
+		return 0
+	}
+	return cfg.LexMinify.EffectiveLevel()
+}
+
+func lexMinifyZones(cfg *config.Config) int {
+	if cfg == nil {
+		return 0
+	}
+	return cfg.LexMinify.Zones
+}
+
+func lexMinifyCurrentMax(cfg *config.Config) int {
+	if cfg == nil {
+		return 0
+	}
+	return cfg.LexMinify.CurrentRequestMaxLevel
 }

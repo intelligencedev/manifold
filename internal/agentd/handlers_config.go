@@ -36,6 +36,11 @@ type agentdSettings struct {
 	// Unified memory master switch. Embeddings only apply when true.
 	MemoryEnabled bool `json:"memoryEnabled"`
 
+	LexMinifyEnabled               bool `json:"lexMinifyEnabled"`
+	LexMinifyLevel                 int  `json:"lexMinifyLevel"`
+	LexMinifyZones                 int  `json:"lexMinifyZones"`
+	LexMinifyCurrentRequestMaxLevel int `json:"lexMinifyCurrentRequestMaxLevel"`
+
 	OpenAISummaryModel                  string `json:"openaiSummaryModel"`
 	OpenAISummaryURL                    string `json:"openaiSummaryUrl"`
 	SummaryProvider                     string `json:"summaryProvider"`

@@ -67,6 +67,8 @@ func (d Deps) newTeamDelegator(eng *agent.Engine, teamReg *specialists.Registry,
 	delegator := agenttools.NewDelegator(eng.Tools, teamReg, d.WorkspaceManager, d.maxSteps())
 	if d.Cfg != nil {
 		delegator.SetDefaultTimeout(d.Cfg.AgentRunTimeoutSeconds)
+		level, zones, currentMax := d.Cfg.LexMinify.EngineSettings()
+		delegator.SetLexMinify(level, zones, currentMax)
 	}
 	delegator.SetMemoryRuntime(eng.Memory)
 	delegator.SetEvolvingMemory(em)

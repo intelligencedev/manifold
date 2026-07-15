@@ -111,14 +111,21 @@ func (e *Engine) runHarnessStep(ctx context.Context, state *harnessLoopState, st
 
 	state.history = e.prepareHarnessHistory(ctx, state.history, state.cfg, state.tracker)
 	priorHistory := state.history
-	serializedHistory := harness.SerializeMessages(state.history)
-	e.emitContextMetrics(ctx, serializedHistory, ContextMetricPhasePreModel, nil, 0)
-	requestID := e.emitLLMRequest(ctx, serializedHistory, schemas, e.model())
-	result, err := e.runHarnessInference(ctx, state, schemas, stream)
+	// Permanent harness history stays uncompressed. Inference / emitLLMRequest
+	// see a provider-visible minified content view only.
+	providerSerial := e.lexMinifyForProvider(ctx, harness.SerializeMessages(priorHistory))
+	minifiedHistory := applyProviderContentToHarness(priorHistory, providerSerial)
+	e.emitContextMetrics(ctx, providerSerial, ContextMetricPhasePreModel, nil, 0)
+	requestID := e.emitLLMRequest(ctx, providerSerial, schemas, e.model())
+	minifiedState := *state
+	minifiedState.history = minifiedHistory
+	result, err := e.runHarnessInference(ctx, &minifiedState, schemas, stream)
 	if requestID != "" && e.AgentTracer != nil {
 		e.AgentTracer.Trace(AgentTrace{Type: "llm_request", Agent: e.AgentRole, Model: e.model(), Depth: e.AgentDepth, LLMRequestID: requestID})
 	}
-	state.history = result.History
+	// Restore permanent history with only newly appended attempt messages.
+	state.history = appendHarnessAttempts(priorHistory, minifiedHistory, result.History)
+	result.History = state.history
 	msg := e.acceptHarnessResult(priorHistory, result, step, stream)
 	e.emitContextMetrics(ctx, harness.SerializeMessages(state.history), ContextMetricPhaseAssistantAdded, nil, 0)
 	if err != nil {
@@ -129,6 +136,36 @@ func (e *Engine) runHarnessStep(ctx context.Context, state *harnessLoopState, st
 		log.Info().Int("step", step).Int("final_len", len(msg.Content)).Msg(harnessFinalEvent(stream))
 	}
 	return msg, nil
+}
+
+// applyProviderContentToHarness returns a shallow copy of history with Content
+// taken from providerMsgs (same length). Meta is preserved.
+func applyProviderContentToHarness(history []harness.HarnessMessage, providerMsgs []llm.Message) []harness.HarnessMessage {
+	out := make([]harness.HarnessMessage, len(history))
+	copy(out, history)
+	n := len(providerMsgs)
+	if n > len(out) {
+		n = len(out)
+	}
+	for i := 0; i < n; i++ {
+		out[i].Message.Content = providerMsgs[i].Content
+	}
+	return out
+}
+
+// appendHarnessAttempts rebuilds permanent history as original prefix + any
+// messages inference appended after the minified view of that prefix.
+func appendHarnessAttempts(prior, minifiedPrefix, resultHistory []harness.HarnessMessage) []harness.HarnessMessage {
+	if len(resultHistory) <= len(minifiedPrefix) {
+		out := make([]harness.HarnessMessage, len(prior))
+		copy(out, prior)
+		return out
+	}
+	appended := resultHistory[len(minifiedPrefix):]
+	out := make([]harness.HarnessMessage, 0, len(prior)+len(appended))
+	out = append(out, prior...)
+	out = append(out, appended...)
+	return out
 }
 
 func (e *Engine) runHarnessInference(ctx context.Context, state *harnessLoopState, schemas []llm.ToolSchema, stream bool) (harness.InferenceResult, error) {

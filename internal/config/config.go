@@ -138,6 +138,9 @@ type Config struct {
 	StreamRunTimeoutSeconds int `yaml:"streamRunTimeoutSeconds" json:"streamRunTimeoutSeconds"`
 	// WorkflowTimeoutSeconds bounds orchestrator workflow execution; 0 disables.
 	WorkflowTimeoutSeconds int `yaml:"workflowTimeoutSeconds" json:"workflowTimeoutSeconds"`
+	// LexMinify controls deterministic provider-bound lexical minification.
+	// The entire feature is disabled by default (enabled: false).
+	LexMinify LexMinifyConfig `yaml:"lexMinify" json:"lexMinify"`
 	// Projects controls per-user projects service behavior.
 	Projects ProjectsConfig `yaml:"projects" json:"projects"`
 	// CodeQA configures deterministic and LLM-assisted code quality evaluation.
@@ -221,6 +224,52 @@ type PromptOverridesConfig struct {
 	MemoryInstructions         string `yaml:"memoryInstructions" json:"memoryInstructions"`
 	ToolDiscoveryInstructions  string `yaml:"toolDiscoveryInstructions" json:"toolDiscoveryInstructions"`
 	SkillDiscoveryInstructions string `yaml:"skillDiscoveryInstructions" json:"skillDiscoveryInstructions"`
+}
+
+// LexMinifyConfig controls deterministic character/word minification of
+// provider-visible LLM message copies. Permanent conversation history is never
+// mutated. Zero value disables the feature.
+type LexMinifyConfig struct {
+	// Enabled master switch. When false, Level/Zones are ignored.
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// Level is progressive strength 1..6 when enabled (L0Whitespace..L5Aggressive).
+	// Loader fills RecommendedLexMinifyLevel when Enabled is true and Level is 0.
+	Level int `yaml:"level" json:"level"`
+	// Zones is a lexminify.Zone bitmask. 0 means package DefaultZones when active.
+	Zones int `yaml:"zones" json:"zones"`
+	// CurrentRequestMaxLevel caps compression for [CURRENT REQUEST] when that zone is on.
+	// 0 means package default (whitespace-only if ZoneCurrentRequest is enabled).
+	CurrentRequestMaxLevel int `yaml:"currentRequestMaxLevel" json:"currentRequestMaxLevel"`
+}
+
+// MaxLexMinifyLevel is the highest progressive minification level (L5Aggressive).
+const MaxLexMinifyLevel = 6
+
+// RecommendedLexMinifyLevel is applied when the feature is enabled without an explicit level.
+const RecommendedLexMinifyLevel = MaxLexMinifyLevel
+
+// EffectiveLevel returns the engine LexMinifyLevel (0 when the feature is disabled).
+func (c LexMinifyConfig) EffectiveLevel() int {
+	if !c.Enabled {
+		return 0
+	}
+	lvl := c.Level
+	if lvl <= 0 {
+		return 0
+	}
+	if lvl > MaxLexMinifyLevel {
+		return MaxLexMinifyLevel
+	}
+	return lvl
+}
+
+// EngineSettings returns level/zones/current-max for agent.Engine construction.
+func (c LexMinifyConfig) EngineSettings() (level, zones, currentMax int) {
+	level = c.EffectiveLevel()
+	if level == 0 {
+		return 0, 0, 0
+	}
+	return level, c.Zones, c.CurrentRequestMaxLevel
 }
 
 // HarnessConfig controls the optional Forge-style guarded agent loop.

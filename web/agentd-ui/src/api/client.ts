@@ -254,6 +254,11 @@ export interface AgentdSettings {
   llmBaseUrl: string;
   memoryEnabled: boolean;
 
+  lexMinifyEnabled: boolean;
+  lexMinifyLevel: number;
+  lexMinifyZones: number;
+  lexMinifyCurrentRequestMaxLevel: number;
+
   openaiSummaryModel: string;
   openaiSummaryUrl: string;
   summaryProvider: string;

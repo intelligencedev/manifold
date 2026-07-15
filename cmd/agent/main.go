@@ -245,6 +245,9 @@ func runOrchestrator(ctx context.Context, req orchestratorRunRequest) error {
 		Tools:                      req.Tools,
 		MaxSteps:                   req.MaxSteps,
 		System:                     systemPrompt,
+		LexMinifyLevel:  cfg.LexMinify.EffectiveLevel(),
+		LexMinifyZones:  cfg.LexMinify.Zones,
+		LexMinifyCurrentMax: cfg.LexMinify.CurrentRequestMaxLevel,
 		SummaryEnabled:             cfg.SummaryEnabled,
 		SummaryReserveBufferTokens: cfg.SummaryReserveBufferTokens,
 	}

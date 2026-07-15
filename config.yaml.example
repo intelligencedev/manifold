@@ -662,6 +662,19 @@ matrix:
       messageRetention: 100
       maxConcurrent: 1
 
+
+# Lexical minification of provider-visible message copies. Disabled by default.
+# Progressive levels 1..6 densify unprotected prose (code/JSON/URLs stay protected).
+# Permanent conversation history is never rewritten.
+lexMinify:
+  enabled: false
+  # When enabled with level left at 0, server applies recommended level 6.
+  level: 0
+  # 0 = package default zones (runtime + history + tool + assistant + system).
+  zones: 0
+  # Cap for [CURRENT REQUEST] if that zone is turned on (0 = package default).
+  currentRequestMaxLevel: 0
+
 # Experimental: Optional Forge-style guarded agent loop. Disabled by default.
 # Can be enabled per specialist in UI regardless of this config.
 harness:

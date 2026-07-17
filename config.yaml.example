@@ -565,9 +565,20 @@ transit:
 
 # Text to speech
 tts:
+  # engine selects the backend for the /tts route (used by external clients such
+  # as the Reachy Mini bot):
+  #   "openai"     (default) proxy to an OpenAI-compatible /v1/audio/speech.
+  #   "supertonic" host-side Python sidecar (see services/supertonic-tts);
+  #                point baseURL at it, e.g. http://127.0.0.1:8890/v1.
+  #   "born"       in-process pure-Go Supertonic inference (no sidecar; see
+  #                services/born-supertonic-fork); requires modelDir pointing at
+  #                a Supertonic model dir (onnx/ + voice_styles/).
+  # For supertonic/born, set voice to a preset id (M1-M5, F1-F5).
+  engine: openai
   baseURL: https://api.openai.com/v1
   model: gpt-4o-mini-tts
   voice: alloy
+  # modelDir: /path/to/supertonic-models   # born engine only
 
 # Speech to text
 stt:

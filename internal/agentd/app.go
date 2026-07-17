@@ -46,6 +46,7 @@ const (
 type app struct {
 	cfg                     *config.Config
 	httpClient              *http.Client
+	bornTTS                 bornTTSHolder
 	mgr                     *databases.Manager
 	llm                     llmpkg.Provider
 	baseToolRegistry        tools.Registry

@@ -416,6 +416,13 @@ type ProjectsConfig struct {
 
 // TTSConfig holds text-to-speech specific configuration.
 type TTSConfig struct {
+	// Engine selects the TTS backend for the /tts route: "openai" (default),
+	// "supertonic" (a host-side Supertonic sidecar that streams raw PCM16), or
+	// "born" (in-process pure-Go Supertonic inference; requires ModelDir).
+	Engine string `yaml:"engine" json:"engine"`
+	// ModelDir is the local Supertonic model directory (onnx/ + voice_styles/)
+	// used by the "born" engine.
+	ModelDir string `yaml:"modelDir" json:"modelDir"`
 	// BaseURL is the HTTP base for TTS requests. Requests will be POSTed to
 	// ${BaseURL}/v1/audio/speech if set.
 	BaseURL string `yaml:"baseURL" json:"baseURL"`

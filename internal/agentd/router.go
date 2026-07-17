@@ -126,6 +126,7 @@ func registerAgentRoutes(mux *http.ServeMux, a *app) {
 
 	mux.HandleFunc("/audio/", a.audioServeHandler())
 	mux.HandleFunc("/stt", a.sttHandler())
+	mux.HandleFunc("/tts", a.ttsHandler())
 }
 
 func registerMCPRoutes(mux *http.ServeMux, a *app) {

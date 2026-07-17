@@ -137,7 +137,6 @@
                 </div>
                 <div class="direct-activity-body">
                   <div v-if="message.activityToolTitle" class="direct-activity-row">
-                    <span class="direct-activity-label">Tool</span>
                     <span class="direct-activity-value">
                       {{ message.activityToolTitle }}
                     </span>

@@ -23,9 +23,8 @@ var (
 	// Unix/relative or Windows-like paths, conservative.
 	rePath = regexp.MustCompile(`(?:\./|\.\./|/)[A-Za-z0-9._/\-]+|[A-Za-z]:\\[A-Za-z0-9._\\\-]+`)
 	// Common section markers — write protective copy so transforms don't mangle them.
-	reMarker = regexp.MustCompile(`\[(?:RUNTIME CONTEXT|CURRENT REQUEST|CONVERSATION HISTORY)\]`)
+	reMarker = regexp.MustCompile(`\[(?:RUNTIME CONTEXT|CURRENT REQUEST|CONVERSATION HISTORY|LEXMINIFY NOTICE)\]`)
 )
-
 func findProtectedSpans(s string) []span {
 	if s == "" {
 		return nil

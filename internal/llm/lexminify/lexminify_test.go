@@ -92,11 +92,19 @@ func TestMessagesZonesMinifySystemByDefault(t *testing.T) {
 		{Role: "user", Content: "[RUNTIME CONTEXT]\nPlease note that memory says the user prefers Go.\n\n[CURRENT REQUEST]\nImplement the feature without breaking tests."},
 	}
 	res := MinifyMessages(msgs, Options{Level: L3Telegram})
-	if res.Messages[0].Content == msgs[0].Content {
-		t.Fatalf("system should minify under default zones")
+	sys := res.Messages[0].Content
+	if !strings.HasPrefix(sys, LexMinifyAdvisoryMarker) {
+		t.Fatalf("system should start with unminified advisory, got %q", sys)
 	}
-	if strings.Contains(strings.ToLower(res.Messages[0].Content), "please note that") {
-		t.Fatalf("system filler not removed: %q", res.Messages[0].Content)
+	if !strings.Contains(sys, LexMinifyAdvisory) {
+		t.Fatalf("system missing full plain-text advisory: %q", sys)
+	}
+	body := stripLexMinifyAdvisory(sys)
+	if body == msgs[0].Content {
+		t.Fatalf("system body should minify under default zones")
+	}
+	if strings.Contains(strings.ToLower(body), "please note that") {
+		t.Fatalf("system filler not removed: %q", body)
 	}
 	if res.Messages[1].Content == msgs[1].Content {
 		t.Fatalf("history should minify")
@@ -116,9 +124,6 @@ func TestMessagesZonesMinifySystemByDefault(t *testing.T) {
 	if strings.Contains(cur, "Please note that memory") {
 		t.Fatalf("runtime filler not removed: %q", cur)
 	}
-	if res.RunesAfter >= res.RunesBefore {
-		t.Fatalf("expected rune reduction: before=%d after=%d", res.RunesBefore, res.RunesAfter)
-	}
 }
 
 func TestSystemPromptZoneCanBeDisabled(t *testing.T) {
@@ -134,6 +139,9 @@ func TestSystemPromptZoneCanBeDisabled(t *testing.T) {
 	res := MinifyMessages(msgs, Options{Level: L3Telegram, Zones: zones})
 	if res.Messages[0].Content != msgs[0].Content {
 		t.Fatalf("system should be unchanged without ZoneSystemPrompt")
+	}
+	if strings.Contains(res.Messages[0].Content, LexMinifyAdvisoryMarker) {
+		t.Fatalf("advisory must not appear without ZoneSystemPrompt")
 	}
 	if res.Messages[1].Content != msgs[1].Content {
 		t.Fatalf("developer should be unchanged without ZoneSystemPrompt")
@@ -240,3 +248,52 @@ func TestAlwaysMarkedCurrentRequestPreservesBody(t *testing.T) {
 	}
 }
 
+func TestSystemAdvisoryUnminifiedAndSingle(t *testing.T) {
+	msgs := []llm.Message{
+		{Role: "system", Content: "You are a helpful assistant. Please note that tools exist."},
+		{Role: "developer", Content: "Please note that responses must stay concise."},
+		{Role: "user", Content: "[CURRENT REQUEST]\nDo the thing."},
+	}
+	res := MinifyMessages(msgs, Options{Level: L5Aggressive})
+	sys := res.Messages[0].Content
+	if !strings.HasPrefix(strings.TrimSpace(sys), LexMinifyAdvisoryMarker) {
+		t.Fatalf("advisory must lead the first system message: %q", sys)
+	}
+	// Advisory body must remain byte-identical (never minified).
+	if !strings.Contains(sys, LexMinifyAdvisory) {
+		t.Fatalf("advisory text was altered or minified:\n--- got ---\n%s", sys)
+	}
+	if count := strings.Count(sys, LexMinifyAdvisoryMarker); count != 1 {
+		t.Fatalf("expected single advisory marker in system, got %d", count)
+	}
+	// Second prefix message is minified but does not get a second advisory.
+	dev := res.Messages[1].Content
+	if strings.Contains(dev, LexMinifyAdvisoryMarker) {
+		t.Fatalf("developer must not receive a second advisory: %q", dev)
+	}
+	if strings.Contains(strings.ToLower(dev), "please note that") {
+		t.Fatalf("developer filler not removed: %q", dev)
+	}
+	// Re-running minify on already-annotated output must not stack notices.
+	again := MinifyMessages(res.Messages, Options{Level: L5Aggressive})
+	if count := strings.Count(again.Messages[0].Content, LexMinifyAdvisoryMarker); count != 1 {
+		t.Fatalf("re-minify stacked advisories: count=%d content=%q", count, again.Messages[0].Content)
+	}
+	if !strings.Contains(again.Messages[0].Content, LexMinifyAdvisory) {
+		t.Fatalf("re-minify altered advisory text")
+	}
+}
+
+func TestSystemAdvisoryAbsentWhenFeatureOff(t *testing.T) {
+	msgs := []llm.Message{
+		{Role: "system", Content: "You are a helpful assistant. Please note that tools exist."},
+		{Role: "user", Content: "[CURRENT REQUEST]\nHi"},
+	}
+	res := MinifyMessages(msgs, Options{Level: Off})
+	if res.Messages[0].Content != msgs[0].Content {
+		t.Fatalf("level off should not rewrite system")
+	}
+	if strings.Contains(res.Messages[0].Content, LexMinifyAdvisoryMarker) {
+		t.Fatalf("advisory must not appear when level is off")
+	}
+}

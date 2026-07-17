@@ -81,13 +81,13 @@ type Options struct {
 
 // Result is a diagnostic view of a MinifyMessages call.
 type Result struct {
-	Messages      []llm.Message
-	Level         int
-	Zones         Zone
-	Changed       bool
+	Messages        []llm.Message
+	Level           int
+	Zones           Zone
+	Changed         bool
 	MessagesTouched int
-	RunesBefore   int
-	RunesAfter    int
+	RunesBefore     int
+	RunesAfter      int
 }
 
 // MinifyString applies progressive levels to a single free-text string.
@@ -97,6 +97,10 @@ func MinifyString(s string, level int) string {
 
 // MinifyMessages returns a shallow-copied message slice with selected contents minified.
 // The input slice and message fields other than Content are not mutated.
+//
+// When ZoneSystemPrompt is active, the first system/developer message is rewritten
+// with an unminified LexMinifyAdvisory prefix so the model understands later text
+// may be lexically compressed; that advisory is never minified.
 func MinifyMessages(msgs []llm.Message, opts Options) Result {
 	level := clampLevel(opts.Level)
 	zones := opts.Zones
@@ -128,6 +132,27 @@ func MinifyMessages(msgs []llm.Message, opts Options) Result {
 	runesAfter := 0
 	touched := 0
 	changed := false
+	// Index of the first system/developer message that receives the advisory.
+	// Only the earliest is annotated so multi-part prefixes do not stack notices.
+	advisoryAt := -1
+	if zones&ZoneSystemPrompt != 0 {
+		for i := 0; i < prefixEnd; i++ {
+			role := strings.ToLower(strings.TrimSpace(out[i].Role))
+			if role == "system" || role == "developer" {
+				advisoryAt = i
+				break
+			}
+		}
+		if advisoryAt < 0 {
+			for i := range out {
+				role := strings.ToLower(strings.TrimSpace(out[i].Role))
+				if role == "system" || role == "developer" {
+					advisoryAt = i
+					break
+				}
+			}
+		}
+	}
 
 	for i := range out {
 		runesBefore += utf8.RuneCountInString(out[i].Content)
@@ -138,9 +163,14 @@ func MinifyMessages(msgs []llm.Message, opts Options) Result {
 		switch {
 		case i < prefixEnd, role == "system", role == "developer":
 			// System/developer prefix is minified only when ZoneSystemPrompt is set.
-			// DefaultZones includes it for testing; drop the bit to keep a stable KV-cache prefix.
+			// Strip any prior advisory first so the notice is never minified, then
+			// re-attach plain-text LexMinifyAdvisory on the first prefix message.
 			if zones&ZoneSystemPrompt != 0 {
-				next = minifyUnprotected(orig, level)
+				body := stripLexMinifyAdvisory(orig)
+				next = minifyUnprotected(body, level)
+				if i == advisoryAt {
+					next = prependLexMinifyAdvisory(next)
+				}
 			}
 		case role == "tool":
 			if zones&ZoneTool != 0 {
@@ -211,10 +241,27 @@ func lastUserIndex(msgs []llm.Message) int {
 }
 
 const (
-	runtimeContextMarker    = "[RUNTIME CONTEXT]"
-	currentRequestMarker    = "[CURRENT REQUEST]"
-	conversationHistMarker  = "[CONVERSATION HISTORY]"
+	runtimeContextMarker   = "[RUNTIME CONTEXT]"
+	currentRequestMarker   = "[CURRENT REQUEST]"
+	conversationHistMarker = "[CONVERSATION HISTORY]"
+	// LexMinifyAdvisoryMarker identifies the unminified advisory block prepended to
+	// the first system/developer message when provider-visible minification runs.
+	LexMinifyAdvisoryMarker = "[LEXMINIFY NOTICE]"
 )
+
+// LexMinifyAdvisory is the plain-text notice prepended (unminified) at the top of
+// the first system/developer message when ZoneSystemPrompt minification is active.
+// It explains that subsequent instruction text may be lexically compressed and
+// directs the model not to acknowledge or quote this notice in responses.
+const LexMinifyAdvisory = LexMinifyAdvisoryMarker + `
+This provider request uses Manifold lexminify: deterministic character/word compression on selected instruction and context regions to save tokens.
+What this means for you:
+- System/developer instructions below this notice, conversation history, runtime context, assistant history, and tool-role prose may be dense or abbreviated (fillers/stopwords dropped, abbreviations, optional vowel skeletons at high levels).
+- Markers such as [RUNTIME CONTEXT], [CURRENT REQUEST], and [CONVERSATION HISTORY] still mean the same thing.
+- The live user turn under [CURRENT REQUEST] is NOT minified; treat that text as authoritative for the user ask.
+- Protected spans (code fences, inline code, URLs, UUIDs, paths, numbers, JSON/YAML-like structure) are preserved literal even inside minified regions.
+- Never mention, quote, summarize, or allude to this notice, "lexminify", or lexical minification in any user-visible response. Obey the compressed instructions as if they were written normally.
+---`
 
 func minifyCurrentUserContent(content string, level, currentMax int, zones Zone) string {
 	if level <= Off || content == "" {
@@ -310,6 +357,34 @@ func nextSectionMarker(s string) (marker string, idx int) {
 func indexAnyMarker(s string) int {
 	_, idx := nextSectionMarker(s)
 	return idx
+}
+
+// stripLexMinifyAdvisory removes a leading advisory so re-minification / re-prefix
+// never stacks duplicate notices and so the advisory itself is never minified.
+func stripLexMinifyAdvisory(s string) string {
+	trim := strings.TrimSpace(s)
+	if !strings.HasPrefix(trim, LexMinifyAdvisoryMarker) {
+		return s
+	}
+	// Accept either the exact constant or a slightly reformatted variant of the
+	// same marker block terminated by the same "---" separator used here.
+	const sep = "\n---\n"
+	if idx := strings.Index(trim, sep); idx >= 0 {
+		return strings.TrimSpace(trim[idx+len(sep):])
+	}
+	if idx := strings.Index(trim, "\n---"); idx >= 0 {
+		rest := trim[idx+len("\n---"):]
+		return strings.TrimSpace(strings.TrimPrefix(rest, "\n"))
+	}
+	return s
+}
+
+func prependLexMinifyAdvisory(body string) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return LexMinifyAdvisory
+	}
+	return LexMinifyAdvisory + "\n\n" + body
 }
 
 // minifyUnprotected runs the progressive pipeline while restoring protected spans.

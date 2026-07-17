@@ -1,22 +1,22 @@
 # Architecture Decisions: lexminify
 
-Working product/architecture choices for lexical provider compression. Status dates refer to the 2026-07-14 implementation completion window.
+Working product/architecture choices for lexical provider compression. Status dates refer to the 2026-07-14 implementation completion window and later follow-ups.
 
 ## D1 — Enable level 6 (L5Aggressive) on product construction paths
 
-**Statement:** Production/default engine constructions assign `LexMinifyLevel = agent.DefaultLexMinifyLevel` where `DefaultLexMinifyLevel = 6` (`lexminify.L5Aggressive`). Bare test `Engine{}` remains 0 unless set.
+**Statement:** When the feature is enabled, product engines use progressive level 6 (`lexminify.L5Aggressive`) via `agent.DefaultLexMinifyLevel` / `RecommendedLexMinifyLevel`. Bare test `Engine{}` remains 0 unless set.
 
-**Rationale:** Strongest progressive density on prose-heavy runtime context + histories; user directive to leave enabled at 6 and revert only if issues appear.
+**Rationale:** Strongest progressive density on prose-heavy runtime context + histories.
 
 **Evidence:**
 
 - `internal/agent/engine.go` constant + field comments
-- Assignments in `app_init_services.go`, `chat/builders.go`, `delegator.go`, `agent_call.go`, `cmd/agent/main.go`
+- Config `RecommendedLexMinifyLevel` and engine construction sites
 
 **Rejected alternatives:**
 
-- Default off awaiting flags: rejected for product evaluation of savings immediately on provider path
-- Default level < 6: rejected by explicit product instruction
+- Default off awaiting flags: superseded by D7 config master enable
+- Default level < 6 when enabled: rejected for evaluation of max densification
 
 ## D2 — Zone bitmask with package DefaultZones (Zones==0)
 
@@ -28,7 +28,7 @@ Working product/architecture choices for lexical provider compression. Status da
 
 ## D3 — DefaultZones includes ZoneSystemPrompt
 
-**Statement:** System/developer prefix minifies under defaults for testing/eval of KV impact; operators can clear the bit for stable prefixes.
+**Statement:** System/developer prefix minifies under defaults; operators can clear the bit for stable prefixes.
 
 **Evidence:** `DefaultZones` const; `TestMessagesZonesMinifySystemByDefault`, `TestSystemPromptZoneCanBeDisabled`.
 
@@ -47,23 +47,11 @@ Working product/architecture choices for lexical provider compression. Status da
 - `DefaultZones = … | ZoneTool | …` in `lexminify.go`
 - `case role == "tool"` branch
 - `TestMessagesZonesMinifyToolByDefault`, `TestToolZoneCanBeDisabled`
-- Engine zero-zones comment lists “runtime + history + tool + assistant + system prompt”
 
 **Rejected alternatives:**
 
-- Tool off by default: superseded; default bit flipped on after system-prompt experiment pattern
+- Tool off by default: superseded
 - Per-tool separate max level (`LexMinifyToolMax`): rejected — adds API surface without measured need while span protection covers structured risk
-
-**How to opt out:**
-
-```go
-eng.LexMinifyZones = int(
-    lexminify.ZoneRuntimeContext |
-    lexminify.ZoneHistory |
-    lexminify.ZoneAssistant |
-    lexminify.ZoneSystemPrompt,
-)
-```
 
 ## D5 — Provider-visible copy only
 
@@ -71,24 +59,19 @@ eng.LexMinifyZones = int(
 
 **Evidence:** `lexMinifyForProvider` docstring; `MinifyMessages` shallow content copy; harness comments + `applyProviderContentToHarness`.
 
-## D6 — Current request remains opt-in / light
+## D6 — Live current request never minified
 
-**Statement:** `ZoneCurrentRequest` is **not** in `DefaultZones`. When enabled, default max level is `L0Whitespace` unless raised by options/engine, always clamped ≤ global level.
+**Statement:** Text under `[CURRENT REQUEST]` (the user-typed prompt) is never minified, regardless of `ZoneCurrentRequest` / `CurrentRequestMaxLevel` API knobs (retained for compatibility). Only prefixed runtime context and other zones densify.
 
-**Rationale:** Live user ask should stay recoverable; densest compression targets bulk context.
+**Rationale:** Live user ask must stay recoverable and authoritative.
 
-## Change Log (zone defaults)
-
-1. Earlier: runtime + history (+ assistant only)
-2. Then: + `ZoneSystemPrompt`
-3. Current: + `ZoneTool` →  
-   `ZoneRuntimeContext | ZoneHistory | ZoneTool | ZoneAssistant | ZoneSystemPrompt`
+**Evidence:** `minifyCurrentUserContent` hard `userBodyLevel := Off`; `TestUserLiteralPromptNeverMinified`.
 
 ## D7 — Server-config gate; product default fully off
 
 **Statement:** Lex minify is controlled by top-level `lexMinify` config (`enabled`, `level`, `zones`, `currentRequestMaxLevel`). The entire feature is **disabled by default** (`enabled: false` → engine level 0). Operators enable via `config.yaml` or Settings UI. When `enabled: true` and `level` is left `0`, loader/settings fill `RecommendedLexMinifyLevel` (6).
 
-**Rationale:** Working-tree evaluation previously hard-coded level 6 on product construction paths; product requirement is opt-in configurability with safe zero defaults.
+**Rationale:** Feature is opt-in with safe zero defaults.
 
 **Evidence:**
 
@@ -102,3 +85,28 @@ eng.LexMinifyZones = int(
 - Keep package-constant hard default 6 on all product engines: rejected (user asked default feature disabled)
 - Global only level without enable master: rejected — enable must be explicit
 
+## D8 — Unminified lexminify advisory at top of system prefix
+
+**Statement:** When `ZoneSystemPrompt` minification is active (level > 0), the first system/developer message receives a leading plain-text `[LEXMINIFY NOTICE]` block (`LexMinifyAdvisory`) that is **never** minified. The notice explains that later instructions and context may be lexically compressed, that `[CURRENT REQUEST]` stays authoritative, and that the model must not mention lexminify in responses. Additional system/developer messages are minified without a second advisory. Level 0 / zone off keeps system text and leaves the notice out.
+
+**Rationale:** Agents need to interpret dense abbreviated instruction bodies correctly. A protected top-of-system prefix matches the product requirement that “that part should not be processed with lexminify if it is enabled.”
+
+**Evidence:**
+
+- `LexMinifyAdvisory` / strip+prepend in `internal/llm/lexminify/lexminify.go`
+- Protect marker includes `LEXMINIFY NOTICE` in `protect.go`
+- Tests: `TestMessagesZonesMinifySystemByDefault`, `TestSystemAdvisoryUnminifiedAndSingle`, `TestSystemAdvisoryAbsentWhenFeatureOff`, `TestSystemPromptZoneCanBeDisabled`
+
+**Rejected alternatives:**
+
+- Bake advisory into static base system prompt at compose time: rejected — would appear even when lexminify is disabled and waste tokens on non-minified runs
+- Operator-docs only (no runtime notice): rejected — models would not know compressed text is intentional
+- Minify the advisory too: rejected — defeats the purpose
+- One advisory per system/developer message: rejected — redundant and blackmails KV budget
+
+## Change Log (zone defaults)
+
+1. Earlier: runtime + history (+ assistant only)
+2. Then: + `ZoneSystemPrompt`
+3. Then: + `ZoneTool`
+4. Current: unminified `LexMinifyAdvisory` on first system/developer when system zone runs

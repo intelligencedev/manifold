@@ -1,10 +1,8 @@
 import { defineComponent, type PropType } from "vue";
 import type { Participant } from "@/composables/chat/chatTargeting";
 import DropdownSelect from "@/components/DropdownSelect.vue";
-import type {
-  ChatParticipantsPanelModel,
-  ParticipantActivityGroup,
-} from "@/composables/chat/useChatViewController";
+import type { ChatParticipantsPanelModel } from "@/composables/chat/useChatViewController";
+import type { ParticipantActivityGroup } from "@/composables/chat/chatActivity";
 
 function renderParticipantActivityGroup(
   group: ParticipantActivityGroup,

@@ -1608,6 +1608,170 @@
         </fieldset>
       </template>
 
+      <!-- Browser TTS (Supertonic) -->
+      <template v-if="activeSection === 'browserTts'">
+        <fieldset class="space-y-4">
+          <legend class="text-sm font-semibold text-foreground">
+            Browser text-to-speech (Supertonic)
+          </legend>
+          <p class="text-xs text-subtle-foreground">
+            Supertonic runs entirely in the browser via ONNX Runtime Web (WebGPU with WASM fallback).
+            Models download automatically the first time TTS is enabled. Custom voices are Voice Builder
+            JSON exports (style_ttl + style_dp) — on-device cloning is not available in the open WebGPU path.
+          </p>
+          <div class="rounded-md border border-border/70 bg-surface-muted/40 p-3 text-xs text-subtle-foreground">
+            Engine status: <span class="font-medium text-foreground">{{ ttsStatusLabel }}</span>
+          </div>
+          <label class="inline-flex items-center gap-2">
+            <input
+              id="tts-default-enabled"
+              type="checkbox"
+              class="h-4 w-4"
+              v-model="ttsDefaultEnabled"
+            />
+            <span class="text-sm text-foreground"
+              >Enable TTS by default for new conversations</span
+            >
+          </label>
+          <div class="grid gap-4 grid-cols-2">
+            <div class="space-y-1">
+              <label
+                for="tts-voice"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Voice</label
+              >
+              <DropdownSelect
+                id="tts-voice"
+                v-model="ttsVoiceId"
+                :options="ttsVoiceOptions"
+                size="sm"
+                class="w-full"
+                aria-label="TTS voice"
+              />
+            </div>
+            <div class="space-y-1">
+              <label
+                for="tts-lang"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Language</label
+              >
+              <DropdownSelect
+                id="tts-lang"
+                v-model="ttsLanguage"
+                :options="ttsLanguageOptions"
+                size="sm"
+                class="w-full"
+                aria-label="TTS language"
+              />
+            </div>
+            <div class="space-y-1">
+              <label
+                for="tts-steps"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Denoising steps</label
+              >
+              <input
+                id="tts-steps"
+                type="number"
+                min="1"
+                max="20"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                v-model.number="ttsTotalSteps"
+              />
+              <p class="text-xs text-subtle-foreground">Higher quality with more steps (slower). Default 5.</p>
+            </div>
+            <div class="space-y-1">
+              <label
+                for="tts-speed"
+                class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                >Speed</label
+              >
+              <input
+                id="tts-speed"
+                type="number"
+                min="0.7"
+                max="1.6"
+                step="0.01"
+                class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                v-model.number="ttsSpeed"
+              />
+              <p class="text-xs text-subtle-foreground">Recommended 0.9–1.5 (default 1.05).</p>
+            </div>
+          </div>
+          <div class="space-y-2">
+            <h3 class="text-sm font-medium text-foreground">Import custom voice (Voice Builder JSON)</h3>
+            <p class="text-xs text-subtle-foreground">
+              Export a voice from Supertone Voice Builder and import the JSON here. Native browser voice cloning is not part of the open Supertonic WebGPU package.
+            </p>
+            <div class="grid gap-3 grid-cols-[1fr_auto] items-end">
+              <div class="space-y-1">
+                <label
+                  for="tts-custom-name"
+                  class="font-mono text-[11px] uppercase tracking-[0.12em] text-faint-foreground"
+                  >Display name</label
+                >
+                <input
+                  id="tts-custom-name"
+                  type="text"
+                  v-model="ttsCustomVoiceName"
+                  placeholder="My voice"
+                  class="w-full rounded border border-border/70 bg-surface-muted/60 px-3 py-2 text-sm"
+                />
+              </div>
+              <label
+                class="inline-flex cursor-pointer items-center justify-center rounded bg-accent px-3 py-2 text-xs font-semibold text-accent-foreground hover:bg-accent/90"
+              >
+                Choose JSON
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  class="hidden"
+                  @change="onTtsCustomVoiceFile"
+                />
+              </label>
+            </div>
+            <p v-if="ttsCustomVoiceError" class="text-xs text-danger-foreground">{{ ttsCustomVoiceError }}</p>
+            <p v-if="ttsCustomVoiceSuccess" class="text-xs text-accent-foreground">{{ ttsCustomVoiceSuccess }}</p>
+            <div v-if="ttsCustomVoices.length" class="space-y-2">
+              <div
+                v-for="voice in ttsCustomVoices"
+                :key="voice.id"
+                class="flex items-center justify-between gap-3 rounded border border-border/70 bg-surface-muted/50 px-3 py-2"
+              >
+                <div class="min-w-0">
+                  <p class="truncate text-sm text-foreground">{{ voice.name }}</p>
+                  <p class="truncate text-[11px] text-subtle-foreground">{{ voice.id }}</p>
+                </div>
+                <button
+                  type="button"
+                  class="rounded border border-danger/50 px-2 py-1 text-xs text-danger-foreground hover:bg-danger/10"
+                  @click="removeTtsCustomVoice(voice.id)"
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button
+              type="button"
+              class="rounded bg-accent px-3 py-2 text-xs font-semibold text-accent-foreground hover:bg-accent/90 disabled:opacity-60"
+              :disabled="ttsBusy"
+              @click="bootstrapTtsEngine"
+            >
+              {{ ttsBusy ? 'Bootstrapping…' : 'Download / bootstrap model' }}
+            </button>
+            <button
+              type="button"
+              class="rounded border border-border/70 px-3 py-2 text-xs font-semibold hover:border-border"
+              @click="saveTtsSettings"
+            >
+              Save browser TTS settings
+            </button>
+          </div>
+        </fieldset>
+      </template>
+
       <!-- Integrations -->
       <template v-if="activeSection === 'integrations'">
         <fieldset class="space-y-4">
@@ -1803,6 +1967,8 @@ import {
   startMCPOAuth,
 } from "@/api/mcp";
 import type { MCPServer, CreateMCPServerRequest } from "@/types/mcp";
+import { availableLanguages } from "@/lib/tts/supertonic/engine";
+import { useTtsStore } from "@/stores/tts";
 import DropdownSelect from "@/components/DropdownSelect.vue";
 import ConfigGroupsForm, {
   type ConfigGroup,
@@ -1831,6 +1997,88 @@ const themeDropdownOptions = computed(() =>
 const apiUrl = ref("");
 
 const STORAGE_KEY = "agentd.ui.settings";
+
+const ttsStore = useTtsStore();
+const ttsDefaultEnabled = computed({
+  get: () => ttsStore.settings.defaultEnabled,
+  set: (v: boolean) => ttsStore.patchSettings({ defaultEnabled: Boolean(v) }),
+});
+const ttsVoiceId = computed({
+  get: () => ttsStore.settings.voiceId,
+  set: (v: string) => ttsStore.patchSettings({ voiceId: String(v || "M1") }),
+});
+const ttsLanguage = computed({
+  get: () => ttsStore.settings.language,
+  set: (v: string) => ttsStore.patchSettings({ language: String(v || "en") }),
+});
+const ttsTotalSteps = computed({
+  get: () => ttsStore.settings.totalSteps,
+  set: (v: number) => ttsStore.patchSettings({ totalSteps: Number(v) || 5 }),
+});
+const ttsSpeed = computed({
+  get: () => ttsStore.settings.speed,
+  set: (v: number) => ttsStore.patchSettings({ speed: Number(v) || 1.05 }),
+});
+const ttsVoiceOptions = computed(() => ttsStore.voiceOptions);
+const ttsLanguageOptions = computed(() =>
+  availableLanguages.map((code) => ({
+    id: code,
+    label: code,
+    value: code,
+  })),
+);
+const ttsStatusLabel = computed(() => ttsStore.statusLabel);
+const ttsBusy = computed(
+  () =>
+    ttsStore.engineStatus === "downloading" ||
+    ttsStore.engineStatus === "loading",
+);
+const ttsCustomVoices = computed(() => ttsStore.settings.customVoices);
+const ttsCustomVoiceName = ref("");
+const ttsCustomVoiceError = ref("");
+const ttsCustomVoiceSuccess = ref("");
+
+async function bootstrapTtsEngine() {
+  ttsCustomVoiceError.value = "";
+  try {
+    await ttsStore.ensureEngine();
+    ttsCustomVoiceSuccess.value = "Supertonic model ready.";
+  } catch (error) {
+    ttsCustomVoiceError.value =
+      error instanceof Error ? error.message : String(error);
+  }
+}
+
+function saveTtsSettings() {
+  // Settings patchers already persist; this is a convenience affordance.
+  ttsStore.patchSettings({});
+  ttsCustomVoiceSuccess.value = "Browser TTS settings saved.";
+}
+
+async function onTtsCustomVoiceFile(event: Event) {
+  const input = event.target as HTMLInputElement | null;
+  const file = input?.files?.[0];
+  ttsCustomVoiceError.value = "";
+  ttsCustomVoiceSuccess.value = "";
+  if (!file) return;
+  try {
+    const textContent = await file.text();
+    const parsed = JSON.parse(textContent);
+    const name = ttsCustomVoiceName.value.trim() || file.name.replace(/\.json$/i, "");
+    ttsStore.importCustomVoice(name, parsed);
+    ttsCustomVoiceName.value = "";
+    ttsCustomVoiceSuccess.value = `Imported voice "${name}".`;
+  } catch (error) {
+    ttsCustomVoiceError.value =
+      error instanceof Error ? error.message : String(error);
+  } finally {
+    if (input) input.value = "";
+  }
+}
+
+function removeTtsCustomVoice(id: string) {
+  ttsStore.removeCustomVoice(id);
+}
 
 type Settings = {
   apiUrl: string;
@@ -2290,6 +2538,7 @@ type SectionKey =
   | "databases"
   | "runtime"
   | "integrations"
+  | "browserTts"
   | "mcp";
 const sections: { key: SectionKey; label: string }[] = [
   { key: "general", label: "General" },
@@ -2306,6 +2555,7 @@ const sections: { key: SectionKey; label: string }[] = [
   { key: "databases", label: "Databases" },
   { key: "runtime", label: "Runtime & Tools" },
   { key: "integrations", label: "Integrations" },
+  { key: "browserTts", label: "Browser TTS" },
   { key: "mcp", label: "MCP Servers" },
 ];
 const activeSection = ref<SectionKey>("general");
@@ -2327,6 +2577,7 @@ const sectionDescriptions: Record<SectionKey, string> = {
   databases: "Primary, search, vector, and graph database connection settings.",
   runtime: "Harness, tokenization, evaluation, and agent-runtime controls.",
   integrations: "Authentication, messaging, speech, and MCP configuration.",
+  browserTts: "Client-side Supertonic WebGPU voice for chat replies.",
   mcp: "Manage Model Context Protocol servers and connections.",
 };
 

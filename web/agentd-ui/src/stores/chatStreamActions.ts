@@ -19,6 +19,7 @@ import { handleStreamEvent } from "@/stores/chatStreamEvents";
 import type { ChatStoreState } from "@/stores/chatStoreState";
 import { stripLeadingChatMention } from "@/utils/chatMentions";
 import { createId } from "@/utils/uuid";
+import { emitAssistantStop } from "@/lib/tts/supertonic/speechBus";
 
 type QueryInvalidator = {
   invalidateQueries(options: { queryKey: string[] }): unknown;
@@ -325,6 +326,7 @@ export function createChatStreamActions(
     }
 
     streamState.abortController.abort("interrupt");
+    emitAssistantStop(sessionId);
     return true;
   }
 

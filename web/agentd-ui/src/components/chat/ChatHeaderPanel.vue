@@ -97,6 +97,38 @@
             </span>
             <span>Memory</span>
           </label>
+          <label
+            class="inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium leading-none text-subtle-foreground"
+            :title="model.ttsStatusTitle"
+          >
+            <input
+              type="checkbox"
+              class="sr-only"
+              :checked="model.ttsEnabled"
+              :disabled="
+                !model.activeSession?.id ||
+                model.ttsBusy
+              "
+              aria-label="Text to speech"
+              @change="model.setSessionTtsSetting($event)"
+            />
+            <span
+              class="relative h-4 w-7 rounded-full border transition-colors"
+              :class="
+                model.ttsEnabled
+                  ? 'border-accent bg-accent'
+                  : 'border-border bg-surface'
+              "
+            >
+              <span
+                class="absolute top-0.5 h-2.5 w-2.5 rounded-full bg-background shadow-1 transition-transform"
+                :class="
+                  model.ttsEnabled ? 'translate-x-3.5' : 'translate-x-0.5'
+                "
+              ></span>
+            </span>
+            <span>TTS</span>
+          </label>
         </div>
       </div>
     </div>

@@ -26,6 +26,7 @@ import { useChatSessionPanel } from "./useChatSessionPanel";
 import { useChatComposer } from "./useChatComposer";
 import { useChatTranscript } from "./useChatTranscript";
 import { useContextInspector } from "./useContextInspector";
+import { useTtsStore } from "@/stores/tts";
 
 export function useChatViewController() {
   const isBrowser = typeof window !== "undefined";
@@ -247,6 +248,22 @@ export function useChatViewController() {
         activeSession.value?.beliefMemoryEnabled,
       ),
   );
+  const ttsStore = useTtsStore();
+  const ttsEnabled = computed(() =>
+    ttsStore.isEnabledForSession(activeSessionId.value),
+  );
+  const ttsBusy = computed(
+    () =>
+      ttsStore.engineStatus === "downloading" ||
+      ttsStore.engineStatus === "loading",
+  );
+  const ttsStatusTitle = computed(() => {
+    const base =
+      "Speak assistant replies in this conversation with browser Supertonic (WebGPU/ONNX)";
+    if (ttsStore.engineStatus === "idle") return base;
+    return `${base}. ${ttsStore.statusLabel}`;
+  });
+
   const hasPendingInputRequest = computed(() =>
     activeMessages.value.some((message) =>
       (message.inputRequests || []).some((request) =>
@@ -539,6 +556,17 @@ export function useChatViewController() {
     }
   }
 
+  async function setSessionTtsSetting(event: Event) {
+    const sessionId = activeSessionId.value;
+    const checked = Boolean((event.target as HTMLInputElement | null)?.checked);
+    if (!sessionId) return;
+    try {
+      await ttsStore.setSessionEnabled(sessionId, checked);
+    } catch (error) {
+      console.warn("Failed to enable chat TTS:", error);
+    }
+  }
+
   async function disableSessionCommandPolicyAllowAll() {
     const sessionId = activeSessionId.value;
     if (!sessionId || commandPolicyDisablePending.value) return;
@@ -712,6 +740,10 @@ export function useChatViewController() {
     activeMemorySettingsSaving: activeMemorySettingsSaving.value,
     isStreaming: isStreaming.value,
     setSessionMemorySetting,
+    ttsEnabled: ttsEnabled.value,
+    ttsBusy: ttsBusy.value,
+    ttsStatusTitle: ttsStatusTitle.value,
+    setSessionTtsSetting,
   }));
 
   const timelinePanel = computed(() => ({

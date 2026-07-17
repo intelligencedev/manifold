@@ -18,6 +18,11 @@ import {
 } from "@/stores/chatInputRequests";
 import type { ChatStoreState } from "@/stores/chatStoreState";
 import { createId } from "@/utils/uuid";
+import {
+  emitAssistantDelta,
+  emitAssistantFinal,
+  emitAssistantStop,
+} from "@/lib/tts/supertonic/speechBus";
 
 type QueryInvalidator = {
   invalidateQueries(options: { queryKey: string[] }): unknown;
@@ -104,6 +109,7 @@ export function handleStreamEvent(
             m.content + event.data,
           ),
         }));
+        emitAssistantDelta(sessionId, assistantId, event.data);
       }
       break;
     }
@@ -121,6 +127,7 @@ export function handleStreamEvent(
         streaming: false,
       }));
       if (text) state.touchSession(sessionId, snippet(text));
+      emitAssistantFinal(sessionId, assistantId, text);
       try {
         queryClient.invalidateQueries({ queryKey: ["agent-runs"] });
       } catch {}
@@ -192,6 +199,7 @@ export function handleStreamEvent(
         streaming: false,
         error: message,
       }));
+      emitAssistantStop(sessionId);
       break;
     }
     case "agent_start":

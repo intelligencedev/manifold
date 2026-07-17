@@ -201,12 +201,14 @@ const formattedLabel = computed(() =>
 );
 const isBoolean = computed(() => typeof model.value === "boolean");
 const isArray = computed(() => Array.isArray(model.value));
-const isLLMClient = computed(
-  () =>
-    isObject(model.value) &&
-    typeof model.value.provider === "string" &&
-    ["openai", "anthropic", "google"].some((key) => key in model.value),
-);
+const isLLMClient = computed(() => {
+  const value = model.value;
+  return (
+    isObject(value) &&
+    typeof value.provider === "string" &&
+    ["openai", "anthropic", "google"].some((key) => key in value)
+  );
+});
 const isScalar = computed(
   () => model.value === null || typeof model.value !== "object",
 );

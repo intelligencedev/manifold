@@ -108,14 +108,18 @@ NFKD normalization is omitted in `preprocessText` (identity for ASCII/Latin;
 add `golang.org/x/text/unicode/norm` for full multilingual parity — the only
 known gap).
 
-## ✅ VENDORED + WIRED INTO MANIFOLD (verified live, in-process)
+## ✅ PUBLISHED AS A FORK + WIRED INTO MANIFOLD (verified live, in-process)
 
-- The lean fork subset (~3.8 MB: go.mod/go.sum/LICENSE + supertonic/, onnx/,
-  backend/, internal/, tensor/, nn/, cmd/tts) is vendored at `born/` in this
-  directory; manifold's go.mod has `replace github.com/born-ml/born =>
-  ./services/born-supertonic-fork/born`. The full fork diff vs upstream v0.9.17
-  remains `born-changes.patch`. Excluded from the vendor copy: examples (53 MB),
-  assets (18 MB), docs, loader/tokenizer/etc. (unused by the supertonic path).
+- The changes live in our public fork **github.com/intelligencedev/born**,
+  branch **feat/supertonic-tts** (module renamed born-ml -> intelligencedev so
+  it is consumable as a Go dependency). `born-changes.patch` here is a snapshot
+  of the diff vs upstream born-ml v0.9.17 for reference; the fork branch is now
+  the source of truth. (The earlier local vendored subset under `born/` was
+  removed once the fork dependency was in place.)
+- Manifold depends on it directly: `go.mod` requires
+  `github.com/intelligencedev/born v0.0.0-20260718015058-3bcdeca4753c` (no
+  `replace`). `handlers_tts_born.go` imports `.../intelligencedev/born/supertonic`.
+  Update with `go get github.com/intelligencedev/born@<commit>`.
 - Fork gained a public streaming API: `TTS.SynthesizeStream(text, voice, opts,
   emit)` — emits each sentence group as soon as it renders (silence-prefixed
   after the first, so concatenation == `Synthesize`, which now delegates to it;

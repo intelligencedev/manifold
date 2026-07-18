@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/born-ml/born/supertonic"
+	"github.com/intelligencedev/born/supertonic"
 	"github.com/rs/zerolog/log"
 )
 

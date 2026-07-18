@@ -10,19 +10,19 @@ import {
   type SupertonicTtsSettings,
 } from "@/lib/tts/supertonic/settings";
 import {
-  supertonicEngine,
+  PRESET_VOICE_IDS,
   type EngineStatus,
   type SupertonicLoadProgress,
-} from "@/lib/tts/supertonic/engine";
+} from "@/lib/tts/supertonic/constants";
+import { serverEngine as supertonicEngine } from "@/lib/tts/supertonic/serverEngine";
 import { SupertonicStreamer } from "@/lib/tts/supertonic/streamer";
-import { PRESET_VOICE_IDS } from "@/lib/tts/supertonic/assets";
 
 export const useTtsStore = defineStore("supertonic-tts", () => {
   const settings = ref<SupertonicTtsSettings>(loadSupertonicTtsSettings());
   const engineStatus = ref<EngineStatus>(supertonicEngine.getStatus());
   const engineError = ref("");
   const progress = ref<SupertonicLoadProgress | null>(null);
-  const backend = ref<"webgpu" | "wasm" | null>(null);
+  const backend = ref<"webgpu" | "wasm" | "server" | null>(null);
 
   const streamer = new SupertonicStreamer({
     getSettings: () => settings.value,

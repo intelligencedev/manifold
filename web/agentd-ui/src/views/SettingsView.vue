@@ -1967,7 +1967,7 @@ import {
   startMCPOAuth,
 } from "@/api/mcp";
 import type { MCPServer, CreateMCPServerRequest } from "@/types/mcp";
-import { availableLanguages } from "@/lib/tts/supertonic/engine";
+import { availableLanguages } from "@/lib/tts/supertonic/constants";
 import { useTtsStore } from "@/stores/tts";
 import DropdownSelect from "@/components/DropdownSelect.vue";
 import ConfigGroupsForm, {

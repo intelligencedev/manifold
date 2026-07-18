@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { supertonicEngine } from "./engine";
+import { serverEngine as supertonicEngine } from "./serverEngine";
 import type { SupertonicTtsSettings } from "./settings";
 
 type StreamerOptions = {

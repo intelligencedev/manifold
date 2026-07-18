@@ -1,5 +1,5 @@
-import type { PresetVoiceId } from "./assets";
-import { PRESET_VOICE_IDS } from "./assets";
+import type { PresetVoiceId } from "./constants";
+import { PRESET_VOICE_IDS } from "./constants";
 
 export const TTS_SETTINGS_STORAGE_KEY = "manifold.ui.supertonic-tts";
 

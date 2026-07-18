@@ -1,27 +1,15 @@
 import { describe, expect, it } from "vitest";
-import {
-  allRequiredAssetPaths,
-  huggingfaceUrl,
-  PRESET_VOICE_IDS,
-} from "@/lib/tts/supertonic/assets";
+import { PRESET_VOICE_IDS } from "@/lib/tts/supertonic/constants";
 import {
   isValidVoiceStylePayload,
   normalizeSettings,
 } from "@/lib/tts/supertonic/settings";
 
-describe("supertonic assets metadata", () => {
-  it("lists onnx + presets", () => {
-    const paths = allRequiredAssetPaths();
-    expect(paths.some((p) => p.endsWith("vocoder.onnx"))).toBe(true);
-    for (const id of PRESET_VOICE_IDS) {
-      expect(paths).toContain(`voice_styles/${id}.json`);
-    }
-  });
-
-  it("builds huggingface urls", () => {
-    expect(huggingfaceUrl("onnx/tts.json")).toContain(
-      "huggingface.co/Supertone/supertonic-3/resolve/main/onnx/tts.json",
-    );
+describe("supertonic presets", () => {
+  it("exposes the ten preset voice ids", () => {
+    expect(PRESET_VOICE_IDS).toEqual([
+      "M1", "M2", "M3", "M4", "M5", "F1", "F2", "F3", "F4", "F5",
+    ]);
   });
 });
 

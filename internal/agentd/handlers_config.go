@@ -3,6 +3,7 @@ package agentd
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -36,10 +37,10 @@ type agentdSettings struct {
 	// Unified memory master switch. Embeddings only apply when true.
 	MemoryEnabled bool `json:"memoryEnabled"`
 
-	LexMinifyEnabled               bool `json:"lexMinifyEnabled"`
-	LexMinifyLevel                 int  `json:"lexMinifyLevel"`
-	LexMinifyZones                 int  `json:"lexMinifyZones"`
-	LexMinifyCurrentRequestMaxLevel int `json:"lexMinifyCurrentRequestMaxLevel"`
+	LexMinifyEnabled                bool `json:"lexMinifyEnabled"`
+	LexMinifyLevel                  int  `json:"lexMinifyLevel"`
+	LexMinifyZones                  int  `json:"lexMinifyZones"`
+	LexMinifyCurrentRequestMaxLevel int  `json:"lexMinifyCurrentRequestMaxLevel"`
 
 	OpenAISummaryModel                  string `json:"openaiSummaryModel"`
 	OpenAISummaryURL                    string `json:"openaiSummaryUrl"`
@@ -167,12 +168,31 @@ func (a *app) handleUpdateAgentdConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	var payload agentdSettings
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if strings.TrimSpace(payload.ConfigSource) != "" {
+	focusedSettings := hasFocusedSettingsIntent(body)
+	var rawPayload map[string]json.RawMessage
+	if err := json.Unmarshal(body, &rawPayload); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	// serverConfig is read-only inspection data echoed by the frontend. It may
+	// contain redacted values that cannot be decoded into config.Config.
+	delete(rawPayload, "serverConfig")
+	sanitizedBody, err := json.Marshal(rawPayload)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	var payload agentdSettings
+	if err := json.Unmarshal(sanitizedBody, &payload); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if !focusedSettings && strings.TrimSpace(payload.ConfigSource) != "" {
 		if err := persistConfigSource(payload.ConfigSource); err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
@@ -181,7 +201,7 @@ func (a *app) handleUpdateAgentdConfig(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, a.currentAgentdSettings())
 		return
 	}
-	if len(payload.ConfigPatch) > 0 {
+	if !focusedSettings && len(payload.ConfigPatch) > 0 {
 		if err := persistConfigPatch(payload.ConfigPatch); err != nil {
 			writeError(w, http.StatusBadRequest, err)
 			return
@@ -197,6 +217,7 @@ func (a *app) handleUpdateAgentdConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	a.refreshLexMinifyRuntime()
 
 	// Rebuild primary LLM when provider credentials changed.
 	if a.httpClient != nil {
@@ -210,7 +231,7 @@ func (a *app) handleUpdateAgentdConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Persist to config.yaml to survive restarts.
-	if err := persistToConfigYAML(payload); err != nil {
+	if err := persistToConfigYAML(a.cfg, payload); err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("persist config.yaml: %w", err))
 		return
 	}
@@ -227,6 +248,21 @@ func (a *app) handleUpdateAgentdConfig(w http.ResponseWriter, r *http.Request) {
 	// Indicate that a restart is required for some changes to fully apply.
 	w.Header().Set("X-Needs-Restart", "true")
 	writeJSON(w, http.StatusOK, a.currentAgentdSettings())
+}
+
+func hasFocusedSettingsIntent(body []byte) bool {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return false
+	}
+	for field := range fields {
+		switch field {
+		case "serverConfig", "configSource", "configPatch":
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 func (a *app) currentAgentdSettings() agentdSettings {

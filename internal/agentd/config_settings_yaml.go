@@ -8,9 +8,9 @@ import (
 	"manifold/internal/config"
 )
 
-func persistToConfigYAML(settings agentdSettings) error {
+func persistToConfigYAML(cfg *config.Config, settings agentdSettings) error {
 	settings = normalizeAgentdSettings(settings)
-	path := findConfigYAMLPath()
+	path := resolveConfigYAMLPath(cfg)
 	if err := ensureConfigParentDir(path); err != nil {
 		return err
 	}
@@ -27,6 +27,13 @@ func persistToConfigYAML(settings agentdSettings) error {
 		return err
 	}
 	return os.WriteFile(path, b, 0o644)
+}
+
+func resolveConfigYAMLPath(cfg *config.Config) string {
+	if cfg != nil && cfg.ConfigPath != "" {
+		return cfg.ConfigPath
+	}
+	return findConfigYAMLPath()
 }
 
 func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
@@ -287,4 +294,3 @@ func applyLexMinifySettingsYAML(root map[string]any, settings agentdSettings) {
 	setNestedMapValue(root, []string{"lexMinify", "zones"}, settings.LexMinifyZones)
 	setNestedMapValue(root, []string{"lexMinify", "currentRequestMaxLevel"}, settings.LexMinifyCurrentRequestMaxLevel)
 }
-

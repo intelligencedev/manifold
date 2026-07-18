@@ -591,4 +591,3 @@ func applyLexMinifySettings(cfg *config.Config, settings agentdSettings) {
 		cfg.LexMinify.CurrentRequestMaxLevel = config.MaxLexMinifyLevel
 	}
 }
-

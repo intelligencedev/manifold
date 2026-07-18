@@ -284,4 +284,3 @@ func TestApplyAgentdSettings_LexMinifyEnableRecommended(t *testing.T) {
 		t.Fatalf("projection mismatch: %+v", got)
 	}
 }
-

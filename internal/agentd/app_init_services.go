@@ -177,6 +177,7 @@ func newAppShell(deps appShellDeps) *app {
 		mcpManager:         deps.routing.mcpManager,
 		mcpPool:            deps.routing.mcpPool,
 		workspaceManager:   deps.routing.workspaceManager,
+		agentCallTool:      deps.routing.agentCallTool,
 		transitService:     deps.tooling.transitService,
 		ragService:         deps.tooling.ragService,
 		fleetBus:           fleet.NewBus(512),

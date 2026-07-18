@@ -26,6 +26,7 @@ import (
 	ragservice "manifold/internal/rag/service"
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
+	agenttools "manifold/internal/tools/agents"
 	clitool "manifold/internal/tools/cli"
 	tooldiscovery "manifold/internal/tools/discovery"
 	terminaltool "manifold/internal/tools/terminal"
@@ -77,6 +78,7 @@ type app struct {
 	beliefLLM               llmpkg.Provider
 	beliefModel             string
 	engine                  *agent.Engine
+	agentCallTool           *agenttools.AgentCallTool
 	chatStore               persist.ChatStore
 	matrixMessageStore      persist.MatrixMessageStore
 	activityStore           persist.SpecialistActivityStore

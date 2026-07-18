@@ -47,6 +47,7 @@ type app struct {
 	cfg                     *config.Config
 	httpClient              *http.Client
 	bornTTS                 bornTTSHolder
+	moonshineSTT            moonshineHolder
 	mgr                     *databases.Manager
 	llm                     llmpkg.Provider
 	baseToolRegistry        tools.Registry

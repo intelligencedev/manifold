@@ -434,6 +434,13 @@ type TTSConfig struct {
 
 // STTConfig holds speech-to-text specific configuration.
 type STTConfig struct {
+	// Engine selects the STT backend for /stt: "openai" (default, proxy to an
+	// OpenAI-compatible /v1/audio/transcriptions) or "moonshine" (in-process
+	// pure-Go Moonshine inference; requires ModelDir).
+	Engine string `yaml:"engine" json:"engine"`
+	// ModelDir is the local Moonshine model directory (onnx/ + tokenizer.json)
+	// used by the "moonshine" engine.
+	ModelDir string `yaml:"modelDir" json:"modelDir"`
 	// BaseURL is the HTTP base for STT requests. Requests will be POSTed to
 	// ${BaseURL}/v1/audio/transcriptions if set.
 	BaseURL string `yaml:"baseURL" json:"baseURL"`

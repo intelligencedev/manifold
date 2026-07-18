@@ -582,8 +582,12 @@ tts:
 
 # Speech to text
 stt:
+  # engine: "openai" (default proxy) or "moonshine" (in-process pure-Go
+  # Moonshine STT; requires modelDir with onnx/ + tokenizer.json).
+  engine: openai
   baseURL: https://api.openai.com
   model: gpt-4o-mini-transcribe
+  # modelDir: /path/to/moonshine-models   # moonshine engine only
 
 # Experimental - Recommend to leave disabled until fully documented.
 # Deterministic and LLM-assisted code quality evaluation. The service can run

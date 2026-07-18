@@ -513,6 +513,11 @@ func (a *app) sttHandler() http.HandlerFunc {
 		if !ok {
 			return
 		}
+		// In-process pure-Go engine: no proxy.
+		if strings.EqualFold(strings.TrimSpace(a.cfg.STT.Engine), "moonshine") {
+			a.sttMoonshineResponse(w, r, data)
+			return
+		}
 		reqURL, model, apiKey := a.sttEndpoint(r, userID)
 		log.Debug().Str("endpoint", reqURL).Str("model", model).Int64("user_id", userID).Msg("stt_request")
 		body, contentType, ok := buildSTTRequestBody(w, data, model)

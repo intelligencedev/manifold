@@ -10,6 +10,17 @@
 
 **Spec:** `docs/superpowers/specs/2026-07-18-krea2-image-gen-spike-design.md`
 
+## Phase-0 Amendments (2026-07-18, discovered facts — supersede task wording below)
+
+Pinned in `<born>/qwenimage/reference/ORACLE.md` from sd.cpp source (`docs/krea2.md`, `src/model/diffusion/krea2.hpp`, `src/conditioning/conditioner.hpp`):
+
+- **Text encoder is Qwen3-VL 4B Instruct** (36 layers, hidden 2560), not Qwen2.5-VL 7B. Tasks 5–6 read "Qwen3-VL 4B" wherever they say "Qwen2.5-VL"; tokenizer files come from `Qwen/Qwen3-VL-4B-Instruct`. Conditioning = hidden states from layers {2,5,8,11,14,17,20,23,26,29,32,35}, first 34 tokens dropped, fixed system-prompt template (see ORACLE.md).
+- **The DiT is Krea2's own single-stream architecture** (28 blocks, features 6144, GQA 48/12, shared modulation + per-block learned offset, sigmoid-gated attention, txtfusion transformer over the 12-layer text stack) — not qwen_image dual-stream. sd.cpp `krea2.hpp` (783 lines) is the complete blueprint; Task 7's OPS.md derives from it. diffusers cross-reference only if a Krea2 pipeline exists there; otherwise the harness transliterates krea2.hpp into PyTorch directly (which then doubles as the fixture generator).
+- **Scheduler: FLUX_FLOW_PRED, constant flow shift 1.15** (not resolution-dynamic) — simplifies Task 10's `Sigmas` to the static shift formula.
+- **VAE is literally Wan 2.1 VAE** (`wan_2.1_vae.safetensors`, 254 MB).
+- DiT GGUF source: `realrebelai/KREA-2_GGUFs` TURBO/Q4_K_M (7.22 GB), per sd.cpp docs (instead of Abiray repo).
+- sd.cpp binary is `sd-cli`; flags: `--diffusion-model <dit.gguf> --llm <qwen3vl.gguf> --vae <wan_vae.safetensors>`.
+
 ## Global Constraints
 
 - Work happens in a born fork clone at `/Users/arturoaquino/Documents/manifold-tmp/users/0/projects/3eb68163-63b9-4957-bb56-415b63ceb5c2/born` (sibling of `manifold/`), branch **`feat/krea2-image`** off **`feat/supertonic-tts`**, remote `github.com/intelligencedev/born`. Push after every completed task (the remote is the preservation mechanism — the TTS spike lost its clone once).

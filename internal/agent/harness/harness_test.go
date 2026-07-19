@@ -76,6 +76,57 @@ func (p *scriptedProvider) ChatStream(_ context.Context, msgs []llm.Message, _ [
 	return nil
 }
 
+type recordingStreamObserver struct {
+	deltas    []string
+	summaries []string
+	resets    []int
+}
+
+func (o *recordingStreamObserver) OnDelta(delta string) { o.deltas = append(o.deltas, delta) }
+func (o *recordingStreamObserver) OnThoughtSummary(s string) {
+	o.summaries = append(o.summaries, s)
+}
+func (o *recordingStreamObserver) Reset(chars int) { o.resets = append(o.resets, chars) }
+
+func TestRunStreamInferenceForwardsDeltasLiveWithoutRetry(t *testing.T) {
+	provider := &scriptedProvider{streamResponses: []streamResponse{
+		{Deltas: []string{"Hello. ", "How are you?"}, ThoughtSummaries: []string{"greeting"}},
+	}}
+	cfg := RunConfig{Mode: ModeGuardedChat, MaxRetriesPerStep: 1}
+	obs := &recordingStreamObserver{}
+	req := inferenceRequest(provider, WrapMessages([]llm.Message{{Role: "user", Content: "hi"}}), []llm.ToolSchema{{Name: "known_tool"}}, cfg)
+	req.Live = obs
+
+	result, err := RunStreamInference(context.Background(), req)
+
+	require.NoError(t, err)
+	require.True(t, result.Streamed)
+	require.Equal(t, []string{"Hello. ", "How are you?"}, obs.deltas)
+	require.Equal(t, []string{"greeting"}, obs.summaries)
+	require.Empty(t, obs.resets)
+}
+
+func TestRunStreamInferenceForwardsRejectedDeltasThenRollsBackBeforeRetry(t *testing.T) {
+	provider := &scriptedProvider{streamResponses: []streamResponse{
+		{Deltas: []string{"bad ", "text"}, ToolCalls: []llm.ToolCall{{Name: "missing_tool", Args: json.RawMessage(`{}`)}}},
+		{Deltas: []string{"accepted ", "text"}},
+	}}
+	cfg := RunConfig{Mode: ModeGuardedChat, MaxRetriesPerStep: 1}
+	obs := &recordingStreamObserver{}
+	req := inferenceRequest(provider, WrapMessages([]llm.Message{{Role: "user", Content: "go"}}), []llm.ToolSchema{{Name: "known_tool"}}, cfg)
+	req.Live = obs
+
+	result, err := RunStreamInference(context.Background(), req)
+
+	require.NoError(t, err)
+	require.True(t, result.Streamed)
+	// The rejected attempt streams live, then is rolled back, then the accepted
+	// attempt streams live.
+	require.Equal(t, []string{"bad ", "text", "accepted ", "text"}, obs.deltas)
+	require.Equal(t, []int{len("bad text")}, obs.resets)
+	require.Equal(t, "accepted text", result.Message.Content)
+}
+
 func TestSerializeMessagesStripsHarnessMetadata(t *testing.T) {
 	messages := []HarnessMessage{
 		{

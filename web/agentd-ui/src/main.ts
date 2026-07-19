@@ -12,6 +12,7 @@ import { useTtsStore } from "@/stores/tts";
 import {
   onAssistantDelta,
   onAssistantFinal,
+  onAssistantRollback,
   onAssistantStop,
 } from "@/lib/tts/supertonic/speechBus";
 
@@ -42,6 +43,9 @@ onAssistantDelta((sessionId, assistantId, delta) => {
 });
 onAssistantFinal((sessionId, assistantId, fullText) => {
   tts.finalizeAssistantSpeech(sessionId, assistantId, fullText);
+});
+onAssistantRollback((sessionId, assistantId, chars) => {
+  tts.rollbackAssistantSpeech(sessionId, assistantId, chars);
 });
 onAssistantStop((sessionId) => {
   tts.stopSession(sessionId);

@@ -210,6 +210,9 @@ func configureCommonStreamCallbacks(eng *agent.Engine, stream chatEventWriter, e
 	eng.OnDelta = func(d string) {
 		stream.write(map[string]string{"type": "delta", "data": d})
 	}
+	eng.OnStreamRollback = func(chars int) {
+		stream.write(map[string]any{"type": "delta_rollback", "count": chars})
+	}
 	eng.OnMemoryContext = func(block agentmemory.ContextBlock, diag agentmemory.Diagnostics) {
 		text := strings.TrimSpace(block.Text)
 		if text == "" {

@@ -3,7 +3,11 @@
 // onnxruntime-web (WebGPU/WASM), stream audio from Manifold's host-side /tts
 // endpoint (tts.engine = born | supertonic). Mirrors the public surface of
 // ./engine's supertonicEngine so the store and streamer use it unchanged.
-import type { EngineStatus, SynthesizeOptions, SynthesizeResult } from "./constants";
+import type {
+  EngineStatus,
+  SynthesizeOptions,
+  SynthesizeResult,
+} from "./constants";
 
 const TTS_ENDPOINT = "/tts";
 
@@ -12,8 +16,21 @@ function decodePcm16Base64(b64: string): Int16Array {
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   // Copy into an aligned buffer so Int16Array is always valid.
-  return new Int16Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+  return new Int16Array(
+    bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+  );
 }
+
+function pcm16ToFloat32(pcm: Int16Array): Float32Array {
+  const samples = new Float32Array(pcm.length);
+  for (let i = 0; i < pcm.length; i++) samples[i] = pcm[i] / 32768;
+  return samples;
+}
+
+type StreamChunkHandler = (
+  samples: Float32Array,
+  sampleRate: number,
+) => void | Promise<void>;
 
 class ServerTtsEngine {
   private status: EngineStatus = "ready";
@@ -55,8 +72,33 @@ class ServerTtsEngine {
   }
 
   async synthesize(options: SynthesizeOptions): Promise<SynthesizeResult> {
+    const chunks: Float32Array[] = [];
+    let total = 0;
+    const result = await this.synthesizeStream(options, (samples) => {
+      chunks.push(samples);
+      total += samples.length;
+    });
+
+    const samples = new Float32Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      samples.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return { ...result, samples };
+  }
+
+  async synthesizeStream(
+    options: SynthesizeOptions,
+    onChunk: StreamChunkHandler,
+  ): Promise<SynthesizeResult> {
     const text = (options.text || "").trim();
-    if (!text) return { samples: new Float32Array(0), sampleRate: 44100, durationSec: 0 };
+    if (!text)
+      return {
+        samples: new Float32Array(0),
+        sampleRate: 44100,
+        durationSec: 0,
+      };
 
     const body: Record<string, unknown> = { text };
     if (options.voiceId) body.voice = options.voiceId;
@@ -72,22 +114,31 @@ class ServerTtsEngine {
         credentials: "same-origin",
       });
     } catch (error) {
-      if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      if (options.signal?.aborted)
+        throw new DOMException("Aborted", "AbortError");
       console.warn("Server TTS request failed:", error);
-      return { samples: new Float32Array(0), sampleRate: 44100, durationSec: 0 };
+      return {
+        samples: new Float32Array(0),
+        sampleRate: 44100,
+        durationSec: 0,
+      };
     }
 
     if (!response.ok || !response.body) {
       console.warn(`Server TTS returned ${response.status}`);
-      return { samples: new Float32Array(0), sampleRate: 44100, durationSec: 0 };
+      return {
+        samples: new Float32Array(0),
+        sampleRate: 44100,
+        durationSec: 0,
+      };
     }
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffered = "";
-    const chunks: Int16Array[] = [];
     let sampleRate = 44100;
     let total = 0;
+    let serverFailed = false;
 
     try {
       for (;;) {
@@ -109,27 +160,33 @@ class ServerTtsEngine {
             continue;
           }
           if (evt.type === "tts_chunk" && typeof evt.b64 === "string") {
-            if (typeof evt.rate === "number" && evt.rate > 0) sampleRate = evt.rate;
+            if (typeof evt.rate === "number" && evt.rate > 0)
+              sampleRate = evt.rate;
             const pcm = decodePcm16Base64(evt.b64 as string);
-            chunks.push(pcm);
             total += pcm.length;
+            await onChunk(pcm16ToFloat32(pcm), sampleRate);
           } else if (evt.type === "error") {
             console.warn("Server TTS error:", evt.error);
+            serverFailed = true;
+            break;
           }
+        }
+        if (serverFailed) {
+          await reader.cancel();
+          break;
         }
       }
     } catch (error) {
-      if (options.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      if (options.signal?.aborted)
+        throw new DOMException("Aborted", "AbortError");
       console.warn("Server TTS stream error:", error);
     }
 
-    const samples = new Float32Array(total);
-    let offset = 0;
-    for (const pcm of chunks) {
-      for (let i = 0; i < pcm.length; i++) samples[offset + i] = pcm[i] / 32768;
-      offset += pcm.length;
-    }
-    return { samples, sampleRate, durationSec: total / sampleRate };
+    return {
+      samples: new Float32Array(0),
+      sampleRate,
+      durationSec: total / sampleRate,
+    };
   }
 }
 

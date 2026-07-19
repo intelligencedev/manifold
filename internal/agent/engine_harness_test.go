@@ -544,7 +544,42 @@ func TestRunStreamHarnessDefaultsToGuardedChatStreamsAcceptedFinal(t *testing.T)
 	require.Len(t, provider.streamCalls, 1)
 }
 
-func TestRunStreamHarnessWorkflowBuffersInvalidTextAndNudges(t *testing.T) {
+func TestRunStreamHarnessStreamsRejectedDeltasThenRollsBack(t *testing.T) {
+	provider := &harnessScriptedProvider{streamResponses: []harnessStreamResponse{
+		{Deltas: []string{"too ", "soon"}},
+		{ToolCalls: []llm.ToolCall{{Name: "agent_response", Args: json.RawMessage(`{"text":"done"}`)}}},
+	}}
+	registry := tools.NewRegistry()
+	registry.Register(utility.NewAgentResponseTool())
+
+	var deltas []string
+	var rollbacks []int
+	eng := &Engine{
+		LLM:            provider,
+		Tools:          registry,
+		MaxSteps:       2,
+		HarnessEnabled: true,
+		HarnessConfig: harness.RunConfig{
+			Mode:              harness.ModeWorkflow,
+			MaxRetriesPerStep: 1,
+			Workflow: harness.WorkflowConfig{
+				TerminalTools: []string{"agent_response"},
+			},
+		},
+		OnDelta:          func(delta string) { deltas = append(deltas, delta) },
+		OnStreamRollback: func(chars int) { rollbacks = append(rollbacks, chars) },
+	}
+
+	final, err := eng.RunStream(context.Background(), "go", nil)
+
+	require.NoError(t, err)
+	require.Equal(t, "done", final)
+	// The rejected bare-text attempt streams live, then is rolled back.
+	require.Equal(t, []string{"too ", "soon"}, deltas)
+	require.Equal(t, []int{len("too soon")}, rollbacks)
+}
+
+func TestRunStreamHarnessWorkflowRollsBackInvalidTextAndNudges(t *testing.T) {
 	provider := &harnessScriptedProvider{streamResponses: []harnessStreamResponse{
 		{Deltas: []string{"too soon"}},
 		{ToolCalls: []llm.ToolCall{{Name: "search", Args: json.RawMessage(`{"query":"forge"}`)}}},
@@ -556,6 +591,7 @@ func TestRunStreamHarnessWorkflowBuffersInvalidTextAndNudges(t *testing.T) {
 	registry.Register(utility.NewAgentResponseTool())
 
 	var deltas []string
+	var rollbacks []int
 	var turnMessages []llm.Message
 	eng := &Engine{
 		LLM:            provider,
@@ -572,6 +608,9 @@ func TestRunStreamHarnessWorkflowBuffersInvalidTextAndNudges(t *testing.T) {
 		OnDelta: func(delta string) {
 			deltas = append(deltas, delta)
 		},
+		OnStreamRollback: func(chars int) {
+			rollbacks = append(rollbacks, chars)
+		},
 		OnTurnMessage: func(message llm.Message) {
 			turnMessages = append(turnMessages, message)
 		},
@@ -581,7 +620,10 @@ func TestRunStreamHarnessWorkflowBuffersInvalidTextAndNudges(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "done", final)
-	require.Empty(t, deltas, "invalid streamed text should be buffered and dropped")
+	// The invalid bare-text attempt streams live, then is rolled back so
+	// downstream consumers discard it before the workflow continues.
+	require.Equal(t, []string{"too soon"}, deltas)
+	require.Equal(t, []int{len("too soon")}, rollbacks)
 	require.Equal(t, 1, search.called)
 	require.Len(t, provider.streamCalls, 3)
 	require.Contains(t, provider.streamCalls[1][len(provider.streamCalls[1])-1].Content, "Do not answer with bare text")

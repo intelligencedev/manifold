@@ -36,6 +36,57 @@ afterEach(() => {
 });
 
 describe("serverEngine.synthesize", () => {
+  it("delivers the first PCM chunk before the SSE response finishes", async () => {
+    const firstFrame = sseFrame({
+      type: "tts_chunk",
+      b64: pcm16Base64([0, 16384]),
+      rate: 44100,
+      bytes: 4,
+    });
+    let closeStream!: () => void;
+    const response = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(firstFrame));
+          closeStream = () => {
+            controller.enqueue(
+              new TextEncoder().encode(sseFrame({ type: "done", rate: 44100 })),
+            );
+            controller.close();
+          };
+        },
+      }),
+      { status: 200 },
+    );
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(response);
+
+    let requestFinished = false;
+    let deliverFirst!: () => void;
+    const firstDelivered = new Promise<void>((resolve) => {
+      deliverFirst = resolve;
+    });
+    const received: number[][] = [];
+    const request = serverEngine
+      .synthesizeStream(
+        { text: "Hello world.", voiceId: "M1", lang: "en" },
+        (samples) => {
+          received.push(Array.from(samples));
+          deliverFirst();
+        },
+      )
+      .finally(() => {
+        requestFinished = true;
+      });
+
+    await firstDelivered;
+    expect(requestFinished).toBe(false);
+    expect(received).toHaveLength(1);
+    expect(received[0].map((v) => Math.round(v * 10) / 10)).toEqual([0, 0.5]);
+
+    closeStream();
+    await request;
+  });
+
   it("decodes streamed tts_chunk PCM16 frames into float32 samples", async () => {
     const b64a = pcm16Base64([0, 16384, -16384]); // -> 0, 0.5, -0.5
     const b64b = pcm16Base64([32767]); //           -> ~1.0
@@ -48,7 +99,11 @@ describe("serverEngine.synthesize", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(streamingResponse(sse));
 
-    const result = await serverEngine.synthesize({ text: "Hello.", voiceId: "M1", lang: "en" });
+    const result = await serverEngine.synthesize({
+      text: "Hello.",
+      voiceId: "M1",
+      lang: "en",
+    });
 
     // Posted to /tts with the expected body.
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -61,13 +116,15 @@ describe("serverEngine.synthesize", () => {
     });
 
     expect(result.sampleRate).toBe(44100);
-    expect(Array.from(result.samples).map((v) => Math.round(v * 100) / 100)).toEqual([
-      0, 0.5, -0.5, 1,
-    ]);
+    expect(
+      Array.from(result.samples).map((v) => Math.round(v * 100) / 100),
+    ).toEqual([0, 0.5, -0.5, 1]);
   });
 
   it("returns empty samples on a non-OK response without throwing", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("nope", { status: 400 }));
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("nope", { status: 400 }),
+    );
     const result = await serverEngine.synthesize({ text: "hi", voiceId: "M1" });
     expect(result.samples.length).toBe(0);
   });

@@ -78,6 +78,25 @@ export class SupertonicStreamer {
     void this.pump(stream);
   }
 
+  /**
+   * Discard the last `chars` characters of buffered text for a message that
+   * the harness rejected. Trims the buffer, clamps the spoken cursor, and drops
+   * any not-yet-synthesized chunks derived from the rejected text. Audio that
+   * already started playing cannot be recalled — but in the chat (guarded_chat)
+   * flow the spoken final answer is never rejected, so this is a rare cleanup.
+   */
+  rollback(sessionId: string, messageId: string, chars: number) {
+    if (chars <= 0) return;
+    const stream = this.streams.get(sessionId);
+    if (!stream || stream.messageId !== messageId) return;
+    const newLength = Math.max(0, stream.buffer.length - chars);
+    stream.buffer = stream.buffer.slice(0, newLength);
+    stream.spokenLength = Math.min(stream.spokenLength, stream.buffer.length);
+    // Queued chunks were extracted from the (now-trimmed) tail; drop the ones
+    // that have not been synthesized yet so the rejected text is not spoken.
+    stream.queue = [];
+  }
+
   stop(sessionId?: string) {
     if (sessionId) {
       const stream = this.streams.get(sessionId);
@@ -113,9 +132,7 @@ export class SupertonicStreamer {
     }
 
     // Prefer completed sentences; fall back to long clause chunks.
-    const sentenceMatch = remaining.match(
-      /^([\s\S]{12,}?[.!?…])(?:\s+|$)/u,
-    );
+    const sentenceMatch = remaining.match(/^([\s\S]{12,}?[.!?…])(?:\s+|$)/u);
     if (sentenceMatch) {
       const chunk = sentenceMatch[1].trim();
       if (chunk) stream.queue.push(chunk);
@@ -171,16 +188,20 @@ export class SupertonicStreamer {
     });
     if (stream.abort.signal.aborted) return;
 
-    const result = await supertonicEngine.synthesize({
-      text,
-      lang: settings.language,
-      voiceId: settings.voiceId,
-      totalSteps: settings.totalSteps,
-      speed: settings.speed,
-      signal: stream.abort.signal,
-    });
-    if (stream.abort.signal.aborted || !result.samples.length) return;
-    await this.enqueueAudio(result.samples, result.sampleRate, stream.abort.signal);
+    await supertonicEngine.synthesizeStream(
+      {
+        text,
+        lang: settings.language,
+        voiceId: settings.voiceId,
+        totalSteps: settings.totalSteps,
+        speed: settings.speed,
+        signal: stream.abort.signal,
+      },
+      async (samples, sampleRate) => {
+        if (stream.abort.signal.aborted || !samples.length) return;
+        await this.enqueueAudio(samples, sampleRate, stream.abort.signal);
+      },
+    );
   }
 
   private async ensureAudioContext(): Promise<AudioContext> {

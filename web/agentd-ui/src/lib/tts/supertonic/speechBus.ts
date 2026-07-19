@@ -9,10 +9,16 @@ type FinalListener = (
   fullText: string,
 ) => void;
 type StopListener = (sessionId?: string) => void;
+type RollbackListener = (
+  sessionId: string,
+  assistantId: string,
+  chars: number,
+) => void;
 
 const deltaListeners = new Set<DeltaListener>();
 const finalListeners = new Set<FinalListener>();
 const stopListeners = new Set<StopListener>();
+const rollbackListeners = new Set<RollbackListener>();
 
 export function onAssistantDelta(listener: DeltaListener): () => void {
   deltaListeners.add(listener);
@@ -27,6 +33,11 @@ export function onAssistantFinal(listener: FinalListener): () => void {
 export function onAssistantStop(listener: StopListener): () => void {
   stopListeners.add(listener);
   return () => stopListeners.delete(listener);
+}
+
+export function onAssistantRollback(listener: RollbackListener): () => void {
+  rollbackListeners.add(listener);
+  return () => rollbackListeners.delete(listener);
 }
 
 export function emitAssistantDelta(
@@ -63,6 +74,20 @@ export function emitAssistantStop(sessionId?: string) {
       listener(sessionId);
     } catch (error) {
       console.warn("assistant stop TTS listener failed", error);
+    }
+  }
+}
+
+export function emitAssistantRollback(
+  sessionId: string,
+  assistantId: string,
+  chars: number,
+) {
+  for (const listener of rollbackListeners) {
+    try {
+      listener(sessionId, assistantId, chars);
+    } catch (error) {
+      console.warn("assistant rollback TTS listener failed", error);
     }
   }
 }

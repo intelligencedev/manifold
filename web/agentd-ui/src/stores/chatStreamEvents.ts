@@ -21,6 +21,7 @@ import { createId } from "@/utils/uuid";
 import {
   emitAssistantDelta,
   emitAssistantFinal,
+  emitAssistantRollback,
   emitAssistantStop,
 } from "@/lib/tts/supertonic/speechBus";
 
@@ -110,6 +111,30 @@ export function handleStreamEvent(
           ),
         }));
         emitAssistantDelta(sessionId, assistantId, event.data);
+      }
+      break;
+    }
+    case "delta_rollback": {
+      const count =
+        typeof event.count === "number" && event.count > 0
+          ? Math.floor(event.count)
+          : 0;
+      if (count > 0) {
+        state.updateMessage(sessionId, assistantId, (m) => {
+          const nextContent = m.content.slice(
+            0,
+            Math.max(0, m.content.length - count),
+          );
+          return {
+            ...m,
+            content: nextContent,
+            contextMetrics: withEstimatedAssistantTokens(
+              m.contextMetrics,
+              nextContent,
+            ),
+          };
+        });
+        emitAssistantRollback(sessionId, assistantId, count);
       }
       break;
     }

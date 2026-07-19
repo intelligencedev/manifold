@@ -171,9 +171,35 @@ func appendHarnessAttempts(prior, minifiedPrefix, resultHistory []harness.Harnes
 func (e *Engine) runHarnessInference(ctx context.Context, state *harnessLoopState, schemas []llm.ToolSchema, stream bool) (harness.InferenceResult, error) {
 	req := harness.InferenceRequest{Provider: e.LLM, History: state.history, Schemas: schemas, Model: e.model(), Config: state.cfg, Tracker: state.tracker}
 	if stream {
+		req.Live = engineStreamObserver{engine: e}
 		return harness.RunStreamInference(ctx, req)
 	}
 	return harness.RunInference(ctx, req)
+}
+
+// engineStreamObserver forwards guarded-harness streaming output to the engine's
+// live callbacks so deltas and reasoning summaries reach consumers as the model
+// produces them, rather than only after an attempt is accepted.
+type engineStreamObserver struct {
+	engine *Engine
+}
+
+func (o engineStreamObserver) OnDelta(delta string) {
+	if o.engine.OnDelta != nil {
+		o.engine.OnDelta(delta)
+	}
+}
+
+func (o engineStreamObserver) OnThoughtSummary(summary string) {
+	if o.engine.OnThoughtSummary != nil {
+		o.engine.OnThoughtSummary(summary)
+	}
+}
+
+func (o engineStreamObserver) Reset(chars int) {
+	if chars > 0 && o.engine.OnStreamRollback != nil {
+		o.engine.OnStreamRollback(chars)
+	}
 }
 
 func (e *Engine) acceptHarnessResult(priorHistory []harness.HarnessMessage, result harness.InferenceResult, step int, stream bool) llm.Message {
@@ -409,7 +435,9 @@ func (e *Engine) emitHarnessStreamTurnMessages(messages []harness.HarnessMessage
 		}
 	}
 	for i, message := range messages {
-		if i == acceptedAssistant {
+		// When output streamed live during inference, deltas and thought
+		// summaries were already forwarded; replaying them here would duplicate.
+		if i == acceptedAssistant && !result.Streamed {
 			for _, summary := range result.ThoughtSummaries {
 				if e.OnThoughtSummary != nil {
 					e.OnThoughtSummary(summary)

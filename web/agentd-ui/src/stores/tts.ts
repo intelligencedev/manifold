@@ -107,6 +107,15 @@ export const useTtsStore = defineStore("supertonic-tts", () => {
     streamer.finalize(sessionId, messageId, fullText);
   }
 
+  function rollbackAssistantSpeech(
+    sessionId: string,
+    messageId: string,
+    chars: number,
+  ) {
+    if (!isEnabledForSession(sessionId)) return;
+    streamer.rollback(sessionId, messageId, chars);
+  }
+
   function stopSession(sessionId?: string) {
     streamer.stop(sessionId);
   }
@@ -190,6 +199,7 @@ export const useTtsStore = defineStore("supertonic-tts", () => {
     beginAssistantSpeech,
     pushAssistantDelta,
     finalizeAssistantSpeech,
+    rollbackAssistantSpeech,
     stopSession,
     resetSettings: () => {
       settings.value = defaultSupertonicTtsSettings();

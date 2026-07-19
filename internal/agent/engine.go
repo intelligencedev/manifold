@@ -134,6 +134,11 @@ type Engine struct {
 	OnDelta func(string)
 	// OnThoughtSummary, if set, is called for streamed reasoning summaries.
 	OnThoughtSummary func(string)
+	// OnStreamRollback, if set, is called when the guarded harness rejects an
+	// attempt whose delta output was already streamed live. The argument is the
+	// number of trailing characters previously sent via OnDelta that must be
+	// discarded before the retried (or final) attempt streams.
+	OnStreamRollback func(chars int)
 	// OnTool, if set, is called after each tool execution with tool name, args, result, and tool ID.
 	OnTool               func(toolName string, args []byte, result []byte, toolID string)
 	OnToolWithTitle      func(toolName string, toolTitle string, args []byte, result []byte, toolID string)

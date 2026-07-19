@@ -8,6 +8,17 @@ import (
 	"manifold/internal/llm"
 )
 
+// StreamObserver receives streaming output as it arrives, before the harness
+// knows whether the attempt will be accepted. When an attempt is rejected and
+// will be retried (or fails validation outright), Reset reports how many
+// characters of previously forwarded delta text belong to the rejected attempt
+// so downstream consumers can roll them back before the next attempt streams.
+type StreamObserver interface {
+	OnDelta(string)
+	OnThoughtSummary(string)
+	Reset(chars int)
+}
+
 // InferenceResult contains the first validated assistant response and the
 // provider-visible history accumulated during validation retries.
 type InferenceResult struct {
@@ -17,6 +28,10 @@ type InferenceResult struct {
 	Validation       ValidationResult
 	Deltas           []string
 	ThoughtSummaries []string
+	// Streamed reports that delta and thought-summary output was already
+	// forwarded live to the request's StreamObserver, so callers must not
+	// replay Deltas/ThoughtSummaries a second time.
+	Streamed bool
 }
 
 type InferenceRequest struct {
@@ -26,6 +41,9 @@ type InferenceRequest struct {
 	Model    string
 	Config   RunConfig
 	Tracker  *StepTracker
+	// Live, when set, receives streaming output during the model call rather
+	// than only after a response is accepted. See StreamObserver.
+	Live StreamObserver
 }
 
 // RunInference performs one guarded model step with validation nudges.
@@ -112,7 +130,7 @@ func RunStreamInference(ctx context.Context, req InferenceRequest) (InferenceRes
 	validator := NewResponseValidator(cfg, schemas)
 
 	for attempt := 0; attempt <= cfg.MaxRetriesPerStep; attempt++ {
-		capture := &streamCaptureHandler{}
+		capture := &streamCaptureHandler{live: req.Live}
 		if err := provider.ChatStream(ctx, SerializeMessages(history), schemas, model, capture); err != nil {
 			return InferenceResult{Attempts: attempt + 1, History: history}, err
 		}
@@ -140,7 +158,15 @@ func RunStreamInference(ctx context.Context, req InferenceRequest) (InferenceRes
 				Validation:       validation,
 				Deltas:           append([]string(nil), capture.deltas...),
 				ThoughtSummaries: append([]string(nil), capture.thoughtSummaries...),
+				Streamed:         req.Live != nil,
 			}, nil
+		}
+
+		// The attempt was rejected: roll back any output already forwarded live
+		// before the next attempt (or the error return) so downstream consumers
+		// discard the rejected text.
+		if req.Live != nil {
+			req.Live.Reset(len(capture.content))
 		}
 
 		if attempt == cfg.MaxRetriesPerStep {
@@ -149,6 +175,7 @@ func RunStreamInference(ctx context.Context, req InferenceRequest) (InferenceRes
 				Attempts:   attempt + 1,
 				History:    history,
 				Validation: validation,
+				Streamed:   req.Live != nil,
 			}, RetryExhaustedError{Attempts: attempt + 1, Last: validation}
 		}
 
@@ -213,11 +240,15 @@ type streamCaptureHandler struct {
 	videos           []llm.GeneratedVideo
 	thoughtSummaries []string
 	thoughtSignature string
+	live             StreamObserver
 }
 
 func (h *streamCaptureHandler) OnDelta(content string) {
 	h.content += content
 	h.deltas = append(h.deltas, content)
+	if h.live != nil {
+		h.live.OnDelta(content)
+	}
 }
 
 func (h *streamCaptureHandler) OnToolCall(tc llm.ToolCall) {
@@ -234,6 +265,9 @@ func (h *streamCaptureHandler) OnVideo(video llm.GeneratedVideo) {
 
 func (h *streamCaptureHandler) OnThoughtSummary(summary string) {
 	h.thoughtSummaries = append(h.thoughtSummaries, summary)
+	if h.live != nil {
+		h.live.OnThoughtSummary(summary)
+	}
 }
 
 func (h *streamCaptureHandler) OnThoughtSignature(sig string) {

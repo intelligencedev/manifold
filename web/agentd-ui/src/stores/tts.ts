@@ -23,10 +23,20 @@ export const useTtsStore = defineStore("supertonic-tts", () => {
   const engineError = ref("");
   const progress = ref<SupertonicLoadProgress | null>(null);
   const backend = ref<"webgpu" | "wasm" | "server" | null>(null);
+  const realtimeSessions = ref<Record<string, boolean>>({});
+  const speakingSessions = ref<Record<string, boolean>>({});
 
   const streamer = new SupertonicStreamer({
     getSettings: () => settings.value,
     isEnabledForSession: (sessionId: string) => isEnabledForSession(sessionId),
+    isRealtimeSession: (sessionId: string) =>
+      Boolean(realtimeSessions.value[sessionId]),
+    onPlaybackStateChange: (sessionId: string, speaking: boolean) => {
+      speakingSessions.value = {
+        ...speakingSessions.value,
+        [sessionId]: speaking,
+      };
+    },
   });
 
   if (typeof window !== "undefined") {
@@ -82,6 +92,22 @@ export const useTtsStore = defineStore("supertonic-tts", () => {
       customVoices: settings.value.customVoices,
     });
     backend.value = supertonicEngine.getBackend();
+  }
+
+  async function unlockAudio() {
+    await streamer.unlockAudio();
+  }
+
+  function setRealtimeSession(sessionId: string, enabled: boolean) {
+    realtimeSessions.value = {
+      ...realtimeSessions.value,
+      [sessionId]: enabled,
+    };
+    if (!enabled) streamer.stop(sessionId);
+  }
+
+  function isSpeakingForSession(sessionId: string | null | undefined): boolean {
+    return Boolean(sessionId && speakingSessions.value[sessionId]);
   }
 
   function beginAssistantSpeech(sessionId: string, messageId: string) {
@@ -150,7 +176,9 @@ export const useTtsStore = defineStore("supertonic-tts", () => {
   const voiceOptions = computed(() => {
     const presets = PRESET_VOICE_IDS.map((id) => ({
       id,
-      label: id.startsWith("M") ? `Male ${id.slice(1)} (${id})` : `Female ${id.slice(1)} (${id})`,
+      label: id.startsWith("M")
+        ? `Male ${id.slice(1)} (${id})`
+        : `Female ${id.slice(1)} (${id})`,
       value: id,
     }));
     const customs = settings.value.customVoices.map((v) => ({
@@ -188,11 +216,16 @@ export const useTtsStore = defineStore("supertonic-tts", () => {
     engineError,
     progress,
     backend,
+    realtimeSessions,
+    speakingSessions,
     statusLabel,
     voiceOptions,
     isEnabledForSession,
     setSessionEnabled,
     ensureEngine,
+    unlockAudio,
+    setRealtimeSession,
+    isSpeakingForSession,
     patchSettings,
     importCustomVoice,
     removeCustomVoice,

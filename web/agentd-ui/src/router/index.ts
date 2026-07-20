@@ -64,13 +64,26 @@ const router = createRouter({
       name: "pulse",
       meta: {
         nav: true,
-        order: 5,
+        order: 6,
         label: "Pulse",
         glyph: "PU",
         title: "Pulse",
         purpose: "Scheduled and recurring work",
       },
       component: () => import("@/views/PulseView.vue"),
+    },
+    {
+      path: "/realtime",
+      name: "realtime",
+      meta: {
+        nav: true,
+        order: 5,
+        label: "Realtime",
+        glyph: "RT",
+        title: "Realtime",
+        purpose: "Natural full-duplex voice conversations",
+      },
+      component: () => import("@/views/RealtimeView.vue"),
     },
     {
       path: "/matrix",
@@ -81,7 +94,7 @@ const router = createRouter({
       name: "flow",
       meta: {
         nav: true,
-        order: 7,
+        order: 8,
         label: "Flow",
         glyph: "FL",
         title: "Flow",
@@ -161,7 +174,7 @@ const router = createRouter({
       name: "playground",
       meta: {
         nav: true,
-        order: 6,
+        order: 7,
         label: "Playground",
         glyph: "PL",
         title: "Playground",

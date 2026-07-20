@@ -95,6 +95,7 @@ export interface ChatMessage {
   createdAt: string;
   durationMs?: number;
   streaming?: boolean;
+  interrupted?: boolean;
   title?: string;
   error?: string;
   // Deprecated: thought summaries are now streamed into the Active Specialist panel.

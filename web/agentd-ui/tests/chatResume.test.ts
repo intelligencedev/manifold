@@ -4,13 +4,14 @@ import { createChatStreamActions } from "@/stores/chatStreamActions";
 import type { ChatStreamEvent } from "@/api/chat";
 
 const chatApiMocks = vi.hoisted(() => ({
+  cancelChatRun: vi.fn(async () => {}),
   resumeChatRun: vi.fn(),
   startChatRun: vi.fn(),
   streamChatRunEvents: vi.fn(),
 }));
 
 vi.mock("@/api/chat", () => ({
-  cancelChatRun: vi.fn(async () => {}),
+  cancelChatRun: chatApiMocks.cancelChatRun,
   generateChatSessionTitle: vi.fn(async () => ({
     id: "session-1",
     name: "Session",
@@ -24,6 +25,7 @@ vi.mock("@/api/chat", () => ({
 describe("chat durable resume", () => {
   beforeEach(() => {
     chatApiMocks.resumeChatRun.mockReset();
+    chatApiMocks.cancelChatRun.mockClear();
     chatApiMocks.startChatRun.mockReset();
     chatApiMocks.streamChatRunEvents.mockReset();
   });
@@ -219,5 +221,47 @@ describe("chat durable resume", () => {
       (message) => message.role === "assistant",
     );
     expect(assistant?.llmRequestCount).toBe(1);
+  });
+
+  it("marks realtime barge-in as an interruption and clears streaming state immediately", () => {
+    const state = createChatStoreState();
+    state.activeSessionId.value = "session-1";
+    state.setMessages("session-1", [
+      {
+        id: "assistant-1",
+        role: "assistant",
+        content: "A partial spoken response",
+        createdAt: "2026-07-20T00:00:00.000Z",
+        streaming: true,
+      },
+    ]);
+    const controller = new AbortController();
+    state.setStreamingState("session-1", {
+      assistantId: "assistant-1",
+      abortController: controller,
+      streamId: "stream-1",
+      runId: "run-1",
+    });
+    const actions = createChatStreamActions(
+      state,
+      { invalidateQueries: vi.fn() },
+      {} as any,
+    );
+
+    actions.stopStreaming("session-1", {
+      reason: "Interrupted in realtime",
+      markAsError: false,
+    });
+
+    expect(controller.signal.aborted).toBe(true);
+    expect(state.isSessionStreaming("session-1")).toBe(false);
+    expect(chatApiMocks.cancelChatRun).toHaveBeenCalledWith("run-1");
+    expect(state.messagesBySession.value["session-1"][0]).toEqual(
+      expect.objectContaining({
+        streaming: false,
+        interrupted: true,
+        error: undefined,
+      }),
+    );
   });
 });

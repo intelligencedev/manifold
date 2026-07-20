@@ -72,6 +72,7 @@ import OverviewButton from "@/components/icons/OverviewButton.vue";
 import PlaygroundButton from "@/components/icons/PlaygroundButton.vue";
 import ProjectsButton from "@/components/icons/ProjectsButton.vue";
 import PulseButton from "@/components/icons/PulseButton.vue";
+import Realtime from "@/components/icons/Realtime.vue";
 import SettingsButton from "@/components/icons/SettingsButton.vue";
 import SpecialistsButton from "@/components/icons/SpecialistsButton.vue";
 import manifoldLogo from "@/assets/images/manifold_logo.png";
@@ -94,6 +95,7 @@ const navIcons: Record<string, Component> = {
   projects: ProjectsButton,
   specialists: SpecialistsButton,
   chat: ChatButton,
+  realtime: Realtime,
   pulse: PulseButton,
   playground: PlaygroundButton,
   flow: FlowButton,

@@ -5,6 +5,8 @@ import type { SupertonicTtsSettings } from "./settings";
 type StreamerOptions = {
   getSettings: () => SupertonicTtsSettings;
   isEnabledForSession: (sessionId: string) => boolean;
+  isRealtimeSession?: (sessionId: string) => boolean;
+  onPlaybackStateChange?: (sessionId: string, speaking: boolean) => void;
 };
 
 type ActiveStream = {
@@ -17,6 +19,13 @@ type ActiveStream = {
   abort: AbortController;
   running: boolean;
   generation: number;
+  flushTimer?: ReturnType<typeof setTimeout>;
+};
+
+type ScheduledSource = {
+  source: AudioBufferSourceNode;
+  sessionId: string;
+  endAt: number;
 };
 
 /**
@@ -26,7 +35,8 @@ export class SupertonicStreamer {
   private streams = new Map<string, ActiveStream>();
   private audioCtx: AudioContext | null = null;
   private playHead = 0;
-  private scheduled: AudioBufferSourceNode[] = [];
+  private scheduled: ScheduledSource[] = [];
+  private speakingSessions = new Set<string>();
   private options: StreamerOptions;
   private generation = 0;
 
@@ -61,6 +71,7 @@ export class SupertonicStreamer {
     stream.buffer += delta;
     this.enqueueReady(stream, false);
     void this.pump(stream);
+    this.scheduleRealtimeFlush(stream);
   }
 
   finalize(sessionId: string, messageId: string, fullText?: string) {
@@ -73,6 +84,8 @@ export class SupertonicStreamer {
     } else if (fullText && fullText.length >= stream.buffer.length) {
       stream.buffer = fullText;
     }
+    if (stream.flushTimer) clearTimeout(stream.flushTimer);
+    stream.flushTimer = undefined;
     stream.finalized = true;
     this.enqueueReady(stream, true);
     void this.pump(stream);
@@ -95,27 +108,49 @@ export class SupertonicStreamer {
     // Queued chunks were extracted from the (now-trimmed) tail; drop the ones
     // that have not been synthesized yet so the rejected text is not spoken.
     stream.queue = [];
+    this.scheduleRealtimeFlush(stream);
   }
 
   stop(sessionId?: string) {
     if (sessionId) {
       const stream = this.streams.get(sessionId);
       if (stream) {
+        if (stream.flushTimer) clearTimeout(stream.flushTimer);
         stream.abort.abort();
         this.streams.delete(sessionId);
       }
     } else {
-      for (const stream of this.streams.values()) stream.abort.abort();
+      for (const stream of this.streams.values()) {
+        if (stream.flushTimer) clearTimeout(stream.flushTimer);
+        stream.abort.abort();
+      }
       this.streams.clear();
     }
-    for (const source of this.scheduled) {
+    const stopping = sessionId
+      ? this.scheduled.filter((entry) => entry.sessionId === sessionId)
+      : this.scheduled;
+    this.scheduled = sessionId
+      ? this.scheduled.filter((entry) => entry.sessionId !== sessionId)
+      : [];
+    for (const entry of stopping) {
       try {
-        source.stop();
+        entry.source.stop();
       } catch {
         // already stopped
       }
     }
-    this.scheduled = [];
+    this.recalculatePlayHead();
+    if (sessionId) {
+      this.setPlaybackState(sessionId, false);
+    } else {
+      for (const activeSessionId of [...this.speakingSessions]) {
+        this.setPlaybackState(activeSessionId, false);
+      }
+    }
+  }
+
+  async unlockAudio() {
+    await this.ensureAudioContext();
   }
 
   private enqueueReady(stream: ActiveStream, forceTail: boolean) {
@@ -150,6 +185,25 @@ export class SupertonicStreamer {
       stream.spokenLength += end;
       this.enqueueReady(stream, false);
     }
+  }
+
+  private scheduleRealtimeFlush(stream: ActiveStream) {
+    if (!this.options.isRealtimeSession?.(stream.sessionId)) return;
+    if (stream.flushTimer) clearTimeout(stream.flushTimer);
+    if (stream.finalized || stream.abort.signal.aborted) return;
+    stream.flushTimer = setTimeout(() => {
+      stream.flushTimer = undefined;
+      if (stream.abort.signal.aborted) return;
+      const remaining = stream.buffer.slice(stream.spokenLength);
+      const lastWhitespace = remaining.lastIndexOf(" ");
+      if (lastWhitespace < 0) return;
+      const clause = remaining.slice(0, lastWhitespace + 1).trim();
+      const words = clause.split(/\s+/u).filter(Boolean);
+      if (clause.length < 18 && words.length < 4) return;
+      stream.queue.push(clause);
+      stream.spokenLength += lastWhitespace + 1;
+      void this.pump(stream);
+    }, 140);
   }
 
   private async pump(stream: ActiveStream) {
@@ -199,7 +253,12 @@ export class SupertonicStreamer {
       },
       async (samples, sampleRate) => {
         if (stream.abort.signal.aborted || !samples.length) return;
-        await this.enqueueAudio(samples, sampleRate, stream.abort.signal);
+        await this.enqueueAudio(
+          stream.sessionId,
+          samples,
+          sampleRate,
+          stream.abort.signal,
+        );
       },
     );
   }
@@ -221,6 +280,7 @@ export class SupertonicStreamer {
   }
 
   private async enqueueAudio(
+    sessionId: string,
     samples: Float32Array,
     sampleRate: number,
     signal: AbortSignal,
@@ -239,9 +299,31 @@ export class SupertonicStreamer {
     const startAt = Math.max(ctx.currentTime + 0.02, this.playHead);
     source.start(startAt);
     this.playHead = startAt + buffer.duration;
-    this.scheduled.push(source);
+    const scheduled = { source, sessionId, endAt: this.playHead };
+    this.scheduled.push(scheduled);
+    this.setPlaybackState(sessionId, true);
     source.onended = () => {
-      this.scheduled = this.scheduled.filter((s) => s !== source);
+      this.scheduled = this.scheduled.filter((entry) => entry !== scheduled);
+      if (!this.scheduled.some((entry) => entry.sessionId === sessionId)) {
+        this.setPlaybackState(sessionId, false);
+      }
+      this.recalculatePlayHead();
     };
+  }
+
+  private recalculatePlayHead() {
+    const currentTime = this.audioCtx?.currentTime || 0;
+    this.playHead = this.scheduled.reduce(
+      (latest, entry) => Math.max(latest, entry.endAt),
+      currentTime,
+    );
+  }
+
+  private setPlaybackState(sessionId: string, speaking: boolean) {
+    const alreadySpeaking = this.speakingSessions.has(sessionId);
+    if (speaking === alreadySpeaking) return;
+    if (speaking) this.speakingSessions.add(sessionId);
+    else this.speakingSessions.delete(sessionId);
+    this.options.onPlaybackStateChange?.(sessionId, speaking);
   }
 }

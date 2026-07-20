@@ -103,6 +103,13 @@ class ServerTtsEngine {
     const body: Record<string, unknown> = { text };
     if (options.voiceId) body.voice = options.voiceId;
     if (options.lang) body.lang = options.lang;
+    if (
+      typeof options.totalSteps === "number" &&
+      Number.isFinite(options.totalSteps)
+    )
+      body.totalSteps = Math.round(options.totalSteps);
+    if (typeof options.speed === "number" && Number.isFinite(options.speed))
+      body.speed = options.speed;
 
     let response: Response;
     try {

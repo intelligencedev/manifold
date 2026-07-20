@@ -166,6 +166,26 @@ func TestTTSBornEngineRequiresModelDir(t *testing.T) {
 	}
 }
 
+func TestBornTTSOptions(t *testing.T) {
+	tests := []struct {
+		name  string
+		req   ttsRequest
+		steps int
+		speed float64
+	}{
+		{name: "configured", req: ttsRequest{Lang: " en ", TotalSteps: 5, Speed: 1.1}, steps: 5, speed: 1.1},
+		{name: "defaults for invalid values", req: ttsRequest{TotalSteps: 99, Speed: -1}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			opts := bornTTSOptions(test.req)
+			if opts.TotalSteps != test.steps || opts.Speed != test.speed {
+				t.Fatalf("options = steps %d speed %v, want steps %d speed %v", opts.TotalSteps, opts.Speed, test.steps, test.speed)
+			}
+		})
+	}
+}
+
 // TestTTSBornEngineLive runs the real in-process pure-Go engine end to end.
 // Guarded by SUPERTONIC_MODEL_DIR (dir with onnx/ + voice_styles/).
 func TestTTSBornEngineLive(t *testing.T) {
@@ -180,7 +200,7 @@ func TestTTSBornEngineLive(t *testing.T) {
 		httpClient: http.DefaultClient,
 	}
 	req := httptest.NewRequest(http.MethodPost, "/tts",
-		strings.NewReader(`{"text":"In process synthesis check for the Reachy Mini robot."}`))
+		strings.NewReader(`{"text":"In process synthesis check for the Reachy Mini robot.","totalSteps":5,"speed":1.05}`))
 	rec := httptest.NewRecorder()
 	a.ttsHandler()(rec, req)
 

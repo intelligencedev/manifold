@@ -16,10 +16,12 @@ import (
 
 // ttsRequest is the robot-facing /tts payload.
 type ttsRequest struct {
-	Text      string `json:"text"`
-	Voice     string `json:"voice"`
-	Lang      string `json:"lang"`
-	SessionID string `json:"sessionId"`
+	Text       string  `json:"text"`
+	Voice      string  `json:"voice"`
+	Lang       string  `json:"lang"`
+	TotalSteps int     `json:"totalSteps"`
+	Speed      float64 `json:"speed"`
+	SessionID  string  `json:"sessionId"`
 }
 
 // ttsHandler renders speech for the given text via the configured TTS backend

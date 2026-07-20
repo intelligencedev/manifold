@@ -23,8 +23,20 @@ type bornTTSHolder struct {
 func (h *bornTTSHolder) get(modelDir string) (*supertonic.TTS, error) {
 	h.once.Do(func() {
 		h.tts, h.err = supertonic.New(modelDir)
+		if h.err == nil {
+			log.Info().
+				Str("backend", h.tts.BackendName()).
+				Str("model_dir", modelDir).
+				Msg("born_tts_loaded")
+		}
 	})
 	return h.tts, h.err
+}
+
+func (h *bornTTSHolder) close() {
+	if h != nil && h.tts != nil {
+		h.tts.Close()
+	}
 }
 
 // ttsBornResponse serves /tts entirely in-process via the Born Supertonic
@@ -72,7 +84,7 @@ func (a *app) ttsBornResponse(w http.ResponseWriter, r *http.Request, req ttsReq
 
 	rate := tts.SampleRate()
 	seq := 0
-	err = tts.SynthesizeStream(req.Text, voice, supertonic.Options{Lang: strings.TrimSpace(req.Lang)},
+	err = tts.SynthesizeStream(req.Text, voice, bornTTSOptions(req),
 		func(wav []float32) error {
 			if ctxErr := r.Context().Err(); ctxErr != nil {
 				return ctxErr // client went away (barge-in); stop synthesizing
@@ -106,4 +118,15 @@ func (a *app) ttsBornResponse(w http.ResponseWriter, r *http.Request, req ttsReq
 		return
 	}
 	writeFrame(map[string]any{"type": "done", "rate": rate})
+}
+
+func bornTTSOptions(req ttsRequest) supertonic.Options {
+	opts := supertonic.Options{Lang: strings.TrimSpace(req.Lang)}
+	if req.TotalSteps >= 1 && req.TotalSteps <= 20 {
+		opts.TotalSteps = req.TotalSteps
+	}
+	if req.Speed >= 0.7 && req.Speed <= 1.6 {
+		opts.Speed = req.Speed
+	}
+	return opts
 }

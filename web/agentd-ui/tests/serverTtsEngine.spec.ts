@@ -103,6 +103,8 @@ describe("serverEngine.synthesize", () => {
       text: "Hello.",
       voiceId: "M1",
       lang: "en",
+      totalSteps: 5,
+      speed: 1.1,
     });
 
     // Posted to /tts with the expected body.
@@ -113,6 +115,8 @@ describe("serverEngine.synthesize", () => {
       text: "Hello.",
       voice: "M1",
       lang: "en",
+      totalSteps: 5,
+      speed: 1.1,
     });
 
     expect(result.sampleRate).toBe(44100);

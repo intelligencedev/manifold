@@ -13,7 +13,7 @@ require (
 	github.com/go-shiori/go-readability v0.0.0-20251205110129-5db1dc9836f0
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/uuid v1.6.0
-	github.com/intelligencedev/born v0.0.0-20260720003034-4b9eb959be39
+	github.com/intelligencedev/born v0.0.0-20260720011537-406a13a106cf
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/joho/godotenv v1.5.1
 	github.com/matrix-org/gomatrix v0.0.0-20220926102614-ceba4d9f7530

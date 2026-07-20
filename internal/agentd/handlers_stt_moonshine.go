@@ -21,8 +21,22 @@ type moonshineHolder struct {
 }
 
 func (h *moonshineHolder) get(modelDir string) (*moonshine.STT, error) {
-	h.once.Do(func() { h.stt, h.err = moonshine.New(modelDir) })
+	h.once.Do(func() {
+		h.stt, h.err = moonshine.New(modelDir)
+		if h.err == nil {
+			log.Info().
+				Str("backend", h.stt.BackendName()).
+				Str("model_dir", modelDir).
+				Msg("moonshine_stt_loaded")
+		}
+	})
 	return h.stt, h.err
+}
+
+func (h *moonshineHolder) close() {
+	if h != nil && h.stt != nil {
+		h.stt.Close()
+	}
 }
 
 // sttMoonshineResponse serves /stt entirely in-process: multipart WAV in,

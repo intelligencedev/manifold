@@ -18,6 +18,7 @@ func (a *app) close() {
 		return
 	}
 	a.bornTTS.close()
+	a.moonshineSTT.close()
 	if a.mcpManager != nil {
 		a.mcpManager.Close()
 	}

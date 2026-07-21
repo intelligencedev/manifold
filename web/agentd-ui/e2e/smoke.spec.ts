@@ -16,6 +16,9 @@ test("renders the dedicated realtime voice view", async ({ page }) => {
     page.getByRole("button", { name: "Start conversation" }),
   ).toBeVisible();
   await expect(page.getByLabel("Microphone")).toBeVisible();
+  await expect(page.getByLabel("Responder")).toHaveValue(
+    "specialist:orchestrator",
+  );
   await expect(page.getByLabel("Noise suppression")).toHaveValue("automatic");
   await expect(page.getByText("RNNoise", { exact: true })).toBeVisible();
 });

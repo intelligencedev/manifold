@@ -21,40 +21,102 @@
           </p>
         </div>
 
-        <div class="flex min-w-0 flex-col gap-2 sm:w-[280px]">
-          <label
-            for="realtime-conversation"
-            class="font-mono text-[10px] uppercase tracking-[0.12em] text-subtle-foreground"
-          >
-            Conversation
-          </label>
-          <div class="flex gap-2">
-            <select
-              id="realtime-conversation"
-              class="halo-focus min-h-9 min-w-0 flex-1 rounded-md border border-border bg-input px-3 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-              :value="realtime.activeSessionId.value"
-              :disabled="realtime.callActive.value"
-              @change="selectConversation"
+        <div class="flex min-w-0 flex-col gap-3 sm:w-[320px]">
+          <div class="flex flex-col gap-2">
+            <label
+              for="realtime-conversation"
+              class="font-mono text-[10px] uppercase tracking-[0.12em] text-subtle-foreground"
             >
-              <option value="" disabled>Select a conversation</option>
-              <option
-                v-for="session in realtime.sessions.value"
-                :key="session.id"
-                :value="session.id"
+              Conversation
+            </label>
+            <div class="flex gap-2">
+              <select
+                id="realtime-conversation"
+                class="halo-focus min-h-9 min-w-0 flex-1 rounded-md border border-border bg-input px-3 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                :value="realtime.activeSessionId.value"
+                :disabled="realtime.callActive.value"
+                @change="selectConversation"
               >
-                {{ session.name }}
+                <option value="" disabled>Select a conversation</option>
+                <option
+                  v-for="session in realtime.sessions.value"
+                  :key="session.id"
+                  :value="session.id"
+                >
+                  {{ session.name }}
+                </option>
+              </select>
+              <AppButton
+                size="sm"
+                variant="neutral"
+                :disabled="realtime.callActive.value"
+                aria-label="Create realtime conversation"
+                title="Create realtime conversation"
+                @click="realtime.createNewConversation"
+              >
+                New
+              </AppButton>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-2">
+            <label
+              for="realtime-responder"
+              class="font-mono text-[10px] uppercase tracking-[0.12em] text-subtle-foreground"
+            >
+              Responder
+            </label>
+            <select
+              id="realtime-responder"
+              class="halo-focus min-h-9 w-full rounded-md border border-border bg-input px-3 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+              :value="realtime.selectedResponder.value"
+              :disabled="
+                !realtime.activeSessionId.value ||
+                realtime.callActive.value ||
+                realtime.connecting.value ||
+                realtime.respondersLoading.value ||
+                realtime.responderUpdating.value
+              "
+              @change="selectResponder"
+            >
+              <option value="specialist:orchestrator">Main orchestrator</option>
+              <optgroup
+                v-if="realtime.availableTeams.value.length"
+                label="Teams"
+              >
+                <option
+                  v-for="team in realtime.availableTeams.value"
+                  :key="`team:${team.name}`"
+                  :value="`team:${team.name}`"
+                >
+                  {{ team.name }}
+                </option>
+              </optgroup>
+              <optgroup
+                v-if="realtime.availableSpecialists.value.length"
+                label="Specialists"
+              >
+                <option
+                  v-for="specialist in realtime.availableSpecialists.value"
+                  :key="`specialist:${specialist.name}`"
+                  :value="`specialist:${specialist.name}`"
+                >
+                  {{ specialist.name }}
+                </option>
+              </optgroup>
+              <option
+                v-if="responderUnavailable"
+                :value="realtime.selectedResponder.value"
+              >
+                {{ realtime.selectedResponderLabel.value }} (unavailable)
               </option>
             </select>
-            <AppButton
-              size="sm"
-              variant="neutral"
-              :disabled="realtime.callActive.value"
-              aria-label="Create realtime conversation"
-              title="Create realtime conversation"
-              @click="realtime.createNewConversation"
-            >
-              New
-            </AppButton>
+            <p v-if="realtime.responderError.value" class="text-xs text-danger">
+              {{ realtime.responderError.value }}
+            </p>
+            <p v-else class="text-xs text-subtle-foreground">
+              Answers every voice turn in this conversation.
+            </p>
           </div>
         </div>
       </section>
@@ -346,6 +408,10 @@
             <dd class="truncate text-right text-foreground">
               {{ realtime.selectedInputLabel.value }}
             </dd>
+            <dt class="text-subtle-foreground">Responder</dt>
+            <dd class="truncate text-right text-foreground">
+              {{ realtime.selectedResponderLabel.value }}
+            </dd>
             <dt class="text-subtle-foreground">Isolation</dt>
             <dd class="text-right text-foreground">
               {{ voiceIsolationLabel }}
@@ -401,6 +467,19 @@ import type { NoiseSuppressionMode } from "@/lib/realtime/settings";
 
 const realtime = useRealtimeConversation();
 
+const responderUnavailable = computed(() => {
+  const target = realtime.selectedResponder.value;
+  if (target === "specialist:orchestrator") return false;
+  if (target.startsWith("team:")) {
+    return !realtime.availableTeams.value.some(
+      (team) => `team:${team.name}` === target,
+    );
+  }
+  return !realtime.availableSpecialists.value.some(
+    (specialist) => `specialist:${specialist.name}` === target,
+  );
+});
+
 const orbStyle = computed(() => ({
   "--voice-scale": String(1 + realtime.audioLevel.value * 0.16),
   "--voice-opacity": String(0.38 + realtime.audioLevel.value * 0.3),
@@ -455,6 +534,10 @@ const denoiserLabel = computed(() => {
 function selectConversation(event: Event) {
   const target = event.target as HTMLSelectElement;
   realtime.selectConversation(target.value);
+}
+
+function selectResponder(event: Event) {
+  void realtime.setResponder((event.target as HTMLSelectElement).value);
 }
 
 function selectInputDevice(event: Event) {

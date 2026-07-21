@@ -8,6 +8,12 @@ import {
 import rnnoiseWorkletPath from "@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url";
 import rnnoiseWasmPath from "@sapphi-red/web-noise-suppressor/rnnoise.wasm?url";
 import rnnoiseWasmSimdPath from "@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url";
+import {
+  listSpecialists,
+  listTeams,
+  type Specialist,
+  type SpecialistTeam,
+} from "@/api/client";
 import { transcribeRealtimeAudio } from "@/api/realtime";
 import {
   AdaptiveVoiceActivityDetector,
@@ -92,6 +98,11 @@ export function useRealtimeConversation() {
   const calibrating = ref(false);
   const calibrationProgress = ref(0);
   const audioMetrics = ref<RealtimeAudioMetrics>(emptyAudioMetrics());
+  const specialists = ref<Specialist[]>([]);
+  const teams = ref<SpecialistTeam[]>([]);
+  const respondersLoading = ref(false);
+  const responderUpdating = ref(false);
+  const responderError = ref("");
 
   let mediaStream: MediaStream | null = null;
   let audioContext: AudioContext | null = null;
@@ -137,6 +148,37 @@ export function useRealtimeConversation() {
       (device) => device.deviceId === audioSettings.value.inputDeviceId,
     );
     return selected?.label || "System microphone";
+  });
+  const availableSpecialists = computed(() =>
+    specialists.value
+      .filter(
+        (specialist) =>
+          !specialist.paused &&
+          specialist.name.trim() &&
+          specialist.name !== "orchestrator",
+      )
+      .slice()
+      .sort((left, right) => left.name.localeCompare(right.name)),
+  );
+  const availableTeams = computed(() =>
+    teams.value
+      .filter((team) => team.name.trim())
+      .slice()
+      .sort((left, right) => left.name.localeCompare(right.name)),
+  );
+  const selectedResponder = computed(() => {
+    const team = activeSession.value?.activeTeam?.trim();
+    if (team) return `team:${team}`;
+    const specialist =
+      activeSession.value?.activeSpecialist?.trim() || "orchestrator";
+    return `specialist:${specialist}`;
+  });
+  const selectedResponderLabel = computed(() => {
+    const team = activeSession.value?.activeTeam?.trim();
+    if (team) return `${team} (team)`;
+    const specialist =
+      activeSession.value?.activeSpecialist?.trim() || "orchestrator";
+    return specialist === "orchestrator" ? "Main orchestrator" : specialist;
   });
   const captureCapabilityWarning = computed(() => {
     if (denoiserMessage.value) return denoiserMessage.value;
@@ -223,6 +265,7 @@ export function useRealtimeConversation() {
       "devicechange",
       refreshAudioInputs,
     );
+    void refreshResponders();
     await refreshAudioInputs();
     try {
       await chat.init();
@@ -355,6 +398,66 @@ export function useRealtimeConversation() {
     if (callActive.value || !sessionId) return;
     error.value = "";
     chat.selectSession(sessionId);
+  }
+
+  async function refreshResponders() {
+    respondersLoading.value = true;
+    responderError.value = "";
+    const [specialistResult, teamResult] = await Promise.allSettled([
+      listSpecialists(),
+      listTeams(),
+    ]);
+    specialists.value =
+      specialistResult.status === "fulfilled" &&
+      Array.isArray(specialistResult.value)
+        ? specialistResult.value
+        : [];
+    teams.value =
+      teamResult.status === "fulfilled" && Array.isArray(teamResult.value)
+        ? teamResult.value
+        : [];
+    if (
+      specialistResult.status === "rejected" ||
+      teamResult.status === "rejected"
+    ) {
+      responderError.value = "Some responders could not be loaded.";
+    }
+    respondersLoading.value = false;
+  }
+
+  async function setResponder(target: string) {
+    const sessionId = activeSessionId.value;
+    if (
+      !sessionId ||
+      !target ||
+      callActive.value ||
+      connecting.value ||
+      responderUpdating.value
+    ) {
+      return;
+    }
+
+    const separator = target.indexOf(":");
+    const kind = separator >= 0 ? target.slice(0, separator) : "";
+    const name = separator >= 0 ? target.slice(separator + 1).trim() : "";
+    if (!name || (kind !== "specialist" && kind !== "team")) return;
+
+    responderUpdating.value = true;
+    responderError.value = "";
+    try {
+      await chat.updateSessionActiveTarget(
+        sessionId,
+        kind === "team" ? "orchestrator" : name,
+        kind === "team" ? name : "",
+      );
+    } catch (updateError) {
+      responderError.value = messageForError(
+        updateError,
+        "Could not change the realtime responder.",
+      );
+    } finally {
+      responderUpdating.value = false;
+    }
   }
 
   function setInputDevice(deviceId: string) {
@@ -771,6 +874,13 @@ export function useRealtimeConversation() {
     calibrating,
     calibrationProgress,
     audioMetrics,
+    availableSpecialists,
+    availableTeams,
+    respondersLoading,
+    responderUpdating,
+    responderError,
+    selectedResponder,
+    selectedResponderLabel,
     phase,
     statusLabel,
     statusDetail,
@@ -784,6 +894,7 @@ export function useRealtimeConversation() {
     interruptAssistant,
     createNewConversation,
     selectConversation,
+    setResponder,
     setInputDevice,
     setSuppressionMode,
     setAutoGainControl,

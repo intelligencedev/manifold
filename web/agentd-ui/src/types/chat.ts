@@ -88,6 +88,23 @@ export interface ChatContextMetrics {
   segments: ChatContextMetricSegment[];
 }
 
+export interface ChatResponseTextPart {
+  id: string;
+  type: "text";
+  content: string;
+}
+
+export interface ChatResponseToolPart {
+  id: string;
+  type: "tool";
+  title: string;
+  status: "running" | "done";
+  args?: string;
+  result?: string;
+}
+
+export type ChatResponsePart = ChatResponseTextPart | ChatResponseToolPart;
+
 export interface ChatMessage {
   id: string;
   role: ChatRole;
@@ -121,6 +138,7 @@ export interface ChatMessage {
   contextMetrics?: ChatContextMetrics;
   llmRequestCount?: number;
   inputRequests?: ChatInputRequest[];
+  responseParts?: ChatResponsePart[];
 }
 
 export interface ChatLLMRequestSummary {

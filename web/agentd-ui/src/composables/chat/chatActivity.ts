@@ -31,14 +31,6 @@ export type SpecialistActivityItem = {
   depth: number;
   isOrchestrator: boolean;
 };
-export type CockpitToolRow = {
-  id: string;
-  name: string;
-  status: string;
-  statusTone: ActivityStatus;
-  args: string;
-  output: string;
-};
 export type CockpitTimelineTick = {
   id: string;
   label: string;
@@ -107,7 +99,6 @@ export function useChatActivity(params: {
   selectedTeamConfig: ComputedRef<TeamConfig | null | undefined>;
   teamsByName: ComputedRef<Map<string, TeamConfig>>;
   participantList: ComputedRef<Participant[]>;
-  toolMessages: ComputedRef<ChatMessage[]>;
   sessionContextMetrics: ComputedRef<ChatContextMetrics | undefined>;
   resolveAgentContext: () => AgentContext;
   teamOrchestratorDisplayName: (team: TeamConfig) => string;
@@ -131,7 +122,6 @@ export function useChatActivity(params: {
     selectedTeamConfig,
     teamsByName,
     participantList,
-    toolMessages,
     sessionContextMetrics,
     resolveAgentContext,
     teamOrchestratorDisplayName,
@@ -179,7 +169,6 @@ export function useChatActivity(params: {
   };
   const selectedActivityId = ref<string | null>(null);
   const selectedParticipantActivityName = ref<string | null>(null);
-  const toolActivityMsById = ref<Record<string, number>>({});
   const cockpitTimelineNowMs = ref(Date.now());
   let cockpitTimelineLiveInterval: number | null = null;
 
@@ -217,20 +206,6 @@ export function useChatActivity(params: {
     if (span <= 0) return "0%";
     const pct = Math.min(100, Math.max(0, ((value - start) / span) * 100));
     return `${pct.toFixed(2)}%`;
-  }
-
-  function statusToneFromLabel(label: string): ActivityStatus {
-    const normalized = label.toLowerCase();
-    if (normalized.includes("error") || normalized.includes("fail")) {
-      return "error";
-    }
-    if (normalized.includes("running") || normalized.includes("live")) {
-      return "running";
-    }
-    if (normalized.includes("queue") || normalized.includes("pending")) {
-      return "idle";
-    }
-    return "done";
   }
 
   function agentThreadTimestamp(thread: AgentThread) {
@@ -445,10 +420,7 @@ export function useChatActivity(params: {
   );
 
   function shouldShowDirectActivity(message: ChatMessage) {
-    return (
-      message.role === "assistant" &&
-      Boolean(message.activityToolTitle || shouldShowDirectThought(message))
-    );
+    return message.role === "assistant" && shouldShowDirectThought(message);
   }
 
   function shouldShowDirectThought(message: ChatMessage) {
@@ -949,15 +921,6 @@ export function useChatActivity(params: {
     };
   }
 
-  const cockpitActivityToolCount = computed(() =>
-    runActivityItems.value.reduce(
-      (count, item) => count + item.toolEntries.length,
-      0,
-    ),
-  );
-  const cockpitToolCount = computed(
-    () => cockpitActivityToolCount.value || toolMessages.value.length,
-  );
   const cockpitAgentContext = computed(() => resolveAgentContext());
   const cockpitTimelineItems = computed(() =>
     [...runActivityItems.value]
@@ -1170,36 +1133,6 @@ export function useChatActivity(params: {
     };
   }
 
-  const cockpitToolRows = computed<CockpitToolRow[]>(() => {
-    const traceRows = runActivityItems.value.flatMap((item) =>
-      item.toolEntries.map((entry) => ({
-        id: `${item.id}:${entry.id}`,
-        name: entry.toolName || entry.title || "Tool call",
-        status: item.statusLabel,
-        statusTone: item.status,
-        args: entry.args || "",
-        output: entry.content || entry.data || "",
-      })),
-    );
-    if (traceRows.length) return traceRows.slice(-25);
-
-    return toolMessages.value.slice(-25).map((message) => {
-      const status = message.error
-        ? "Error"
-        : message.streaming
-          ? "Running"
-          : "Done";
-      return {
-        id: message.id,
-        name: message.title || "Tool call",
-        status,
-        statusTone: statusToneFromLabel(status),
-        args: message.toolArgs || "",
-        output: message.error || message.content || "",
-      };
-    });
-  });
-
   function stopCockpitTimelineLiveUpdates() {
     if (cockpitTimelineLiveInterval == null) return;
     if (isBrowser) window.clearInterval(cockpitTimelineLiveInterval);
@@ -1227,37 +1160,6 @@ export function useChatActivity(params: {
     { immediate: true, flush: "post" },
   );
 
-  watch(
-    () =>
-      toolMessages.value.map((msg) => ({
-        id: msg.id,
-        signature: `${msg.content.length}:${msg.streaming ? 1 : 0}:${
-          msg.error ? 1 : 0
-        }`,
-        createdAt: msg.createdAt,
-      })),
-    (next, prev) => {
-      const now = Date.now();
-      const prevMap = new Map<string, string>();
-      (prev || []).forEach((item) => prevMap.set(item.id, item.signature));
-      const updated: Record<string, number> = {};
-
-      for (const item of next) {
-        const priorSig = prevMap.get(item.id);
-        if (!priorSig || priorSig !== item.signature) {
-          updated[item.id] = now;
-        } else {
-          const baseStamp = safeTimestampMs(item.createdAt);
-          updated[item.id] =
-            toolActivityMsById.value[item.id] ?? (baseStamp || now);
-        }
-      }
-
-      toolActivityMsById.value = updated;
-    },
-    { flush: "post" },
-  );
-
   return {
     cockpitContextDegrees,
     cockpitContextPercent,
@@ -1265,8 +1167,6 @@ export function useChatActivity(params: {
     cockpitContextLegend,
     cockpitContextGradient,
     cockpitContextTitle,
-    cockpitToolCount,
-    cockpitToolRows,
     cockpitTimelineLanes,
     cockpitTimelineTicks,
     runActivitySidebarLabel,

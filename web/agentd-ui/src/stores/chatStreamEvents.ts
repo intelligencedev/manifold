@@ -24,6 +24,13 @@ import {
   emitAssistantRollback,
   emitAssistantStop,
 } from "@/lib/tts/supertonic/speechBus";
+import {
+  appendResponseText,
+  reconcileResponseText,
+  responsePartsForMessage,
+  rollbackResponseText,
+  upsertResponseTool,
+} from "@/lib/chat/responseParts";
 
 type QueryInvalidator = {
   invalidateQueries(options: { queryKey: string[] }): unknown;
@@ -105,6 +112,12 @@ export function handleStreamEvent(
         state.updateMessage(sessionId, assistantId, (m) => ({
           ...m,
           content: m.content + event.data,
+          responseParts: appendResponseText(
+            m.responseParts?.length
+              ? m.responseParts
+              : responsePartsForMessage(m),
+            event.data,
+          ),
           contextMetrics: withEstimatedAssistantTokens(
             m.contextMetrics,
             m.content + event.data,
@@ -128,6 +141,12 @@ export function handleStreamEvent(
           return {
             ...m,
             content: nextContent,
+            responseParts: rollbackResponseText(
+              m.responseParts?.length
+                ? m.responseParts
+                : responsePartsForMessage(m),
+              count,
+            ),
             contextMetrics: withEstimatedAssistantTokens(
               m.contextMetrics,
               nextContent,
@@ -144,6 +163,10 @@ export function handleStreamEvent(
       state.updateMessage(sessionId, assistantId, (m) => ({
         ...m,
         content: text || m.content,
+        responseParts: reconcileResponseText(
+          m.responseParts,
+          text || m.content,
+        ),
         durationMs: durationMs ?? m.durationMs,
         contextMetrics: withEstimatedAssistantTokens(
           m.contextMetrics,
@@ -163,6 +186,18 @@ export function handleStreamEvent(
       state.updateMessage(sessionId, assistantId, (m) => ({
         ...m,
         activityToolTitle: toolDisplayTitle(event),
+        responseParts: upsertResponseTool(
+          m.responseParts?.length
+            ? m.responseParts
+            : responsePartsForMessage(m),
+          {
+            id: responseToolID(event),
+            type: "tool",
+            title: toolDisplayTitle(event),
+            status: "running",
+            args: typeof event.args === "string" ? event.args : undefined,
+          },
+        ),
       }));
       break;
     }
@@ -171,6 +206,19 @@ export function handleStreamEvent(
       state.updateMessage(sessionId, assistantId, (m) => ({
         ...m,
         activityToolTitle: toolDisplayTitle(event),
+        responseParts: upsertResponseTool(
+          m.responseParts?.length
+            ? m.responseParts
+            : responsePartsForMessage(m),
+          {
+            id: responseToolID(event),
+            type: "tool",
+            title: toolDisplayTitle(event),
+            status: "done",
+            args: typeof event.args === "string" ? event.args : undefined,
+            result: typeof event.data === "string" ? event.data : undefined,
+          },
+        ),
       }));
       break;
     }
@@ -240,6 +288,14 @@ export function handleStreamEvent(
     default:
       break;
   }
+}
+
+function responseToolID(event: ChatStreamEvent) {
+  if (typeof event.tool_id === "string" && event.tool_id.trim()) {
+    return `tool-${event.tool_id.trim()}`;
+  }
+  const sequence = eventSequence(event);
+  return `tool-${toolInvocationName(event)}-${sequence || "current"}`;
 }
 
 function upsertToolMessage(

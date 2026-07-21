@@ -226,7 +226,6 @@ export function useChatViewController() {
     () => activeMessagePaging.value?.error || "",
   );
   const activeSummaryEvent = computed(() => chat.activeSummaryEvent);
-  const toolMessages = computed(() => chat.toolMessages);
   const activeThoughtSummaries = computed(() => chat.activeThoughtSummaries);
 
   // --- Memory / command policy state ---
@@ -382,8 +381,6 @@ export function useChatViewController() {
     cockpitContextLegend,
     cockpitContextGradient,
     cockpitContextTitle,
-    cockpitToolCount,
-    cockpitToolRows,
     cockpitTimelineLanes,
     cockpitTimelineTicks,
     runActivitySidebarLabel,
@@ -429,7 +426,6 @@ export function useChatViewController() {
     selectedTeamConfig: targeting.selectedTeamConfig,
     teamsByName: targeting.teamsByName,
     participantList: targeting.participantList,
-    toolMessages,
     sessionContextMetrics: transcriptHelpers.sessionContextMetrics,
     resolveAgentContext: targeting.resolveAgentContext,
     teamOrchestratorDisplayName: targeting.teamOrchestratorDisplayName,
@@ -705,8 +701,6 @@ export function useChatViewController() {
     cockpitContextLegend: cockpitContextLegend.value,
     cockpitContextGradient: cockpitContextGradient.value,
     cockpitContextTitle: cockpitContextTitle.value,
-    cockpitToolCount: cockpitToolCount.value,
-    cockpitToolRows: cockpitToolRows.value,
     sessionPinPending: sessionPanelState.sessionPinPending,
     selectSession: sessionPanelState.selectSession,
     createSession: sessionPanelState.createSession,
@@ -777,7 +771,8 @@ export function useChatViewController() {
     renderMarkdownOrHtml,
     inspectContext: (messageId: string) => {
       const sessionId = activeSessionId.value;
-      if (sessionId && messageId) void contextInspector.inspect(sessionId, messageId);
+      if (sessionId && messageId)
+        void contextInspector.inspect(sessionId, messageId);
     },
     shouldShowDirectActivity,
     shouldShowDirectThought,

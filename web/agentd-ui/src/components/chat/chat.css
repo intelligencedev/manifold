@@ -9,17 +9,11 @@
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background:
-    radial-gradient(
-      circle at 28% 0%,
-      rgb(var(--color-accent) / 0.1),
-      rgb(var(--color-accent) / 0) 28rem
-    ),
-    linear-gradient(
-      180deg,
-      rgb(var(--color-background) / 0.34),
-      rgb(var(--color-background) / 0) 10rem
-    );
+  background: linear-gradient(
+    180deg,
+    rgb(var(--color-background) / 0.34),
+    rgb(var(--color-background) / 0) 10rem
+  );
 }
 
 .chat-session-panel,

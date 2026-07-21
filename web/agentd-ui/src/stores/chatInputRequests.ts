@@ -2,8 +2,16 @@ import {
   answerChatInputRequest as apiAnswerChatInputRequest,
   type ChatStreamEvent,
 } from "@/api/chat";
-import type { ChatInputRequest, ChatInputRequestChoice } from "@/types/chat";
+import type {
+  ChatInputRequest,
+  ChatInputRequestChoice,
+  ChatMessage,
+} from "@/types/chat";
 import type { ChatStoreState } from "@/stores/chatStoreState";
+import {
+  responsePartsForMessage,
+  upsertResponseInputRequest,
+} from "@/lib/chat/responseParts";
 
 export function normalizeInputRequestChoices(
   choices: unknown,
@@ -90,13 +98,42 @@ export function handleInputRequestEvent(
         ? event.created_at
         : new Date().toISOString(),
   };
-  state.updateMessage(sessionId, assistantId, (m) => {
+  const targetMessageId = inputRequestTargetMessageId(
+    state,
+    sessionId,
+    assistantId,
+    request.runId,
+  );
+  const update = (m: ChatMessage) => {
     const requests = [...(m.inputRequests || [])];
     const existing = requests.findIndex((item) => item.id === request.id);
     if (existing === -1) requests.push(request);
     else requests.splice(existing, 1, { ...requests[existing], ...request });
-    return { ...m, inputRequests: requests };
-  });
+    return {
+      ...m,
+      inputRequests: requests,
+      responseParts: upsertResponseInputRequest(
+        responsePartsForMessage(m),
+        request.id,
+      ),
+    };
+  };
+  if (targetMessageId) {
+    state.updateMessage(sessionId, targetMessageId, update);
+    return;
+  }
+  state.appendMessage(
+    sessionId,
+    update({
+      id: assistantId || `input-request-${request.id}`,
+      role: "assistant",
+      content: "",
+      createdAt: request.createdAt,
+      streaming: true,
+      runId: request.runId,
+    }),
+    false,
+  );
 }
 
 export function handleInputRequestCancelledEvent(
@@ -110,14 +147,56 @@ export function handleInputRequestCancelledEvent(
       ? event.request_id.trim()
       : "";
   if (!requestId) return;
-  updateInputRequest(state, sessionId, assistantId, requestId, (request) => ({
-    ...request,
-    status: "cancelled",
-    error:
-      typeof event.error === "string" && event.error.trim()
-        ? event.error.trim()
-        : "Request cancelled",
-  }));
+  const targetMessageId =
+    inputRequestMessageId(state, sessionId, requestId) || assistantId;
+  updateInputRequest(
+    state,
+    sessionId,
+    targetMessageId,
+    requestId,
+    (request) => ({
+      ...request,
+      status: "cancelled",
+      error:
+        typeof event.error === "string" && event.error.trim()
+          ? event.error.trim()
+          : "Request cancelled",
+    }),
+  );
+}
+
+function inputRequestTargetMessageId(
+  state: ChatStoreState,
+  sessionId: string,
+  assistantId: string,
+  runId?: string,
+) {
+  const messages = state.messagesBySession.value[sessionId] || [];
+  if (messages.some((message) => message.id === assistantId)) {
+    return assistantId;
+  }
+  const assistants = messages.filter((message) => message.role === "assistant");
+  if (runId) {
+    const matchingRun = [...assistants]
+      .reverse()
+      .find((message) => message.runId === runId);
+    if (matchingRun) return matchingRun.id;
+  }
+  return (
+    [...assistants].reverse().find((message) => message.streaming)?.id || ""
+  );
+}
+
+function inputRequestMessageId(
+  state: ChatStoreState,
+  sessionId: string,
+  requestId: string,
+) {
+  return [...(state.messagesBySession.value[sessionId] || [])]
+    .reverse()
+    .find((message) =>
+      message.inputRequests?.some((request) => request.id === requestId),
+    )?.id;
 }
 
 export function updateInputRequest(
@@ -149,9 +228,7 @@ export async function submitInputRequest(
     .filter((id) => id.length > 0);
   const cleanAnswer = answer.trim();
   try {
-    const current = (
-      state.messagesBySession.value[sessionId] || []
-    )
+    const current = (state.messagesBySession.value[sessionId] || [])
       .find((message) => message.id === messageId)
       ?.inputRequests?.find((request) => request.id === requestId);
     await apiAnswerChatInputRequest(

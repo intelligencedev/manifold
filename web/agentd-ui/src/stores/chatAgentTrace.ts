@@ -244,19 +244,14 @@ function handleDirectAgentTraceEvent(
               ? event.title
               : m.activityToolTitle,
         activityToolEntries: [...(m.activityToolEntries || []), entry],
-        responseParts: upsertResponseTool(
-          m.responseParts?.length
-            ? m.responseParts
-            : responsePartsForMessage(m),
-          {
-            id: directResponseToolID(event, callId),
-            type: "tool",
-            title: toolDisplayTitle(event),
-            status: isResult ? "done" : "running",
-            args: typeof event.args === "string" ? event.args : undefined,
-            result: isResult ? entryValue : undefined,
-          },
-        ),
+        responseParts: upsertResponseTool(responsePartsForMessage(m), {
+          id: directResponseToolID(event, callId),
+          type: "tool",
+          title: toolDisplayTitle(event),
+          status: isResult ? "done" : "running",
+          args: typeof event.args === "string" ? event.args : undefined,
+          result: isResult ? entryValue : undefined,
+        }),
       }));
       break;
     }

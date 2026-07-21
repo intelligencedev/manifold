@@ -113,9 +113,7 @@ export function handleStreamEvent(
           ...m,
           content: m.content + event.data,
           responseParts: appendResponseText(
-            m.responseParts?.length
-              ? m.responseParts
-              : responsePartsForMessage(m),
+            responsePartsForMessage(m),
             event.data,
           ),
           contextMetrics: withEstimatedAssistantTokens(
@@ -142,9 +140,7 @@ export function handleStreamEvent(
             ...m,
             content: nextContent,
             responseParts: rollbackResponseText(
-              m.responseParts?.length
-                ? m.responseParts
-                : responsePartsForMessage(m),
+              responsePartsForMessage(m),
               count,
             ),
             contextMetrics: withEstimatedAssistantTokens(
@@ -164,7 +160,7 @@ export function handleStreamEvent(
         ...m,
         content: text || m.content,
         responseParts: reconcileResponseText(
-          m.responseParts,
+          responsePartsForMessage(m),
           text || m.content,
         ),
         durationMs: durationMs ?? m.durationMs,
@@ -186,18 +182,13 @@ export function handleStreamEvent(
       state.updateMessage(sessionId, assistantId, (m) => ({
         ...m,
         activityToolTitle: toolDisplayTitle(event),
-        responseParts: upsertResponseTool(
-          m.responseParts?.length
-            ? m.responseParts
-            : responsePartsForMessage(m),
-          {
-            id: responseToolID(event),
-            type: "tool",
-            title: toolDisplayTitle(event),
-            status: "running",
-            args: typeof event.args === "string" ? event.args : undefined,
-          },
-        ),
+        responseParts: upsertResponseTool(responsePartsForMessage(m), {
+          id: responseToolID(event),
+          type: "tool",
+          title: toolDisplayTitle(event),
+          status: "running",
+          args: typeof event.args === "string" ? event.args : undefined,
+        }),
       }));
       break;
     }
@@ -206,19 +197,14 @@ export function handleStreamEvent(
       state.updateMessage(sessionId, assistantId, (m) => ({
         ...m,
         activityToolTitle: toolDisplayTitle(event),
-        responseParts: upsertResponseTool(
-          m.responseParts?.length
-            ? m.responseParts
-            : responsePartsForMessage(m),
-          {
-            id: responseToolID(event),
-            type: "tool",
-            title: toolDisplayTitle(event),
-            status: "done",
-            args: typeof event.args === "string" ? event.args : undefined,
-            result: typeof event.data === "string" ? event.data : undefined,
-          },
-        ),
+        responseParts: upsertResponseTool(responsePartsForMessage(m), {
+          id: responseToolID(event),
+          type: "tool",
+          title: toolDisplayTitle(event),
+          status: "done",
+          args: typeof event.args === "string" ? event.args : undefined,
+          result: typeof event.data === "string" ? event.data : undefined,
+        }),
       }));
       break;
     }

@@ -27,6 +27,40 @@ import { useChatComposer } from "./useChatComposer";
 import { useChatTranscript } from "./useChatTranscript";
 import { useContextInspector } from "./useContextInspector";
 import { useTtsStore } from "@/stores/tts";
+import type { ChatMessage } from "@/types/chat";
+
+export function chatMessageRenderSignature(message: ChatMessage) {
+  const responseParts = (message.responseParts || []).map((part) => {
+    if (part.type === "text") return `${part.id}:text:${part.content.length}`;
+    if (part.type === "tool") {
+      return `${part.id}:tool:${part.title}:${part.status}:${part.result?.length || 0}`;
+    }
+    return `${part.id}:input_request:${part.requestId}`;
+  });
+  const inputRequests = (message.inputRequests || []).map(
+    (request) =>
+      `${request.id}:${request.status}:${request.question}:${request.error || ""}:${request.answer || ""}:${(request.choiceIds || []).join(",")}`,
+  );
+  const attachments = (message.attachments || []).map(
+    (attachment) =>
+      `${attachment.id}:${attachment.kind}:${attachment.previewUrl || ""}`,
+  );
+  return [
+    message.id,
+    message.content.length,
+    message.streaming ? 1 : 0,
+    message.error || "",
+    message.title || "",
+    message.toolArgs?.length || 0,
+    message.activityThoughtSummary?.length || 0,
+    message.memoryContext?.text.length || 0,
+    message.audioUrl || "",
+    message.videoUrl || "",
+    responseParts.join("|"),
+    inputRequests.join("|"),
+    attachments.join("|"),
+  ].join(":");
+}
 
 export function useChatViewController() {
   const isBrowser = typeof window !== "undefined";
@@ -454,10 +488,7 @@ export function useChatViewController() {
 
   // --- Watchers ---
   watch(
-    () =>
-      activeMessages.value.map(
-        (msg) => `${msg.id}:${msg.content.length}:${msg.streaming ? 1 : 0}`,
-      ),
+    () => activeMessages.value.map(chatMessageRenderSignature),
     () => scroll.scrollMessagesToBottom(),
     { flush: "post" },
   );

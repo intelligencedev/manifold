@@ -110,4 +110,98 @@ describe("streamed response parts", () => {
       },
     ]);
   });
+
+  it("inserts an approval request at the point it arrives in the stream", () => {
+    const state = makeState();
+
+    feed(state, { type: "delta", data: "I need permission to continue." });
+    feed(state, {
+      type: "input_request",
+      request_id: "approval-1",
+      run_id: "run-1",
+      question: "Allow the command?",
+      reason: "The command modifies the project.",
+      choices: [{ id: "approve", label: "Approve" }],
+      allow_free_text: false,
+      multiple: false,
+    });
+
+    const messageAfterRequest = state.messagesBySession.value[sessionId][0];
+    expect(messageAfterRequest.inputRequests).toEqual([
+      expect.objectContaining({
+        id: "approval-1",
+        question: "Allow the command?",
+        status: "pending",
+      }),
+    ]);
+    expect(messageAfterRequest.responseParts).toEqual([
+      {
+        id: "text-0",
+        type: "text",
+        content: "I need permission to continue.",
+      },
+      {
+        id: "input-request-approval-1",
+        type: "input_request",
+        requestId: "approval-1",
+      },
+    ]);
+
+    feed(state, { type: "delta", data: "Continuing after approval." });
+
+    expect(state.messagesBySession.value[sessionId][0].responseParts).toEqual([
+      {
+        id: "text-0",
+        type: "text",
+        content: "I need permission to continue.",
+      },
+      {
+        id: "input-request-approval-1",
+        type: "input_request",
+        requestId: "approval-1",
+      },
+      {
+        id: "text-2",
+        type: "text",
+        content: "Continuing after approval.",
+      },
+    ]);
+  });
+
+  it("does not drop an approval event when the assistant placeholder is missing", () => {
+    const state = makeState();
+    state.setMessages(sessionId, []);
+
+    feed(state, {
+      type: "input_request",
+      request_id: "approval-without-placeholder",
+      run_id: "run-1",
+      question: "Approve this tool call?",
+      choices: [],
+      allow_free_text: true,
+      multiple: false,
+      created_at: "2026-07-20T00:00:01.000Z",
+    });
+
+    expect(state.messagesBySession.value[sessionId]).toEqual([
+      expect.objectContaining({
+        id: assistantId,
+        role: "assistant",
+        streaming: true,
+        inputRequests: [
+          expect.objectContaining({
+            id: "approval-without-placeholder",
+            status: "pending",
+          }),
+        ],
+        responseParts: [
+          {
+            id: "input-request-approval-without-placeholder",
+            type: "input_request",
+            requestId: "approval-without-placeholder",
+          },
+        ],
+      }),
+    ]);
+  });
 });

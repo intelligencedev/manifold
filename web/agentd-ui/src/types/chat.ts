@@ -103,7 +103,16 @@ export interface ChatResponseToolPart {
   result?: string;
 }
 
-export type ChatResponsePart = ChatResponseTextPart | ChatResponseToolPart;
+export interface ChatResponseInputRequestPart {
+  id: string;
+  type: "input_request";
+  requestId: string;
+}
+
+export type ChatResponsePart =
+  | ChatResponseTextPart
+  | ChatResponseToolPart
+  | ChatResponseInputRequestPart;
 
 export interface ChatMessage {
   id: string;

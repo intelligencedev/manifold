@@ -246,140 +246,6 @@
           <p v-if="message.title" class="font-semibold text-foreground">
             {{ message.title }}
           </p>
-          <div v-if="message.inputRequests?.length" class="input-request-list">
-            <form
-              v-for="request in message.inputRequests"
-              :key="request.id"
-              class="input-request-card"
-              :class="model.inputRequestCardClasses(request)"
-              @submit.prevent="model.submitInputRequest(message, request)"
-            >
-              <div class="input-request-header">
-                <div class="min-w-0">
-                  <p class="input-request-kicker">
-                    {{ model.inputRequestStatusLabel(request) }}
-                  </p>
-                  <p class="input-request-agent">
-                    {{ request.agent || model.agentNameFor(message) }}
-                  </p>
-                </div>
-                <span
-                  v-if="request.status === 'pending'"
-                  class="input-request-live-dot"
-                ></span>
-              </div>
-              <p class="input-request-question">
-                {{ request.question }}
-              </p>
-              <p v-if="request.reason" class="input-request-reason">
-                {{ request.reason }}
-              </p>
-
-              <div
-                v-if="
-                  request.choices.length &&
-                  model.isInputRequestRespondable(request)
-                "
-                class="input-request-choices"
-              >
-                <label
-                  v-for="choice in request.choices"
-                  :key="choice.id"
-                  class="input-request-choice"
-                >
-                  <input
-                    :type="request.multiple ? 'checkbox' : 'radio'"
-                    :name="model.inputRequestFieldName(message, request)"
-                    :checked="
-                      model.inputRequestChoiceSelected(
-                        message,
-                        request,
-                        choice.id,
-                      )
-                    "
-                    :disabled="model.isInputRequestSubmitting(message, request)"
-                    @change="
-                      model.toggleInputRequestChoice(
-                        message,
-                        request,
-                        choice.id,
-                      )
-                    "
-                  />
-                  <span class="min-w-0">
-                    <span class="input-request-choice-label">
-                      {{ choice.label }}
-                    </span>
-                    <span
-                      v-if="choice.description"
-                      class="input-request-choice-description"
-                    >
-                      {{ choice.description }}
-                    </span>
-                  </span>
-                </label>
-              </div>
-
-              <textarea
-                v-if="
-                  request.allowFreeText &&
-                  model.isInputRequestRespondable(request)
-                "
-                :value="model.inputRequestDraft(message, request)"
-                class="input-request-textarea"
-                rows="3"
-                placeholder="Tell the model what to do..."
-                :disabled="model.isInputRequestSubmitting(message, request)"
-                @input="
-                  model.setInputRequestDraft(
-                    message,
-                    request,
-                    ($event.target as HTMLTextAreaElement | null)?.value || '',
-                  )
-                "
-              ></textarea>
-
-              <p
-                v-if="
-                  model.inputRequestLocalError(message, request) ||
-                  request.error
-                "
-                class="input-request-error"
-              >
-                {{
-                  model.inputRequestLocalError(message, request) ||
-                  request.error
-                }}
-              </p>
-
-              <div
-                v-if="request.status === 'answered'"
-                class="input-request-answer"
-              >
-                <span class="input-request-answer-label">Answered</span>
-                <span class="input-request-answer-text">
-                  {{ model.inputRequestAnswerSummary(request) }}
-                </span>
-              </div>
-
-              <div
-                v-if="model.isInputRequestRespondable(request)"
-                class="input-request-actions"
-              >
-                <button
-                  type="submit"
-                  class="input-request-submit"
-                  :disabled="!model.canSubmitInputRequest(message, request)"
-                >
-                  {{
-                    model.isInputRequestSubmitting(message, request)
-                      ? "Submitting..."
-                      : "Continue"
-                  }}
-                </button>
-              </div>
-            </form>
-          </div>
           <pre
             v-if="message.toolArgs"
             class="whitespace-pre-wrap rounded-4 border border-border bg-surface-muted/60 p-3 text-xs text-subtle-foreground"
@@ -395,7 +261,7 @@
               v-html="model.renderMarkdownOrHtml(part.content)"
             ></div>
             <div
-              v-else
+              v-else-if="part.type === 'tool'"
               class="inline-tool-call"
               :class="{
                 'inline-tool-call--running': part.status === 'running',
@@ -407,6 +273,12 @@
                 <span class="inline-tool-call-title">{{ part.title }}</span>
               </div>
             </div>
+            <ChatInputRequestCard
+              v-else-if="inputRequestForPart(message, part.requestId)"
+              :message="message"
+              :request="inputRequestForPart(message, part.requestId)!"
+              :model="model"
+            />
           </template>
           <div v-if="message.attachments?.length" class="space-y-2">
             <div
@@ -559,6 +431,7 @@
 
 <script setup lang="ts">
 import { computed } from "vue";
+import ChatInputRequestCard from "@/components/chat/ChatInputRequestCard.vue";
 import ContextInspectorButton from "@/components/chat/ContextInspectorButton.vue";
 import SolarCopyIcon from "@/components/icons/SolarCopy.vue";
 import SolarListArrowDownIcon from "@/components/icons/Expand.vue";
@@ -566,6 +439,7 @@ import SolarRefreshIcon from "@/components/icons/SolarRefresh.vue";
 import SolarTrashIcon from "@/components/icons/SolarTrash.vue";
 import type { ChatTranscriptModel } from "@/composables/chat/useChatViewController";
 import { responsePartsForMessage } from "@/lib/chat/responseParts";
+import type { ChatMessage } from "@/types/chat";
 
 const props = defineProps<{
   model: ChatTranscriptModel;
@@ -575,4 +449,8 @@ const messagesPaneEl = computed({
   get: () => null,
   set: (value) => props.model.setMessagesPaneRef(value as Element | null),
 });
+
+function inputRequestForPart(message: ChatMessage, requestId: string) {
+  return message.inputRequests?.find((request) => request.id === requestId);
+}
 </script>

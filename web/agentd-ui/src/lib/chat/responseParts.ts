@@ -1,5 +1,6 @@
 import type {
   ChatMessage,
+  ChatResponseInputRequestPart,
   ChatResponsePart,
   ChatResponseToolPart,
 } from "@/types/chat";
@@ -58,6 +59,25 @@ export function upsertResponseTool(
   return next;
 }
 
+export function upsertResponseInputRequest(
+  parts: ChatResponsePart[] | undefined,
+  requestId: string,
+): ChatResponsePart[] {
+  const next = parts ? [...parts] : [];
+  const id = `input-request-${requestId}`;
+  const index = next.findIndex(
+    (part) => part.type === "input_request" && part.requestId === requestId,
+  );
+  const requestPart: ChatResponseInputRequestPart = {
+    id,
+    type: "input_request",
+    requestId,
+  };
+  if (index < 0) next.push(requestPart);
+  else next[index] = requestPart;
+  return next;
+}
+
 export function reconcileResponseText(
   parts: ChatResponsePart[] | undefined,
   content: string,
@@ -94,16 +114,21 @@ export function reconcileResponseText(
 }
 
 export function responsePartsForMessage(message: ChatMessage) {
-  if (message.responseParts?.length) return message.responseParts;
-  return message.content
-    ? [
-        {
-          id: `${message.id}-text`,
-          type: "text" as const,
-          content: message.content,
-        },
-      ]
-    : [];
+  let parts: ChatResponsePart[] = message.responseParts?.length
+    ? [...message.responseParts]
+    : message.content
+      ? [
+          {
+            id: `${message.id}-text`,
+            type: "text" as const,
+            content: message.content,
+          },
+        ]
+      : [];
+  for (const request of message.inputRequests || []) {
+    parts = upsertResponseInputRequest(parts, request.id);
+  }
+  return parts;
 }
 
 function responseText(parts: ChatResponsePart[]) {

@@ -5,6 +5,9 @@ import {
   ref,
   type ComputedRef,
 } from "vue";
+import rnnoiseWorkletPath from "@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url";
+import rnnoiseWasmPath from "@sapphi-red/web-noise-suppressor/rnnoise.wasm?url";
+import rnnoiseWasmSimdPath from "@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url";
 import { transcribeRealtimeAudio } from "@/api/realtime";
 import {
   AdaptiveVoiceActivityDetector,
@@ -12,6 +15,16 @@ import {
   mergeAudioFrames,
   resampleLinear,
 } from "@/lib/realtime/audio";
+import {
+  buildRealtimeAudioConstraints,
+  detectRealtimeCaptureCapabilities,
+  loadRealtimeAudioSettings,
+  readAppliedCaptureSettings,
+  saveRealtimeAudioSettings,
+  shouldUseRnnoise,
+  type AppliedRealtimeCaptureSettings,
+  type NoiseSuppressionMode,
+} from "@/lib/realtime/settings";
 import { useChatStore } from "@/stores/chat";
 import { useTtsStore } from "@/stores/tts";
 import type { ChatInputRequest, ChatMessage } from "@/types/chat";
@@ -19,6 +32,7 @@ import type { ChatInputRequest, ChatMessage } from "@/types/chat";
 export type RealtimePhase =
   | "idle"
   | "connecting"
+  | "calibrating"
   | "listening"
   | "muted"
   | "user-speaking"
@@ -32,10 +46,27 @@ type PendingInputRequest = {
   request: ChatInputRequest;
 };
 
+export type RealtimeDenoiserStatus = "off" | "loading" | "active" | "fallback";
+
+export type RealtimeAudioMetrics = {
+  framesProcessed: number;
+  rejectedNoiseEvents: number;
+  deadlineMisses: number;
+  noiseFloor: number;
+  snrDb: number;
+  speechProbability: number;
+  processingMs: number;
+  inputChannels: number;
+  beamforming: boolean;
+};
+
 const TARGET_SAMPLE_RATE = 16_000;
 const PRE_ROLL_FRAMES = 25;
 const MAX_UTTERANCE_FRAMES = 750;
 const TRAILING_SILENCE_FRAMES_TO_DROP = 18;
+const INITIAL_CALIBRATION_FRAMES = 15;
+const MANUAL_CALIBRATION_FRAMES = 75;
+const WORKLET_DEADLINE_MS = 3;
 
 export function useRealtimeConversation() {
   const chat = useChatStore();
@@ -50,11 +81,23 @@ export function useRealtimeConversation() {
   const audioLevel = ref(0);
   const liveTranscript = ref("");
   const error = ref("");
+  const audioSettings = ref(loadRealtimeAudioSettings());
+  const audioInputs = ref<MediaDeviceInfo[]>([]);
+  const captureCapabilities = ref(detectRealtimeCaptureCapabilities());
+  const appliedCaptureSettings = ref<AppliedRealtimeCaptureSettings | null>(
+    null,
+  );
+  const denoiserStatus = ref<RealtimeDenoiserStatus>("off");
+  const denoiserMessage = ref("");
+  const calibrating = ref(false);
+  const calibrationProgress = ref(0);
+  const audioMetrics = ref<RealtimeAudioMetrics>(emptyAudioMetrics());
 
   let mediaStream: MediaStream | null = null;
   let audioContext: AudioContext | null = null;
   let sourceNode: MediaStreamAudioSourceNode | null = null;
   let captureNode: AudioWorkletNode | null = null;
+  let rnnoiseNode: RealtimeRnnoiseNode | null = null;
   let silentGain: GainNode | null = null;
   let inputSampleRate = 48_000;
   let preRoll: Float32Array[] = [];
@@ -64,6 +107,9 @@ export function useRealtimeConversation() {
   let ttsWasEnabled = false;
   let realtimeSessionId: string | null = null;
   let callGeneration = 0;
+  let calibrationTotalFrames = 0;
+  let previousRejectedNoise = false;
+  let consecutiveDeadlineMisses = 0;
 
   const activeSessionId = computed(() => chat.activeSessionId);
   const activeSession = computed(() => chat.activeSession);
@@ -86,12 +132,38 @@ export function useRealtimeConversation() {
     typeof window !== "undefined" &&
     Boolean(navigator.mediaDevices?.getUserMedia) &&
     Boolean(audioContextConstructor());
+  const selectedInputLabel = computed(() => {
+    const selected = audioInputs.value.find(
+      (device) => device.deviceId === audioSettings.value.inputDeviceId,
+    );
+    return selected?.label || "System microphone";
+  });
+  const captureCapabilityWarning = computed(() => {
+    if (denoiserMessage.value) return denoiserMessage.value;
+    if (!callActive.value || !appliedCaptureSettings.value) return "";
+    const applied = appliedCaptureSettings.value;
+    if (
+      audioSettings.value.suppressionMode === "automatic" &&
+      captureCapabilities.value.voiceIsolation &&
+      applied.voiceIsolation !== true
+    ) {
+      return "The browser did not apply voice isolation; RNNoise fallback is active.";
+    }
+    if (
+      audioSettings.value.suppressionMode === "standard" &&
+      applied.noiseSuppression !== true
+    ) {
+      return "The browser did not apply its requested noise suppression.";
+    }
+    return "";
+  });
 
   const phase: ComputedRef<RealtimePhase> = computed(() => {
     if (error.value) return "error";
     if (connecting.value) return "connecting";
     if (!callActive.value) return "idle";
     if (muted.value) return "muted";
+    if (calibrating.value) return "calibrating";
     if (userSpeaking.value) return "user-speaking";
     if (transcriptionsInFlight.value > 0) return "transcribing";
     if (assistantSpeaking.value) return "assistant-speaking";
@@ -105,6 +177,8 @@ export function useRealtimeConversation() {
         return "Preparing local voice models";
       case "listening":
         return "Listening";
+      case "calibrating":
+        return "Learning room noise";
       case "muted":
         return "Microphone muted";
       case "user-speaking":
@@ -135,6 +209,9 @@ export function useRealtimeConversation() {
     if (phase.value === "listening") {
       return "Speak naturally. You can interrupt Manifold at any time.";
     }
+    if (phase.value === "calibrating") {
+      return "Stay quiet briefly while Manifold measures the ambient sound.";
+    }
     if (phase.value === "user-speaking") {
       return "Your turn will be sent automatically when you pause.";
     }
@@ -142,6 +219,11 @@ export function useRealtimeConversation() {
   });
 
   onMounted(async () => {
+    navigator.mediaDevices?.addEventListener?.(
+      "devicechange",
+      refreshAudioInputs,
+    );
+    await refreshAudioInputs();
     try {
       await chat.init();
     } catch (loadError) {
@@ -150,6 +232,10 @@ export function useRealtimeConversation() {
   });
 
   onBeforeUnmount(() => {
+    navigator.mediaDevices?.removeEventListener?.(
+      "devicechange",
+      refreshAudioInputs,
+    );
     void endCall({ cancelResponse: false });
   });
 
@@ -157,6 +243,8 @@ export function useRealtimeConversation() {
     if (!supported || callActive.value || connecting.value) return;
     const generation = ++callGeneration;
     error.value = "";
+    liveTranscript.value = "";
+    audioMetrics.value = emptyAudioMetrics();
     connecting.value = true;
     try {
       // Create/resume the playback context while this is still a direct user
@@ -182,6 +270,7 @@ export function useRealtimeConversation() {
         return;
       }
       callActive.value = true;
+      beginCalibration(INITIAL_CALIBRATION_FRAMES);
     } catch (startError) {
       await cleanupAudio();
       const sessionId = realtimeSessionId;
@@ -212,6 +301,8 @@ export function useRealtimeConversation() {
     muted.value = false;
     userSpeaking.value = false;
     audioLevel.value = 0;
+    calibrating.value = false;
+    calibrationProgress.value = 0;
     detector.reset();
     preRoll = [];
     utteranceFrames = [];
@@ -242,11 +333,15 @@ export function useRealtimeConversation() {
     }
     if (muted.value) {
       detector.reset();
+      calibrating.value = false;
+      calibrationProgress.value = 0;
       preRoll = [];
       utteranceFrames = [];
       collectingUtterance = false;
       userSpeaking.value = false;
       audioLevel.value = 0;
+    } else {
+      beginCalibration(INITIAL_CALIBRATION_FRAMES);
     }
   }
 
@@ -260,6 +355,66 @@ export function useRealtimeConversation() {
     if (callActive.value || !sessionId) return;
     error.value = "";
     chat.selectSession(sessionId);
+  }
+
+  function setInputDevice(deviceId: string) {
+    if (callActive.value || connecting.value) return;
+    audioSettings.value = { ...audioSettings.value, inputDeviceId: deviceId };
+    persistAudioSettings();
+  }
+
+  function setSuppressionMode(mode: NoiseSuppressionMode) {
+    if (callActive.value || connecting.value) return;
+    audioSettings.value = { ...audioSettings.value, suppressionMode: mode };
+    persistAudioSettings();
+  }
+
+  function setAutoGainControl(enabled: boolean) {
+    if (callActive.value || connecting.value) return;
+    audioSettings.value = { ...audioSettings.value, autoGainControl: enabled };
+    persistAudioSettings();
+  }
+
+  function calibrateRoomNoise() {
+    if (!callActive.value || phase.value !== "listening") return;
+    preRoll = [];
+    utteranceFrames = [];
+    collectingUtterance = false;
+    userSpeaking.value = false;
+    beginCalibration(MANUAL_CALIBRATION_FRAMES);
+  }
+
+  function beginCalibration(frames: number) {
+    calibrationTotalFrames = frames;
+    calibrating.value = true;
+    calibrationProgress.value = 0;
+    detector.calibrate(frames);
+    captureNode?.port.postMessage({ type: "calibrate", frames });
+  }
+
+  function persistAudioSettings() {
+    saveRealtimeAudioSettings(audioSettings.value);
+  }
+
+  async function refreshAudioInputs() {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      audioInputs.value = devices.filter(
+        (device) => device.kind === "audioinput",
+      );
+      if (
+        audioSettings.value.inputDeviceId &&
+        !audioInputs.value.some(
+          (device) => device.deviceId === audioSettings.value.inputDeviceId,
+        )
+      ) {
+        audioSettings.value = { ...audioSettings.value, inputDeviceId: "" };
+        persistAudioSettings();
+      }
+    } catch {
+      audioInputs.value = [];
+    }
   }
 
   function interruptAssistant() {
@@ -281,17 +436,19 @@ export function useRealtimeConversation() {
 
   async function openMicrophone() {
     mediaStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-        latency: { ideal: 0.01 },
-      },
+      audio: buildRealtimeAudioConstraints(
+        audioSettings.value,
+        captureCapabilities.value,
+      ),
     });
+    const inputTrack = mediaStream.getAudioTracks()[0];
+    if (!inputTrack)
+      throw new Error("The selected microphone has no audio track.");
+    appliedCaptureSettings.value = readAppliedCaptureSettings(inputTrack);
+    await refreshAudioInputs();
     const AudioContextClass = audioContextConstructor();
     if (!AudioContextClass) throw new Error("Web Audio is unavailable.");
-    audioContext = new AudioContextClass({ latencyHint: "interactive" });
+    audioContext = createRealtimeAudioContext(AudioContextClass);
     inputSampleRate = audioContext.sampleRate || 48_000;
     await audioContext.audioWorklet.addModule("/realtime-capture-worklet.js");
     sourceNode = audioContext.createMediaStreamSource(mediaStream);
@@ -302,33 +459,138 @@ export function useRealtimeConversation() {
         numberOfInputs: 1,
         numberOfOutputs: 1,
         outputChannelCount: [1],
+        channelCount: Math.min(
+          2,
+          Math.max(1, appliedCaptureSettings.value?.channelCount || 1),
+        ),
+        channelCountMode: "max",
       },
     );
     silentGain = audioContext.createGain();
     silentGain.gain.value = 0;
     captureNode.port.onmessage = handleWorkletMessage;
-    sourceNode.connect(captureNode);
+    await connectCapturePipeline();
     captureNode.connect(silentGain);
     silentGain.connect(audioContext.destination);
     await audioContext.resume();
   }
 
+  async function connectCapturePipeline() {
+    if (!audioContext || !sourceNode || !captureNode) return;
+    const useRnnoise = shouldUseRnnoise(
+      audioSettings.value,
+      appliedCaptureSettings.value,
+    );
+    if (!useRnnoise) {
+      denoiserStatus.value = "off";
+      denoiserMessage.value = "";
+      sourceNode.connect(captureNode);
+      return;
+    }
+    if (audioContext.sampleRate !== 48_000) {
+      denoiserStatus.value = "fallback";
+      denoiserMessage.value =
+        "RNNoise requires 48 kHz capture; direct capture fallback is active.";
+      sourceNode.connect(captureNode);
+      return;
+    }
+
+    denoiserStatus.value = "loading";
+    try {
+      const { loadRnnoise, RnnoiseWorkletNode } =
+        await import("@sapphi-red/web-noise-suppressor");
+      const wasmBinary = await loadRnnoise({
+        url: rnnoiseWasmPath,
+        simdUrl: rnnoiseWasmSimdPath,
+      });
+      await audioContext.audioWorklet.addModule(rnnoiseWorkletPath);
+      rnnoiseNode = new RnnoiseWorkletNode(audioContext, {
+        wasmBinary,
+        maxChannels: Math.min(
+          2,
+          Math.max(1, appliedCaptureSettings.value?.channelCount || 1),
+        ),
+      });
+      rnnoiseNode.onprocessorerror = () => {
+        fallbackFromRnnoise(
+          "RNNoise stopped unexpectedly; direct capture fallback is active.",
+        );
+      };
+      sourceNode.connect(rnnoiseNode);
+      rnnoiseNode.connect(captureNode);
+      denoiserStatus.value = "active";
+      denoiserMessage.value = "";
+    } catch (denoiserError) {
+      console.warn("RNNoise initialization failed", denoiserError);
+      const message =
+        "RNNoise could not initialize; direct capture fallback is active.";
+      if (rnnoiseNode) {
+        fallbackFromRnnoise(message);
+      } else {
+        denoiserStatus.value = "fallback";
+        denoiserMessage.value = message;
+        sourceNode.connect(captureNode);
+      }
+    }
+  }
+
+  function fallbackFromRnnoise(message: string) {
+    if (!sourceNode || !captureNode || !rnnoiseNode) return;
+    const failedNode = rnnoiseNode;
+    rnnoiseNode = null;
+    try {
+      sourceNode.disconnect(failedNode);
+    } catch (fallbackError) {
+      console.warn("RNNoise source disconnection failed", fallbackError);
+    }
+    try {
+      failedNode.disconnect();
+      failedNode.destroy();
+    } catch (fallbackError) {
+      console.warn("RNNoise cleanup failed", fallbackError);
+    }
+    try {
+      sourceNode.connect(captureNode);
+    } catch (fallbackError) {
+      console.warn("RNNoise fallback connection failed", fallbackError);
+    }
+    denoiserStatus.value = "fallback";
+    denoiserMessage.value = message;
+  }
+
   function handleWorkletMessage(event: MessageEvent<unknown>) {
     if (!callActive.value || muted.value) return;
     if (!event.data || typeof event.data !== "object") return;
-    const data = event.data as { type?: unknown; samples?: unknown };
+    const data = event.data as RealtimeWorkletAudioMessage;
     if (data.type !== "audio" || !(data.samples instanceof Float32Array)) {
       return;
     }
-    processAudioFrame(data.samples);
+    processAudioFrame(data.samples, data);
   }
 
-  function processAudioFrame(frame: Float32Array) {
-    const update = detector.process(frame);
+  function processAudioFrame(
+    frame: Float32Array,
+    metrics: RealtimeWorkletAudioMessage,
+  ) {
+    const update = detector.process(frame, {
+      speechProbability: finiteNumber(metrics.speechProbability),
+      noiseFloor: finiteNumber(metrics.noiseFloor),
+      snrDb: finiteNumber(metrics.snrDb),
+    });
+    updateAudioMetrics(metrics, update.rejectedNoise);
     audioLevel.value = Math.min(
       1,
       update.level / Math.max(update.threshold * 2, 0.025),
     );
+    if (calibrating.value) {
+      const remaining = detector.calibrationRemaining;
+      calibrationProgress.value = Math.min(
+        1,
+        1 - remaining / Math.max(1, calibrationTotalFrames),
+      );
+      if (remaining === 0) calibrating.value = false;
+      return;
+    }
 
     if (!collectingUtterance) {
       preRoll.push(frame);
@@ -357,8 +619,40 @@ export function useRealtimeConversation() {
       utteranceFrames = [];
       collectingUtterance = false;
       userSpeaking.value = false;
-      detector.reset();
+      detector.resetSpeechState();
       queueTranscription(completedFrames);
+    }
+  }
+
+  function updateAudioMetrics(
+    metrics: RealtimeWorkletAudioMessage,
+    rejectedNoise: boolean,
+  ) {
+    const current = audioMetrics.value;
+    const processingMs = finiteNumber(metrics.processingMs) || 0;
+    const deadlineMiss = processingMs > WORKLET_DEADLINE_MS;
+    consecutiveDeadlineMisses = deadlineMiss
+      ? consecutiveDeadlineMisses + 1
+      : 0;
+    const rejectedEvent = rejectedNoise && !previousRejectedNoise;
+    previousRejectedNoise = rejectedNoise;
+    audioMetrics.value = {
+      framesProcessed: current.framesProcessed + 1,
+      rejectedNoiseEvents:
+        current.rejectedNoiseEvents + (rejectedEvent ? 1 : 0),
+      deadlineMisses: current.deadlineMisses + (deadlineMiss ? 1 : 0),
+      noiseFloor: finiteNumber(metrics.noiseFloor) || current.noiseFloor,
+      snrDb: finiteNumber(metrics.snrDb) || 0,
+      speechProbability: finiteNumber(metrics.speechProbability) || 0,
+      processingMs,
+      inputChannels: finiteNumber(metrics.channels) || 1,
+      beamforming: metrics.beamformed === true,
+    };
+    if (consecutiveDeadlineMisses >= 5 && rnnoiseNode) {
+      consecutiveDeadlineMisses = 0;
+      fallbackFromRnnoise(
+        "Realtime audio repeatedly missed its processing deadline; RNNoise was bypassed.",
+      );
     }
   }
 
@@ -430,10 +724,16 @@ export function useRealtimeConversation() {
     if (captureNode) captureNode.port.onmessage = null;
     try {
       sourceNode?.disconnect();
+      rnnoiseNode?.disconnect();
       captureNode?.disconnect();
       silentGain?.disconnect();
     } catch {
       // Nodes may already be disconnected during browser teardown.
+    }
+    try {
+      rnnoiseNode?.destroy();
+    } catch {
+      // The worklet port may already be closed during browser teardown.
     }
     for (const track of mediaStream?.getTracks() || []) track.stop();
     if (audioContext && audioContext.state !== "closed") {
@@ -442,8 +742,14 @@ export function useRealtimeConversation() {
     mediaStream = null;
     audioContext = null;
     sourceNode = null;
+    rnnoiseNode = null;
     captureNode = null;
     silentGain = null;
+    appliedCaptureSettings.value = null;
+    denoiserStatus.value = "off";
+    denoiserMessage.value = "";
+    consecutiveDeadlineMisses = 0;
+    previousRejectedNoise = false;
   }
 
   return {
@@ -454,6 +760,17 @@ export function useRealtimeConversation() {
     audioLevel,
     liveTranscript,
     error,
+    audioSettings,
+    audioInputs,
+    captureCapabilities,
+    appliedCaptureSettings,
+    selectedInputLabel,
+    captureCapabilityWarning,
+    denoiserStatus,
+    denoiserMessage,
+    calibrating,
+    calibrationProgress,
+    audioMetrics,
     phase,
     statusLabel,
     statusDetail,
@@ -467,7 +784,47 @@ export function useRealtimeConversation() {
     interruptAssistant,
     createNewConversation,
     selectConversation,
+    setInputDevice,
+    setSuppressionMode,
+    setAutoGainControl,
+    calibrateRoomNoise,
+    refreshAudioInputs,
   };
+}
+
+type RealtimeWorkletAudioMessage = {
+  type?: unknown;
+  samples?: unknown;
+  sequence?: unknown;
+  channels?: unknown;
+  beamformed?: unknown;
+  speechProbability?: unknown;
+  noiseFloor?: unknown;
+  snrDb?: unknown;
+  rejectedNoise?: unknown;
+  processingMs?: unknown;
+};
+
+type RealtimeRnnoiseNode = AudioWorkletNode & { destroy(): void };
+
+function emptyAudioMetrics(): RealtimeAudioMetrics {
+  return {
+    framesProcessed: 0,
+    rejectedNoiseEvents: 0,
+    deadlineMisses: 0,
+    noiseFloor: 0,
+    snrDb: 0,
+    speechProbability: 0,
+    processingMs: 0,
+    inputChannels: 1,
+    beamforming: false,
+  };
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 function audioContextConstructor(): typeof AudioContext | undefined {
@@ -480,6 +837,16 @@ function audioContextConstructor(): typeof AudioContext | undefined {
       }
     ).webkitAudioContext
   );
+}
+
+function createRealtimeAudioContext(
+  Context: typeof AudioContext,
+): AudioContext {
+  try {
+    return new Context({ latencyHint: "interactive", sampleRate: 48_000 });
+  } catch {
+    return new Context({ latencyHint: "interactive" });
+  }
 }
 
 function findLatestMessage(

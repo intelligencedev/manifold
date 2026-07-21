@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AdaptiveVoiceActivityDetector,
   encodePCM16WAV,
+  estimateSpeechProbability,
   mergeAudioFrames,
   resampleLinear,
 } from "@/lib/realtime/audio";
@@ -23,6 +24,51 @@ describe("AdaptiveVoiceActivityDetector", () => {
     expect(detector.process(silence).event).toBeNull();
     expect(detector.process(silence).event).toBeNull();
     expect(detector.process(silence).event).toBe("speech-end");
+  });
+
+  it("rejects loud non-speech frames when the cleaned signal has low voice probability", () => {
+    const detector = new AdaptiveVoiceActivityDetector({ startFrames: 2 });
+    const loudNoise = new Float32Array(320).fill(0.09);
+
+    const first = detector.process(loudNoise, {
+      speechProbability: 0.12,
+      noiseFloor: 0.004,
+      snrDb: 24,
+    });
+    const second = detector.process(loudNoise, {
+      speechProbability: 0.12,
+      noiseFloor: 0.004,
+      snrDb: 24,
+    });
+
+    expect(first.rejectedNoise).toBe(true);
+    expect(second.event).toBeNull();
+    expect(second.speaking).toBe(false);
+  });
+
+  it("calibrates the ambient floor without opening a speech turn", () => {
+    const detector = new AdaptiveVoiceActivityDetector({ startFrames: 1 });
+    const roomNoise = new Float32Array(320).fill(0.025);
+    detector.calibrate(3);
+
+    expect(detector.process(roomNoise).event).toBeNull();
+    expect(detector.process(roomNoise).event).toBeNull();
+    expect(detector.process(roomNoise).event).toBeNull();
+    expect(detector.calibrationRemaining).toBe(0);
+    expect(detector.ambientNoiseFloor).toBeGreaterThan(0.01);
+  });
+
+  it("scores sustained voice-like energy above an impulse", () => {
+    const voice = new Float32Array(480);
+    for (let index = 0; index < voice.length; index += 1) {
+      voice[index] = Math.sin((index / 48_000) * Math.PI * 2 * 180) * 0.08;
+    }
+    const impulse = new Float32Array(480);
+    impulse[20] = 1;
+
+    expect(estimateSpeechProbability(voice, 18)).toBeGreaterThan(
+      estimateSpeechProbability(impulse, 18),
+    );
   });
 });
 

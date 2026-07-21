@@ -13,6 +13,9 @@ importers:
 
   .:
     dependencies:
+      '@sapphi-red/web-noise-suppressor':
+        specifier: 0.3.5
+        version: 0.3.5
       '@tanstack/vue-query':
         specifier: ^5.36.1
         version: 5.100.10(vue@3.5.34(typescript@5.9.3))
@@ -592,6 +595,9 @@ packages:
     resolution: {integrity: sha512-TW5f2b5d8Y1DwilaxaXhPkYI1a+i1Am2+eDEf6Tu/QrPxt6kdh/4HT6y460MmzE1im71rudvEs5zLLFr7qBAtQ==}
     engines: {node: '>=18.0.0', npm: '>=8.0.0'}
     hasBin: true
+
+  '@sapphi-red/web-noise-suppressor@0.3.5':
+    resolution: {integrity: sha512-jh3+V9yM+zxLriQexoGm0GatoPaJWjs6ypFIbFYwQp+AoUb55eUXrjKtKQyuC5zShzzeAQUl0M5JzqB7SSrsRA==}
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
@@ -3285,6 +3291,8 @@ snapshots:
       '@types/estree': 1.0.9
     optionalDependencies:
       fsevents: 2.3.3
+
+  '@sapphi-red/web-noise-suppressor@0.3.5': {}
 
   '@standard-schema/spec@1.1.0': {}
 

@@ -60,6 +60,98 @@
       </section>
 
       <section
+        class="halo-surface-2 grid gap-4 p-4 md:grid-cols-[minmax(0,1.4fr)_minmax(180px,0.8fr)_auto] md:items-end"
+        aria-label="Realtime audio setup"
+      >
+        <div class="min-w-0">
+          <label
+            for="realtime-microphone"
+            class="font-mono text-[10px] uppercase tracking-[0.12em] text-subtle-foreground"
+          >
+            Microphone
+          </label>
+          <select
+            id="realtime-microphone"
+            class="halo-focus mt-2 min-h-9 w-full rounded-md border border-border bg-input px-3 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+            :value="realtime.audioSettings.value.inputDeviceId"
+            :disabled="realtime.callActive.value || realtime.connecting.value"
+            @change="selectInputDevice"
+          >
+            <option value="">System microphone</option>
+            <option
+              v-for="(device, index) in realtime.audioInputs.value"
+              :key="device.deviceId || `microphone-${index}`"
+              :value="device.deviceId"
+            >
+              {{ device.label || `Microphone ${index + 1}` }}
+            </option>
+          </select>
+        </div>
+
+        <div>
+          <label
+            for="realtime-noise-mode"
+            class="font-mono text-[10px] uppercase tracking-[0.12em] text-subtle-foreground"
+          >
+            Noise suppression
+          </label>
+          <select
+            id="realtime-noise-mode"
+            class="halo-focus mt-2 min-h-9 w-full rounded-md border border-border bg-input px-3 text-sm text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+            :value="realtime.audioSettings.value.suppressionMode"
+            :disabled="realtime.callActive.value || realtime.connecting.value"
+            @change="selectSuppressionMode"
+          >
+            <option value="automatic">Automatic</option>
+            <option value="standard">Standard</option>
+            <option value="strong">Strong</option>
+          </select>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3 md:justify-end">
+          <label
+            class="halo-focus flex min-h-9 cursor-pointer items-center gap-2 rounded-md border border-border bg-input px-3 text-xs text-muted-foreground"
+            :class="{
+              'cursor-not-allowed opacity-60':
+                realtime.callActive.value || realtime.connecting.value,
+            }"
+          >
+            <input
+              type="checkbox"
+              class="h-3.5 w-3.5 accent-[rgb(var(--color-accent))]"
+              :checked="realtime.audioSettings.value.autoGainControl"
+              :disabled="realtime.callActive.value || realtime.connecting.value"
+              @change="toggleAutoGain"
+            />
+            Auto gain
+          </label>
+          <AppButton
+            v-if="realtime.callActive.value"
+            size="sm"
+            variant="neutral"
+            :loading="realtime.calibrating.value"
+            :disabled="realtime.phase.value !== 'listening'"
+            @click="realtime.calibrateRoomNoise"
+          >
+            Calibrate room
+          </AppButton>
+        </div>
+
+        <p
+          class="text-xs leading-5 text-muted-foreground md:col-span-3"
+          aria-live="polite"
+        >
+          {{ suppressionDescription }}
+          <span
+            v-if="realtime.captureCapabilityWarning.value"
+            class="ml-1 text-warning"
+          >
+            {{ realtime.captureCapabilityWarning.value }}
+          </span>
+        </p>
+      </section>
+
+      <section
         class="realtime-stage halo-surface relative flex min-h-[440px] flex-1 flex-col items-center justify-center overflow-hidden px-5 py-10 text-center"
         :data-phase="realtime.phase.value"
       >
@@ -105,6 +197,21 @@
           <p class="mt-3 max-w-lg text-sm leading-6 text-muted-foreground">
             {{ realtime.statusDetail.value }}
           </p>
+
+          <div
+            v-if="realtime.calibrating.value"
+            class="mt-5 w-64 max-w-full"
+            aria-label="Room noise calibration progress"
+          >
+            <div class="h-1.5 overflow-hidden rounded-full bg-surface-muted">
+              <div
+                class="h-full rounded-full bg-accent transition-[width] duration-100"
+                :style="{
+                  width: `${Math.round(realtime.calibrationProgress.value * 100)}%`,
+                }"
+              ></div>
+            </div>
+          </div>
 
           <div
             v-if="realtime.liveTranscript.value"
@@ -233,6 +340,47 @@
             <span class="h-2 w-2 rounded-full bg-warning"></span>
             CPU fallback remains available
           </div>
+          <div class="my-1 h-px bg-border"></div>
+          <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2">
+            <dt class="text-subtle-foreground">Input</dt>
+            <dd class="truncate text-right text-foreground">
+              {{ realtime.selectedInputLabel.value }}
+            </dd>
+            <dt class="text-subtle-foreground">Isolation</dt>
+            <dd class="text-right text-foreground">
+              {{ voiceIsolationLabel }}
+            </dd>
+            <dt class="text-subtle-foreground">RNNoise</dt>
+            <dd class="text-right text-foreground">
+              {{ denoiserLabel }}
+            </dd>
+            <template v-if="realtime.callActive.value">
+              <dt class="text-subtle-foreground">Direction</dt>
+              <dd class="text-right text-foreground">
+                {{
+                  realtime.audioMetrics.value.beamforming
+                    ? "Array focus"
+                    : "Selected mic"
+                }}
+              </dd>
+              <dt class="text-subtle-foreground">Voice</dt>
+              <dd class="text-right font-mono text-foreground">
+                {{
+                  Math.round(
+                    realtime.audioMetrics.value.speechProbability * 100,
+                  )
+                }}%
+              </dd>
+              <dt class="text-subtle-foreground">SNR</dt>
+              <dd class="text-right font-mono text-foreground">
+                {{ realtime.audioMetrics.value.snrDb.toFixed(1) }} dB
+              </dd>
+              <dt class="text-subtle-foreground">Noise blocked</dt>
+              <dd class="text-right font-mono text-foreground">
+                {{ realtime.audioMetrics.value.rejectedNoiseEvents }}
+              </dd>
+            </template>
+          </dl>
         </aside>
       </section>
     </div>
@@ -249,6 +397,7 @@ import SolarStopBold from "@/components/icons/SolarStopBold.vue";
 import AppButton from "@/components/ui/AppButton.vue";
 import MBadge from "@/components/ui/MBadge.vue";
 import { useRealtimeConversation } from "@/composables/realtime/useRealtimeConversation";
+import type { NoiseSuppressionMode } from "@/lib/realtime/settings";
 
 const realtime = useRealtimeConversation();
 
@@ -264,9 +413,62 @@ const orbClasses = computed(() => [
   realtime.phase.value === "error" ? "border-danger/60 text-danger" : "",
 ]);
 
+const suppressionDescription = computed(() => {
+  switch (realtime.audioSettings.value.suppressionMode) {
+    case "strong":
+      return "Strong uses local RNNoise and disables overlapping browser suppression.";
+    case "standard":
+      return "Standard uses the browser's built-in echo and noise processing.";
+    default:
+      return "Automatic prefers native voice isolation and activates RNNoise when isolation is unavailable.";
+  }
+});
+
+const voiceIsolationLabel = computed(() => {
+  const applied = realtime.appliedCaptureSettings.value?.voiceIsolation;
+  if (applied === true) return "Active";
+  if (!realtime.captureCapabilities.value.voiceIsolation) return "Unavailable";
+  return realtime.callActive.value ? "Not applied" : "Supported";
+});
+
+const denoiserLabel = computed(() => {
+  switch (realtime.denoiserStatus.value) {
+    case "loading":
+      return "Loading";
+    case "active":
+      return "Active";
+    case "fallback":
+      return "Bypassed";
+    default:
+      if (
+        !realtime.callActive.value &&
+        (realtime.audioSettings.value.suppressionMode === "strong" ||
+          (realtime.audioSettings.value.suppressionMode === "automatic" &&
+            !realtime.captureCapabilities.value.voiceIsolation))
+      ) {
+        return "On start";
+      }
+      return "Not needed";
+  }
+});
+
 function selectConversation(event: Event) {
   const target = event.target as HTMLSelectElement;
   realtime.selectConversation(target.value);
+}
+
+function selectInputDevice(event: Event) {
+  realtime.setInputDevice((event.target as HTMLSelectElement).value);
+}
+
+function selectSuppressionMode(event: Event) {
+  realtime.setSuppressionMode(
+    (event.target as HTMLSelectElement).value as NoiseSuppressionMode,
+  );
+}
+
+function toggleAutoGain(event: Event) {
+  realtime.setAutoGainControl((event.target as HTMLInputElement).checked);
 }
 </script>
 

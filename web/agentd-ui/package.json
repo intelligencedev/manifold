@@ -14,10 +14,12 @@
     "lint": "eslint \"src/**/*.{ts,tsx,vue}\"",
     "format": "prettier --write .",
     "test:unit": "vitest",
+    "test:realtime-audio": "vitest run tests/realtimeAudio.spec.ts tests/realtimeCaptureWorklet.spec.ts tests/realtimeNoiseBenchmark.spec.ts tests/realtimeSettings.spec.ts",
     "test:e2e": "playwright test",
     "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
+    "@sapphi-red/web-noise-suppressor": "0.3.5",
     "@tanstack/vue-query": "^5.36.1",
     "@vue-flow/background": "^1.3.2",
     "@vue-flow/controls": "^1.1.3",

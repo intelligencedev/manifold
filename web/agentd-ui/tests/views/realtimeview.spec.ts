@@ -36,5 +36,9 @@ describe("RealtimeView", () => {
     expect(wrapper.text()).toContain("Start conversation");
     expect(wrapper.text()).toContain("Moonshine STT");
     expect(wrapper.text()).toContain("Supertonic TTS");
+    expect(wrapper.get("#realtime-microphone").exists()).toBe(true);
+    expect(wrapper.get("#realtime-noise-mode").text()).toContain("Automatic");
+    expect(wrapper.text()).toContain("native voice isolation");
+    expect(wrapper.text()).toContain("RNNoise");
   });
 });

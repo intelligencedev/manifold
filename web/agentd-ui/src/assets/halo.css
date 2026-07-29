@@ -2,7 +2,8 @@
    No blur, no gradients on surfaces, no stacked shadows. */
 
 :root[data-theme="halo-dark"],
-:root[data-theme="halo-sodium"] {
+:root[data-theme="halo-sodium"],
+:root[data-theme="desert-night"] {
   color-scheme: dark;
 }
 
@@ -22,6 +23,14 @@
 :root[data-theme="halo-sodium"] {
   --accent-hi: 246 204 107;
   --accent-dim: 69 48 20;
+}
+
+:root[data-theme="desert-night"] {
+  --bg-rail: 16 18 20;
+  --line-soft: 44 41 34;
+  --line-strong: 72 64 48;
+  --accent-hi: 240 190 90;
+  --accent-dim: 66 48 18;
 }
 
 :root[data-theme="halo-sodium-light"] {

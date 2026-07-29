@@ -245,12 +245,12 @@ describe("ChatView", () => {
   });
 
   it("renders the redesigned chat landmarks with real application labels", async () => {
-    const { findByRole, getByText } = renderChatView();
+    const { findByRole, getAllByText, getByText } = renderChatView();
 
     await findByRole("heading", { name: "Conversations" });
 
     expect(getByText("Workspace")).toBeTruthy();
-    expect(getByText("Conversation")).toBeTruthy();
+    expect(getAllByText("Conversation").length).toBeGreaterThan(0);
     expect(getByText("Run Activity")).toBeTruthy();
     expect(getByText("Specialists Execution Timeline")).toBeTruthy();
     expect(getByText("Model & Performance")).toBeTruthy();

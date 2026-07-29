@@ -1,71 +1,80 @@
 <template>
   <nav
-    class="halo-rail halo-hairline-r flex h-full w-[88px] flex-col px-1.5 py-3"
+    class="flex h-full min-h-0 flex-col border-r border-border bg-muted"
+    :class="collapsed ? 'w-[52px]' : 'w-[232px]'"
     aria-label="Primary navigation"
   >
-    <div class="mb-3 flex flex-col items-center gap-0.5 px-0 text-center">
+    <div
+      class="flex h-[52px] shrink-0 items-center gap-2 border-b border-border px-3"
+    >
+      <span class="h-5 w-1 rounded-sm bg-accent" aria-hidden="true"></span>
       <img
         :src="manifoldLogo"
-        alt="Manifold"
-        class="h-6 w-6 rounded-md object-contain"
+        alt=""
+        class="h-5 w-5 rounded object-contain"
+        aria-hidden="true"
       />
-      <div class="min-w-0 max-w-full">
-        <p
-          class="truncate text-[11px] font-semibold leading-tight tracking-[-0.02em] text-foreground"
-        >
-          Manifold
-        </p>
-      </div>
+      <strong v-if="!collapsed" class="truncate text-[13px] font-semibold">
+        Manifold
+      </strong>
     </div>
 
-    <div class="flex min-h-0 flex-1 flex-col gap-1.5">
-      <RouterLink
-        v-for="item in mainItems"
-        :key="item.name"
-        :to="navTarget(item.name)"
-        :class="itemClass(item.name)"
-        :aria-label="item.label"
-        :aria-current="isActive(item.name) ? 'page' : undefined"
-        :title="item.label"
+    <div class="min-h-0 flex-1 overflow-y-auto p-2">
+      <section
+        v-for="group in navigationGroups"
+        :key="group.label"
+        class="mb-3"
       >
-        <span class="nav-icon-wrap">
-          <component
-            :is="item.icon"
-            v-if="item.icon"
-            :class="iconClass(item.name)"
-            aria-hidden="true"
-          />
-          <span v-else>{{ item.glyph }}</span>
-        </span>
-        <span class="nav-label">{{ item.label }}</span>
+        <p
+          v-if="!collapsed"
+          class="mb-1 px-2 pt-1 font-mono text-[9px] font-semibold uppercase tracking-[0.15em] text-faint-foreground"
+        >
+          {{ group.label }}
+        </p>
+        <div class="space-y-0.5">
+          <RouterLink
+            v-for="item in group.items"
+            :key="item.name"
+            :to="navTarget(item.name)"
+            :class="itemClass(item.name)"
+            :title="collapsed ? item.label : undefined"
+            :aria-label="item.label"
+            :aria-current="isActive(item.name) ? 'page' : undefined"
+          >
+            <component
+              :is="item.icon"
+              v-if="item.icon"
+              class="h-4 w-4 shrink-0"
+              aria-hidden="true"
+            />
+            <span v-else class="w-4 text-center font-mono text-[8px] font-bold">
+              {{ item.glyph }}
+            </span>
+            <span v-if="!collapsed" class="truncate">{{ item.label }}</span>
+          </RouterLink>
+        </div>
+      </section>
+    </div>
+
+    <div class="shrink-0 border-t border-border p-2">
+      <RouterLink
+        v-if="settingsItem"
+        :to="navTarget(settingsItem.name)"
+        :class="itemClass(settingsItem.name)"
+        :title="collapsed ? settingsItem.label : undefined"
+        :aria-label="settingsItem.label"
+      >
+        <component :is="settingsItem.icon" class="h-4 w-4 shrink-0" />
+        <span v-if="!collapsed">{{ settingsItem.label }}</span>
       </RouterLink>
     </div>
-
-    <RouterLink
-      v-if="settingsItem"
-      :to="navTarget(settingsItem.name)"
-      :class="[itemClass(settingsItem.name), 'mt-auto']"
-      :aria-label="settingsItem.label"
-      :aria-current="isActive(settingsItem.name) ? 'page' : undefined"
-      :title="settingsItem.label"
-    >
-      <span class="nav-icon-wrap">
-        <component
-          :is="settingsItem.icon"
-          v-if="settingsItem.icon"
-          :class="iconClass(settingsItem.name)"
-          aria-hidden="true"
-        />
-        <span v-else>{{ settingsItem.glyph }}</span>
-      </span>
-      <span class="nav-label">{{ settingsItem.label }}</span>
-    </RouterLink>
   </nav>
 </template>
 
 <script setup lang="ts">
 import { computed, type Component } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
+import manifoldLogo from "@/assets/images/manifold_logo.png";
 import ChatButton from "@/components/icons/ChatButton.vue";
 import FlowButton from "@/components/icons/FlowButton.vue";
 import OverviewButton from "@/components/icons/OverviewButton.vue";
@@ -75,7 +84,9 @@ import PulseButton from "@/components/icons/PulseButton.vue";
 import Realtime from "@/components/icons/Realtime.vue";
 import SettingsButton from "@/components/icons/SettingsButton.vue";
 import SpecialistsButton from "@/components/icons/SpecialistsButton.vue";
-import manifoldLogo from "@/assets/images/manifold_logo.png";
+
+defineProps<{ collapsed: boolean }>();
+defineEmits<{ toggle: [] }>();
 
 type NavItem = {
   name: string;
@@ -85,12 +96,10 @@ type NavItem = {
   order: number;
 };
 
-const router = useRouter();
 const route = useRoute();
-
+const router = useRouter();
 const betaEnabled = import.meta.env.VITE_MANIFOLD_FEATURE_GATE === "beta";
-
-const navIcons: Record<string, Component> = {
+const icons: Record<string, Component> = {
   overview: OverviewButton,
   projects: ProjectsButton,
   specialists: SpecialistsButton,
@@ -102,83 +111,70 @@ const navIcons: Record<string, Component> = {
   settings: SettingsButton,
 };
 
-const navItems = computed<NavItem[]>(() =>
+const allItems = computed<NavItem[]>(() =>
   router
     .getRoutes()
     .filter((record) => record.meta?.nav && typeof record.name === "string")
-    .filter((record) => {
-      if (record.name !== "codeqa" && record.name !== "beliefs") return true;
-      return betaEnabled;
-    })
+    .filter((record) =>
+      record.name === "codeqa" || record.name === "beliefs"
+        ? betaEnabled
+        : true,
+    )
     .map((record) => ({
-      name: record.name as string,
+      name: String(record.name),
       label: String(record.meta.label ?? record.name),
       glyph: String(record.meta.glyph ?? ""),
-      icon: navIcons[String(record.name)],
+      icon: icons[String(record.name)],
       order: Number(record.meta.order ?? 999),
     }))
     .sort((a, b) => a.order - b.order),
 );
 
-const mainItems = computed(() =>
-  navItems.value.filter((item) => item.name !== "settings"),
+const namesByGroup = [
+  { label: "Work", names: ["chat", "realtime", "projects"] },
+  { label: "Build", names: ["specialists", "playground", "flow"] },
+  {
+    label: "Operate",
+    names: ["overview", "pulse", "durable", "codeqa", "beliefs"],
+  },
+];
+
+const navigationGroups = computed(() =>
+  namesByGroup
+    .map((group) => ({
+      label: group.label,
+      items: group.names
+        .map((name) => allItems.value.find((item) => item.name === name))
+        .filter((item): item is NavItem => Boolean(item)),
+    }))
+    .filter((group) => group.items.length),
 );
 
 const settingsItem = computed(() =>
-  navItems.value.find((item) => item.name === "settings"),
+  allItems.value.find((item) => item.name === "settings"),
 );
 
 function isActive(name: string) {
+  if (name === "playground") {
+    return route.matched.some((record) => record.name === "playground");
+  }
   return route.matched.some((record) => record.name === name);
 }
 
 function navTarget(name: string) {
-  if (name === "playground") return { name: "playground-prompts" };
-  return { name };
-}
-
-function iconClass(name: string) {
-  return ["h-4 w-4", name === "flow" ? "rotate-90" : ""];
+  return name === "playground" ? { name: "playground-prompts" } : { name };
 }
 
 function itemClass(name: string) {
   const base =
-    "halo-focus relative flex min-h-[52px] w-full flex-col items-center justify-center gap-0.5 rounded-md border px-1 py-2 text-center transition-colors duration-150";
-  if (isActive(name)) {
-    return [
-      base,
-      "border-[rgb(var(--color-accent)/0.38)] bg-[rgb(var(--color-accent)/0.12)] text-foreground shadow-[inset_0_1px_0_rgb(255_255_255/0.05)]",
-    ];
-  }
-  return [
-    base,
-    "border-transparent text-subtle-foreground hover:border-[rgb(var(--color-border)/0.58)] hover:bg-surface-muted/70 hover:text-foreground focus-visible:bg-input",
-  ];
+    "halo-focus flex h-8 items-center gap-2 rounded border px-2 text-[12px] font-medium transition-colors";
+  const width = collapsed ? "justify-center" : "w-full";
+  return isActive(name)
+    ? [base, width, "border-accent/35 bg-accent/10 text-foreground"]
+    : [
+        base,
+        width,
+        "border-transparent text-subtle-foreground hover:bg-surface-muted hover:text-foreground",
+      ];
 }
 </script>
-
-<style scoped>
-.nav-icon-wrap {
-  display: grid;
-  height: 1.375rem;
-  width: 1.375rem;
-  flex: 0 0 auto;
-  place-items: center;
-  border-radius: 0.6rem;
-  color: currentColor;
-}
-
-.nav-label {
-  display: block;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: 0.5rem;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-</style>

@@ -30,6 +30,7 @@ function applyTheme(theme: ThemeDefinition) {
     "theme-sodium",
     theme.id === "halo-sodium" || theme.id === "halo-sodium-light",
   );
+  body.classList.toggle("theme-desert-night", theme.id === "desert-night");
   root.style.colorScheme = theme.appearance;
   Object.entries(theme.tokens).forEach(([token, value]) => {
     root.style.setProperty(`--color-${token}`, value);
@@ -99,6 +100,7 @@ export const useThemeStore = defineStore("theme", () => {
 
   function cycleTheme() {
     const order: ThemeChoice[] = [
+      "desert-night",
       "halo-dark",
       "halo-light",
       "halo-sodium",

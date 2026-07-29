@@ -28,6 +28,7 @@ export default {
         accent: "rgb(var(--color-accent) / <alpha-value>)",
         "accent-foreground":
           "rgb(var(--color-accent-foreground) / <alpha-value>)",
+        live: "rgb(var(--color-live) / <alpha-value>)",
         destructive: "rgb(var(--color-destructive) / <alpha-value>)",
         "destructive-foreground":
           "rgb(var(--color-destructive-foreground) / <alpha-value>)",

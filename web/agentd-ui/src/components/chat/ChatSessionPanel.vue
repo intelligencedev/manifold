@@ -5,7 +5,8 @@
   >
     <div class="session-column-content flex min-h-0 flex-1 flex-col">
       <header class="session-column-header">
-        <p class="chat-panel-kicker">Session</p>
+        <p class="chat-panel-kicker">Workspace</p>
+        <h2 class="session-column-title">Conversations</h2>
         <div
           class="session-conversation-controls"
           aria-label="Conversation controls"

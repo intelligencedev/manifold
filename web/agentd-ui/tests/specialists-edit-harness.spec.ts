@@ -130,7 +130,7 @@ describe("EditSpecialistRoot harness settings", () => {
     const wrapper = mountEditor(baseSpecialist());
     await flushPromises();
 
-    await wrapper.find("#sp-harness-override").setValue(true);
+    await wrapper.find("#sp-harness-enabled").setValue(true);
     await flushPromises();
     await wrapper.find("select#sp-harness-mode").setValue("workflow");
     await wrapper.find("#sp-harness-max-retries").setValue("6");

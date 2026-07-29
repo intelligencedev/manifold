@@ -465,8 +465,8 @@
 }
 
 .cockpit-card-pill--live {
-  border-color: rgb(var(--color-success) / 0.35);
-  color: rgb(var(--color-success));
+  border-color: rgb(var(--color-live) / 0.35);
+  color: rgb(var(--color-live));
 }
 
 .cockpit-timeline-grid {
@@ -878,8 +878,36 @@
 }
 
 .inline-tool-call--running .inline-tool-call-icon {
-  background: rgb(var(--color-accent));
+  background: rgb(var(--color-live));
   animation: activityPulse 1.2s ease-in-out infinite;
+}
+
+@media (max-width: 1179px) {
+  .chat-grid {
+    grid-template-columns: 220px minmax(0, 1fr) !important;
+  }
+
+  .chat-participants-panel {
+    display: none;
+  }
+}
+
+@media (max-width: 820px) {
+  .chat-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .chat-session-panel {
+    display: none;
+  }
+
+  .chat-pane {
+    padding-inline: 0.5rem !important;
+  }
+
+  .chat-pane-header {
+    align-items: flex-start;
+  }
 }
 
 .inline-tool-call-title {

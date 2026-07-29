@@ -940,6 +940,7 @@ function startPaneResize(event: PointerEvent) {
             <input
               v-model="deleteProjectAcknowledged"
               type="checkbox"
+              aria-label="Acknowledge project deletion"
               class="mt-0.5 h-4 w-4 rounded border-border bg-surface"
             />
             <span>I understand this action cannot be undone.</span>

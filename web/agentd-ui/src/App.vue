@@ -2,13 +2,18 @@
   <div v-if="isSetupRoute" class="min-h-screen bg-background text-foreground">
     <RouterView />
   </div>
-  <AppShell v-else :inspector="false">
+  <AppShell v-else :inspector="false" :sidebar-collapsed="sidebarCollapsed">
     <template #rail>
-      <IconRail />
+      <IconRail :collapsed="sidebarCollapsed" @toggle="toggleSidebar" />
     </template>
 
     <template #topbar>
-      <BreadcrumbTopbar :title="sectionTitle" :crumb="sectionCrumb">
+      <BreadcrumbTopbar
+        :title="sectionTitle"
+        :crumb="sectionCrumb"
+        :sidebar-collapsed="sidebarCollapsed"
+        @toggle-sidebar="toggleSidebar"
+      >
         <template #actions>
           <AccountButton :username="user?.name || user?.email" />
         </template>
@@ -36,6 +41,16 @@ const user = ref<{ name?: string; email?: string; picture?: string } | null>(
   null,
 );
 const commandOpen = ref(false);
+const storedSidebarChoice =
+  typeof window !== "undefined"
+    ? window.localStorage.getItem("agentd.ui.sidebar-collapsed")
+    : null;
+const sidebarCollapsed = ref(
+  storedSidebarChoice === null
+    ? typeof window !== "undefined" &&
+        window.matchMedia("(max-width: 1179px)").matches
+    : storedSidebarChoice === "true",
+);
 
 const metaSource = computed(() => {
   const matched = [...route.matched]
@@ -59,6 +74,14 @@ function openCommand() {
 
 function closeCommand() {
   commandOpen.value = false;
+}
+
+function toggleSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value;
+  window.localStorage.setItem(
+    "agentd.ui.sidebar-collapsed",
+    String(sidebarCollapsed.value),
+  );
 }
 
 function handleGlobalKeydown(event: KeyboardEvent) {

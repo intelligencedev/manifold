@@ -274,7 +274,12 @@
               </div>
             </div>
             <ChatInputRequestCard
-              v-else-if="inputRequestForPart(message, part.requestId)"
+              v-else-if="
+                inputRequestForPart(message, part.requestId) &&
+                !model.isInputRequestRespondable(
+                  inputRequestForPart(message, part.requestId)!,
+                )
+              "
               :message="message"
               :request="inputRequestForPart(message, part.requestId)!"
               :model="model"

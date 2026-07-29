@@ -29,7 +29,7 @@ const chatApiMocks = vi.hoisted(() => ({
     const session =
       chatApiMocks.sessions.find((candidate) => candidate.id === id) ??
       chatApiMocks.sessions[0];
-    return { ...session, pinned };
+    return { ...session, pinned, updatedAt: "2026-02-15T12:00:00Z" };
   }),
 }));
 
@@ -138,8 +138,11 @@ function appearsBefore(first: Element, second: Element) {
   );
 }
 
-function conversationRowFor(button: HTMLElement) {
-  const row = button.closest(".conversation-session-row");
+function conversationRowFor(name: string) {
+  const label = Array.from(
+    document.querySelectorAll<HTMLElement>(".session-dropdown-item-label"),
+  ).find((candidate) => candidate.textContent?.includes(name));
+  const row = label?.closest(".session-dropdown-item");
   if (!(row instanceof HTMLElement)) {
     throw new Error("Expected conversation row");
   }
@@ -165,22 +168,16 @@ describe("ChatView conversation pinning", () => {
   });
 
   it("keeps pinned conversations above regular conversations", async () => {
-    const { findByRole, getByRole } = render(ChatView);
+    const { findByRole, findByText, getByRole } = render(ChatView);
 
-    const pinnedButton = await findByRole("button", {
-      name: /Unpin conversation Pinned Chat/i,
-    });
-    const recentButton = await findByRole("button", {
-      name: /Pin conversation Recent Chat/i,
-    });
-    expect(
-      appearsBefore(
-        conversationRowFor(pinnedButton),
-        conversationRowFor(recentButton),
-      ),
-    ).toBe(true);
-
-    await fireEvent.click(recentButton);
+    await findByRole("button", { name: /Unpin conversation Pinned Chat/i });
+    await fireEvent.click(
+      await findByRole("button", { name: /Select conversation/i }),
+    );
+    await fireEvent.click(await findByText("Recent Chat"));
+    await fireEvent.click(
+      await findByRole("button", { name: /Pin conversation Recent Chat/i }),
+    );
 
     await waitFor(() => {
       expect(chatApiMocks.updateChatSessionPinned).toHaveBeenCalledWith(
@@ -188,19 +185,13 @@ describe("ChatView conversation pinning", () => {
         true,
       );
     });
+    await fireEvent.click(getByRole("button", { name: /Select conversation/i }));
+
     await waitFor(() => {
       expect(
         appearsBefore(
-          conversationRowFor(
-            getByRole("button", {
-              name: /Unpin conversation Recent Chat/i,
-            }),
-          ),
-          conversationRowFor(
-            getByRole("button", {
-              name: /Unpin conversation Pinned Chat/i,
-            }),
-          ),
+          conversationRowFor("Recent Chat"),
+          conversationRowFor("Pinned Chat"),
         ),
       ).toBe(true);
     });

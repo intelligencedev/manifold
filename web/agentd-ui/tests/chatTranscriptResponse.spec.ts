@@ -72,7 +72,7 @@ describe("ChatTranscript response activity", () => {
     );
   });
 
-  it("renders approval requests inline as soon as they join the response", () => {
+  it("leaves pending approval requests for the focused approval surface", () => {
     const message = {
       id: "assistant-approval",
       role: "assistant" as const,
@@ -145,10 +145,9 @@ describe("ChatTranscript response activity", () => {
     const parts = wrapper.findAll(
       ".response-text-part, .input-request-card, .inline-tool-call",
     );
-    expect(parts).toHaveLength(3);
+    expect(parts).toHaveLength(2);
     expect(parts[0].text()).toBe("Before approval.");
-    expect(parts[1].text()).toContain("Allow the command?");
-    expect(parts[2].text()).toBe("After approval.");
-    expect(wrapper.findAll(".input-request-card")).toHaveLength(1);
+    expect(parts[1].text()).toBe("After approval.");
+    expect(wrapper.findAll(".input-request-card")).toHaveLength(0);
   });
 });

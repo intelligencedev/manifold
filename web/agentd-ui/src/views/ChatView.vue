@@ -11,6 +11,7 @@
         <ChatHeaderPanel :model="headerPanel" />
         <ChatTimelinePanel :model="timelinePanel" />
         <ChatTranscript :model="transcript" />
+        <ApproveCommand :items="pendingApprovals" :model="transcript" />
         <ChatComposerPanel :model="composerPanel" />
         <ContextInspectorDrawer
           :open="contextInspector.open.value"
@@ -33,8 +34,10 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from "vue";
 import "highlight.js/styles/github-dark-dimmed.css";
 import "@/components/chat/chat.css";
+import ApproveCommand from "@/components/chat/ApproveCommand.vue";
 import ChatComposerPanel from "@/components/chat/ChatComposerPanel.vue";
 import ContextInspectorDrawer from "@/components/chat/ContextInspectorDrawer.vue";
 import ChatHeaderPanel from "@/components/chat/ChatHeaderPanel.vue";
@@ -55,4 +58,12 @@ const {
   participantsPanel,
   modals,
 } = useChatViewController();
+
+const pendingApprovals = computed(() =>
+  transcript.value.chatMessages.flatMap((message) =>
+    (message.inputRequests || [])
+      .filter((request) => transcript.value.isInputRequestRespondable(request))
+      .map((request) => ({ message, request })),
+  ),
+);
 </script>

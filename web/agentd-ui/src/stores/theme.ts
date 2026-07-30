@@ -1,6 +1,7 @@
 import { computed, onScopeDispose, ref, watch } from "vue";
 import { defineStore } from "pinia";
 import {
+  defaultDarkTheme,
   getTheme,
   isThemeId,
   resolveSystemTheme,
@@ -25,7 +26,11 @@ function applyTheme(theme: ThemeDefinition) {
   const root = document.documentElement;
   const body = document.body;
   root.dataset.theme = theme.id;
-  body.classList.toggle("theme-sodium", theme.id === "halo-sodium");
+  body.classList.toggle(
+    "theme-sodium",
+    theme.id === "halo-sodium" || theme.id === "halo-sodium-light",
+  );
+  body.classList.toggle("theme-desert-night", theme.id === "desert-night");
   root.style.colorScheme = theme.appearance;
   Object.entries(theme.tokens).forEach(([token, value]) => {
     root.style.setProperty(`--color-${token}`, value);
@@ -33,7 +38,7 @@ function applyTheme(theme: ThemeDefinition) {
 }
 
 export const useThemeStore = defineStore("theme", () => {
-  const selection = ref<ThemeChoice>("system");
+  const selection = ref<ThemeChoice>(defaultDarkTheme);
 
   if (isClient) {
     const params = new URLSearchParams(window.location.search);
@@ -94,7 +99,13 @@ export const useThemeStore = defineStore("theme", () => {
   }
 
   function cycleTheme() {
-    const order: ThemeChoice[] = ["halo-dark", "halo-light", "halo-sodium"];
+    const order: ThemeChoice[] = [
+      "desert-night",
+      "halo-dark",
+      "halo-light",
+      "halo-sodium",
+      "halo-sodium-light",
+    ];
     const currentIndex = order.indexOf(selection.value);
     const next = order[(currentIndex + 1) % order.length];
     selection.value = next;

@@ -18,6 +18,19 @@ import {
 } from "@/stores/chatInputRequests";
 import type { ChatStoreState } from "@/stores/chatStoreState";
 import { createId } from "@/utils/uuid";
+import {
+  emitAssistantDelta,
+  emitAssistantFinal,
+  emitAssistantRollback,
+  emitAssistantStop,
+} from "@/lib/tts/supertonic/speechBus";
+import {
+  appendResponseText,
+  reconcileResponseText,
+  responsePartsForMessage,
+  rollbackResponseText,
+  upsertResponseTool,
+} from "@/lib/chat/responseParts";
 
 type QueryInvalidator = {
   invalidateQueries(options: { queryKey: string[] }): unknown;
@@ -99,11 +112,44 @@ export function handleStreamEvent(
         state.updateMessage(sessionId, assistantId, (m) => ({
           ...m,
           content: m.content + event.data,
+          responseParts: appendResponseText(
+            responsePartsForMessage(m),
+            event.data,
+          ),
           contextMetrics: withEstimatedAssistantTokens(
             m.contextMetrics,
             m.content + event.data,
           ),
         }));
+        emitAssistantDelta(sessionId, assistantId, event.data);
+      }
+      break;
+    }
+    case "delta_rollback": {
+      const count =
+        typeof event.count === "number" && event.count > 0
+          ? Math.floor(event.count)
+          : 0;
+      if (count > 0) {
+        state.updateMessage(sessionId, assistantId, (m) => {
+          const nextContent = m.content.slice(
+            0,
+            Math.max(0, m.content.length - count),
+          );
+          return {
+            ...m,
+            content: nextContent,
+            responseParts: rollbackResponseText(
+              responsePartsForMessage(m),
+              count,
+            ),
+            contextMetrics: withEstimatedAssistantTokens(
+              m.contextMetrics,
+              nextContent,
+            ),
+          };
+        });
+        emitAssistantRollback(sessionId, assistantId, count);
       }
       break;
     }
@@ -113,6 +159,10 @@ export function handleStreamEvent(
       state.updateMessage(sessionId, assistantId, (m) => ({
         ...m,
         content: text || m.content,
+        responseParts: reconcileResponseText(
+          responsePartsForMessage(m),
+          text || m.content,
+        ),
         durationMs: durationMs ?? m.durationMs,
         contextMetrics: withEstimatedAssistantTokens(
           m.contextMetrics,
@@ -121,6 +171,7 @@ export function handleStreamEvent(
         streaming: false,
       }));
       if (text) state.touchSession(sessionId, snippet(text));
+      emitAssistantFinal(sessionId, assistantId, text);
       try {
         queryClient.invalidateQueries({ queryKey: ["agent-runs"] });
       } catch {}
@@ -131,6 +182,13 @@ export function handleStreamEvent(
       state.updateMessage(sessionId, assistantId, (m) => ({
         ...m,
         activityToolTitle: toolDisplayTitle(event),
+        responseParts: upsertResponseTool(responsePartsForMessage(m), {
+          id: responseToolID(event),
+          type: "tool",
+          title: toolDisplayTitle(event),
+          status: "running",
+          args: typeof event.args === "string" ? event.args : undefined,
+        }),
       }));
       break;
     }
@@ -139,6 +197,14 @@ export function handleStreamEvent(
       state.updateMessage(sessionId, assistantId, (m) => ({
         ...m,
         activityToolTitle: toolDisplayTitle(event),
+        responseParts: upsertResponseTool(responsePartsForMessage(m), {
+          id: responseToolID(event),
+          type: "tool",
+          title: toolDisplayTitle(event),
+          status: "done",
+          args: typeof event.args === "string" ? event.args : undefined,
+          result: typeof event.data === "string" ? event.data : undefined,
+        }),
       }));
       break;
     }
@@ -192,6 +258,7 @@ export function handleStreamEvent(
         streaming: false,
         error: message,
       }));
+      emitAssistantStop(sessionId);
       break;
     }
     case "agent_start":
@@ -207,6 +274,14 @@ export function handleStreamEvent(
     default:
       break;
   }
+}
+
+function responseToolID(event: ChatStreamEvent) {
+  if (typeof event.tool_id === "string" && event.tool_id.trim()) {
+    return `tool-${event.tool_id.trim()}`;
+  }
+  const sequence = eventSequence(event);
+  return `tool-${toolInvocationName(event)}-${sequence || "current"}`;
 }
 
 function upsertToolMessage(

@@ -26,6 +26,7 @@ type appRouting struct {
 	workspaceManager workspaces.WorkspaceManager
 	mcpManager       *mcpclient.Manager
 	mcpPool          *mcpclient.MCPServerPool
+	agentCallTool    *agenttools.AgentCallTool
 }
 
 func initAppRouting(ctx context.Context, cfg *config.Config, httpClient *http.Client, mgr databases.Manager, tooling appTooling) appRouting {
@@ -36,7 +37,7 @@ func initAppRouting(ctx context.Context, cfg *config.Config, httpClient *http.Cl
 	specReg.SetMaxSteps(cfg.MaxSteps)
 	specReg.SetPromptOverrides(promptInstructionOverrides(cfg))
 	specReg.SetRequestInfoEnabled(config.RequestInfoEnabled(cfg.RequestInfoEnabled))
-	registerSpecialistTools(cfg, httpClient, tooling.registry, specReg, wsMgr)
+	agentCallTool := registerSpecialistTools(cfg, httpClient, tooling.registry, specReg, wsMgr)
 
 	mcpMgr := registerSharedMCPServers(ctx, cfg, mgr, tooling.baseRegistry)
 	mcpPool := initMCPPool(ctx, cfg, mgr, wsMgr, tooling.baseRegistry)
@@ -49,16 +50,20 @@ func initAppRouting(ctx context.Context, cfg *config.Config, httpClient *http.Cl
 		workspaceManager: wsMgr,
 		mcpManager:       mcpMgr,
 		mcpPool:          mcpPool,
+		agentCallTool:    agentCallTool,
 	}
 }
 
-func registerSpecialistTools(cfg *config.Config, httpClient *http.Client, toolRegistry tools.Registry, specReg *specialists.Registry, wsMgr workspaces.WorkspaceManager) {
+func registerSpecialistTools(cfg *config.Config, httpClient *http.Client, toolRegistry tools.Registry, specReg *specialists.Registry, wsMgr workspaces.WorkspaceManager) *agenttools.AgentCallTool {
 	agentCallTool := agenttools.NewAgentCallTool(toolRegistry, specReg, wsMgr)
 	agentCallTool.SetDefaultMaxSteps(cfg.MaxSteps)
 	agentCallTool.SetDefaultTimeoutSeconds(cfg.AgentRunTimeoutSeconds)
+	level, zones, currentMax := cfg.LexMinify.EngineSettings()
+	agentCallTool.SetLexMinify(level, zones, currentMax)
 	toolRegistry.Register(agentCallTool)
 	toolRegistry.Register(agenttools.NewAskAgentTool(httpClient, "http://127.0.0.1:32180", cfg.AgentRunTimeoutSeconds))
 	toolRegistry.Register(agenttools.NewDelegateToTeamTool(httpClient, "http://127.0.0.1:32180", 0))
+	return agentCallTool
 }
 
 func registerSharedMCPServers(ctx context.Context, cfg *config.Config, mgr databases.Manager, baseToolRegistry tools.Registry) *mcpclient.Manager {

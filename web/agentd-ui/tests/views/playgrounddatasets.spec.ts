@@ -52,7 +52,9 @@ vi.mock("@/api/playground", () => ({
 
 describe("PlaygroundDatasetsView", () => {
   it("shows a validation error when an imported dataset file is invalid", async () => {
-    const { findByLabelText, findByText } = render(PlaygroundDatasetsView);
+    const { findByLabelText, findByRole, findByText } = render(PlaygroundDatasetsView);
+
+    await fireEvent.click(await findByRole("button", { name: /New Dataset/i }));
 
     const input = (await findByLabelText(/Import file/)) as HTMLInputElement;
     const file = new File(["id\nrow-1"], "bad.csv", { type: "text/csv" });

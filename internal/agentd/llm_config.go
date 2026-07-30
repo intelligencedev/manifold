@@ -11,7 +11,10 @@ import (
 )
 
 func resolveLLMClientModel(cfg config.LLMClientConfig) string {
-	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
+	// Resolve against the sub-config that backs the provider (openrouter is
+	// Anthropic-backed, so its model lives in the Anthropic sub-config).
+	pd, _ := config.ProviderDefaults(cfg.Provider)
+	switch pd.Backend {
 	case "anthropic":
 		return strings.TrimSpace(cfg.Anthropic.Model)
 	case "google":
@@ -151,7 +154,7 @@ func mergeLLMClientConfig(base, override config.LLMClientConfig) config.LLMClien
 }
 
 func llmClientHasExplicitModel(cfg config.LLMClientConfig, providerName string) bool {
-	switch strings.ToLower(strings.TrimSpace(providerName)) {
+	switch config.ProviderBackend(providerName) {
 	case "anthropic":
 		return strings.TrimSpace(cfg.Anthropic.Model) != ""
 	case "google":
@@ -168,14 +171,7 @@ func resolveEvolvingMemoryLLM(cfg *config.Config, mainLLM llmpkg.Provider, summa
 			llmCfg.Provider = providerName
 		}
 		if model := strings.TrimSpace(cfg.EvolvingMemory.Model); model != "" && !llmClientHasExplicitModel(cfg.EvolvingMemory.LLMClient, llmCfg.Provider) {
-			switch strings.ToLower(strings.TrimSpace(llmCfg.Provider)) {
-			case "anthropic":
-				llmCfg.Anthropic.Model = model
-			case "google":
-				llmCfg.Google.Model = model
-			default:
-				llmCfg.OpenAI.Model = model
-			}
+			llmCfg.SetActiveModel(model)
 		}
 
 		provider, err := llmproviders.BuildFromLLMClientConfig(llmCfg, httpClient)
@@ -190,14 +186,7 @@ func resolveEvolvingMemoryLLM(cfg *config.Config, mainLLM llmpkg.Provider, summa
 		llmCfg := cfg.LLMClient
 		llmCfg.Provider = providerName
 		if model := strings.TrimSpace(cfg.EvolvingMemory.Model); model != "" {
-			switch providerName {
-			case "anthropic":
-				llmCfg.Anthropic.Model = model
-			case "google":
-				llmCfg.Google.Model = model
-			default:
-				llmCfg.OpenAI.Model = model
-			}
+			llmCfg.SetActiveModel(model)
 		}
 
 		provider, err := llmproviders.BuildFromLLMClientConfig(llmCfg, httpClient)
@@ -250,14 +239,7 @@ func resolveMagmaMemoryLLM(cfg *config.Config, mainLLM llmpkg.Provider, httpClie
 	if hasLLMClientOverride(override) {
 		llmCfg := mergeLLMClientConfig(cfg.LLMClient, override)
 		if model := strings.TrimSpace(cfg.Magma.Consolidation.Model); model != "" && !llmClientHasExplicitModel(override, llmCfg.Provider) {
-			switch strings.ToLower(strings.TrimSpace(llmCfg.Provider)) {
-			case "anthropic":
-				llmCfg.Anthropic.Model = model
-			case "google":
-				llmCfg.Google.Model = model
-			default:
-				llmCfg.OpenAI.Model = model
-			}
+			llmCfg.SetActiveModel(model)
 		}
 		provider, err := llmproviders.BuildFromLLMClientConfig(llmCfg, httpClient)
 		if err != nil {

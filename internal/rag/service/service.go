@@ -238,7 +238,7 @@ func chunkRecords(chunks []chunker.Chunk) []ingest.ChunkRecord {
 }
 
 func (s *Service) indexEmbeddings(ctx context.Context, in ingest.IngestRequest, chunkReq ingest.ChunkIndexRequest) (int, error) {
-	if !in.Options.Embedding.Enabled || s.vector == nil {
+	if !in.Options.Embedding.Enabled || s.vector == nil || s.emb == nil {
 		return 0, nil
 	}
 	t0 := s.clock.Now()

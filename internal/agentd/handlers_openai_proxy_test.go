@@ -21,8 +21,8 @@ func TestOpenAIChatCompletionsProxyStripsTerminalTool(t *testing.T) {
 	}}
 	a := &app{
 		cfg: &config.Config{
-			OpenAI:  config.OpenAIConfig{Model: "fallback-model"},
-			Harness: config.HarnessConfig{MaxRetriesPerStep: 3},
+			LLMClient: config.LLMClientConfig{Provider: "openai", OpenAI: config.OpenAIConfig{Model: "fallback-model"}},
+			Harness:   config.HarnessConfig{MaxRetriesPerStep: 3},
 		},
 		llm: provider,
 	}
@@ -59,7 +59,7 @@ func TestOpenAIChatCompletionsProxyReturnsRealToolCalls(t *testing.T) {
 		{Role: "assistant", ToolCalls: []llm.ToolCall{{ID: "call-lookup", Name: "lookup", Args: json.RawMessage(`{"query":"forge"}`)}}},
 	}}
 	a := &app{
-		cfg: &config.Config{OpenAI: config.OpenAIConfig{Model: "fallback-model"}},
+		cfg: &config.Config{LLMClient: config.LLMClientConfig{Provider: "openai", OpenAI: config.OpenAIConfig{Model: "fallback-model"}}},
 		llm: provider,
 	}
 
@@ -100,7 +100,7 @@ func TestOpenAIChatCompletionsProxyStreamsTerminalText(t *testing.T) {
 		{ToolCalls: []llm.ToolCall{{ID: "call-final", Name: "agent_response", Args: json.RawMessage(`{"text":"streamed proxy"}`)}}},
 	}}
 	a := &app{
-		cfg: &config.Config{OpenAI: config.OpenAIConfig{Model: "fallback-model"}},
+		cfg: &config.Config{LLMClient: config.LLMClientConfig{Provider: "openai", OpenAI: config.OpenAIConfig{Model: "fallback-model"}}},
 		llm: provider,
 	}
 

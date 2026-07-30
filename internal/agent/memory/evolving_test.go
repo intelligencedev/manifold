@@ -107,7 +107,9 @@ func (r *fakeEvolvingReranker) RerankEvolvingMemory(_ context.Context, _ string,
 		if !ok {
 			continue
 		}
-		item.Score = 1 - float64(i)*0.01
+		item.Rerank = 1 - float64(i)*0.01
+		item.HasRerank = true
+		item.Score = item.Rerank
 		out = append(out, item)
 		used[id] = struct{}{}
 	}

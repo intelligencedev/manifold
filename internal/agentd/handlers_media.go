@@ -211,7 +211,7 @@ func (a *app) prepareVisionClientData(w http.ResponseWriter, r *http.Request, re
 		return req, false
 	}
 	if strings.TrimSpace(visionSel.Model) == "" {
-		visionSel.Model = strings.TrimSpace(a.cfg.OpenAI.Model)
+		visionSel.Model = strings.TrimSpace(a.cfg.LLMClient.OpenAI.Model)
 	}
 	req.Client = visionSel
 	if a.isMockVisionRequest(req) {
@@ -284,7 +284,7 @@ func readVisionImage(w http.ResponseWriter, fh *multipart.FileHeader) (visionIma
 }
 
 func (a *app) isMockVisionRequest(req visionRequest) bool {
-	return req.Specialist == "" && req.Team == "" && strings.EqualFold(req.Client.Provider, "openai") && a.cfg.OpenAI.APIKey == ""
+	return req.Specialist == "" && req.Team == "" && strings.EqualFold(req.Client.Provider, "openai") && a.cfg.LLMClient.OpenAI.APIKey == ""
 }
 
 func (a *app) writeMockVisionResponseIfNeeded(w http.ResponseWriter, r *http.Request, req visionRequest) bool {
@@ -462,9 +462,7 @@ func (a *app) visionFromConfig(llmCfg config.LLMClientConfig, provider, modelOve
 	if provider == "" {
 		provider = strings.ToLower(strings.TrimSpace(llmCfg.Provider))
 	}
-	switch provider {
-	case "", "openai", "local":
-		return visionClientSelection{Provider: "openai", Model: visionModel(modelOverride, llmCfg.OpenAI.Model), OpenAI: openaillm.New(llmCfg.OpenAI, a.httpClient)}, 0, nil
+	switch config.ProviderBackend(provider) {
 	case "anthropic":
 		return visionClientSelection{Provider: "anthropic", Model: visionModel(modelOverride, llmCfg.Anthropic.Model), Anthropic: anthropicllm.New(llmCfg.Anthropic, a.httpClient)}, 0, nil
 	case "google":
@@ -474,7 +472,7 @@ func (a *app) visionFromConfig(llmCfg config.LLMClientConfig, provider, modelOve
 		}
 		return visionClientSelection{Provider: "google", Model: visionModel(modelOverride, llmCfg.Google.Model), Google: client}, 0, nil
 	default:
-		return visionClientSelection{}, http.StatusBadRequest, unsupportedErr
+		return visionClientSelection{Provider: "openai", Model: visionModel(modelOverride, llmCfg.OpenAI.Model), OpenAI: openaillm.New(llmCfg.OpenAI, a.httpClient)}, 0, nil
 	}
 }
 
@@ -513,6 +511,11 @@ func (a *app) sttHandler() http.HandlerFunc {
 		}
 		data, ok := readSTTAudio(w, r)
 		if !ok {
+			return
+		}
+		// In-process pure-Go engine: no proxy.
+		if strings.EqualFold(strings.TrimSpace(a.cfg.STT.Engine), "moonshine") {
+			a.sttMoonshineResponse(w, r, data)
 			return
 		}
 		reqURL, model, apiKey := a.sttEndpoint(r, userID)

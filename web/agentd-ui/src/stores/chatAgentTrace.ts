@@ -4,8 +4,13 @@ import {
   agentToolEntry,
   appendAgentEntry,
   newAgentThread,
+  toolDisplayTitle,
   withTeam,
 } from "@/stores/chatHelpers";
+import {
+  responsePartsForMessage,
+  upsertResponseTool,
+} from "@/lib/chat/responseParts";
 import type { ChatStoreState } from "@/stores/chatStoreState";
 import { createId } from "@/utils/uuid";
 
@@ -239,6 +244,14 @@ function handleDirectAgentTraceEvent(
               ? event.title
               : m.activityToolTitle,
         activityToolEntries: [...(m.activityToolEntries || []), entry],
+        responseParts: upsertResponseTool(responsePartsForMessage(m), {
+          id: directResponseToolID(event, callId),
+          type: "tool",
+          title: toolDisplayTitle(event),
+          status: isResult ? "done" : "running",
+          args: typeof event.args === "string" ? event.args : undefined,
+          result: isResult ? entryValue : undefined,
+        }),
       }));
       break;
     }
@@ -269,4 +282,11 @@ function handleDirectAgentTraceEvent(
     default:
       break;
   }
+}
+
+function directResponseToolID(event: ChatStreamEvent, callId: string) {
+  if (typeof event.tool_id === "string" && event.tool_id.trim()) {
+    return `tool-${event.tool_id.trim()}`;
+  }
+  return `tool-${callId}-${toolDisplayTitle(event)}`;
 }

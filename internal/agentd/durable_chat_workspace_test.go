@@ -202,7 +202,6 @@ func TestDurableChatRunCommandApprovalAnswerResumesRun(t *testing.T) {
 					EnableTools: true,
 					MaxSteps:    2,
 					Exec:        execCfg,
-					OpenAI:      config.OpenAIConfig{APIKey: "test", Model: "orchestrator-model"},
 					LLMClient: config.LLMClientConfig{
 						Provider: "openai",
 						OpenAI:   config.OpenAIConfig{APIKey: "test", Model: "orchestrator-model"},

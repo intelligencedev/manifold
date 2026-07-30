@@ -9,6 +9,7 @@ export type ChatStreamEventType =
   | "memory_context"
   | "context_metrics"
   | "delta"
+  | "delta_rollback"
   | "final"
   | "tool_start"
   | "tool_result"
@@ -72,6 +73,7 @@ export interface ChatStreamEvent {
   truncated?: boolean;
   duration_ms?: number;
   durationMs?: number;
+  count?: number;
   lanes?: Record<string, ChatMemoryContextLane>;
   phase?: string;
   context_window?: number;

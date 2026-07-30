@@ -1,5 +1,3 @@
-@import url("https://rsms.me/inter/inter.css");
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -40,6 +38,7 @@
     --color-muted: 15 18 26;
     --color-accent: 151 164 255;
     --color-accent-foreground: 10 11 18;
+    --color-live: 79 214 192;
     --color-destructive: 240 112 95;
     --color-destructive-foreground: 10 11 18;
     --color-success: 70 211 154;
@@ -60,18 +59,7 @@
   body,
   #app {
     min-height: 100%;
-    background:
-      radial-gradient(
-        circle at 18% 0%,
-        rgb(var(--color-accent) / 0.16),
-        transparent 34rem
-      ),
-      radial-gradient(
-        circle at 92% 12%,
-        rgb(var(--color-info) / 0.09),
-        transparent 30rem
-      ),
-      rgb(var(--color-background));
+    background: rgb(var(--color-background));
   }
 
   button {

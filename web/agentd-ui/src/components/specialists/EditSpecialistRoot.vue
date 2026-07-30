@@ -1229,8 +1229,8 @@ import {
   type Prompt,
   type PromptVersion,
 } from "@/api/playground";
-import { fetchFlowTools } from "@/api/flow";
-import type { FlowEditorTool } from "@/types/flowEditor";
+import { fetchToolCatalog } from "@/api/tools";
+import type { ToolCatalogEntry } from "@/api/tools";
 
 type TabId = "basics" | "prompt" | "tools" | "advanced";
 type ToolPolicy = "none" | "any" | "allow-list";
@@ -1288,7 +1288,7 @@ const draft = reactive({
   toolPolicy: "none" as ToolPolicy,
   autoDiscover: false,
   requestInfoEnabled: true,
-  harnessEnabled: true,
+  harnessEnabled: false,
   harnessMode: "guarded_chat" as HarnessMode,
   harnessRescueEnabled: true,
   harnessMaxRetriesPerStep: "3",
@@ -1311,7 +1311,7 @@ const extraHeadersObj = ref<Record<string, string>>({});
 const extraParamsObj = ref<Record<string, any>>({});
 
 const promptHelpOpen = ref(false);
-const tools = ref<FlowEditorTool[]>([]);
+const tools = ref<ToolCatalogEntry[]>([]);
 const toolsLoading = ref(false);
 const toolsError = ref("");
 const toolsSearch = ref("");
@@ -1746,7 +1746,7 @@ function normalizeHarnessPrerequisites(
 
 function defaultHarnessConfig(): SpecialistHarness {
   return {
-    enabled: true,
+    enabled: false,
     mode: "guarded_chat",
     rescueEnabled: true,
     maxRetriesPerStep: 3,
@@ -1810,6 +1810,8 @@ function normalizeComparable(sp: Specialist): SpecialistComparable {
     paused: !!sp.paused,
     allowTools,
     system: sp.system || "",
+    promptId: sp.promptId || "",
+    promptVersionId: sp.promptVersionId || "",
     extraHeaders: sp.extraHeaders || {},
     extraParams: sp.extraParams || {},
     teams,
@@ -1836,6 +1838,8 @@ function normalizePayload(sp: Specialist): Specialist {
     apiKey: sp.apiKey && sp.apiKey !== "[REDACTED]" ? sp.apiKey : undefined,
     allowTools: Array.isArray(sp.allowTools) ? sp.allowTools : [],
     system: sp.system || "",
+    promptId: sp.promptId || "",
+    promptVersionId: sp.promptVersionId || "",
     extraHeaders: sp.extraHeaders || {},
     extraParams: sp.extraParams || {},
     teams: Array.isArray(sp.teams) ? sp.teams : [],
@@ -1970,6 +1974,8 @@ function buildPayloadFromDraft(): Specialist {
     paused: !!draft.paused,
     allowTools: allow,
     system: draft.system,
+    promptId: promptApply.value.promptId,
+    promptVersionId: promptApply.value.versionId,
     extraHeaders: extraHeadersObj.value,
     extraParams: extraParamsObj.value,
     teams: selectedTeams.value,
@@ -2117,7 +2123,17 @@ function onProviderChange() {
     if (draft.useDefaultEndpoint) {
       draft.customBaseURL = "";
     }
+    // Replace the Advanced-tab extra params with the selected provider's defaults.
+    applyProviderExtraParamDefaults(defaults.extraParams || {});
   }
+}
+
+// applyProviderExtraParamDefaults populates the Advanced-tab extra params from a
+// provider's default params object (deep-copied so edits don't mutate defaults).
+function applyProviderExtraParamDefaults(params: Record<string, any>) {
+  const next = { ...(params || {}) };
+  extraParamsObj.value = next;
+  extraParamsRows.value = objectToRows(next);
 }
 
 async function ensurePromptsLoaded() {
@@ -2179,7 +2195,28 @@ async function loadPromptVersions(promptId: string) {
 }
 
 async function restorePromptSelection() {
-  const selection = readPromptSelection();
+  let selection =
+    props.initial.promptId && props.initial.promptVersionId
+      ? {
+          promptId: props.initial.promptId,
+          versionId: props.initial.promptVersionId,
+        }
+      : readPromptSelection();
+  if (!selection?.promptId && !props.lockName) {
+    const manifoldPrompt = availablePrompts.value.find(
+      (prompt) => prompt.name.trim().toLowerCase() === "manifold",
+    );
+    if (manifoldPrompt) {
+      await loadPromptVersions(manifoldPrompt.id);
+      const manifoldVersion = availableVersions.value.find(
+        (version) => version.semver === "1.0",
+      );
+      selection = {
+        promptId: manifoldPrompt.id,
+        versionId: manifoldVersion?.id || "",
+      };
+    }
+  }
   if (!selection?.promptId) return;
   if (
     availablePrompts.value.length &&
@@ -2295,7 +2332,7 @@ async function loadTools() {
   toolsLoading.value = true;
   toolsError.value = "";
   try {
-    const resp = await fetchFlowTools().catch(() => [] as FlowEditorTool[]);
+    const resp = await fetchToolCatalog().catch(() => [] as ToolCatalogEntry[]);
     tools.value = resp
       .filter((t) => !!t?.name)
       .sort((a, b) =>
@@ -2493,6 +2530,10 @@ function initFromInitial(sp: Specialist, clearFeedback = true) {
   draft.videoGeneration = !!normalized.videoGeneration;
   draft.paused = !!normalized.paused;
   draft.system = normalized.system || "";
+  promptApply.value = {
+    promptId: normalized.promptId || "",
+    versionId: normalized.promptVersionId || "",
+  };
   draft.summaryContextWindowTokens = normalized.summaryContextWindowTokens
     ? String(normalized.summaryContextWindowTokens)
     : "";
@@ -2532,9 +2573,15 @@ function initFromInitial(sp: Specialist, clearFeedback = true) {
 
   // advanced
   extraHeadersObj.value = normalized.extraHeaders || {};
-  extraParamsObj.value = normalized.extraParams || {};
   extraHeadersRows.value = objectToRows(extraHeadersObj.value);
-  extraParamsRows.value = objectToRows(extraParamsObj.value);
+  // Seed the provider's default extra params when the specialist has none saved
+  // (e.g. a newly created specialist), so defaults are visible in the Advanced tab.
+  const savedParams = normalized.extraParams || {};
+  const seedParams =
+    Object.keys(savedParams).length > 0
+      ? savedParams
+      : props.providerDefaults?.[draft.provider]?.extraParams || {};
+  applyProviderExtraParamDefaults(seedParams);
   initHarnessDraft(normalized.harness);
 
   // never preload secret into the draft
@@ -2555,6 +2602,10 @@ watch(
     const clearFeedback = !preserveNextInitialFeedback.value;
     preserveNextInitialFeedback.value = false;
     initFromInitial({ ...sp, apiKey: "" }, clearFeedback);
+    void (async () => {
+      await ensurePromptsLoaded();
+      await restorePromptSelection();
+    })();
   },
   { immediate: true },
 );

@@ -181,11 +181,11 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
-import type { FlowEditorTool } from "@/types/flowEditor";
+import type { ToolCatalogEntry } from "@/api/tools";
 
 const props = defineProps<{
   open: boolean;
-  tools: FlowEditorTool[];
+  tools: ToolCatalogEntry[];
   loading: boolean;
   error: string;
   selected: string[];
@@ -194,7 +194,7 @@ const props = defineProps<{
 const emit = defineEmits<{ apply: [string[]]; cancel: [] }>();
 
 const search = ref("");
-const highlighted = ref<FlowEditorTool | null>(null);
+const highlighted = ref<ToolCatalogEntry | null>(null);
 
 const localSelected = ref<string[]>([]);
 const localSet = computed(() => new Set(localSelected.value));

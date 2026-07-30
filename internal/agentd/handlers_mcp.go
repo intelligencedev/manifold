@@ -2,12 +2,8 @@ package agentd
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -16,32 +12,14 @@ import (
 	oauthex "github.com/modelcontextprotocol/go-sdk/oauthex"
 	"golang.org/x/oauth2"
 
+	"manifold/internal/agentd/mcpapi"
 	"manifold/internal/config"
 	"manifold/internal/persistence"
 )
 
-type mcpServerResponse struct {
-	ID               int64             `json:"id"`
-	Name             string            `json:"name"`
-	Command          string            `json:"command"`
-	Args             []string          `json:"args"`
-	Env              map[string]string `json:"env"`
-	URL              string            `json:"url"`
-	Headers          map[string]string `json:"headers"`
-	Origin           string            `json:"origin"`
-	ProtocolVersion  string            `json:"protocolVersion"`
-	KeepAliveSeconds int               `json:"keepAliveSeconds"`
-	Disabled         bool              `json:"disabled"`
-	OAuthClientID    string            `json:"oauthClientId,omitempty"`
-	Source           string            `json:"source"` // "config" or "db"
-	Status           string            `json:"status"` // "connected", "error", "needs_auth"
-	HasToken         bool              `json:"hasToken"`
-}
+type mcpServerResponse = mcpapi.ServerResponse
 
-type mcpOAuthStartRequest struct {
-	ServerID int64
-	URL      string
-}
+type mcpOAuthStartRequest = mcpapi.OAuthStartRequest
 
 const (
 	mcpOAuthCookiePath        = "/api/mcp/oauth"
@@ -50,12 +28,11 @@ const (
 )
 
 func mcpOAuthCookieName(prefix, state string) string {
-	sum := sha256.Sum256([]byte(state))
-	return prefix + base64.RawURLEncoding.EncodeToString(sum[:])
+	return mcpapi.OAuthCookieName(prefix, state)
 }
 
 func mcpOAuthUsesSecureCookies(r *http.Request) bool {
-	return r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	return mcpapi.UsesSecureCookies(r)
 }
 
 func setMCPOAuthTempCookie(w http.ResponseWriter, name, value string, expires time.Time, secure bool) {
@@ -75,11 +52,7 @@ func clearMCPOAuthTempCookie(w http.ResponseWriter, name string, secure bool) {
 }
 
 func requiresMCPOAuthPrompt(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "unauthorized") || strings.Contains(msg, "401") || strings.Contains(msg, "forbidden")
+	return mcpapi.RequiresOAuthPrompt(err)
 }
 
 func (a *app) prepareMCPOAuthRedirect(w http.ResponseWriter, r *http.Request, userID int64, req mcpOAuthStartRequest) (string, int, error) {
@@ -159,20 +132,7 @@ func (a *app) mcpOAuthRedirectTarget(ctx context.Context, userID int64, req mcpO
 }
 
 func validateMCPOAuthTargetURL(targetURL string) (int, error) {
-	if targetURL == "" {
-		return http.StatusBadRequest, fmt.Errorf("url required")
-	}
-	u, err := url.Parse(targetURL)
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return http.StatusBadRequest, fmt.Errorf("invalid url")
-	}
-	if u.Scheme != "https" && u.Scheme != "http" {
-		return http.StatusBadRequest, fmt.Errorf("unsupported url scheme")
-	}
-	if strings.Contains(u.Host, "..") {
-		return http.StatusBadRequest, fmt.Errorf("invalid host")
-	}
-	return http.StatusOK, nil
+	return mcpapi.ValidateOAuthTargetURL(targetURL)
 }
 
 func (a *app) mcpOAuthRedirectMetadata(ctx context.Context, targetURL string) (*oauthex.ProtectedResourceMetadata, *authServerMeta, int, error) {
@@ -246,13 +206,7 @@ func (a *app) isConfigMCPServer(name string) bool {
 }
 
 func mcpOAuthScopes(scopes []string, server *persistence.MCPServer) []string {
-	if server != nil && len(server.OAuthScopes) > 0 {
-		return server.OAuthScopes
-	}
-	if len(scopes) > 0 {
-		return scopes
-	}
-	return []string{"openid", "profile"}
+	return mcpapi.OAuthScopes(scopes, server)
 }
 
 func (a *app) registerMCPOAuthRedirectClient(
@@ -306,235 +260,37 @@ func (a *app) setMCPOAuthRedirectCookies(
 }
 
 func (a *app) mcpServersHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		userID, err := a.requireUserID(r)
-		if err != nil {
-			if a.cfg.Auth.Enabled {
-				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
-			}
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		switch r.Method {
-		case http.MethodGet:
-			a.handleListMCPServers(w, r, userID)
-		case http.MethodPost:
-			a.handleCreateMCPServer(w, r, userID)
-		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		}
-	}
+	return mcpapi.ServersHandler(a.mcpServerHandlerDeps())
 }
 
 func (a *app) mcpServerDetailHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		userID, err := a.requireUserID(r)
-		if err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		name := strings.TrimPrefix(r.URL.Path, "/api/mcp/servers/")
-		name = strings.TrimSpace(name)
-		if name == "" {
-			http.NotFound(w, r)
-			return
-		}
-
-		switch r.Method {
-		case http.MethodPut:
-			a.handleUpdateMCPServer(w, r, userID, name)
-		case http.MethodDelete:
-			a.handleDeleteMCPServer(w, r, userID, name)
-		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		}
-	}
+	return mcpapi.ServerDetailHandler(a.mcpServerHandlerDeps())
 }
 
-func (a *app) handleListMCPServers(w http.ResponseWriter, r *http.Request, userID int64) {
-	// 1. Get DB servers
-	dbServers, err := a.mcpStore.List(r.Context(), userID)
-	if err != nil {
-		http.Error(w, "internal server error", http.StatusInternalServerError)
-		return
-	}
-
-	out := make([]mcpServerResponse, 0)
-
-	// Build a set of names that have a DB entry so we can skip the config duplicate.
-	dbNames := make(map[string]bool, len(dbServers))
-	for _, s := range dbServers {
-		dbNames[s.Name] = true
-	}
-
-	// 2. Add Config servers that are NOT already superseded by a DB entry.
-	for _, s := range a.cfg.MCP.Servers {
-		if dbNames[s.Name] {
-			continue // DB entry will be shown instead
-		}
-		out = append(out, mcpServerResponse{
-			Name:             s.Name,
-			Command:          s.Command,
-			Args:             s.Args,
-			Env:              s.Env,
-			URL:              s.URL,
-			Headers:          s.Headers,
-			Origin:           s.Origin,
-			ProtocolVersion:  s.ProtocolVersion,
-			KeepAliveSeconds: s.KeepAliveSeconds,
-			Source:           "config",
-			Status:           "connected",
-			HasToken:         s.BearerToken != "",
-		})
-	}
-
-	// 3. Add DB servers
-	for _, s := range dbServers {
-		status := "connected"
-		if s.Disabled {
-			status = "disabled"
-		} else if s.URL != "" && s.OAuthAccessToken != "" {
-			if !s.OAuthExpiresAt.IsZero() && s.OAuthExpiresAt.Before(time.Now()) {
-				// Token is expired - check if we can refresh
-				if s.OAuthRefreshToken == "" {
-					status = "needs_auth"
-				}
-				// If refresh token exists, we can try to refresh on next use
+func (a *app) mcpServerHandlerDeps() mcpapi.ServerHandlerDeps {
+	return mcpapi.ServerHandlerDeps{
+		Store:             a.mcpStore,
+		ConfigServers:     func() []config.MCPServerConfig { return a.cfg.MCP.Servers },
+		RequireUserID:     a.requireUserID,
+		AuthEnabled:       a.cfg.Auth.Enabled,
+		RefreshAndConvert: a.refreshAndConvertToConfig,
+		Register: func(ctx context.Context, server config.MCPServerConfig) error {
+			if a.mcpManager == nil {
+				return fmt.Errorf("MCP manager unavailable")
 			}
-		}
-		out = append(out, mcpServerResponse{
-			ID:               s.ID,
-			Name:             s.Name,
-			Command:          s.Command,
-			Args:             s.Args,
-			Env:              s.Env,
-			URL:              s.URL,
-			Headers:          s.Headers,
-			Origin:           s.Origin,
-			ProtocolVersion:  s.ProtocolVersion,
-			KeepAliveSeconds: s.KeepAliveSeconds,
-			Disabled:         s.Disabled,
-			OAuthClientID:    s.OAuthClientID,
-			Source:           "db",
-			Status:           status,
-			HasToken:         s.OAuthAccessToken != "" || s.BearerToken != "",
-		})
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(out)
-}
-
-func (a *app) handleCreateMCPServer(w http.ResponseWriter, r *http.Request, userID int64) {
-	var req persistence.MCPServer
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-	req.Name = strings.TrimSpace(req.Name)
-	if req.Name == "" {
-		http.Error(w, "name required", http.StatusBadRequest)
-		return
-	}
-
-	saved, err := a.mcpStore.Upsert(r.Context(), userID, req)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Only attempt connection if the server has a token or is local.
-	// Remote servers without any token need OAuth first.
-	attemptedRegister := false
-	if saved.URL != "" && saved.OAuthAccessToken == "" && saved.BearerToken == "" {
-		fmt.Printf("MCP server %s: remote server needs OAuth, skipping initial connection\n", saved.Name)
-	} else {
-		cfgSrv, needsAuth, _ := a.refreshAndConvertToConfig(r.Context(), saved)
-		if needsAuth {
-			fmt.Printf("MCP server %s needs re-authentication (token expired)\n", saved.Name)
-		} else {
-			attemptedRegister = true
-			if err := a.mcpManager.RegisterOne(r.Context(), a.baseToolRegistry, cfgSrv); err != nil {
-				fmt.Printf("failed to connect to new MCP server: %v\n", err)
+			return a.mcpManager.RegisterOne(ctx, a.baseToolRegistry, server)
+		},
+		Remove: func(name string) {
+			if a.mcpManager != nil {
+				a.mcpManager.RemoveOne(name, a.baseToolRegistry)
 			}
-		}
+		},
+		RefreshTools: a.refreshToolDiscoveryIndex,
 	}
-	if attemptedRegister {
-		a.refreshToolDiscoveryIndex()
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(saved)
-}
-
-func (a *app) handleUpdateMCPServer(w http.ResponseWriter, r *http.Request, userID int64, name string) {
-	var req persistence.MCPServer
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "bad request", http.StatusBadRequest)
-		return
-	}
-	req.Name = name // Force name from URL
-
-	saved, err := a.mcpStore.Upsert(r.Context(), userID, req)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Only attempt reconnection if the server has a token or is local.
-	attemptedRegister := false
-	if saved.URL != "" && saved.OAuthAccessToken == "" && saved.BearerToken == "" {
-		fmt.Printf("MCP server %s: remote server needs OAuth, skipping reconnection\n", saved.Name)
-	} else {
-		cfgSrv, needsAuth, _ := a.refreshAndConvertToConfig(r.Context(), saved)
-		if needsAuth {
-			fmt.Printf("MCP server %s needs re-authentication (token expired)\n", saved.Name)
-		} else {
-			attemptedRegister = true
-			if err := a.mcpManager.RegisterOne(r.Context(), a.baseToolRegistry, cfgSrv); err != nil {
-				fmt.Printf("failed to reconnect updated MCP server: %v\n", err)
-			}
-		}
-	}
-	if attemptedRegister {
-		a.refreshToolDiscoveryIndex()
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(saved)
-}
-
-func (a *app) handleDeleteMCPServer(w http.ResponseWriter, r *http.Request, userID int64, name string) {
-	if err := a.mcpStore.Delete(r.Context(), userID, name); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	// Disconnect
-	a.mcpManager.RemoveOne(name, a.baseToolRegistry)
-	a.refreshToolDiscoveryIndex()
-
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func convertToConfig(s persistence.MCPServer) config.MCPServerConfig {
-	token := s.BearerToken
-	if s.OAuthAccessToken != "" {
-		token = s.OAuthAccessToken
-	}
-	return config.MCPServerConfig{
-		Name:             s.Name,
-		Command:          s.Command,
-		Args:             s.Args,
-		Env:              s.Env,
-		URL:              s.URL,
-		Headers:          s.Headers,
-		Origin:           s.Origin,
-		ProtocolVersion:  s.ProtocolVersion,
-		KeepAliveSeconds: s.KeepAliveSeconds,
-		BearerToken:      token,
-	}
+	return mcpapi.ConvertToConfig(s)
 }
 
 // refreshAndConvertToConfig refreshes expired OAuth tokens if needed and converts

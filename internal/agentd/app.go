@@ -21,15 +21,18 @@ import (
 	"manifold/internal/mcpclient"
 	persist "manifold/internal/persistence"
 	"manifold/internal/persistence/databases"
+	"manifold/internal/playground"
 	"manifold/internal/projects"
 	ragservice "manifold/internal/rag/service"
 	"manifold/internal/specialists"
 	"manifold/internal/tools"
+	agenttools "manifold/internal/tools/agents"
 	clitool "manifold/internal/tools/cli"
 	tooldiscovery "manifold/internal/tools/discovery"
 	terminaltool "manifold/internal/tools/terminal"
 	transitdomain "manifold/internal/transit"
 	"manifold/internal/trust"
+	warppservice "manifold/internal/warpp/service"
 	"manifold/internal/workspaces"
 )
 
@@ -42,71 +45,77 @@ const (
 )
 
 type app struct {
-	cfg                *config.Config
-	httpClient         *http.Client
-	mgr                *databases.Manager
-	llm                llmpkg.Provider
-	baseToolRegistry   tools.Registry
-	toolRegistry       tools.Registry
-	toolIndex          *tooldiscovery.ToolIndex
-	specRegistry       *specialists.Registry
-	specRegMu          sync.RWMutex
-	userSpecRegs       map[int64]*specialists.Registry
-	summaryLLM         llmpkg.Provider
-	durableStore       durable.Store
-	durableClient      *durable.Client
-	durableRegistry    *durable.Registry
-	durableWorker      *durable.Worker
-	flowV2             *flowV2Runtime
-	codeQARuntime      *codeQARuntime
-	codeQAService      *codeqaservice.Service
-	cliExecutor        *clitool.ExecutorImpl
-	terminalManager    *terminaltool.Manager
-	commandPolicyMu    sync.Mutex
-	evolvingMu         sync.RWMutex
-	userEvolving       map[int64]map[string]*memory.EvolvingMemory
-	evolvingLastUsed   map[int64]map[string]time.Time
-	evolvingCfg        memory.EvolvingMemoryConfig
-	evolvingSessionTTL time.Duration
-	rememMaxInnerSteps int
-	beliefLLM          llmpkg.Provider
-	beliefModel        string
-	engine             *agent.Engine
-	chatStore          persist.ChatStore
-	matrixMessageStore persist.MatrixMessageStore
-	activityStore      persist.SpecialistActivityStore
-	llmRequestStore    persist.LLMRequestStore
-	chatMemory         *memory.Manager
-	runs               *runStore
-	inputRequests      *inputRequestBroker
-	playgroundHandler  http.Handler
-	projectsService    projects.ProjectService
-	workspaceManager   workspaces.WorkspaceManager
-	warppToolMu        sync.Mutex
-	warppToolNames     []string
-	authStore          *auth.Store
-	authProvider       auth.Provider
-	specStore          persist.SpecialistsStore
-	teamStore          persist.SpecialistTeamsStore
-	mcpStore           persist.MCPStore
-	userPrefsStore     persist.UserPreferencesStore
-	commandPolicyStore persist.CommandPolicyStore
-	mcpManager         *mcpclient.Manager
-	mcpPool            *mcpclient.MCPServerPool
-	startupMCPOAuthIDs []int64
-	tokenMetrics       []tokenMetricsProvider
-	memoryMetrics      []memoryMetricsProvider
-	traceMetrics       []traceMetricsProvider
-	runMetrics         *clickhouseRunMetrics
-	logMetrics         []logMetricsProvider
-	transitService     *transitdomain.Service
-	ragService         *ragservice.Service
-	matrixGateway      *matrixgw.Service
-	pulseRuntime       *pulseRuntime
-	fleetBus           *fleet.Bus
-	trustService       *trust.Service
-	constitutionSvc    *constitution.Service
-	extraPools         []*pgxpool.Pool
+	cfg                     *config.Config
+	httpClient              *http.Client
+	bornTTS                 bornTTSHolder
+	moonshineSTT            moonshineHolder
+	mgr                     *databases.Manager
+	llm                     llmpkg.Provider
+	baseToolRegistry        tools.Registry
+	toolRegistry            tools.Registry
+	toolIndex               *tooldiscovery.ToolIndex
+	specRegistry            *specialists.Registry
+	specRegMu               sync.RWMutex
+	userSpecRegs            map[int64]*specialists.Registry
+	summaryLLM              llmpkg.Provider
+	durableStore            durable.Store
+	durableClient           *durable.Client
+	durableRegistry         *durable.Registry
+	durableWorker           *durable.Worker
+	warpp                   *warppservice.Service
+	warppPublishedToolNames []string
+	codeQARuntime           *codeQARuntime
+	codeQAService           *codeqaservice.Service
+	cliExecutor             *clitool.ExecutorImpl
+	terminalManager         *terminaltool.Manager
+	commandPolicyMu         sync.Mutex
+	evolvingMu              sync.RWMutex
+	userEvolving            map[int64]map[string]*memory.EvolvingMemory
+	evolvingLastUsed        map[int64]map[string]time.Time
+	evolvingCfg             memory.EvolvingMemoryConfig
+	evolvingSessionTTL      time.Duration
+	rememMaxInnerSteps      int
+	beliefLLM               llmpkg.Provider
+	beliefModel             string
+	engine                  *agent.Engine
+	agentCallTool           *agenttools.AgentCallTool
+	chatStore               persist.ChatStore
+	matrixMessageStore      persist.MatrixMessageStore
+	activityStore           persist.SpecialistActivityStore
+	llmRequestStore         persist.LLMRequestStore
+	chatMemory              *memory.Manager
+	runs                    *runStore
+	inputRequests           *inputRequestBroker
+	playgroundHandler       http.Handler
+	playgroundService       *playground.Service
+	projectsService         projects.ProjectService
+	workspaceManager        workspaces.WorkspaceManager
+	warppToolMu             sync.Mutex
+	authStore               *auth.Store
+	authProvider            auth.Provider
+	specStore               persist.SpecialistsStore
+	teamStore               persist.SpecialistTeamsStore
+	mcpStore                persist.MCPStore
+	userPrefsStore          persist.UserPreferencesStore
+	commandPolicyStore      persist.CommandPolicyStore
+	mcpManager              *mcpclient.Manager
+	mcpPool                 *mcpclient.MCPServerPool
+	startupMCPOAuthIDs      []int64
+	listenAddr              string
+	publicURL               string
+	tokenMetrics            []tokenMetricsProvider
+	memoryMetrics           []memoryMetricsProvider
+	traceMetrics            []traceMetricsProvider
+	runMetrics              *clickhouseRunMetrics
+	logMetrics              []logMetricsProvider
+	transitService          *transitdomain.Service
+	ragService              *ragservice.Service
+	matrixGateway           *matrixgw.Service
+	pulseRuntime            *pulseRuntime
+	fleetBus                *fleet.Bus
+	trustService            *trust.Service
+	constitutionSvc         *constitution.Service
+	extraPools              []*pgxpool.Pool
 }
 
 type tokenMetricsProvider interface {

@@ -44,6 +44,13 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       chunkSizeWarningLimit: 650,
+      target: "esnext",
+    },
+    optimizeDeps: {
+      exclude: ["onnxruntime-web"],
+    },
+    worker: {
+      format: "es",
     },
     server: proxyTarget
       ? {

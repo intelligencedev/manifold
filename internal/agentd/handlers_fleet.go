@@ -1,12 +1,12 @@
 package agentd
 
 import (
-	"encoding/json"
+	"context"
 	"net/http"
 	"strings"
 
+	fleetapi "manifold/internal/agentd/fleetapi"
 	"manifold/internal/fleet"
-	"manifold/internal/flow"
 	persist "manifold/internal/persistence"
 )
 
@@ -20,69 +20,28 @@ type fleetStateResponse struct {
 }
 
 func (a *app) fleetStateHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		userID, err := a.requireUserID(r)
-		if err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		uidPtr := &userID
-		runs := a.runs.list()
-		specialists, _ := a.listSpecialistsForUser(r.Context(), userID)
-		teams, _ := a.listTeamsForUser(r.Context(), userID)
-		recent := a.fleetBus.Recent(userID)
-		writeJSON(w, http.StatusOK, fleetStateResponse{
-			Runs:                  runs,
-			Specialists:           specialists,
-			Teams:                 teams,
-			OpenInputRequests:     a.activeInputRequestBroker().list(uidPtr),
-			ActiveDelegationEdges: fleet.ActiveEdges(recent),
-			RecentEvents:          recent,
-		})
-	}
+	return fleetapi.StateHandler(fleetapi.Deps{
+		RequireUserID: a.requireUserID,
+		BuildState: func(ctx context.Context, userID int64) any {
+			uidPtr := &userID
+			runs := a.runs.list()
+			specialists, _ := a.listSpecialistsForUser(ctx, userID)
+			teams, _ := a.listTeamsForUser(ctx, userID)
+			recent := a.fleetBus.Recent(userID)
+			return fleetStateResponse{
+				Runs:                  runs,
+				Specialists:           specialists,
+				Teams:                 teams,
+				OpenInputRequests:     a.activeInputRequestBroker().list(uidPtr),
+				ActiveDelegationEdges: fleet.ActiveEdges(recent),
+				RecentEvents:          recent,
+			}
+		},
+	})
 }
 
 func (a *app) fleetEventsHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		userID, err := a.requireUserID(r)
-		if err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		fl, ok := w.(http.Flusher)
-		if !ok {
-			http.Error(w, "streaming not supported", http.StatusInternalServerError)
-			return
-		}
-		snapshot, ch := a.fleetBus.Subscribe(r.Context(), userID)
-		writeFleetEvents(w, fl, snapshot)
-		for ev := range ch {
-			writeFleetEvents(w, fl, []fleet.Event{ev})
-		}
-	}
-}
-
-func writeFleetEvents(w http.ResponseWriter, fl http.Flusher, events []fleet.Event) {
-	for _, ev := range events {
-		payload, err := json.Marshal(ev)
-		if err != nil {
-			continue
-		}
-		_, _ = w.Write([]byte("data: "))
-		_, _ = w.Write(payload)
-		_, _ = w.Write([]byte("\n\n"))
-		fl.Flush()
-	}
+	return fleetapi.EventsHandler(fleetapi.Deps{RequireUserID: a.requireUserID, Subscribe: a.fleetBus.Subscribe})
 }
 
 type runTimelineResponse struct {
@@ -113,13 +72,13 @@ func (a *app) runTimelineHandler() http.HandlerFunc {
 		if run, ok := a.runs.get(runID); ok {
 			status = run.Status
 		}
-		if strings.HasPrefix(runID, "flowrun_") {
-			events, flowStatus, ok := a.flowV2State().getRunEvents(userID, runID)
+		if strings.HasPrefix(runID, "warpprun_") {
+			events, warppStatus, ok := a.warppState().GetRunEvents(userID, runID)
 			if !ok {
 				http.NotFound(w, r)
 				return
 			}
-			resp := runTimelineResponse{RunID: runID, Status: flowStatus, Events: make([]any, 0, len(events))}
+			resp := runTimelineResponse{RunID: runID, Status: warppStatus, Events: make([]any, 0, len(events))}
 			for _, ev := range events {
 				resp.Events = append(resp.Events, ev)
 			}
@@ -147,12 +106,4 @@ func (a *app) runTimelineHandler() http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, resp)
 	}
-}
-
-func normalizeFlowEvents(events []flow.RunEvent) []any {
-	out := make([]any, 0, len(events))
-	for _, ev := range events {
-		out = append(out, ev)
-	}
-	return out
 }

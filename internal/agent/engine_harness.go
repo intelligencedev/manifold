@@ -44,42 +44,14 @@ func (e *Engine) effectiveHarnessConfig() harness.RunConfig {
 }
 
 func (e *Engine) runHarnessLoop(ctx context.Context, msgs []llm.Message) (string, error) {
-	cfg := e.effectiveHarnessConfig()
-	restoreTools := e.withHarnessToolRegistry(cfg)
-	defer restoreTools()
-	state := newHarnessLoopState(cfg, msgs)
-	var final string
-	finalSet := false
-
-	for step := 0; e.stepAllowed(step); step++ {
-		msg, err := e.runHarnessStep(ctx, state, step, false)
-		if err != nil {
-			return "", err
-		}
-		if len(msg.ToolCalls) == 0 {
-			final = msg.Content
-			finalSet = true
-			break
-		}
-
-		var terminal bool
-		final, terminal, err = e.handleHarnessTools(ctx, state, msg, step, false)
-		if err != nil {
-			return "", err
-		}
-		if terminal {
-			finalSet = true
-			break
-		}
-	}
-
-	if !finalSet {
-		return "", MaxStepsExceededError{MaxSteps: e.MaxSteps}
-	}
-	return final, nil
+	return e.runHarnessLoopMode(ctx, msgs, false)
 }
 
 func (e *Engine) runHarnessStreamLoop(ctx context.Context, msgs []llm.Message) (string, error) {
+	return e.runHarnessLoopMode(ctx, msgs, true)
+}
+
+func (e *Engine) runHarnessLoopMode(ctx context.Context, msgs []llm.Message, stream bool) (string, error) {
 	cfg := e.effectiveHarnessConfig()
 	restoreTools := e.withHarnessToolRegistry(cfg)
 	defer restoreTools()
@@ -88,7 +60,7 @@ func (e *Engine) runHarnessStreamLoop(ctx context.Context, msgs []llm.Message) (
 	finalSet := false
 
 	for step := 0; e.stepAllowed(step); step++ {
-		msg, err := e.runHarnessStep(ctx, state, step, true)
+		msg, err := e.runHarnessStep(ctx, state, step, stream)
 		if err != nil {
 			return "", err
 		}
@@ -99,7 +71,7 @@ func (e *Engine) runHarnessStreamLoop(ctx context.Context, msgs []llm.Message) (
 		}
 
 		var terminal bool
-		final, terminal, err = e.handleHarnessTools(ctx, state, msg, step, true)
+		final, terminal, err = e.handleHarnessTools(ctx, state, msg, step, stream)
 		if err != nil {
 			return "", err
 		}
@@ -139,14 +111,21 @@ func (e *Engine) runHarnessStep(ctx context.Context, state *harnessLoopState, st
 
 	state.history = e.prepareHarnessHistory(ctx, state.history, state.cfg, state.tracker)
 	priorHistory := state.history
-	serializedHistory := harness.SerializeMessages(state.history)
-	e.emitContextMetrics(ctx, serializedHistory, ContextMetricPhasePreModel, nil, 0)
-	requestID := e.emitLLMRequest(ctx, serializedHistory, schemas, e.model())
-	result, err := e.runHarnessInference(ctx, state, schemas, stream)
+	// Permanent harness history stays uncompressed. Inference / emitLLMRequest
+	// see a provider-visible minified content view only.
+	providerSerial := e.lexMinifyForProvider(ctx, harness.SerializeMessages(priorHistory))
+	minifiedHistory := applyProviderContentToHarness(priorHistory, providerSerial)
+	e.emitContextMetrics(ctx, providerSerial, ContextMetricPhasePreModel, nil, 0)
+	requestID := e.emitLLMRequest(ctx, providerSerial, schemas, e.model())
+	minifiedState := *state
+	minifiedState.history = minifiedHistory
+	result, err := e.runHarnessInference(ctx, &minifiedState, schemas, stream)
 	if requestID != "" && e.AgentTracer != nil {
 		e.AgentTracer.Trace(AgentTrace{Type: "llm_request", Agent: e.AgentRole, Model: e.model(), Depth: e.AgentDepth, LLMRequestID: requestID})
 	}
-	state.history = result.History
+	// Restore permanent history with only newly appended attempt messages.
+	state.history = appendHarnessAttempts(priorHistory, minifiedHistory, result.History)
+	result.History = state.history
 	msg := e.acceptHarnessResult(priorHistory, result, step, stream)
 	e.emitContextMetrics(ctx, harness.SerializeMessages(state.history), ContextMetricPhaseAssistantAdded, nil, 0)
 	if err != nil {
@@ -159,12 +138,68 @@ func (e *Engine) runHarnessStep(ctx context.Context, state *harnessLoopState, st
 	return msg, nil
 }
 
+// applyProviderContentToHarness returns a shallow copy of history with Content
+// taken from providerMsgs (same length). Meta is preserved.
+func applyProviderContentToHarness(history []harness.HarnessMessage, providerMsgs []llm.Message) []harness.HarnessMessage {
+	out := make([]harness.HarnessMessage, len(history))
+	copy(out, history)
+	n := len(providerMsgs)
+	if n > len(out) {
+		n = len(out)
+	}
+	for i := 0; i < n; i++ {
+		out[i].Message.Content = providerMsgs[i].Content
+	}
+	return out
+}
+
+// appendHarnessAttempts rebuilds permanent history as original prefix + any
+// messages inference appended after the minified view of that prefix.
+func appendHarnessAttempts(prior, minifiedPrefix, resultHistory []harness.HarnessMessage) []harness.HarnessMessage {
+	if len(resultHistory) <= len(minifiedPrefix) {
+		out := make([]harness.HarnessMessage, len(prior))
+		copy(out, prior)
+		return out
+	}
+	appended := resultHistory[len(minifiedPrefix):]
+	out := make([]harness.HarnessMessage, 0, len(prior)+len(appended))
+	out = append(out, prior...)
+	out = append(out, appended...)
+	return out
+}
+
 func (e *Engine) runHarnessInference(ctx context.Context, state *harnessLoopState, schemas []llm.ToolSchema, stream bool) (harness.InferenceResult, error) {
 	req := harness.InferenceRequest{Provider: e.LLM, History: state.history, Schemas: schemas, Model: e.model(), Config: state.cfg, Tracker: state.tracker}
 	if stream {
+		req.Live = engineStreamObserver{engine: e}
 		return harness.RunStreamInference(ctx, req)
 	}
 	return harness.RunInference(ctx, req)
+}
+
+// engineStreamObserver forwards guarded-harness streaming output to the engine's
+// live callbacks so deltas and reasoning summaries reach consumers as the model
+// produces them, rather than only after an attempt is accepted.
+type engineStreamObserver struct {
+	engine *Engine
+}
+
+func (o engineStreamObserver) OnDelta(delta string) {
+	if o.engine.OnDelta != nil {
+		o.engine.OnDelta(delta)
+	}
+}
+
+func (o engineStreamObserver) OnThoughtSummary(summary string) {
+	if o.engine.OnThoughtSummary != nil {
+		o.engine.OnThoughtSummary(summary)
+	}
+}
+
+func (o engineStreamObserver) Reset(chars int) {
+	if chars > 0 && o.engine.OnStreamRollback != nil {
+		o.engine.OnStreamRollback(chars)
+	}
 }
 
 func (e *Engine) acceptHarnessResult(priorHistory []harness.HarnessMessage, result harness.InferenceResult, step int, stream bool) llm.Message {
@@ -400,7 +435,9 @@ func (e *Engine) emitHarnessStreamTurnMessages(messages []harness.HarnessMessage
 		}
 	}
 	for i, message := range messages {
-		if i == acceptedAssistant {
+		// When output streamed live during inference, deltas and thought
+		// summaries were already forwarded; replaying them here would duplicate.
+		if i == acceptedAssistant && !result.Streamed {
 			for _, summary := range result.ThoughtSummaries {
 				if e.OnThoughtSummary != nil {
 					e.OnThoughtSummary(summary)

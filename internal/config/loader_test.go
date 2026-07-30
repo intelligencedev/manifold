@@ -33,6 +33,29 @@ func TestParseInt(t *testing.T) {
 	})
 }
 
+func TestApplyRuntimeDefaultsLeavesLogPathEmpty(t *testing.T) {
+	cfg := Config{}
+
+	applyRuntimeDefaults(&cfg)
+
+	if cfg.LogPath != "" {
+		t.Fatalf("expected empty log path to preserve console logging, got %q", cfg.LogPath)
+	}
+}
+
+func TestApplyAuthAndTransitDefaultsSetsLocalRedirectURL(t *testing.T) {
+	cfg := Config{}
+
+	applyAuthAndTransitDefaults(&cfg)
+
+	if cfg.Auth.RedirectURL != "http://localhost:32180/auth/callback" {
+		t.Fatalf("expected local auth redirect URL, got %q", cfg.Auth.RedirectURL)
+	}
+	if cfg.Auth.Enabled {
+		t.Fatal("expected auth to remain disabled by default")
+	}
+}
+
 func TestLoad_FromYAML(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Chdir(tmpDir)
@@ -926,10 +949,15 @@ magma:
 	}
 }
 
-func TestLoad_MissingRequiredFields(t *testing.T) {
+func TestLoad_MissingAPIKeyAllowsFirstRun(t *testing.T) {
 	tmpDir := t.TempDir()
+	home := filepath.Join(tmpDir, "home")
 	t.Chdir(tmpDir)
+	t.Setenv("HOME", home)
 	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("GOOGLE_LLM_API_KEY", "")
+	t.Setenv("GOOGLE_API_KEY", "")
 
 	if err := os.WriteFile(filepath.Join(tmpDir, "config.yaml"), []byte(`workdir: .
 llm_client:
@@ -938,8 +966,51 @@ llm_client:
 		t.Fatalf("write config: %v", err)
 	}
 
-	if _, err := Load(); err == nil {
-		t.Fatalf("expected missing api key to fail")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("expected missing api key to allow first-run boot, got: %v", err)
+	}
+	if HasPrimaryLLMCredentials(&cfg) {
+		t.Fatalf("expected no primary LLM credentials for first-run config")
+	}
+	if cfg.ConfigPath == "" {
+		t.Fatalf("expected ConfigPath to be set")
+	}
+}
+
+func TestLoad_HomeConfigPreferredWhenNoCWDConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	home := filepath.Join(tmpDir, "home")
+	manifoldDir := filepath.Join(home, ".manifold")
+	if err := os.MkdirAll(manifoldDir, 0o755); err != nil {
+		t.Fatalf("mkdir home config: %v", err)
+	}
+	t.Chdir(tmpDir)
+	t.Setenv("HOME", home)
+	t.Setenv("OPENAI_API_KEY", "home-key")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("GOOGLE_LLM_API_KEY", "")
+	t.Setenv("GOOGLE_API_KEY", "")
+	t.Setenv("MANIFOLD_CONFIG", "")
+
+	if err := os.WriteFile(filepath.Join(manifoldDir, "config.yaml"), []byte(`llm_client:
+  provider: openai
+  openai:
+    apiKey: home-key
+    model: gpt-home
+`), 0o644); err != nil {
+		t.Fatalf("write home config: %v", err)
+	}
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.LLMClient.OpenAI.Model != "gpt-home" {
+		t.Fatalf("expected home config model, got %q", cfg.LLMClient.OpenAI.Model)
+	}
+	if cfg.ConfigPath != filepath.Join(manifoldDir, "config.yaml") {
+		t.Fatalf("unexpected config path: %q", cfg.ConfigPath)
 	}
 }
 

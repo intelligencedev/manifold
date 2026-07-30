@@ -8,6 +8,13 @@ import "./assets/vueflow.css";
 import "@vue-flow/node-resizer/dist/style.css";
 import "./assets/halo.css";
 import { useThemeStore } from "@/stores/theme";
+import { useTtsStore } from "@/stores/tts";
+import {
+  onAssistantDelta,
+  onAssistantFinal,
+  onAssistantRollback,
+  onAssistantStop,
+} from "@/lib/tts/supertonic/speechBus";
 
 const app = createApp(App);
 
@@ -29,5 +36,19 @@ app.use(VueQueryPlugin, {
 });
 
 useThemeStore();
+
+const tts = useTtsStore();
+onAssistantDelta((sessionId, assistantId, delta) => {
+  tts.pushAssistantDelta(sessionId, assistantId, delta);
+});
+onAssistantFinal((sessionId, assistantId, fullText) => {
+  tts.finalizeAssistantSpeech(sessionId, assistantId, fullText);
+});
+onAssistantRollback((sessionId, assistantId, chars) => {
+  tts.rollbackAssistantSpeech(sessionId, assistantId, chars);
+});
+onAssistantStop((sessionId) => {
+  tts.stopSession(sessionId);
+});
 
 app.mount("#app");

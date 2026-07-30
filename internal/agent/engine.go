@@ -14,6 +14,11 @@ import (
 	"manifold/internal/tools"
 )
 
+// DefaultLexMinifyLevel is the recommended progressive strength when the feature
+// is enabled without a custom level (maps to lexminify.L5Aggressive).
+// Product engines read config.LexMinify.EngineSettings(); bare Engine{} stays off (0).
+const DefaultLexMinifyLevel = 6
+
 type BeliefMagmaSink interface {
 	IngestBelief(ctx context.Context, episode belief.Episode, item belief.Belief) (string, error)
 }
@@ -82,6 +87,20 @@ type Engine struct {
 	// ContextWindowTokens is the approximate context window for Model in tokens.
 	// If not set, will be derived using llm.ContextSize.
 	ContextWindowTokens int
+	// LexMinifyLevel enables deterministic character/word minification of
+	// provider-visible message copies just before the LLM call.
+	// 0 = off. 1..6 map to progressive levels L0..L5.
+	// Product construction sites copy config.LexMinify.EngineSettings()
+	// (feature default is fully disabled / level 0).
+	// Minification does not mutate permanent conversation history.
+	LexMinifyLevel int
+	// LexMinifyZones is a bitmask of lexminify.Zone values. Zero means the
+	// package default (runtime context + history + tool + assistant + system prompt).
+	LexMinifyZones int
+	// LexMinifyCurrentMax caps compression strength on [CURRENT REQUEST]
+	// when that zone is enabled. Zero uses the package default (L0 only when
+	// ZoneCurrentRequest is set, otherwise untouched).
+	LexMinifyCurrentMax int
 	// Rolling summarization configuration (token-based only)
 	SummaryEnabled bool
 	// SkipInitialSummarization suppresses the engine's first pre-run summary pass
@@ -115,6 +134,11 @@ type Engine struct {
 	OnDelta func(string)
 	// OnThoughtSummary, if set, is called for streamed reasoning summaries.
 	OnThoughtSummary func(string)
+	// OnStreamRollback, if set, is called when the guarded harness rejects an
+	// attempt whose delta output was already streamed live. The argument is the
+	// number of trailing characters previously sent via OnDelta that must be
+	// discarded before the retried (or final) attempt streams.
+	OnStreamRollback func(chars int)
 	// OnTool, if set, is called after each tool execution with tool name, args, result, and tool ID.
 	OnTool               func(toolName string, args []byte, result []byte, toolID string)
 	OnToolWithTitle      func(toolName string, toolTitle string, args []byte, result []byte, toolID string)

@@ -16,21 +16,12 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"manifold/internal/agent"
+	chatpkg "manifold/internal/agentd/chat"
 	"manifold/internal/llm"
 	persist "manifold/internal/persistence"
 )
 
-type llmRequestCaptureConfig struct {
-	Store               persist.LLMRequestStore
-	SessionID           string
-	UserID              *int64
-	RunID               string
-	MessageID           string
-	ParentUserMessageID string
-	SpecialistID        string
-	CallID              string
-	ParentCallID        string
-}
+type llmRequestCaptureConfig = chatpkg.CaptureConfig
 
 func attachLLMRequestCapture(eng *agent.Engine, cfg llmRequestCaptureConfig) {
 	if eng == nil || cfg.Store == nil || strings.TrimSpace(cfg.SessionID) == "" {

@@ -47,28 +47,6 @@
           </svg>
         </button>
       </span>
-      <span
-        v-if="model.commandPolicyAllowAllActive"
-        class="flex items-center gap-1.5 rounded-full border border-warning/40 bg-warning/10 px-2.5 py-1 text-warning"
-        title="Command approvals are skipped for this session unless policy explicitly denies a command."
-      >
-        <span class="h-1.5 w-1.5 rounded-full bg-warning"></span>
-        <span class="font-medium">All commands allowed</span>
-        <button
-          type="button"
-          class="ml-0.5 rounded-full border border-warning/40 px-1.5 py-0.5 text-[10px] font-semibold text-warning transition hover:bg-warning/15 disabled:cursor-not-allowed disabled:opacity-60"
-          :disabled="model.commandPolicyDisablePending"
-          @click.stop="model.disableSessionCommandPolicyAllowAll"
-        >
-          {{ model.commandPolicyDisablePending ? "Disabling..." : "Disable" }}
-        </button>
-      </span>
-      <span
-        v-if="model.commandPolicyDisableError"
-        class="rounded-full border border-danger/40 bg-danger/10 px-2.5 py-1 text-danger"
-      >
-        {{ model.commandPolicyDisableError }}
-      </span>
       <div class="flex items-center gap-3" aria-label="Conversation settings">
         <div class="flex items-center gap-1.5">
           <span class="text-[11px] font-medium text-subtle-foreground">
@@ -118,6 +96,38 @@
               ></span>
             </span>
             <span>Memory</span>
+          </label>
+          <label
+            class="inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-medium leading-none text-subtle-foreground"
+            :title="model.ttsStatusTitle"
+          >
+            <input
+              type="checkbox"
+              class="sr-only"
+              :checked="model.ttsEnabled"
+              :disabled="
+                !model.activeSession?.id ||
+                model.ttsBusy
+              "
+              aria-label="Text to speech"
+              @change="model.setSessionTtsSetting($event)"
+            />
+            <span
+              class="relative h-4 w-7 rounded-full border transition-colors"
+              :class="
+                model.ttsEnabled
+                  ? 'border-accent bg-accent'
+                  : 'border-border bg-surface'
+              "
+            >
+              <span
+                class="absolute top-0.5 h-2.5 w-2.5 rounded-full bg-background shadow-1 transition-transform"
+                :class="
+                  model.ttsEnabled ? 'translate-x-3.5' : 'translate-x-0.5'
+                "
+              ></span>
+            </span>
+            <span>TTS</span>
           </label>
         </div>
       </div>

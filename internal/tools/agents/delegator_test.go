@@ -66,6 +66,7 @@ func delegatorTestEmbedFn(_ context.Context, _ config.EmbeddingConfig, texts []s
 
 func TestDelegatorRunUsesSharedEvolvingMemory(t *testing.T) {
 	t.Parallel()
+	const prompt = "remember this important detail"
 
 	provider := &delegatorMemoryProvider{chatResponse: "summary", streamResponse: "delegated final"}
 	store := &delegatorRecordingStore{saveCh: make(chan []*memory.MemoryEntry, 1)}
@@ -83,7 +84,7 @@ func TestDelegatorRunUsesSharedEvolvingMemory(t *testing.T) {
 	ctx := tools.WithProvider(context.Background(), provider)
 
 	out, err := d.Run(ctx, agent.DelegateRequest{
-		Prompt:    "remember this",
+		Prompt:    prompt,
 		UserID:    7,
 		SessionID: "sess-1",
 	}, nil)
@@ -102,8 +103,8 @@ func TestDelegatorRunUsesSharedEvolvingMemory(t *testing.T) {
 		if saved[0] == nil {
 			t.Fatal("expected saved memory entry")
 		}
-		if saved[0].Input != "remember this" {
-			t.Fatalf("expected saved input remember this, got %q", saved[0].Input)
+		if saved[0].Input != prompt {
+			t.Fatalf("expected saved input %q, got %q", prompt, saved[0].Input)
 		}
 		if saved[0].Output != "delegated final" {
 			t.Fatalf("expected saved output delegated final, got %q", saved[0].Output)
@@ -200,13 +201,13 @@ func TestDelegatorTracerUsesFriendlyToolTitles(t *testing.T) {
 		t.Fatalf("expected one trace event, got %d", len(recorder.events))
 	}
 	ev := recorder.events[0]
-	if ev.Title != "Run Command" {
-		t.Fatalf("trace title = %q, want %q", ev.Title, "Run Command")
+	if ev.Title != "Running a workspace command safely" {
+		t.Fatalf("trace title = %q, want %q", ev.Title, "Running a workspace command safely")
 	}
 	if ev.ToolName != "run_cli" {
 		t.Fatalf("trace tool name = %q, want %q", ev.ToolName, "run_cli")
 	}
-	if ev.ToolTitle != "Run Command" {
-		t.Fatalf("trace tool title = %q, want %q", ev.ToolTitle, "Run Command")
+	if ev.ToolTitle != "Running a workspace command safely" {
+		t.Fatalf("trace tool title = %q, want %q", ev.ToolTitle, "Running a workspace command safely")
 	}
 }

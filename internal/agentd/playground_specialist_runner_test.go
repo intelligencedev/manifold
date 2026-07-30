@@ -76,12 +76,6 @@ func TestPlaygroundSpecialistRunnerUsesToolsAndIsolatedProjectContext(t *testing
 				API:     "completions",
 			},
 		},
-		OpenAI: config.OpenAIConfig{
-			APIKey:  "test",
-			BaseURL: specialistServer.URL,
-			Model:   "special-model",
-			API:     "completions",
-		},
 	}
 	specs := []config.SpecialistConfig{{
 		Name:        "runner",

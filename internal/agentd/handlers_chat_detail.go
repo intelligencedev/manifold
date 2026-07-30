@@ -10,6 +10,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	chatpkg "manifold/internal/agentd/chat"
 	"manifold/internal/auth"
 	persist "manifold/internal/persistence"
 	"manifold/internal/projects"
@@ -17,37 +18,16 @@ import (
 )
 
 func (a *app) chatSessionDetailHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		userID, currentUser, ok := a.chatDetailAccess(w, r)
-		if !ok {
-			return
-		}
-		id, subresource, subresourceID, ok := parseChatSessionDetailPath(r)
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-		setChatDetailCORSHeaders(w, r, subresource)
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-
-		switch subresource {
-		case "activities":
-			a.handleChatActivities(w, r, userID, id)
-		case "messages":
-			a.handleChatMessages(w, r, userID, id, subresourceID)
-		case "llm-requests":
-			a.handleChatLLMRequests(w, r, userID, id, subresourceID)
-		case "runs":
-			a.handleChatSessionRuns(w, r, userID, id)
-		case "title":
-			a.handleChatTitle(w, r, userID, id)
-		default:
-			a.handleChatSession(w, r, currentUser, userID, id)
-		}
-	}
+	return chatpkg.DetailHandler(chatpkg.DetailHandlerDeps{
+		Access:      a.chatDetailAccess,
+		SetCORS:     setChatDetailCORSHeaders,
+		Activities:  a.handleChatActivities,
+		Messages:    a.handleChatMessages,
+		LLMRequests: a.handleChatLLMRequests,
+		Runs:        a.handleChatSessionRuns,
+		Title:       a.handleChatTitle,
+		Session:     a.handleChatSession,
+	})
 }
 
 func (a *app) chatDetailAccess(w http.ResponseWriter, r *http.Request) (*int64, *auth.User, bool) {
@@ -70,21 +50,7 @@ func (a *app) chatDetailAccess(w http.ResponseWriter, r *http.Request) (*int64, 
 }
 
 func parseChatSessionDetailPath(r *http.Request) (string, string, string, bool) {
-	rest := strings.TrimPrefix(r.URL.Path, "/api/chat/sessions/")
-	rest = strings.Trim(rest, "/")
-	if rest == "" {
-		return "", "", "", false
-	}
-	parts := strings.Split(rest, "/")
-	subresource := ""
-	subresourceID := ""
-	if len(parts) >= 2 {
-		subresource = parts[1]
-	}
-	if len(parts) >= 3 {
-		subresourceID = parts[2]
-	}
-	return parts[0], subresource, subresourceID, true
+	return chatpkg.ParseDetailPath(r)
 }
 
 func setChatDetailCORSHeaders(w http.ResponseWriter, r *http.Request, subresource string) {

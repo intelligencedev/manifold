@@ -275,30 +275,30 @@ func routeCatalogPart7() []routeSpec {
 			jsonOp(http.MethodPut, "Teams", "Add specialist to team", true, withSuccess(http.StatusNoContent), withResponseMode("none")),
 			jsonOp(http.MethodDelete, "Teams", "Remove specialist from team", true, withSuccess(http.StatusNoContent), withResponseMode("none")),
 		}},
-		{path: "/api/flows/v2/tools", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Flow", "List tool schemas for Flow v2", true),
+		{path: "/api/warpp/catalog", operations: []operationSpec{
+			jsonOp(http.MethodGet, "Warpp", "List node manifests and coercions", true),
 		}},
-		{path: "/api/flows/v2/workflows", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Flow", "List Flow v2 workflows", true),
+		{path: "/api/warpp/workflows", operations: []operationSpec{
+			jsonOp(http.MethodGet, "Warpp", "List WARPP workflows", true),
 		}},
-		{path: "/api/flows/v2/workflows/{workflow_id}", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Flow", "Get Flow v2 workflow", true),
-			jsonOp(http.MethodPut, "Flow", "Create/update Flow v2 workflow", true, withRequestBody("json"), withSuccess(http.StatusOK)),
-			jsonOp(http.MethodDelete, "Flow", "Delete Flow v2 workflow", true, withSuccess(http.StatusNoContent), withResponseMode("none")),
+		{path: "/api/warpp/workflows/{workflow_id}", operations: []operationSpec{
+			jsonOp(http.MethodGet, "Warpp", "Get WARPP workflow", true),
+			jsonOp(http.MethodPut, "Warpp", "Create/update WARPP workflow", true, withRequestBody("json"), withSuccess(http.StatusOK)),
+			jsonOp(http.MethodDelete, "Warpp", "Delete WARPP workflow", true, withSuccess(http.StatusNoContent), withResponseMode("none")),
 		}},
-		{path: "/api/flows/v2/validate", operations: []operationSpec{
-			jsonOp(http.MethodPost, "Flow", "Validate Flow v2 workflow", true, withRequestBody("json"), withSuccess(http.StatusOK)),
+		{path: "/api/warpp/validate", operations: []operationSpec{
+			jsonOp(http.MethodPost, "Warpp", "Validate WARPP workflow", true, withRequestBody("json"), withSuccess(http.StatusOK)),
 		}},
 	}
 }
 
 func routeCatalogPart8() []routeSpec {
 	return []routeSpec{
-		{path: "/api/flows/v2/run", operations: []operationSpec{
-			jsonOp(http.MethodPost, "Flow", "Start Flow v2 run", true, withRequestBody("json"), withSuccess(http.StatusAccepted)),
+		{path: "/api/warpp/runs", operations: []operationSpec{
+			jsonOp(http.MethodPost, "Warpp", "Start WARPP run", true, withRequestBody("json"), withSuccess(http.StatusAccepted)),
 		}},
-		{path: "/api/flows/v2/runs/{run_id}/events", operations: []operationSpec{
-			jsonOp(http.MethodGet, "Flow", "Get or stream Flow v2 run events", true, withSuccess(http.StatusOK), withResponseMode("sse")),
+		{path: "/api/warpp/runs/{run_id}/events", operations: []operationSpec{
+			jsonOp(http.MethodGet, "Warpp", "Get or stream WARPP run events", true, withSuccess(http.StatusOK), withResponseMode("sse")),
 		}},
 		{path: "/api/durable/tasks", operations: []operationSpec{
 			jsonOp(http.MethodGet, "Durable", "List durable tasks", true),

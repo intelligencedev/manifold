@@ -3,6 +3,9 @@ package config
 // Config is the top-level runtime configuration for the agent.
 type Config struct {
 	Workdir string `yaml:"workdir" json:"workdir"`
+	// ConfigPath is the resolved path of the loaded (or destination) config file.
+	// It is not read from YAML; Load sets it when resolving candidates.
+	ConfigPath string `yaml:"-" json:"-"`
 	// Deprecated: systemPrompt is retained only to read older config files.
 	// New orchestrator system instructions should be configured through the
 	// persisted orchestrator specialist, and shared prompt blocks should be
@@ -55,10 +58,8 @@ type Config struct {
 	Exec               ExecConfig    `yaml:"exec" json:"exec"`
 	// LLMClient controls which LLM provider to use and holds provider-specific settings.
 	LLMClient LLMClientConfig `yaml:"llm_client" json:"llmClient"`
-	// OpenAI retains the active OpenAI-compatible configuration for backward compatibility.
-	OpenAI OpenAIConfig `yaml:"openai" json:"openai"`
-	Obs    ObsConfig    `yaml:"obs" json:"obs"`
-	Web    WebConfig    `yaml:"web" json:"web"`
+	Obs       ObsConfig       `yaml:"obs" json:"obs"`
+	Web       WebConfig       `yaml:"web" json:"web"`
 	// Matrix configures the built-in Matrix gateway.
 	Matrix MatrixConfig `yaml:"matrix" json:"matrix"`
 	// Auth configures optional user authentication (OIDC/OAuth2) and RBAC.
@@ -137,6 +138,9 @@ type Config struct {
 	StreamRunTimeoutSeconds int `yaml:"streamRunTimeoutSeconds" json:"streamRunTimeoutSeconds"`
 	// WorkflowTimeoutSeconds bounds orchestrator workflow execution; 0 disables.
 	WorkflowTimeoutSeconds int `yaml:"workflowTimeoutSeconds" json:"workflowTimeoutSeconds"`
+	// LexMinify controls deterministic provider-bound lexical minification.
+	// The entire feature is disabled by default (enabled: false).
+	LexMinify LexMinifyConfig `yaml:"lexMinify" json:"lexMinify"`
 	// Projects controls per-user projects service behavior.
 	Projects ProjectsConfig `yaml:"projects" json:"projects"`
 	// CodeQA configures deterministic and LLM-assisted code quality evaluation.
@@ -220,6 +224,52 @@ type PromptOverridesConfig struct {
 	MemoryInstructions         string `yaml:"memoryInstructions" json:"memoryInstructions"`
 	ToolDiscoveryInstructions  string `yaml:"toolDiscoveryInstructions" json:"toolDiscoveryInstructions"`
 	SkillDiscoveryInstructions string `yaml:"skillDiscoveryInstructions" json:"skillDiscoveryInstructions"`
+}
+
+// LexMinifyConfig controls deterministic character/word minification of
+// provider-visible LLM message copies. Permanent conversation history is never
+// mutated. Zero value disables the feature.
+type LexMinifyConfig struct {
+	// Enabled master switch. When false, Level/Zones are ignored.
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// Level is progressive strength 1..6 when enabled (L0Whitespace..L5Aggressive).
+	// Loader fills RecommendedLexMinifyLevel when Enabled is true and Level is 0.
+	Level int `yaml:"level" json:"level"`
+	// Zones is a lexminify.Zone bitmask. 0 means package DefaultZones when active.
+	Zones int `yaml:"zones" json:"zones"`
+	// CurrentRequestMaxLevel caps compression for [CURRENT REQUEST] when that zone is on.
+	// 0 means package default (whitespace-only if ZoneCurrentRequest is enabled).
+	CurrentRequestMaxLevel int `yaml:"currentRequestMaxLevel" json:"currentRequestMaxLevel"`
+}
+
+// MaxLexMinifyLevel is the highest progressive minification level (L5Aggressive).
+const MaxLexMinifyLevel = 6
+
+// RecommendedLexMinifyLevel is applied when the feature is enabled without an explicit level.
+const RecommendedLexMinifyLevel = MaxLexMinifyLevel
+
+// EffectiveLevel returns the engine LexMinifyLevel (0 when the feature is disabled).
+func (c LexMinifyConfig) EffectiveLevel() int {
+	if !c.Enabled {
+		return 0
+	}
+	lvl := c.Level
+	if lvl <= 0 {
+		return 0
+	}
+	if lvl > MaxLexMinifyLevel {
+		return MaxLexMinifyLevel
+	}
+	return lvl
+}
+
+// EngineSettings returns level/zones/current-max for agent.Engine construction.
+func (c LexMinifyConfig) EngineSettings() (level, zones, currentMax int) {
+	level = c.EffectiveLevel()
+	if level == 0 {
+		return 0, 0, 0
+	}
+	return level, c.Zones, c.CurrentRequestMaxLevel
 }
 
 // HarnessConfig controls the optional Forge-style guarded agent loop.
@@ -366,6 +416,13 @@ type ProjectsConfig struct {
 
 // TTSConfig holds text-to-speech specific configuration.
 type TTSConfig struct {
+	// Engine selects the TTS backend for the /tts route: "openai" (default),
+	// "supertonic" (a host-side Supertonic sidecar that streams raw PCM16), or
+	// "born" (in-process pure-Go Supertonic inference; requires ModelDir).
+	Engine string `yaml:"engine" json:"engine"`
+	// ModelDir is the local Supertonic model directory (onnx/ + voice_styles/)
+	// used by the "born" engine.
+	ModelDir string `yaml:"modelDir" json:"modelDir"`
 	// BaseURL is the HTTP base for TTS requests. Requests will be POSTed to
 	// ${BaseURL}/v1/audio/speech if set.
 	BaseURL string `yaml:"baseURL" json:"baseURL"`
@@ -377,6 +434,13 @@ type TTSConfig struct {
 
 // STTConfig holds speech-to-text specific configuration.
 type STTConfig struct {
+	// Engine selects the STT backend for /stt: "openai" (default, proxy to an
+	// OpenAI-compatible /v1/audio/transcriptions) or "moonshine" (in-process
+	// pure-Go Moonshine inference; requires ModelDir).
+	Engine string `yaml:"engine" json:"engine"`
+	// ModelDir is the local Moonshine model directory (onnx/ + tokenizer.json)
+	// used by the "moonshine" engine.
+	ModelDir string `yaml:"modelDir" json:"modelDir"`
 	// BaseURL is the HTTP base for STT requests. Requests will be POSTed to
 	// ${BaseURL}/v1/audio/transcriptions if set.
 	BaseURL string `yaml:"baseURL" json:"baseURL"`

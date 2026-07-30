@@ -119,6 +119,49 @@
   </div>
 
   <div
+    v-if="model.showAllowAllDialog"
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="allow-all-title"
+    @click.self="model.closeAllowAllDialog"
+    @keydown.esc.prevent="model.closeAllowAllDialog"
+  >
+    <div class="w-full max-w-md rounded-5 bg-surface p-5 ring-1 ring-border/60">
+      <h2 id="allow-all-title" class="text-base font-semibold text-warning">
+        Allow all commands
+      </h2>
+      <p class="mt-2 text-sm text-subtle-foreground">
+        Every command this session runs will execute
+        <span class="font-semibold text-foreground">without asking for approval</span>,
+        unless policy explicitly denies it. This stays on until you turn it off.
+      </p>
+      <form class="mt-4 space-y-3" @submit.prevent="model.confirmAllowAll">
+        <p v-if="model.allowAllError" class="text-xs text-danger">
+          {{ model.allowAllError }}
+        </p>
+        <div class="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            class="h-9 rounded-full border border-white/15 px-3 text-sm text-subtle-foreground transition hover:border-white/30 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+            :disabled="model.allowAllPending"
+            @click="model.closeAllowAllDialog"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            class="h-9 rounded-full border border-warning/60 bg-warning/10 px-3 text-sm font-semibold text-warning transition hover:bg-warning/20 disabled:cursor-not-allowed disabled:opacity-60"
+            :disabled="!model.canConfirmAllowAll"
+          >
+            {{ model.allowAllPending ? "Enabling..." : "Allow all commands" }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div
     v-if="model.selectedParticipantActivityName"
     class="activity-modal-backdrop"
     role="dialog"

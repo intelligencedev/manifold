@@ -48,10 +48,20 @@ export function formatRowsForEditor(rows: DatasetRow[]): string {
     return "[]";
   }
   try {
-    return JSON.stringify(rows, null, 2);
+    // Drop null/undefined meta so the editor isn't cluttered with `"meta": null`
+    // on every row (the backend returns null for rows without metadata).
+    const cleaned = rows.map((row) =>
+      row.meta == null ? omitMeta(row) : row,
+    );
+    return JSON.stringify(cleaned, null, 2);
   } catch {
     return "[]";
   }
+}
+
+function omitMeta(row: DatasetRow): Omit<DatasetRow, "meta"> {
+  const { meta: _meta, ...rest } = row;
+  return rest;
 }
 
 function formatFromFilename(
@@ -336,7 +346,7 @@ function normalizeDatasetRow(row: unknown, idx: number): DatasetRow {
       ? row.split.trim()
       : "train";
 
-  if (row.meta !== undefined && !isPlainObject(row.meta)) {
+  if (row.meta != null && !isPlainObject(row.meta)) {
     throw new Error(`Row ${idx + 1} meta must be an object.`);
   }
 
@@ -344,7 +354,7 @@ function normalizeDatasetRow(row: unknown, idx: number): DatasetRow {
     id,
     inputs,
     expected: row.expected,
-    meta: row.meta as Record<string, unknown> | undefined,
+    meta: (row.meta ?? undefined) as Record<string, unknown> | undefined,
     split,
   };
 }

@@ -108,10 +108,14 @@ describe("PlaygroundExperimentsView", () => {
       queryByText,
     } = render(PlaygroundExperimentsView);
 
-    expect(await findAllByText(/Runner: Specialist: runner/)).not.toHaveLength(
+    expect(await findAllByText(/Specialist: runner/)).not.toHaveLength(
       0,
     );
     expect(queryByText(/paused-runner/)).toBeNull();
+
+    await fireEvent.click(
+      await findByRole("button", { name: /^New Experiment$/i }),
+    );
 
     const name = (await findByLabelText("Name")) as HTMLInputElement;
     const dataset = (await findByLabelText("Dataset")) as HTMLSelectElement;

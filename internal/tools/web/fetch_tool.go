@@ -107,9 +107,26 @@ func fetchOptions(args fetchToolArgs) []Option {
 	return opts
 }
 
+// Default and bounds for the web_fetch max_bytes argument. The min/max mirror
+// the JSON schema; an omitted field unmarshals to 0 and falls back to the
+// Fetcher's intended 8 MB default rather than the 1 MB floor, so ordinary
+// pages (news/article HTML routinely exceeds 1 MB of raw markup) are not
+// rejected.
+const (
+	defaultFetchMaxBytes = 8 * 1000 * 1000 // 8 MB
+	minFetchMaxBytes     = 1000000         // 1 MB (schema minimum)
+	maxFetchMaxBytes     = 16777216        // 16 MB (schema maximum)
+)
+
 func normalizeMaxBytes(maxBytes int64) int64 {
-	if maxBytes < 1000000 {
-		return 1000000
+	if maxBytes <= 0 {
+		return defaultFetchMaxBytes
+	}
+	if maxBytes < minFetchMaxBytes {
+		return minFetchMaxBytes
+	}
+	if maxBytes > maxFetchMaxBytes {
+		return maxFetchMaxBytes
 	}
 	return maxBytes
 }

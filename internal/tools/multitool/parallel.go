@@ -13,6 +13,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"manifold/internal/agent/inputrequest"
+	"manifold/internal/durable"
 	"manifold/internal/tools"
 )
 
@@ -142,7 +144,7 @@ func (t *ParallelTool) Call(ctx context.Context, raw json.RawMessage) (any, erro
 	if err != nil {
 		return map[string]any{"ok": false, "error": err.Error()}, nil
 	}
-	return exec.run(ctx), nil
+	return exec.run(ctx)
 }
 
 type parallelExecution struct {
@@ -173,7 +175,8 @@ func (t *ParallelTool) prepareExecution(ctx context.Context, args parallelArgs) 
 	if len(args.ToolUses) > 32 {
 		return parallelExecution{}, errors.New("tool_uses exceeds maximum of 32")
 	}
-	calls, err := t.prepareCalls(args.ToolUses)
+	parentToolID := strings.TrimSpace(inputrequest.RunMetadataFromContext(ctx).ToolID)
+	calls, err := t.prepareCalls(args.ToolUses, parentToolID)
 	if err != nil {
 		return parallelExecution{}, err
 	}
@@ -186,9 +189,9 @@ func (t *ParallelTool) prepareExecution(ctx context.Context, args parallelArgs) 
 	}, nil
 }
 
-func (t *ParallelTool) prepareCalls(calls []parallelCall) ([]preparedParallelCall, error) {
+func (t *ParallelTool) prepareCalls(calls []parallelCall, parentToolID string) ([]preparedParallelCall, error) {
 	prepared := make([]preparedParallelCall, 0, len(calls))
-	for _, call := range calls {
+	for i, call := range calls {
 		toolName, err := normalizeRecipient(call.RecipientName)
 		if err != nil {
 			return nil, fmt.Errorf("invalid recipient_name (%s): %v", call.RecipientName, err)
@@ -196,9 +199,13 @@ func (t *ParallelTool) prepareCalls(calls []parallelCall) ([]preparedParallelCal
 		if toolName == t.Name() {
 			return nil, errors.New("recursive multi_tool_use_parallel invocation is not allowed")
 		}
-		toolCallID := call.ToolCallID
+		toolCallID := strings.TrimSpace(call.ToolCallID)
 		if toolCallID == "" {
-			toolCallID = uuid.NewString()
+			if parentToolID != "" {
+				toolCallID = fmt.Sprintf("%s:child:%d", parentToolID, i)
+			} else {
+				toolCallID = uuid.NewString()
+			}
 		}
 		prepared = append(prepared, preparedParallelCall{spec: call, toolName: toolName, toolCallID: toolCallID})
 	}
@@ -213,19 +220,28 @@ func (t *ParallelTool) effectiveMaxParallel(callCount int) int {
 	return maxParallel
 }
 
-func (e parallelExecution) run(ctx context.Context) map[string]any {
+func (e parallelExecution) run(ctx context.Context) (any, error) {
 	results := make([]callResult, len(e.calls))
 	var errs []string
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+	var firstErr error
 	sem := make(chan struct{}, e.maxParallel)
 
 	for idx, call := range e.calls {
 		wg.Add(1)
 		go func(i int, call preparedParallelCall) {
 			defer wg.Done()
-			result, errText := e.executeOne(ctx, sem, call)
+			result, errText, err := e.executeOne(ctx, sem, call)
 			results[i] = result
+			if err != nil {
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = err
+				}
+				mu.Unlock()
+				return
+			}
 			if errText != "" {
 				mu.Lock()
 				errs = append(errs, errText)
@@ -234,16 +250,19 @@ func (e parallelExecution) run(ctx context.Context) map[string]any {
 		}(idx, call)
 	}
 	wg.Wait()
+	if firstErr != nil {
+		return nil, firstErr
+	}
 
 	ok := len(errs) == 0
 	resp := map[string]any{"ok": ok, "results": results}
 	if !ok {
 		resp["error"] = strings.Join(errs, "; ")
 	}
-	return resp
+	return resp, nil
 }
 
-func (e parallelExecution) executeOne(ctx context.Context, sem chan struct{}, call preparedParallelCall) (callResult, string) {
+func (e parallelExecution) executeOne(ctx context.Context, sem chan struct{}, call preparedParallelCall) (callResult, string, error) {
 	select {
 	case sem <- struct{}{}:
 	case <-ctx.Done():
@@ -253,29 +272,42 @@ func (e parallelExecution) executeOne(ctx context.Context, sem chan struct{}, ca
 			ToolName:      call.toolName,
 			ToolCallID:    call.toolCallID,
 			Error:         errMsg,
-		}, fmt.Sprintf("%s: %s", call.toolName, errMsg)
+		}, fmt.Sprintf("%s: %s", call.toolName, errMsg), nil
 	}
 	defer func() { <-sem }()
 
-	dispatchCtx := ctx
-	if e.timeout > 0 {
-		var cancel context.CancelFunc
-		dispatchCtx, cancel = context.WithTimeout(ctx, e.timeout)
-		defer cancel()
-	}
-	start := time.Now()
-	payload, err := e.dispatch(dispatchCtx, call)
-	result := callResult{
-		RecipientName: call.spec.RecipientName,
-		ToolName:      call.toolName,
-		ToolCallID:    call.toolCallID,
-		DurationMS:    time.Since(start).Milliseconds(),
-	}
+	result, err := durable.Step(ctx, parallelChildStepKey(ctx, call), func(stepCtx context.Context) (callResult, error) {
+		dispatchCtx := stepCtx
+		if e.timeout > 0 {
+			var cancel context.CancelFunc
+			dispatchCtx, cancel = context.WithTimeout(stepCtx, e.timeout)
+			defer cancel()
+		}
+		dispatchCtx = withNestedToolMetadata(dispatchCtx, call.toolCallID)
+		start := time.Now()
+		payload, err := e.dispatch(dispatchCtx, call)
+		out := callResult{
+			RecipientName: call.spec.RecipientName,
+			ToolName:      call.toolName,
+			ToolCallID:    call.toolCallID,
+			DurationMS:    time.Since(start).Milliseconds(),
+		}
+		if err != nil {
+			if errors.Is(err, durable.ErrSuspended) {
+				return callResult{}, err
+			}
+			out.Error = err.Error()
+			return out, nil
+		}
+		return resultWithPayload(out, payload)
+	})
 	if err != nil {
-		result.Error = err.Error()
-		return result, fmt.Sprintf("%s: %v", call.toolName, err)
+		return callResult{}, "", err
 	}
-	return resultWithPayload(result, payload)
+	if result.Error != "" {
+		return result, fmt.Sprintf("%s: %s", result.ToolName, result.Error), nil
+	}
+	return result, "", nil
 }
 
 func (e parallelExecution) dispatch(ctx context.Context, call preparedParallelCall) ([]byte, error) {
@@ -291,18 +323,40 @@ func (e parallelExecution) dispatch(ctx context.Context, call preparedParallelCa
 	return e.registry.Dispatch(ctx, call.toolName, argsPayload)
 }
 
-func resultWithPayload(result callResult, payload []byte) (callResult, string) {
+func withNestedToolMetadata(ctx context.Context, toolCallID string) context.Context {
+	toolCallID = strings.TrimSpace(toolCallID)
+	if toolCallID == "" {
+		return ctx
+	}
+	meta := inputrequest.RunMetadataFromContext(ctx)
+	meta.ToolID = toolCallID
+	return inputrequest.WithRunMetadata(ctx, meta)
+}
+
+func parallelChildStepKey(ctx context.Context, call preparedParallelCall) string {
+	id := strings.TrimSpace(call.toolCallID)
+	if id == "" {
+		id = strings.TrimSpace(call.toolName)
+	}
+	parent := strings.TrimSpace(inputrequest.RunMetadataFromContext(ctx).ToolID)
+	if parent == "" {
+		return "multi_tool_use_parallel:" + id
+	}
+	return "multi_tool_use_parallel:" + parent + ":" + id
+}
+
+func resultWithPayload(result callResult, payload []byte) (callResult, error) {
 	if len(payload) == 0 {
 		payload = []byte("null")
 	}
 	if embeddedErr := detectEmbeddedError(payload); embeddedErr != "" {
 		result.Error = embeddedErr
-		return result, fmt.Sprintf("%s: %s", result.ToolName, embeddedErr)
+		return result, nil
 	}
 	cp := make([]byte, len(payload))
 	copy(cp, payload)
 	result.Payload = json.RawMessage(cp)
-	return result, ""
+	return result, nil
 }
 
 func (t *ParallelTool) registryView() tools.Registry {
@@ -468,7 +522,7 @@ var reservedEnvelopeKeys = map[string]struct{}{
 	"name":           {},
 	"tool":           {},
 	"tool_name":      {},
-	"parameters":     {},
+	"parameters":      {},
 	"arguments":      {},
 	"tool_call_id":   {},
 	"id":             {},

@@ -10,6 +10,7 @@
     "isolatedModules": true,
     "strict": true,
     "jsx": "preserve",
+    "jsxImportSource": "vue",
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "lib": ["ES2023", "DOM", "DOM.Iterable"],

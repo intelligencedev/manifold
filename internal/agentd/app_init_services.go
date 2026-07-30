@@ -18,6 +18,7 @@ import (
 	"manifold/internal/config"
 	"manifold/internal/constitution"
 	"manifold/internal/durable"
+	"manifold/internal/embedding"
 	"manifold/internal/fleet"
 	"manifold/internal/httpapi"
 	llmpkg "manifold/internal/llm"
@@ -59,8 +60,8 @@ type appStartupDeps struct {
 
 func buildAppStartup(ctx context.Context, cfg *config.Config) (appStartupDeps, error) {
 	httpClient := observability.NewHTTPClient(nil)
-	if len(cfg.OpenAI.ExtraHeaders) > 0 {
-		httpClient = observability.WithHeaders(httpClient, cfg.OpenAI.ExtraHeaders)
+	if len(cfg.LLMClient.OpenAI.ExtraHeaders) > 0 {
+		httpClient = observability.WithHeaders(httpClient, cfg.LLMClient.OpenAI.ExtraHeaders)
 	}
 	llmpkg.ConfigureLogging(cfg.LogPayloads, cfg.LogRawPrompts, cfg.OutputTruncateByte)
 	llm, err := llmproviders.Build(*cfg, httpClient)
@@ -164,7 +165,7 @@ func newAppShell(deps appShellDeps) *app {
 		userSpecRegs:       map[int64]*specialists.Registry{systemUserID: deps.specReg},
 		runs:               newRunStore(),
 		inputRequests:      newInputRequestBroker(),
-		flowV2:             newFlowV2Runtime(deps.mgr.FlowV2, deps.durableClient),
+		warpp:              newWarppService(deps.mgr.Warpp, deps.durableClient),
 		codeQARuntime:      newCodeQARuntime(),
 		codeQAService:      deps.tooling.codeQAService,
 		cliExecutor:        deps.tooling.cliExecutor,
@@ -176,6 +177,7 @@ func newAppShell(deps appShellDeps) *app {
 		mcpManager:         deps.routing.mcpManager,
 		mcpPool:            deps.routing.mcpPool,
 		workspaceManager:   deps.routing.workspaceManager,
+		agentCallTool:      deps.routing.agentCallTool,
 		transitService:     deps.tooling.transitService,
 		ragService:         deps.tooling.ragService,
 		fleetBus:           fleet.NewBus(512),
@@ -279,7 +281,7 @@ func (a *app) initAgentRuntime(deps agentRuntimeDeps) error {
 }
 
 func (a *app) initEngine(cfg *config.Config, llm llmpkg.Provider, toolRegistry tools.Registry) {
-	ctxSize, _ := llmpkg.ContextSize(cfg.OpenAI.Model)
+	ctxSize, _ := llmpkg.ContextSize(cfg.LLMClient.OpenAI.Model)
 	a.engine = &agent.Engine{
 		LLM:                          llm,
 		Tools:                        toolRegistry,
@@ -287,8 +289,11 @@ func (a *app) initEngine(cfg *config.Config, llm llmpkg.Provider, toolRegistry t
 		MaxToolParallelism:           cfg.MaxToolParallelism,
 		System:                       a.composeSystemPrompt(),
 		UserPromptContext:            a.composeUserPromptContext(),
-		Model:                        cfg.OpenAI.Model,
+		Model:                        cfg.LLMClient.OpenAI.Model,
 		ContextWindowTokens:          ctxSize,
+		LexMinifyLevel:               cfg.LexMinify.EffectiveLevel(),
+		LexMinifyZones:               cfg.LexMinify.Zones,
+		LexMinifyCurrentMax:          cfg.LexMinify.CurrentRequestMaxLevel,
 		SummaryEnabled:               cfg.SummaryEnabled,
 		SummaryReserveBufferTokens:   cfg.SummaryReserveBufferTokens,
 		SummaryMinKeepLastMessages:   cfg.SummaryMinKeepLastMessages,
@@ -317,6 +322,8 @@ func (a *app) initBeliefMemory(cfg *config.Config, llm llmpkg.Provider, httpClie
 func (a *app) initDelegator(cfg *config.Config, toolRegistry tools.Registry, specReg *specialists.Registry, wsMgr workspaces.WorkspaceManager) {
 	delegator := agenttools.NewDelegator(toolRegistry, specReg, wsMgr, cfg.MaxSteps)
 	delegator.SetDefaultTimeout(cfg.AgentRunTimeoutSeconds)
+	level, zones, currentMax := cfg.LexMinify.EngineSettings()
+	delegator.SetLexMinify(level, zones, currentMax)
 	delegator.SetTeamDelegator(a)
 	a.engine.Delegator = delegator
 	a.engine.TeamDelegator = a
@@ -380,6 +387,7 @@ func (a *app) evolvingMemoryConfig(cfg *config.Config, memLLM llmpkg.Provider, m
 		WindowSize:                   cfg.EvolvingMemory.WindowSize,
 		EnableRAG:                    cfg.EvolvingMemory.EnableRAG,
 		RetrievalSimilarityThreshold: cfg.EvolvingMemory.RetrievalSimilarityThreshold,
+		MinRerankScore:               cfg.EvolvingMemory.MinRerankScore,
 		EnableSmartPrune:             cfg.EvolvingMemory.EnableSmartPrune,
 		PruneThreshold:               cfg.EvolvingMemory.PruneThreshold,
 		RelevanceDecay:               cfg.EvolvingMemory.RelevanceDecay,
@@ -406,10 +414,22 @@ func (a *app) logEvolvingMemoryInitialized(cfg *config.Config, memProvider, memM
 		Int("maxSize", cfg.EvolvingMemory.MaxSize).
 		Int("topK", cfg.EvolvingMemory.TopK).
 		Float64("retrievalSimilarityThreshold", cfg.EvolvingMemory.RetrievalSimilarityThreshold).
+		Float64("minRerankScore", cfg.EvolvingMemory.MinRerankScore).
 		Bool("rag", cfg.EvolvingMemory.EnableRAG).
 		Bool("rerank", cfg.Reranking.Enabled).
 		Bool("smartPrune", cfg.EvolvingMemory.EnableSmartPrune).
 		Msg("evolving_memory_initialized")
+
+	mode := strings.ToLower(strings.TrimSpace(cfg.Embedding.Instructions.Mode))
+	if mode == "" {
+		mode = "auto"
+	}
+	if mode == "auto" && !embedding.AutoInstructionMatches(cfg.Embedding.Model) {
+		log.Warn().
+			Str("model", cfg.Embedding.Model).
+			Str("mode", mode).
+			Msg("embedding_instructions_auto_not_matched; query instructions disabled. set embedding.instructions.mode=enabled if the model expects instruction-prefixed queries")
+	}
 }
 
 func (a *app) initReMemController(cfg *config.Config, memLLM llmpkg.Provider, memModel string) {
@@ -474,7 +494,7 @@ func (a *app) initPlaygroundServices(cfg *config.Config, mgr databases.Manager, 
 	playgroundDataset := dataset.NewService(mgr.Playground)
 	playgroundRepo := experiment.NewRepository()
 	playgroundPlanner := experiment.NewPlanner(experiment.PlannerConfig{MaxRowsPerShard: 32, MaxVariantsPerShard: 4})
-	playgroundProvider := provider.NewLLMAdapter(llm, cfg.OpenAI.Model)
+	playgroundProvider := provider.NewLLMAdapter(llm, cfg.LLMClient.OpenAI.Model)
 	playgroundRunner := newPlaygroundSpecialistRunner(a, worker.NewProviderRunner(playgroundProvider))
 	playgroundWorker := worker.NewWorkerWithRunner(playgroundRunner, artifactStore)
 	playgroundEvals := eval.NewRunner(eval.NewRegistry(), playgroundProvider)
@@ -488,6 +508,7 @@ func (a *app) initPlaygroundServices(cfg *config.Config, mgr databases.Manager, 
 		Store:       mgr.Playground,
 	})
 	a.playgroundHandler = httpapi.NewServer(playgroundService)
+	a.playgroundService = playgroundService
 	return nil
 }
 

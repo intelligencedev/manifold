@@ -80,7 +80,7 @@ type Fetcher struct {
 func NewFetcher(opts ...Option) *Fetcher {
 	o := FetchOptions{
 		Timeout:        20 * time.Second,
-		MaxBytes:       8 * 1000 * 1000, // 8 MB minimum
+		MaxBytes:       8 * 1000 * 1000, // 8 MB default
 		PreferReadable: true,
 		UserAgent:      "",
 		MaxRedirects:   10,
@@ -229,13 +229,14 @@ func (f *Fetcher) readResponse(rawURL string, resp *http.Response) (fetchPayload
 }
 
 func (f *Fetcher) readLimitedBody(body io.Reader) ([]byte, error) {
-	limited := io.LimitReader(body, f.opts.MaxBytes+1)
-	data, err := io.ReadAll(limited)
+	// Read at most MaxBytes. If the response is larger we keep the leading
+	// MaxBytes and drop the rest instead of failing: a single oversized page
+	// (common for news/article HTML that embeds scripts and tracking far beyond
+	// the article text) should degrade gracefully rather than break the caller.
+	// Readability extraction still runs on the truncated markup.
+	data, err := io.ReadAll(io.LimitReader(body, f.opts.MaxBytes))
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
-	}
-	if int64(len(data)) > f.opts.MaxBytes {
-		return nil, fmt.Errorf("response exceeds max bytes (%d)", f.opts.MaxBytes)
 	}
 	return data, nil
 }

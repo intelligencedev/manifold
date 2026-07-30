@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"manifold/internal/defaultprompt"
 	persist "manifold/internal/persistence"
 	"manifold/internal/specialists"
 )
@@ -57,6 +58,16 @@ func (a *app) createSpecialistForUser(ctx context.Context, userID int64, sp pers
 		return persist.Specialist{}, 0, errors.New("name required")
 	}
 	sp = a.prepareSpecialistInput(sp)
+	defaultPromptID, defaultVersionID, err := a.defaultPromptReference(ctx, userID)
+	if err != nil {
+		return persist.Specialist{}, 0, fmt.Errorf("resolve default prompt: %w", err)
+	}
+	if strings.TrimSpace(sp.PromptID) == "" && strings.TrimSpace(sp.PromptVersionID) == "" {
+		sp.PromptID, sp.PromptVersionID = defaultPromptID, defaultVersionID
+	}
+	if strings.TrimSpace(sp.System) == "" && sp.PromptID == defaultPromptID && sp.PromptVersionID == defaultVersionID {
+		sp.System = defaultprompt.Content
+	}
 	if name == specialists.OrchestratorName {
 		if userID == systemUserID {
 			if err := a.applyOrchestratorUpdate(ctx, sp); err != nil {

@@ -13,8 +13,7 @@ func TestApplyOrchestratorConfig_OpenAI(t *testing.T) {
 	t.Parallel()
 
 	cfg := &config.Config{
-		LLMClient: config.LLMClientConfig{Provider: "openai", OpenAI: config.OpenAIConfig{ExtraParams: map[string]any{"default": 0.1}}},
-		OpenAI:    config.OpenAIConfig{APIKey: "orig"},
+		LLMClient: config.LLMClientConfig{Provider: "openai", OpenAI: config.OpenAIConfig{APIKey: "orig", ExtraParams: map[string]any{"default": 0.1}}},
 	}
 	sp := persistence.Specialist{
 		BaseURL:      "https://example.com",
@@ -38,7 +37,6 @@ func TestApplyOrchestratorConfig_OpenAI(t *testing.T) {
 	require.True(t, cfg.EnableTools)
 	require.True(t, cfg.AutoDiscover)
 	require.Equal(t, []string{"a", "b"}, cfg.ToolAllowList)
-	require.Equal(t, cfg.LLMClient.OpenAI, cfg.OpenAI)
 	require.Equal(t, map[string]any{"default": 0.1, "temp": 0.2}, cfg.LLMClient.OpenAI.ExtraParams)
 }
 
@@ -72,7 +70,6 @@ func TestApplyOrchestratorConfig_Anthropic(t *testing.T) {
 
 	cfg := &config.Config{
 		LLMClient: config.LLMClientConfig{Provider: "openai", OpenAI: config.OpenAIConfig{APIKey: "orig"}},
-		OpenAI:    config.OpenAIConfig{APIKey: "orig"},
 	}
 	sp := persistence.Specialist{
 		Provider: "anthropic",
@@ -90,7 +87,7 @@ func TestApplyOrchestratorConfig_Anthropic(t *testing.T) {
 	require.Equal(t, "https://anthropic.example", cfg.LLMClient.Anthropic.BaseURL)
 	require.Equal(t, "anthro-key", cfg.LLMClient.Anthropic.APIKey)
 	require.Equal(t, "claude", cfg.LLMClient.Anthropic.Model)
-	require.Equal(t, "orig", cfg.OpenAI.APIKey)
+	require.Equal(t, "orig", cfg.LLMClient.OpenAI.APIKey)
 	require.Equal(t, map[string]any{"temperature": 0.2}, cfg.LLMClient.Anthropic.ExtraParams)
 }
 

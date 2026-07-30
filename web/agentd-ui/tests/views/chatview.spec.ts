@@ -245,19 +245,18 @@ describe("ChatView", () => {
   });
 
   it("renders the redesigned chat landmarks with real application labels", async () => {
-    const { findByRole, getByText } = renderChatView();
+    const { findByRole, getAllByText, getByText } = renderChatView();
 
     await findByRole("heading", { name: "Conversations" });
 
     expect(getByText("Workspace")).toBeTruthy();
-    expect(getByText("Conversation")).toBeTruthy();
+    expect(getAllByText("Conversation").length).toBeGreaterThan(0);
     expect(getByText("Run Activity")).toBeTruthy();
     expect(getByText("Specialists Execution Timeline")).toBeTruthy();
-    expect(getByText("Tool Invocations")).toBeTruthy();
     expect(getByText("Model & Performance")).toBeTruthy();
   });
 
-  it("renders execution activity as a time grid and tool invocation table", async () => {
+  it("renders execution activity as a time grid", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:10.000Z"));
     chatApiMocks.sessions = [sessionMeta()];
@@ -316,11 +315,7 @@ describe("ChatView", () => {
     expect(getByText("00:00")).toBeTruthy();
     expect(getByText("00:05")).toBeTruthy();
     expect(getAllByText("Geometry Analyst").length).toBeGreaterThan(0);
-    expect(getAllByText("web_search").length).toBeGreaterThan(0);
-    expect(getByText("Duration")).toBeTruthy();
     expect(getAllByText("2.0s").length).toBeGreaterThan(0);
-    expect(getByText("Timestamp")).toBeTruthy();
-    expect(getByText("00:00:01")).toBeTruthy();
   });
 
   it("updates live specialist runtime while the run remains active", async () => {

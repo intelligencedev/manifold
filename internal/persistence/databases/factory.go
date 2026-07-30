@@ -403,13 +403,13 @@ func initializeMemoryDefaultStores(ctx context.Context, m *Manager, cfg config.D
 
 func initializeWorkflowDefaultStores(ctx context.Context, m *Manager, cfg config.DBConfig, defaultBackend string) error {
 	if defaultBackend == "sqlite" {
-		m.FlowV2 = NewSQLiteFlowV2Store(m.SQLite)
+		m.Warpp = NewSQLiteWarppStore(m.SQLite)
 		m.Durable = durable.NewSQLiteStore(m.SQLite)
 	} else {
-		m.FlowV2 = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPostgresFlowV2Store)
+		m.Warpp = newStoreWithOptionalPool(ctx, cfg.DefaultDSN, NewPostgresWarppStore)
 		m.Durable = durable.NewStore(openOptionalPostgresPool(ctx, cfg.DefaultDSN))
 	}
-	if err := initStore(ctx, "flow v2 store", m.FlowV2); err != nil {
+	if err := initStore(ctx, "warpp store", m.Warpp); err != nil {
 		return err
 	}
 	return initStore(ctx, "durable store", m.Durable)

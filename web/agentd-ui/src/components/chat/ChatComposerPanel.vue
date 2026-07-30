@@ -53,22 +53,44 @@
         </div>
 
         <div class="flex items-center gap-2">
-          <textarea
-            :ref="model.setComposerRef"
-            :value="model.draft"
-            rows="1"
-            class="flex-1 min-w-0 resize-none bg-transparent py-1 text-sm leading-5 text-foreground outline-none placeholder:text-faint-foreground"
-            :placeholder="model.composerPlaceholder"
-            :disabled="!model.projectSelected || model.hasPendingInputRequest"
-            @keydown="model.handleComposerKeydown"
-            @input="
-              model.handleComposerInput(
-                ($event.target as HTMLTextAreaElement | null)?.value || '',
-              )
-            "
-            @keyup="model.handleComposerKeyup"
-            @click="model.updateMentionState"
-          ></textarea>
+          <div class="relative flex-1 min-w-0">
+            <div
+              v-if="!model.draft"
+              class="pointer-events-none absolute inset-y-0 left-0 right-0 flex items-start py-1 text-sm leading-5"
+              aria-hidden="true"
+            >
+              <span class="truncate">
+                <span class="text-faint-foreground">{{
+                  model.composerPlaceholder
+                }}</span>
+                <span
+                  v-if="
+                    model.commandPolicyAllowAllActive &&
+                    model.projectSelected &&
+                    !model.hasPendingInputRequest
+                  "
+                  class="text-warning/70"
+                  >&nbsp;WARNING: All commands allowed.</span
+                >
+              </span>
+            </div>
+            <textarea
+              :ref="model.setComposerRef"
+              :value="model.draft"
+              rows="1"
+              class="w-full min-w-0 resize-none bg-transparent py-1 text-sm leading-5 text-foreground outline-none placeholder:text-transparent"
+              :placeholder="model.composerPlaceholder"
+              :disabled="!model.projectSelected || model.hasPendingInputRequest"
+              @keydown="model.handleComposerKeydown"
+              @input="
+                model.handleComposerInput(
+                  ($event.target as HTMLTextAreaElement | null)?.value || '',
+                )
+              "
+              @keyup="model.handleComposerKeyup"
+              @click="model.updateMentionState"
+            ></textarea>
+          </div>
 
           <div class="shrink-0 flex items-end gap-0.5">
             <input
@@ -133,6 +155,48 @@
               "
             >
               <SolarMicrophone3Bold class="h-4 w-4" />
+            </button>
+
+            <button
+              type="button"
+              class="inline-flex h-7 w-7 items-center justify-center rounded-3 transition focus-visible:shadow-outline"
+              :class="[
+                model.commandPolicyAllowAllActive
+                  ? 'bg-warning/20 text-warning hover:bg-warning/30'
+                  : 'text-foreground/70 hover:text-accent',
+                !model.projectSelected ||
+                model.hasPendingInputRequest ||
+                model.commandPolicyDisablePending
+                  ? 'cursor-not-allowed opacity-50'
+                  : '',
+              ]"
+              :disabled="
+                !model.projectSelected ||
+                model.hasPendingInputRequest ||
+                model.commandPolicyDisablePending
+              "
+              :title="
+                model.commandPolicyAllowAllActive
+                  ? 'All commands allowed for this session — click to disable'
+                  : 'Allow all commands for this session'
+              "
+              :aria-label="
+                model.commandPolicyAllowAllActive
+                  ? 'All commands allowed for this session — click to disable'
+                  : 'Allow all commands for this session'
+              "
+              :aria-pressed="model.commandPolicyAllowAllActive"
+              @click="
+                model.commandPolicyAllowAllActive
+                  ? model.disableSessionCommandPolicyAllowAll()
+                  : model.openCommandPolicyAllowAllDialog()
+              "
+            >
+              <UnlockedBold
+                v-if="model.commandPolicyAllowAllActive"
+                class="h-4 w-4"
+              />
+              <LockedBold v-else class="h-4 w-4" />
             </button>
 
             <button
@@ -207,6 +271,12 @@
           </div>
         </div>
       </div>
+      <p
+        v-if="model.commandPolicyDisableError"
+        class="px-1 text-[11px] text-danger"
+      >
+        {{ model.commandPolicyDisableError }}
+      </p>
       <div v-if="model.pendingAttachments.length" class="space-y-2">
         <div
           v-if="model.imageAttachments.length"
@@ -253,6 +323,8 @@
 </template>
 
 <script setup lang="ts">
+import LockedBold from "@/components/icons/LockedBold.vue";
+import UnlockedBold from "@/components/icons/UnlockedBold.vue";
 import SolarArrowToTopLeftBold from "@/components/icons/SolarArrowToTopLeftBold.vue";
 import Camera from "@/components/icons/Camera.vue";
 import SolarMicrophone3Bold from "@/components/icons/SolarMicrophone3Bold.vue";

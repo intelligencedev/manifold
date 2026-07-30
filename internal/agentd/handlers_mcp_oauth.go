@@ -20,6 +20,7 @@ import (
 	oauthex "github.com/modelcontextprotocol/go-sdk/oauthex"
 	"golang.org/x/oauth2"
 
+	"manifold/internal/agentd/mcpapi"
 	"manifold/internal/persistence"
 )
 
@@ -37,51 +38,21 @@ func oauthMetadataToken(parts ...string) string {
 }
 
 func (a *app) mcpOAuthStartHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		userID, err := a.requireUserID(r)
-		if err != nil {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		var req struct {
-			ServerID int64  `json:"serverId"`
-			URL      string `json:"url"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return
-		}
-		authURL, statusCode, err := a.prepareMCPOAuthRedirect(w, r, userID, mcpOAuthStartRequest{ServerID: req.ServerID, URL: req.URL})
-		if err != nil {
-			http.Error(w, err.Error(), statusCode)
-			return
-		}
-		json.NewEncoder(w).Encode(map[string]string{"redirectUrl": authURL})
-	}
+	return mcpapi.OAuthStartHandler(a.mcpOAuthHandlerDeps())
 }
 
 func (a *app) mcpOAuthBootstrapHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if a.cfg.Auth.Enabled {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
-		}
-		serverID, err := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("serverId")), 10, 64)
-		if err != nil || serverID == 0 {
-			http.Error(w, "serverId required", http.StatusBadRequest)
-			return
-		}
-		authURL, statusCode, err := a.prepareMCPOAuthRedirect(w, r, systemUserID, mcpOAuthStartRequest{ServerID: serverID})
-		if err != nil {
-			http.Error(w, err.Error(), statusCode)
-			return
-		}
-		http.Redirect(w, r, authURL, http.StatusFound)
+	return mcpapi.OAuthBootstrapHandler(a.mcpOAuthHandlerDeps())
+}
+
+func (a *app) mcpOAuthHandlerDeps() mcpapi.OAuthHandlerDeps {
+	return mcpapi.OAuthHandlerDeps{
+		RequireUserID: a.requireUserID,
+		AuthEnabled: func() bool {
+			return a.cfg != nil && a.cfg.Auth.Enabled
+		},
+		SystemUserID:    systemUserID,
+		PrepareRedirect: a.prepareMCPOAuthRedirect,
 	}
 }
 
@@ -131,23 +102,20 @@ type mcpOAuthCallbackState struct {
 }
 
 func readMCPOAuthCallbackState(w http.ResponseWriter, r *http.Request) (mcpOAuthCallbackState, bool) {
-	state := r.URL.Query().Get("state")
-	if state == "" {
-		http.Error(w, "state missing", http.StatusBadRequest)
+	state, ok := mcpapi.ReadOAuthCallbackState(w, r, mcpOAuthStateCookiePrefix, mcpOAuthPKCECookiePrefix)
+	if !ok {
 		return mcpOAuthCallbackState{}, false
 	}
-	callbackState := mcpOAuthCallbackState{
-		state:           state,
-		stateCookieName: mcpOAuthCookieName(mcpOAuthStateCookiePrefix, state),
-		pkceCookieName:  mcpOAuthCookieName(mcpOAuthPKCECookiePrefix, state),
-	}
-	if !populateMCPOAuthStateCookie(w, r, &callbackState) {
-		return mcpOAuthCallbackState{}, false
-	}
-	if !populateMCPOAuthPKCECookie(w, r, &callbackState) {
-		return mcpOAuthCallbackState{}, false
-	}
-	return callbackState, true
+	return mcpOAuthCallbackState{
+		state:           state.State,
+		stateCookieName: state.StateCookieName,
+		pkceCookieName:  state.PKCECookieName,
+		pkceVerifier:    state.PKCEVerifier,
+		targetURL:       state.TargetURL,
+		resource:        state.Resource,
+		userID:          state.UserID,
+		serverID:        state.ServerID,
+	}, true
 }
 
 func populateMCPOAuthStateCookie(w http.ResponseWriter, r *http.Request, callbackState *mcpOAuthCallbackState) bool {

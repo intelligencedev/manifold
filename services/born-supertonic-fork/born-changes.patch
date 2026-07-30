@@ -1,0 +1,2786 @@
+diff --git a/cmd/spike/main.go b/cmd/spike/main.go
+new file mode 100644
+index 0000000..4b736c8
+--- /dev/null
++++ b/cmd/spike/main.go
+@@ -0,0 +1,82 @@
++package main
++
++import (
++	"fmt"
++	"sort"
++
++	"github.com/born-ml/born/backend/cpu"
++	"github.com/born-ml/born/onnx"
++)
++
++func okOrErr(err error) string {
++	if err != nil {
++		return "FAILED: " + err.Error()
++	}
++	return "SUCCESS"
++}
++
++func main() {
++	supported := map[string]bool{}
++	for _, op := range onnx.ListSupportedOps() {
++		supported[op] = true
++	}
++	sup := onnx.ListSupportedOps()
++	sort.Strings(sup)
++	fmt.Printf("Born supports %d ops:\n%v\n\n", len(sup), sup)
++
++	// Union of op_types used across Supertonic's 4 graphs (from onnx enumeration).
++	required := []string{
++		"Add", "BatchNormalization", "Cast", "Clip", "Concat", "Constant",
++		"ConstantOfShape", "Conv", "Cos", "Div", "Equal", "Erf", "Exp", "Expand",
++		"Gather", "Gemm", "LayerNormalization", "MatMul", "Mul", "PRelu", "Pad",
++		"Pow", "Reciprocal", "ReduceSum", "Relu", "Reshape", "Shape", "Sin",
++		"Slice", "Softmax", "Softplus", "Split", "Squeeze", "Sub", "Tanh", "Tile",
++		"Transpose", "Unsqueeze", "Where",
++	}
++	var missingReq []string
++	for _, op := range required {
++		if !supported[op] {
++			missingReq = append(missingReq, op)
++		}
++	}
++	sort.Strings(missingReq)
++	fmt.Printf("Supertonic uses %d distinct ops.\n", len(required))
++	if len(missingReq) == 0 {
++		fmt.Printf("OP COVERAGE: ALL %d Supertonic ops are supported by Born.\n\n", len(required))
++	} else {
++		fmt.Printf("OP COVERAGE: %d MISSING ops: %v\n\n", len(missingReq), missingReq)
++	}
++
++	modelsDir := "../../../../models/onnx"
++	models := []string{
++		"duration_predictor.onnx",
++		"text_encoder.onnx",
++		"vector_estimator.onnx",
++		"vocoder.onnx",
++	}
++
++	for _, m := range models {
++		path := modelsDir + "/" + m
++		fmt.Printf("========== %s ==========\n", m)
++		info, err := onnx.GetModelInfo(path)
++		if err != nil {
++			fmt.Printf("  GetModelInfo ERROR: %v\n", err)
++		} else {
++			fmt.Printf("  opset=%d nodes=%d inputs=%v outputs=%v\n",
++				info.OpsetVersion, info.NodeCount, info.InputNames, info.OutputNames)
++		}
++
++		backend := cpu.New()
++
++		// Non-strict (default): skips unsupported ops silently.
++		_, errLoose := onnx.Load(path, backend)
++
++		// Strict: must fail if any op is unsupported.
++		opts := onnx.DefaultLoadOptions()
++		opts.StrictMode = true
++		_, errStrict := onnx.Load(path, backend, opts)
++
++		fmt.Printf("  LOAD (default/skip): %s\n", okOrErr(errLoose))
++		fmt.Printf("  LOAD (strict):       %s\n\n", okOrErr(errStrict))
++	}
++}
+diff --git a/cmd/tts/main.go b/cmd/tts/main.go
+new file mode 100644
+index 0000000..fe1ae14
+--- /dev/null
++++ b/cmd/tts/main.go
+@@ -0,0 +1,54 @@
++// Command tts renders text to a WAV file using the pure-Go Supertonic pipeline.
++//
++//	go run ./cmd/tts -models <dir> -voice M1 -out out.wav "Hello there."
++package main
++
++import (
++	"flag"
++	"fmt"
++	"os"
++	"strings"
++	"time"
++
++	"github.com/born-ml/born/supertonic"
++)
++
++func main() {
++	modelDir := flag.String("models", "", "model dir (onnx/ + voice_styles/)")
++	voice := flag.String("voice", "M1", "voice id")
++	lang := flag.String("lang", "en", "language")
++	steps := flag.Int("steps", 8, "flow-matching steps")
++	out := flag.String("out", "out.wav", "output wav path")
++	flag.Parse()
++
++	text := strings.Join(flag.Args(), " ")
++	if *modelDir == "" || text == "" {
++		fmt.Fprintln(os.Stderr, "usage: tts -models <dir> [-voice M1] [-out out.wav] <text>")
++		os.Exit(2)
++	}
++
++	t0 := time.Now()
++	tts, err := supertonic.New(*modelDir)
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "load:", err)
++		os.Exit(1)
++	}
++	loadDur := time.Since(t0)
++	t1 := time.Now()
++	samples, err := tts.Synthesize(text, *voice, supertonic.Options{Lang: *lang, TotalSteps: *steps})
++	if err != nil {
++		fmt.Fprintln(os.Stderr, "synthesize:", err)
++		os.Exit(1)
++	}
++	synthDur := time.Since(t1)
++	audioSec := float64(len(samples)) / float64(tts.SampleRate())
++	fmt.Printf("load %.2fs | synth %.2fs for %.2fs audio | RTF %.2f\n",
++		loadDur.Seconds(), synthDur.Seconds(), audioSec, synthDur.Seconds()/audioSec)
++	wav := supertonic.WAVBytes(supertonic.FloatToPCM16(samples), tts.SampleRate())
++	if err := os.WriteFile(*out, wav, 0o644); err != nil {
++		fmt.Fprintln(os.Stderr, "write:", err)
++		os.Exit(1)
++	}
++	fmt.Printf("wrote %s: %d samples, %.2fs @ %dHz\n",
++		*out, len(samples), float64(len(samples))/float64(tts.SampleRate()), tts.SampleRate())
++}
+diff --git a/internal/backend/cpu/batchmatmul.go b/internal/backend/cpu/batchmatmul.go
+index c0487d1..4447e7f 100644
+--- a/internal/backend/cpu/batchmatmul.go
++++ b/internal/backend/cpu/batchmatmul.go
+@@ -4,6 +4,7 @@ import (
+ 	"fmt"
+ 	"runtime"
+ 	"sync"
++	"sync/atomic"
+ 
+ 	"github.com/born-ml/born/internal/tensor"
+ )
+@@ -13,6 +14,71 @@ import (
+ // Empirical value from GoMLX; revisit with project benchmarks.
+ const batchParallelThreshold = 4
+ 
++// bmmParallelWorkThreshold is the minimum total multiply-accumulate count before
++// the row-splitting parallel path is worth its goroutine overhead.
++const bmmParallelWorkThreshold = 1 << 15
++
++// bmmMinRowsPerChunk keeps row chunks large enough that each job amortizes its
++// spawn cost and matmulFloat32's blocking still has room to work.
++const bmmMinRowsPerChunk = 16
++
++type bmmJob struct{ batch, r0, r1 int }
++
++// bmmParallelF32 runs a batched float32 matmul as (batch × row-chunk) jobs on a
++// worker pool. Small batch counts (e.g. 4 attention heads) previously ran fully
++// serial because parallelism was only ever across whole batches; splitting rows
++// lets a batch=4 attention matmul use every core. Row slices of row-major C/A
++// are themselves valid matmuls, and each job's C rows are disjoint, so this is
++// race-free. aOff/bOff map a batch index to its (possibly broadcast) operand
++// offset. Returns false when the work is too small to beat the serial loop.
++func bmmParallelF32(c, a, b []float32, totalBatches, m, k, n int, aOff, bOff func(batch int) int) bool {
++	if totalBatches*m*k*n < bmmParallelWorkThreshold {
++		return false
++	}
++	workers := runtime.NumCPU()
++	rowChunks := (workers*2 + totalBatches - 1) / totalBatches
++	if maxChunks := (m + bmmMinRowsPerChunk - 1) / bmmMinRowsPerChunk; rowChunks > maxChunks {
++		rowChunks = maxChunks
++	}
++	if rowChunks < 1 {
++		rowChunks = 1
++	}
++	chunk := (m + rowChunks - 1) / rowChunks
++	jobs := make([]bmmJob, 0, totalBatches*rowChunks)
++	for bi := 0; bi < totalBatches; bi++ {
++		for r := 0; r < m; r += chunk {
++			jobs = append(jobs, bmmJob{bi, r, min(r+chunk, m)})
++		}
++	}
++	if len(jobs) <= 1 {
++		return false
++	}
++	if workers > len(jobs) {
++		workers = len(jobs)
++	}
++	matrixSizeC := m * n
++	var cursor atomic.Int64
++	var wg sync.WaitGroup
++	for w := 0; w < workers; w++ {
++		wg.Add(1)
++		go func() {
++			defer wg.Done()
++			for {
++				idx := int(cursor.Add(1)) - 1
++				if idx >= len(jobs) {
++					return
++				}
++				j := jobs[idx]
++				rows := j.r1 - j.r0
++				off := j.batch*matrixSizeC + j.r0*n
++				matmulFloat32(c[off:off+rows*n], a[aOff(j.batch)+j.r0*k:], b[bOff(j.batch):], rows, k, n)
++			}
++		}()
++	}
++	wg.Wait()
++	return true
++}
++
+ // BatchMatMul performs batched matrix multiplication with numpy-style broadcasting.
+ // Supports tensors with 2 or more dimensions. At least one input must be 3D or higher.
+ //
+@@ -107,6 +173,12 @@ func batchMatmulFloat32(c, a, b []float32, batchSize, m, k, n int) {
+ 	matrixSizeB := k * n
+ 	matrixSizeC := m * n
+ 
++	if bmmParallelF32(c, a, b, batchSize, m, k, n,
++		func(batch int) int { return batch * matrixSizeA },
++		func(batch int) int { return batch * matrixSizeB }) {
++		return
++	}
++
+ 	if batchSize <= batchParallelThreshold {
+ 		for batch := range batchSize {
+ 			off := batch * matrixSizeC
+@@ -199,6 +271,15 @@ func batchMatmulBroadcastFloat32(
+ 	matrixSizeC := m * n
+ 
+ 	totalBatches := outBatchShape.NumElements()
++	if bmmParallelF32(c, a, b, totalBatches, m, k, n,
++		func(batch int) int {
++			return computeFlatIndex(batch, outBatchStrides, aBroadcastStrides) * matrixSizeA
++		},
++		func(batch int) int {
++			return computeFlatIndex(batch, outBatchStrides, bBroadcastStrides) * matrixSizeB
++		}) {
++		return
++	}
+ 	if totalBatches <= batchParallelThreshold {
+ 		for batchIdx := range totalBatches {
+ 			aBatchFlat := computeFlatIndex(batchIdx, outBatchStrides, aBroadcastStrides)
+diff --git a/internal/onnx/model.go b/internal/onnx/model.go
+index 1fff2d8..22e9813 100644
+--- a/internal/onnx/model.go
++++ b/internal/onnx/model.go
+@@ -4,11 +4,14 @@ package onnx
+ 
+ import (
+ 	"fmt"
++	"os"
+ 
+ 	"github.com/born-ml/born/internal/onnx/operators"
+ 	"github.com/born-ml/born/internal/tensor"
+ )
+ 
++var bornTrace = os.Getenv("BORN_TRACE") != ""
++
+ // Model represents a loaded ONNX model ready for inference.
+ // It executes the computation graph using the provided backend.
+ type Model struct {
+@@ -75,13 +78,27 @@ func (m *Model) Forward(input *tensor.RawTensor) (*tensor.RawTensor, error) {
+ //
+ //nolint:gocognit // ForwardNamed orchestrates the full inference pipeline.
+ func (m *Model) ForwardNamed(inputs map[string]*tensor.RawTensor) (map[string]*tensor.RawTensor, error) {
+-	// Copy weights and set inputs
++	// Copy weights and set inputs.
++	//
++	// put() protects every tensor placed in the map from in-place mutation:
++	// operators use an inplace fast path when a buffer looks unique (refCount==1),
++	// but a graph tensor held only by this map is *not* safe to mutate — later
++	// nodes still read it. Bumping the refcount forces those ops to copy instead,
++	// preventing buffer-aliasing corruption (e.g. an op overwriting a value that a
++	// subsequent Unsqueeze/Slice still needs). The extra ref is never released:
++	// buffers are Go-GC'd, so this only disables the inplace optimization.
+ 	tensors := make(map[string]*tensor.RawTensor)
+-	for name, t := range m.tensors {
++	put := func(name string, t *tensor.RawTensor) {
++		if t != nil {
++			t.ForceNonUnique()
++		}
+ 		tensors[name] = t
+ 	}
++	for name, t := range m.tensors {
++		put(name, t)
++	}
+ 	for name, t := range inputs {
+-		tensors[name] = t
++		put(name, t)
+ 	}
+ 
+ 	// Validate all inputs are provided
+@@ -120,10 +137,23 @@ func (m *Model) ForwardNamed(inputs map[string]*tensor.RawTensor) (map[string]*t
+ 			return nil, fmt.Errorf("node %s (%s): %w", node.Name, node.OpType, err)
+ 		}
+ 
+-		// Store outputs
++		// Store outputs (protected from later in-place mutation; see put()).
+ 		for i, outputName := range node.Outputs {
+ 			if i < len(outputs) {
+-				tensors[outputName] = outputs[i]
++				put(outputName, outputs[i])
++			}
++		}
++
++		if bornTrace {
++			for i, outputName := range node.Outputs {
++				if i < len(outputs) && outputs[i] != nil {
++					o := outputs[i]
++					val := ""
++					if o.DType() == tensor.Int64 && o.NumElements() <= 64 {
++						val = fmt.Sprintf("%v", o.AsInt64())
++					}
++					fmt.Printf("TRACE %s\t%s\t%v\t%s\n", node.OpType, outputName, o.Shape(), val)
++				}
+ 			}
+ 		}
+ 	}
+diff --git a/internal/onnx/operators/activations.go b/internal/onnx/operators/activations.go
+index d8dd5f1..1d0f77b 100644
+--- a/internal/onnx/operators/activations.go
++++ b/internal/onnx/operators/activations.go
+@@ -129,6 +129,13 @@ func handleClip(_ *Context, node *Node, inputs []*tensor.RawTensor) ([]*tensor.R
+ 		return nil, fmt.Errorf("clip requires at least 1 input, got %d", len(inputs))
+ 	}
+ 
++	// ONNX Clip is defined for numeric types; the Supertonic graphs clip int64
++	// length/index tensors. Born's tensor.Clip is float32-only, so handle int64
++	// directly here.
++	if inputs[0] != nil && inputs[0].DType() == tensor.Int64 {
++		return clipInt64(inputs)
++	}
++
+ 	// ONNX 11+: min and max are inputs, not attributes
+ 	var minVal, maxVal *float32
+ 	if len(inputs) >= 2 && inputs[1] != nil {
+diff --git a/internal/onnx/operators/conv_ops.go b/internal/onnx/operators/conv_ops.go
+index 8e87a1f..b16586f 100644
+--- a/internal/onnx/operators/conv_ops.go
++++ b/internal/onnx/operators/conv_ops.go
+@@ -33,6 +33,11 @@ func (p convParams) hasPad() bool {
+ // output channels. Unsupported attributes (auto_pad=SAME_*, dilations>1,
+ // non-square strides) are rejected rather than silently producing wrong output.
+ func handleConv(ctx *Context, node *Node, inputs []*tensor.RawTensor) ([]*tensor.RawTensor, error) {
++	// Conv1d (3D NCL input) is handled by a dedicated path; Born's base Conv is
++	// 2D-only and does not support dilation, which the Supertonic graphs need.
++	if len(inputs) >= 1 && inputs[0] != nil && len(inputs[0].Shape()) == 3 {
++		return handleConv1D(node, inputs)
++	}
+ 	x, w, err := convInputs(inputs)
+ 	if err != nil {
+ 		return nil, err
+diff --git a/internal/onnx/operators/math_ops.go b/internal/onnx/operators/math_ops.go
+index ab4790c..cf240ad 100644
+--- a/internal/onnx/operators/math_ops.go
++++ b/internal/onnx/operators/math_ops.go
+@@ -39,8 +39,11 @@ func handlePow(_ *Context, _ *Node, inputs []*tensor.RawTensor) ([]*tensor.RawTe
+ 		return nil, fmt.Errorf("pow: nil input")
+ 	}
+ 	base := inputs[0]
++	if base.DType() == tensor.Int64 && inputs[1].DType() == tensor.Int64 {
++		return powInt64(base, inputs[1])
++	}
+ 	if base.DType() != tensor.Float32 || inputs[1].DType() != tensor.Float32 {
+-		return nil, fmt.Errorf("pow: only float32 supported, got base=%s exp=%s", base.DType(), inputs[1].DType())
++		return nil, fmt.Errorf("pow: only float32/int64 supported, got base=%s exp=%s", base.DType(), inputs[1].DType())
+ 	}
+ 	if base.NumElements() == 0 {
+ 		return nil, fmt.Errorf("pow: empty base tensor")
+diff --git a/internal/onnx/operators/ops_supertonic.go b/internal/onnx/operators/ops_supertonic.go
+new file mode 100644
+index 0000000..54e9e76
+--- /dev/null
++++ b/internal/onnx/operators/ops_supertonic.go
+@@ -0,0 +1,777 @@
++//go:build !wasm
++
++package operators
++
++import (
++	"fmt"
++	"math"
++	"runtime"
++	"sync"
++	"sync/atomic"
++
++	"github.com/born-ml/born/internal/tensor"
++)
++
++// conv1DParallelThreshold is the minimum multiply-accumulate count below which
++// Conv1d runs serially (goroutine overhead would dominate for tiny convs).
++const conv1DParallelThreshold = 1 << 15
++
++// conv1DMinMACsPerWorker targets this many multiply-accumulates per goroutine so
++// small convs spawn fewer workers and avoid excessive spawn/barrier overhead.
++const conv1DMinMACsPerWorker = 1 << 16
++
++// conv1DTileFloats caps the per-job im2col scratch tile (in float32 elements,
++// so 1<<20 = 4 MB) to keep column buffers cache-resident and bound peak memory
++// for long-sequence convs (the vocoder runs Conv1d at ~60k samples).
++const conv1DTileFloats = 1 << 20
++
++var conv1DScratchPool sync.Pool
++
++func conv1DScratchGet(size int) *[]float32 {
++	if p, _ := conv1DScratchPool.Get().(*[]float32); p != nil && cap(*p) >= size {
++		*p = (*p)[:size]
++		return p
++	}
++	s := make([]float32, size)
++	return &s
++}
++
++// im2colTile builds the transposed column buffer for one (batch, group, column
++// tile): btile[icg*kL+k][j] = x[ic][ (jLo+j)*stride - padBegin + k*dilation ],
++// with zeros where the index falls in padding. Row r matches the layout of the
++// weight's reduction axis, so out = W_g @ btile is the conv output tile. All
++// bounds checks are hoisted out of the inner loops: each row is a contiguous
++// copy (stride 1) or strided gather over its precomputed valid range.
++func im2colTile(btile, xd []float32, ni, g, cinPerG, l, xCL, kL, tw, jLo, stride, dilation, padBegin int) {
++	for icg := 0; icg < cinPerG; icg++ {
++		xRow := xd[ni*xCL+(g*cinPerG+icg)*l:][:l]
++		for k := 0; k < kL; k++ {
++			row := btile[(icg*kL+k)*tw:][:tw]
++			base := jLo*stride - padBegin + k*dilation
++			// Valid j range: 0 <= base + j*stride <= l-1.
++			jLoV := 0
++			if base < 0 {
++				jLoV = (-base + stride - 1) / stride
++			}
++			jHiV := 0
++			if last := l - 1 - base; last >= 0 {
++				jHiV = last/stride + 1
++			}
++			if jHiV > tw {
++				jHiV = tw
++			}
++			if jLoV > jHiV {
++				jLoV = jHiV
++			}
++			for q := 0; q < jLoV; q++ {
++				row[q] = 0
++			}
++			if stride == 1 {
++				copy(row[jLoV:jHiV], xRow[base+jLoV:base+jHiV])
++			} else {
++				il := base + jLoV*stride
++				for q := jLoV; q < jHiV; q++ {
++					row[q] = xRow[il]
++					il += stride
++				}
++			}
++			for q := jHiV; q < tw; q++ {
++				row[q] = 0
++			}
++		}
++	}
++}
++
++type conv1DJob struct{ ni, g, jLo, jHi, iLo, iHi int }
++
++// conv1DMatMulPath computes Conv1d as a per-(batch, group) matmul over im2col
++// column tiles: out_g = W_g[coutPerG × kk] @ btile[kk × tileWidth], kk =
++// cinPerG*kL. Work is decomposed into (batch, group, column-tile, row-chunk)
++// jobs pulled by a fixed worker pool; each job owns a disjoint output region,
++// builds its own column tile (pooled scratch, rebuilt per row-chunk — the
++// rebuild is O(kk·tw) against the job's O(rows·kk·tw) matmul), and runs a
++// 4-row axpy kernel whose inner loops are branch-free and contiguous. This
++// replaces the naive gather loop's per-MAC bounds check with streaming FMA-able
++// code while keeping full multicore utilization (Born's own MatMul is
++// single-threaded and its SIMD GEMM is amd64-only, so it is not reused here).
++func conv1DMatMulPath(od, xd, wd, bias []float32, n, cin, l, cout, kL, lout, stride, dilation, group, padBegin int) {
++	cinPerG := cin / group
++	coutPerG := cout / group
++	kk := cinPerG * kL
++	xCL := cin * l
++
++	tw := lout
++	if maxTW := conv1DTileFloats / kk; tw > maxTW {
++		tw = maxTW
++		if tw < 32 {
++			tw = 32
++		}
++	}
++	nTiles := (lout + tw - 1) / tw
++
++	workers := runtime.GOMAXPROCS(0)
++	baseJobs := n * group * nTiles
++	iChunks := 1
++	if baseJobs < workers*2 {
++		iChunks = (workers*2 + baseJobs - 1) / baseJobs
++		if maxI := (coutPerG + 7) / 8; iChunks > maxI {
++			iChunks = maxI
++		}
++		if iChunks < 1 {
++			iChunks = 1
++		}
++	}
++	iChunkSize := (coutPerG + iChunks - 1) / iChunks
++
++	jobs := make([]conv1DJob, 0, baseJobs*iChunks)
++	for ni := 0; ni < n; ni++ {
++		for g := 0; g < group; g++ {
++			for t := 0; t < nTiles; t++ {
++				jLo := t * tw
++				jHi := min(jLo+tw, lout)
++				for c := 0; c < iChunks; c++ {
++					iLo := c * iChunkSize
++					iHi := min(iLo+iChunkSize, coutPerG)
++					if iLo >= iHi {
++						break
++					}
++					jobs = append(jobs, conv1DJob{ni, g, jLo, jHi, iLo, iHi})
++				}
++			}
++		}
++	}
++
++	runJob := func(j conv1DJob) {
++		twj := j.jHi - j.jLo
++		sp := conv1DScratchGet(kk * twj)
++		defer conv1DScratchPool.Put(sp)
++		btile := *sp
++		im2colTile(btile, xd, j.ni, j.g, cinPerG, l, xCL, kL, twj, j.jLo, stride, dilation, padBegin)
++
++		row := func(i int) []float32 {
++			oc := j.g*coutPerG + i
++			return od[(j.ni*cout+oc)*lout+j.jLo:][:twj]
++		}
++		wRow := func(i int) []float32 {
++			oc := j.g*coutPerG + i
++			return wd[oc*kk:][:kk]
++		}
++		biasAt := func(i int) float32 {
++			if bias == nil {
++				return 0
++			}
++			return bias[j.g*coutPerG+i]
++		}
++		fill := func(dst []float32, v float32) {
++			for q := range dst {
++				dst[q] = v
++			}
++		}
++
++		i := j.iLo
++		for ; i+4 <= j.iHi; i += 4 {
++			c0, c1, c2, c3 := row(i), row(i+1), row(i+2), row(i+3)
++			w0, w1, w2, w3 := wRow(i), wRow(i+1), wRow(i+2), wRow(i+3)
++			// 4×4 register-tiled kernel: 16 accumulators live in FP registers
++			// across the whole k-loop, so C is written once per tile instead of
++			// loaded+stored on every reduction step (8 loads per 16 FMAs).
++			b0, b1, b2, b3 := biasAt(i), biasAt(i+1), biasAt(i+2), biasAt(i+3)
++			q := 0
++			for ; q+4 <= twj; q += 4 {
++				s00, s01, s02, s03 := b0, b0, b0, b0
++				s10, s11, s12, s13 := b1, b1, b1, b1
++				s20, s21, s22, s23 := b2, b2, b2, b2
++				s30, s31, s32, s33 := b3, b3, b3, b3
++				for p := 0; p < kk; p++ {
++					bt := btile[p*twj+q:]
++					v0, v1, v2, v3 := bt[0], bt[1], bt[2], bt[3]
++					a0, a1, a2, a3 := w0[p], w1[p], w2[p], w3[p]
++					s00 += a0 * v0
++					s01 += a0 * v1
++					s02 += a0 * v2
++					s03 += a0 * v3
++					s10 += a1 * v0
++					s11 += a1 * v1
++					s12 += a1 * v2
++					s13 += a1 * v3
++					s20 += a2 * v0
++					s21 += a2 * v1
++					s22 += a2 * v2
++					s23 += a2 * v3
++					s30 += a3 * v0
++					s31 += a3 * v1
++					s32 += a3 * v2
++					s33 += a3 * v3
++				}
++				c0[q], c0[q+1], c0[q+2], c0[q+3] = s00, s01, s02, s03
++				c1[q], c1[q+1], c1[q+2], c1[q+3] = s10, s11, s12, s13
++				c2[q], c2[q+1], c2[q+2], c2[q+3] = s20, s21, s22, s23
++				c3[q], c3[q+1], c3[q+2], c3[q+3] = s30, s31, s32, s33
++			}
++			// Column tail (twj % 4): scalar accumulators per column.
++			for ; q < twj; q++ {
++				s0, s1, s2, s3 := b0, b1, b2, b3
++				for p := 0; p < kk; p++ {
++					bv := btile[p*twj+q]
++					s0 += w0[p] * bv
++					s1 += w1[p] * bv
++					s2 += w2[p] * bv
++					s3 += w3[p] * bv
++				}
++				c0[q], c1[q], c2[q], c3[q] = s0, s1, s2, s3
++			}
++		}
++		for ; i < j.iHi; i++ {
++			c0 := row(i)
++			w0 := wRow(i)
++			fill(c0, biasAt(i))
++			for p := 0; p < kk; p++ {
++				b := btile[p*twj:][:twj]
++				a0 := w0[p]
++				for q, bv := range b {
++					c0[q] += a0 * bv
++				}
++			}
++		}
++	}
++
++	if workers > len(jobs) {
++		workers = len(jobs)
++	}
++	if workers <= 1 {
++		for _, j := range jobs {
++			runJob(j)
++		}
++		return
++	}
++	var cursor atomic.Int64
++	var wg sync.WaitGroup
++	for w := 0; w < workers; w++ {
++		wg.Add(1)
++		go func() {
++			defer wg.Done()
++			for {
++				idx := int(cursor.Add(1)) - 1
++				if idx >= len(jobs) {
++					return
++				}
++				runJob(jobs[idx])
++			}
++		}()
++	}
++	wg.Wait()
++}
++
++// powInt64 implements ONNX Pow for int64 base/exponent (integer shape math).
++// Exponent may be a scalar or match the base shape. Negative exponents yield 0
++// (integer truncation).
++func powInt64(base, expT *tensor.RawTensor) ([]*tensor.RawTensor, error) {
++	b := base.AsInt64()
++	e := expT.AsInt64()
++	out, err := tensor.NewRaw(base.Shape(), tensor.Int64, base.Device())
++	if err != nil {
++		return nil, fmt.Errorf("pow int64: %w", err)
++	}
++	od := out.AsInt64()
++	ipow := func(base, exp int64) int64 {
++		if exp < 0 {
++			return 0
++		}
++		r := int64(1)
++		for ; exp > 0; exp-- {
++			r *= base
++		}
++		return r
++	}
++	switch {
++	case len(e) == 1:
++		for i := range b {
++			od[i] = ipow(b[i], e[0])
++		}
++	case base.Shape().Equal(expT.Shape()):
++		for i := range b {
++			od[i] = ipow(b[i], e[i])
++		}
++	default:
++		return nil, fmt.Errorf("pow int64: exp shape %v incompatible with base %v", expT.Shape(), base.Shape())
++	}
++	return []*tensor.RawTensor{out}, nil
++}
++
++// clipInt64 implements ONNX Clip for int64 tensors. min/max come from the
++// optional second and third inputs (opset 11+); absent bounds are unbounded.
++func clipInt64(inputs []*tensor.RawTensor) ([]*tensor.RawTensor, error) {
++	data := inputs[0]
++	lo := int64(math.MinInt64)
++	hi := int64(math.MaxInt64)
++	if len(inputs) >= 2 && inputs[1] != nil && inputs[1].NumElements() > 0 {
++		lo = inputs[1].AsInt64()[0]
++	}
++	if len(inputs) >= 3 && inputs[2] != nil && inputs[2].NumElements() > 0 {
++		hi = inputs[2].AsInt64()[0]
++	}
++	out, err := tensor.NewRaw(data.Shape(), tensor.Int64, data.Device())
++	if err != nil {
++		return nil, fmt.Errorf("clip int64: %w", err)
++	}
++	in := data.AsInt64()
++	res := out.AsInt64()
++	for i, v := range in {
++		if v < lo {
++			v = lo
++		}
++		if v > hi {
++			v = hi
++		}
++		res[i] = v
++	}
++	return []*tensor.RawTensor{out}, nil
++}
++
++// registerSupertonicOps registers ONNX operators required by the Supertonic
++// TTS graphs that are not covered by Born's base operator set:
++// Pad, BatchNormalization, Cos, Sin, Reciprocal, ReduceSum, Softplus, Tile.
++func (r *Registry) registerSupertonicOps() {
++	r.Register("Pad", handlePad)
++	r.Register("Sin", handleSin)
++	r.Register("Cos", handleCos)
++	r.Register("Reciprocal", handleReciprocal)
++	r.Register("Softplus", handleSoftplus)
++	r.Register("Tile", handleTile)
++	r.Register("BatchNormalization", handleBatchNorm)
++	r.Register("ReduceSum", handleReduceSum)
++}
++
++func handleReduceSum(_ *Context, node *Node, inputs []*tensor.RawTensor) ([]*tensor.RawTensor, error) {
++	return handleReduce(node, inputs, reduceSum)
++}
++
++func unaryFloat32(name string, in *tensor.RawTensor, fn func(float32) float32) ([]*tensor.RawTensor, error) {
++	if in == nil {
++		return nil, fmt.Errorf("%s: nil input", name)
++	}
++	if in.DType() != tensor.Float32 {
++		return nil, fmt.Errorf("%s: only float32 supported, got %s", name, in.DType())
++	}
++	out, err := tensor.NewRaw(in.Shape(), tensor.Float32, in.Device())
++	if err != nil {
++		return nil, fmt.Errorf("%s: %w", name, err)
++	}
++	src, dst := in.AsFloat32(), out.AsFloat32()
++	for i := range src {
++		dst[i] = fn(src[i])
++	}
++	return []*tensor.RawTensor{out}, nil
++}
++
++func handleSin(_ *Context, _ *Node, in []*tensor.RawTensor) ([]*tensor.RawTensor, error) {
++	return unaryFloat32("sin", in[0], func(x float32) float32 { return float32(math.Sin(float64(x))) })
++}
++
++func handleCos(_ *Context, _ *Node, in []*tensor.RawTensor) ([]*tensor.RawTensor, error) {
++	return unaryFloat32("cos", in[0], func(x float32) float32 { return float32(math.Cos(float64(x))) })
++}
++
++func handleReciprocal(_ *Context, _ *Node, in []*tensor.RawTensor) ([]*tensor.RawTensor, error) {
++	return unaryFloat32("reciprocal", in[0], func(x float32) float32 { return 1.0 / x })
++}
++
++func handleSoftplus(_ *Context, _ *Node, in []*tensor.RawTensor) ([]*tensor.RawTensor, error) {
++	// log(1 + exp(x)), numerically stable for large x.
++	return unaryFloat32("softplus", in[0], func(x float32) float32 {
++		xf := float64(x)
++		if xf > 20 {
++			return x
++		}
++		return float32(math.Log1p(math.Exp(xf)))
++	})
++}
++
++// handleTile repeats the input along each dimension per the int64 "repeats"
++// second input (one entry per dim).
++func handleTile(_ *Context, _ *Node, inputs []*tensor.RawTensor) ([]*tensor.RawTensor, error) {
++	if len(inputs) < 2 || inputs[0] == nil || inputs[1] == nil {
++		return nil, fmt.Errorf("tile: requires input and repeats")
++	}
++	x := inputs[0]
++	if x.DType() != tensor.Float32 {
++		return nil, fmt.Errorf("tile: only float32 supported, got %s", x.DType())
++	}
++	reps := inputs[1].AsInt64()
++	inShape := x.Shape()
++	if len(reps) != len(inShape) {
++		return nil, fmt.Errorf("tile: repeats len %d != rank %d", len(reps), len(inShape))
++	}
++	outShape := make(tensor.Shape, len(inShape))
++	for i := range inShape {
++		outShape[i] = inShape[i] * int(reps[i])
++	}
++	out, err := tensor.NewRaw(outShape, tensor.Float32, x.Device())
++	if err != nil {
++		return nil, fmt.Errorf("tile: %w", err)
++	}
++	src, dst := x.AsFloat32(), out.AsFloat32()
++	inStrides := rowMajorStrides(inShape)
++	outStrides := rowMajorStrides(outShape)
++	rank := len(inShape)
++	total := len(dst)
++	idx := make([]int, rank)
++	for lin := 0; lin < total; lin++ {
++		rem := lin
++		srcOff := 0
++		for i := 0; i < rank; i++ {
++			idx[i] = rem / outStrides[i]
++			rem %= outStrides[i]
++			srcOff += (idx[i] % inShape[i]) * inStrides[i]
++		}
++		dst[lin] = src[srcOff]
++	}
++	return []*tensor.RawTensor{out}, nil
++}
++
++// handleBatchNorm implements ONNX BatchNormalization inference (spatial):
++// y = (x - mean) / sqrt(var + eps) * scale + B, with per-channel params over
++// axis 1. Inputs: X, scale, B, mean, var. Only Y is returned.
++func handleBatchNorm(_ *Context, node *Node, inputs []*tensor.RawTensor) ([]*tensor.RawTensor, error) {
++	if len(inputs) < 5 {
++		return nil, fmt.Errorf("batchnorm: requires X, scale, B, mean, var")
++	}
++	x := inputs[0]
++	if x.DType() != tensor.Float32 {
++		return nil, fmt.Errorf("batchnorm: only float32 supported, got %s", x.DType())
++	}
++	eps := GetAttrFloat(node, "epsilon", 1e-5)
++	scale := inputs[1].AsFloat32()
++	bias := inputs[2].AsFloat32()
++	mean := inputs[3].AsFloat32()
++	variance := inputs[4].AsFloat32()
++
++	shape := x.Shape()
++	if len(shape) < 2 {
++		return nil, fmt.Errorf("batchnorm: expected rank>=2, got %v", shape)
++	}
++	channels := shape[1]
++	// Elements per channel = product of dims after axis 1.
++	inner := 1
++	for i := 2; i < len(shape); i++ {
++		inner *= shape[i]
++	}
++	out, err := tensor.NewRaw(shape, tensor.Float32, x.Device())
++	if err != nil {
++		return nil, fmt.Errorf("batchnorm: %w", err)
++	}
++	src, dst := x.AsFloat32(), out.AsFloat32()
++
++	// Precompute per-channel scale/shift.
++	a := make([]float32, channels)
++	b := make([]float32, channels)
++	for c := 0; c < channels; c++ {
++		inv := float32(1.0 / math.Sqrt(float64(variance[c]+eps)))
++		a[c] = scale[c] * inv
++		b[c] = bias[c] - mean[c]*a[c]
++	}
++	for i := range src {
++		c := (i / inner) % channels
++		dst[i] = src[i]*a[c] + b[c]
++	}
++	return []*tensor.RawTensor{out}, nil
++}
++
++// clipInt64 implements ONNX Clip for int64 tensors.
++
++// handleConv1D implements ONNX Conv for 3D (NCL) tensors: 1-D convolution with
++// stride, asymmetric padding, dilation, and grouped/depthwise support. Weight is
++// [C_out, C_in/group, kL]; optional bias is [C_out]. Naive direct convolution
++// (correctness first).
++func handleConv1D(node *Node, inputs []*tensor.RawTensor) ([]*tensor.RawTensor, error) {
++	if len(inputs) < 2 || inputs[0] == nil || inputs[1] == nil {
++		return nil, fmt.Errorf("conv1d: requires x and w inputs")
++	}
++	x, w := inputs[0], inputs[1]
++	if x.DType() != tensor.Float32 || w.DType() != tensor.Float32 {
++		return nil, fmt.Errorf("conv1d: only float32 supported")
++	}
++	xs, ws := x.Shape(), w.Shape()
++	if len(xs) != 3 || len(ws) != 3 {
++		return nil, fmt.Errorf("conv1d: expected 3D x and w, got %v %v", xs, ws)
++	}
++	n, cin, l := xs[0], xs[1], xs[2]
++	cout, cinPerG, kL := ws[0], ws[1], ws[2]
++
++	stride := 1
++	if s := GetAttrInts(node, "strides"); len(s) >= 1 {
++		stride = int(s[0])
++	}
++	dilation := 1
++	if d := GetAttrInts(node, "dilations"); len(d) >= 1 {
++		dilation = int(d[0])
++	}
++	group := int(GetAttrInt(node, "group", 1))
++	padBegin, padEnd := 0, 0
++	if p := GetAttrInts(node, "pads"); len(p) >= 2 {
++		padBegin, padEnd = int(p[0]), int(p[1])
++	}
++	if GetAttrString(node, "auto_pad", autoPadNotset) == autoPadValid {
++		padBegin, padEnd = 0, 0
++	}
++
++	if group < 1 || cin%group != 0 || cout%group != 0 {
++		return nil, fmt.Errorf("conv1d: invalid group %d for Cin=%d Cout=%d", group, cin, cout)
++	}
++	if cinPerG != cin/group {
++		return nil, fmt.Errorf("conv1d: weight Cin/group=%d, expected %d", cinPerG, cin/group)
++	}
++	if stride < 1 || dilation < 1 {
++		return nil, fmt.Errorf("conv1d: invalid stride %d / dilation %d", stride, dilation)
++	}
++
++	lout := (l+padBegin+padEnd-dilation*(kL-1)-1)/stride + 1
++	if lout < 0 {
++		lout = 0
++	}
++
++	var bias []float32
++	if len(inputs) >= 3 && inputs[2] != nil && inputs[2].NumElements() > 0 {
++		bias = inputs[2].AsFloat32()
++	}
++
++	xd, wd := x.AsFloat32(), w.AsFloat32()
++	out, err := tensor.NewRaw(tensor.Shape{n, cout, lout}, tensor.Float32, x.Device())
++	if err != nil {
++		return nil, fmt.Errorf("conv1d: %w", err)
++	}
++	od := out.AsFloat32()
++
++	coutPerG := cout / group
++	xCL := cin * l
++	wKL := cinPerG * kL
++
++	// Matmul fast path: convs with a nontrivial reduction axis (kk = cinPerG*kL)
++	// run as im2col + blocked matmul — pointwise (kL=1) convs, the FLOP-heavy
++	// ConvNeXt MLPs, reduce to a plain copy + matmul. Depthwise convs (kk ≤ 7)
++	// and tiny convs stay on the direct path below, where matmul form doesn't
++	// pay for its tile-building overhead.
++	if fastMACs := n * cout * lout * wKL; lout > 0 && wKL >= 8 && coutPerG >= 8 &&
++		fastMACs >= conv1DParallelThreshold {
++		conv1DMatMulPath(od, xd, wd, bias, n, cin, l, cout, kL, lout, stride, dilation, group, padBegin)
++		return []*tensor.RawTensor{out}, nil
++	}
++
++	// One output channel of one batch item is an independent unit of work with a
++	// disjoint output slice; parallelize across the flattened (batch, channel)
++	// space. computeRange handles indices [lo, hi) of that space.
++	computeRange := func(lo, hi int) {
++		for idx := lo; idx < hi; idx++ {
++			ni := idx / cout
++			oc := idx % cout
++			g := oc / coutPerG
++			var biasVal float32
++			if bias != nil {
++				biasVal = bias[oc]
++			}
++			outBase := (ni*cout + oc) * lout
++			for ol := 0; ol < lout; ol++ {
++				sum := biasVal
++				base := ol*stride - padBegin
++				for icg := 0; icg < cinPerG; icg++ {
++					xoff := ni*xCL + (g*cinPerG+icg)*l
++					woff := oc*wKL + icg*kL
++					for k := 0; k < kL; k++ {
++						il := base + k*dilation
++						if il >= 0 && il < l {
++							sum += xd[xoff+il] * wd[woff+k]
++						}
++					}
++				}
++				od[outBase+ol] = sum
++			}
++		}
++	}
++
++	units := n * cout
++	macs := units * lout * cinPerG * kL
++	// Size the worker count to the work available so small convs don't pay the
++	// goroutine spawn/barrier cost for little gain (target ~conv1DMinMACsPerWorker
++	// multiply-accumulates per goroutine), capped at GOMAXPROCS and unit count.
++	workers := macs / conv1DMinMACsPerWorker
++	if maxW := runtime.GOMAXPROCS(0); workers > maxW {
++		workers = maxW
++	}
++	if workers > units {
++		workers = units
++	}
++	if workers <= 1 || macs < conv1DParallelThreshold {
++		computeRange(0, units)
++		return []*tensor.RawTensor{out}, nil
++	}
++
++	var wg sync.WaitGroup
++	chunk := (units + workers - 1) / workers
++	for w := 0; w < workers; w++ {
++		lo := w * chunk
++		hi := lo + chunk
++		if hi > units {
++			hi = units
++		}
++		if lo >= hi {
++			break
++		}
++		wg.Add(1)
++		go func(lo, hi int) {
++			defer wg.Done()
++			computeRange(lo, hi)
++		}(lo, hi)
++	}
++	wg.Wait()
++	return []*tensor.RawTensor{out}, nil
++}
++
++// onnxBroadcastShape returns the numpy/ONNX bidirectional broadcast of two
++// shapes (align from the right; each output dim is max where one side is 1 or
++// they are equal). Used by Expand, which broadcasts input against its target
++// shape rather than reshaping to it exactly.
++func onnxBroadcastShape(a, b tensor.Shape) (tensor.Shape, error) {
++	n := len(a)
++	if len(b) > n {
++		n = len(b)
++	}
++	out := make(tensor.Shape, n)
++	for i := 0; i < n; i++ {
++		ad, bd := 1, 1
++		if i < len(a) {
++			ad = a[len(a)-1-i]
++		}
++		if i < len(b) {
++			bd = b[len(b)-1-i]
++		}
++		switch {
++		case ad == bd:
++			out[n-1-i] = ad
++		case ad == 1:
++			out[n-1-i] = bd
++		case bd == 1:
++			out[n-1-i] = ad
++		default:
++			return nil, fmt.Errorf("incompatible broadcast dims %d and %d", ad, bd)
++		}
++	}
++	return out, nil
++}
++
++func rowMajorStrides(shape tensor.Shape) []int {
++	r := len(shape)
++	strides := make([]int, r)
++	acc := 1
++	for i := r - 1; i >= 0; i-- {
++		strides[i] = acc
++		acc *= shape[i]
++	}
++	return strides
++}
++
++// reflectIndex mirrors numpy/ONNX "reflect" padding: reflect without repeating
++// the edge element. period = 2*(dim-1).
++func reflectIndex(p, dim int) int {
++	if dim == 1 {
++		return 0
++	}
++	period := 2 * (dim - 1)
++	m := ((p % period) + period) % period
++	if m >= dim {
++		m = period - m
++	}
++	return m
++}
++
++// handlePad implements ONNX Pad (opset 11-19) for float32 tensors in
++// "constant", "edge", and "reflect" modes. pads is the second input (int64,
++// length 2*rank: [begin_0..begin_{r-1}, end_0..end_{r-1}]); an optional third
++// input supplies the constant value.
++func handlePad(_ *Context, node *Node, inputs []*tensor.RawTensor) ([]*tensor.RawTensor, error) {
++	if len(inputs) < 2 || inputs[0] == nil || inputs[1] == nil {
++		return nil, fmt.Errorf("pad: requires data and pads inputs")
++	}
++	data := inputs[0]
++	if data.DType() != tensor.Float32 {
++		return nil, fmt.Errorf("pad: only float32 supported, got %s", data.DType())
++	}
++	if inputs[1].DType() != tensor.Int64 {
++		return nil, fmt.Errorf("pad: pads must be int64, got %s", inputs[1].DType())
++	}
++	pads := inputs[1].AsInt64()
++	mode := GetAttrString(node, "mode", "constant")
++
++	var cval float32
++	if len(inputs) >= 3 && inputs[2] != nil && inputs[2].NumElements() > 0 {
++		cval = inputs[2].AsFloat32()[0]
++	}
++
++	inShape := data.Shape()
++	rank := len(inShape)
++	if len(pads) != 2*rank {
++		return nil, fmt.Errorf("pad: expected %d pad values for rank %d, got %d", 2*rank, rank, len(pads))
++	}
++
++	begins := make([]int, rank)
++	outShape := make(tensor.Shape, rank)
++	for i := 0; i < rank; i++ {
++		begins[i] = int(pads[i])
++		outShape[i] = inShape[i] + int(pads[i]) + int(pads[i+rank])
++		if outShape[i] < 0 {
++			return nil, fmt.Errorf("pad: negative output dim %d", outShape[i])
++		}
++	}
++
++	out, err := tensor.NewRaw(outShape, tensor.Float32, data.Device())
++	if err != nil {
++		return nil, fmt.Errorf("pad: %w", err)
++	}
++	src := data.AsFloat32()
++	dst := out.AsFloat32()
++
++	inStrides := rowMajorStrides(inShape)
++	outStrides := rowMajorStrides(outShape)
++
++	total := 1
++	for _, d := range outShape {
++		total *= d
++	}
++	idx := make([]int, rank)
++	for lin := 0; lin < total; lin++ {
++		rem := lin
++		for i := 0; i < rank; i++ {
++			idx[i] = rem / outStrides[i]
++			rem %= outStrides[i]
++		}
++		srcOff := 0
++		isConst := false
++		for i := 0; i < rank; i++ {
++			p := idx[i] - begins[i]
++			dim := inShape[i]
++			switch mode {
++			case "edge":
++				if p < 0 {
++					p = 0
++				} else if p >= dim {
++					p = dim - 1
++				}
++			case "reflect":
++				p = reflectIndex(p, dim)
++			default: // constant
++				if p < 0 || p >= dim {
++					isConst = true
++				}
++			}
++			if isConst {
++				break
++			}
++			srcOff += p * inStrides[i]
++		}
++		if isConst {
++			dst[lin] = cval
++		} else {
++			dst[lin] = src[srcOff]
++		}
++	}
++	return []*tensor.RawTensor{out}, nil
++}
+diff --git a/internal/onnx/operators/ops_supertonic_test.go b/internal/onnx/operators/ops_supertonic_test.go
+new file mode 100644
+index 0000000..e5e3727
+--- /dev/null
++++ b/internal/onnx/operators/ops_supertonic_test.go
+@@ -0,0 +1,338 @@
++//go:build !wasm
++
++package operators
++
++import (
++	"math"
++	"math/rand"
++	"testing"
++
++	"github.com/born-ml/born/internal/backend/cpu"
++	"github.com/born-ml/born/internal/tensor"
++)
++
++func stF32(t *testing.T, shape tensor.Shape, data []float32) *tensor.RawTensor {
++	t.Helper()
++	raw, err := tensor.NewRaw(shape, tensor.Float32, tensor.CPU)
++	if err != nil {
++		t.Fatalf("NewRaw f32: %v", err)
++	}
++	copy(raw.AsFloat32(), data)
++	return raw
++}
++
++func stI64(t *testing.T, shape tensor.Shape, data []int64) *tensor.RawTensor {
++	t.Helper()
++	raw, err := tensor.NewRaw(shape, tensor.Int64, tensor.CPU)
++	if err != nil {
++		t.Fatalf("NewRaw i64: %v", err)
++	}
++	copy(raw.AsInt64(), data)
++	return raw
++}
++
++func stExec(t *testing.T, node *Node, inputs ...*tensor.RawTensor) *tensor.RawTensor {
++	t.Helper()
++	r := NewRegistry()
++	out, err := r.Execute(&Context{Backend: cpu.New()}, node, inputs)
++	if err != nil {
++		t.Fatalf("%s execute: %v", node.OpType, err)
++	}
++	if len(out) != 1 {
++		t.Fatalf("%s: expected 1 output, got %d", node.OpType, len(out))
++	}
++	return out[0]
++}
++
++func stAssertShape(t *testing.T, got *tensor.RawTensor, want tensor.Shape) {
++	t.Helper()
++	gs := got.Shape()
++	if len(gs) != len(want) {
++		t.Fatalf("shape rank: got %v want %v", gs, want)
++	}
++	for i := range want {
++		if gs[i] != want[i] {
++			t.Fatalf("shape: got %v want %v", gs, want)
++		}
++	}
++}
++
++func stAssertClose(t *testing.T, got, want []float32) {
++	t.Helper()
++	if len(got) != len(want) {
++		t.Fatalf("len: got %d want %d", len(got), len(want))
++	}
++	for i := range want {
++		if math.Abs(float64(got[i]-want[i])) > 1e-4 {
++			t.Fatalf("value[%d]: got %v want %v\n got=%v\nwant=%v", i, got[i], want[i], got, want)
++		}
++	}
++}
++
++// ConstantOfShape must honor the dtype of its "value" tensor attribute.
++// Regression: Born hardcoded float32, breaking int64 shape arithmetic in the
++// Supertonic graphs (float32 x int64 Mul).
++func TestConstantOfShapeInt64(t *testing.T) {
++	shape := stI64(t, tensor.Shape{1}, []int64{3})
++	val := stI64(t, tensor.Shape{1}, []int64{5})
++	out := stExec(t, &Node{OpType: "ConstantOfShape", Attributes: []Attribute{{Name: "value", T: val}}}, shape)
++	if out.DType() != tensor.Int64 {
++		t.Fatalf("dtype = %s, want int64", out.DType())
++	}
++	stAssertShape(t, out, tensor.Shape{3})
++	got := out.AsInt64()
++	if len(got) != 3 || got[0] != 5 || got[1] != 5 || got[2] != 5 {
++		t.Fatalf("got %v, want [5 5 5]", got)
++	}
++}
++
++// Expand uses ONNX bidirectional broadcasting: a target dim of 1 keeps the
++// (possibly larger) input dim. Regression: Born errored on 64 -> 1.
++func TestExpandBroadcast(t *testing.T) {
++	in := stF32(t, tensor.Shape{2, 1}, []float32{1, 2})
++	shp := stI64(t, tensor.Shape{2}, []int64{1, 3})
++	out := stExec(t, &Node{OpType: "Expand"}, in, shp)
++	stAssertShape(t, out, tensor.Shape{2, 3})
++	stAssertClose(t, out.AsFloat32(), []float32{1, 1, 1, 2, 2, 2})
++
++	// A target dim of 1 must not shrink a larger input dim.
++	in2 := stF32(t, tensor.Shape{4}, []float32{1, 2, 3, 4})
++	shp2 := stI64(t, tensor.Shape{1}, []int64{1})
++	out2 := stExec(t, &Node{OpType: "Expand"}, in2, shp2)
++	stAssertShape(t, out2, tensor.Shape{4})
++	stAssertClose(t, out2.AsFloat32(), []float32{1, 2, 3, 4})
++}
++
++// Conv1d (3D input) support: Born's base Conv is 2D-only and rejects dilation.
++func TestConv1DBasic(t *testing.T) {
++	x := stF32(t, tensor.Shape{1, 1, 5}, []float32{1, 2, 3, 4, 5})
++	w := stF32(t, tensor.Shape{1, 1, 3}, []float32{1, 1, 1})
++	out := stExec(t, &Node{OpType: "Conv"}, x, w)
++	stAssertShape(t, out, tensor.Shape{1, 1, 3})
++	stAssertClose(t, out.AsFloat32(), []float32{6, 9, 12})
++}
++
++func TestConv1DDilation(t *testing.T) {
++	x := stF32(t, tensor.Shape{1, 1, 5}, []float32{1, 2, 3, 4, 5})
++	w := stF32(t, tensor.Shape{1, 1, 3}, []float32{1, 1, 1})
++	out := stExec(t, &Node{OpType: "Conv", Attributes: []Attribute{{Name: "dilations", Ints: []int64{2}}}}, x, w)
++	stAssertShape(t, out, tensor.Shape{1, 1, 1})
++	stAssertClose(t, out.AsFloat32(), []float32{9}) // positions 0,2,4 -> 1+3+5
++}
++
++func TestConv1DPadAndBias(t *testing.T) {
++	x := stF32(t, tensor.Shape{1, 1, 3}, []float32{1, 2, 3})
++	w := stF32(t, tensor.Shape{1, 1, 3}, []float32{1, 1, 1})
++	b := stF32(t, tensor.Shape{1}, []float32{10})
++	out := stExec(t, &Node{OpType: "Conv", Attributes: []Attribute{{Name: "pads", Ints: []int64{1, 1}}}}, x, w, b)
++	stAssertShape(t, out, tensor.Shape{1, 1, 3})
++	stAssertClose(t, out.AsFloat32(), []float32{13, 16, 15}) // [3,6,5]+bias 10
++}
++
++func TestConv1DDepthwise(t *testing.T) {
++	x := stF32(t, tensor.Shape{1, 2, 3}, []float32{1, 2, 3, 10, 20, 30})
++	w := stF32(t, tensor.Shape{2, 1, 3}, []float32{1, 1, 1, 2, 2, 2})
++	out := stExec(t, &Node{OpType: "Conv", Attributes: []Attribute{{Name: "group", I: 2}}}, x, w)
++	stAssertShape(t, out, tensor.Shape{1, 2, 1})
++	stAssertClose(t, out.AsFloat32(), []float32{6, 120})
++}
++
++func TestElementwiseSupertonic(t *testing.T) {
++	sin := stExec(t, &Node{OpType: "Sin"}, stF32(t, tensor.Shape{2}, []float32{0, float32(math.Pi / 2)}))
++	stAssertClose(t, sin.AsFloat32(), []float32{0, 1})
++	cos := stExec(t, &Node{OpType: "Cos"}, stF32(t, tensor.Shape{2}, []float32{0, float32(math.Pi)}))
++	stAssertClose(t, cos.AsFloat32(), []float32{1, -1})
++	rec := stExec(t, &Node{OpType: "Reciprocal"}, stF32(t, tensor.Shape{2}, []float32{2, 4}))
++	stAssertClose(t, rec.AsFloat32(), []float32{0.5, 0.25})
++	sp := stExec(t, &Node{OpType: "Softplus"}, stF32(t, tensor.Shape{1}, []float32{0}))
++	stAssertClose(t, sp.AsFloat32(), []float32{0.6931472})
++}
++
++func TestTile(t *testing.T) {
++	out := stExec(t, &Node{OpType: "Tile"},
++		stF32(t, tensor.Shape{3}, []float32{1, 2, 3}),
++		stI64(t, tensor.Shape{1}, []int64{2}))
++	stAssertShape(t, out, tensor.Shape{6})
++	stAssertClose(t, out.AsFloat32(), []float32{1, 2, 3, 1, 2, 3})
++}
++
++func TestReduceSum(t *testing.T) {
++	out := stExec(t, &Node{OpType: "ReduceSum", Attributes: []Attribute{{Name: "keepdims", I: 1}}},
++		stF32(t, tensor.Shape{2, 2}, []float32{1, 2, 3, 4}),
++		stI64(t, tensor.Shape{1}, []int64{1}))
++	stAssertShape(t, out, tensor.Shape{2, 1})
++	stAssertClose(t, out.AsFloat32(), []float32{3, 7})
++}
++
++func TestBatchNorm(t *testing.T) {
++	x := stF32(t, tensor.Shape{1, 2, 2}, []float32{1, 2, 3, 4})
++	scale := stF32(t, tensor.Shape{2}, []float32{2, 2})
++	bias := stF32(t, tensor.Shape{2}, []float32{1, 1})
++	mean := stF32(t, tensor.Shape{2}, []float32{1, 3})
++	varr := stF32(t, tensor.Shape{2}, []float32{1, 1})
++	out := stExec(t, &Node{OpType: "BatchNormalization", Attributes: []Attribute{{Name: "epsilon", F: 0}}},
++		x, scale, bias, mean, varr)
++	stAssertShape(t, out, tensor.Shape{1, 2, 2})
++	stAssertClose(t, out.AsFloat32(), []float32{1, 3, 1, 3})
++}
++
++// Pow must support int64 (integer shape arithmetic).
++func TestPowInt64(t *testing.T) {
++	base := stI64(t, tensor.Shape{3}, []int64{2, 3, 4})
++	exp := stI64(t, tensor.Shape{1}, []int64{2})
++	out := stExec(t, &Node{OpType: "Pow"}, base, exp)
++	if out.DType() != tensor.Int64 {
++		t.Fatalf("dtype = %s, want int64", out.DType())
++	}
++	got := out.AsInt64()
++	want := []int64{4, 9, 16}
++	for i := range want {
++		if got[i] != want[i] {
++			t.Fatalf("got %v, want %v", got, want)
++		}
++	}
++}
++
++// Clip must support int64 (index/length clamping in the Supertonic graphs).
++func TestClipInt64(t *testing.T) {
++	x := stI64(t, tensor.Shape{5}, []int64{-3, 0, 5, 10, 20})
++	lo := stI64(t, tensor.Shape{1}, []int64{0})
++	hi := stI64(t, tensor.Shape{1}, []int64{10})
++	out := stExec(t, &Node{OpType: "Clip"}, x, lo, hi)
++	if out.DType() != tensor.Int64 {
++		t.Fatalf("dtype = %s, want int64", out.DType())
++	}
++	got := out.AsInt64()
++	want := []int64{0, 0, 5, 10, 10}
++	for i := range want {
++		if got[i] != want[i] {
++			t.Fatalf("got %v, want %v", got, want)
++		}
++	}
++}
++
++// refConv1D is an independent naive Conv1d oracle for property-testing the
++// optimized handleConv1D paths (pointwise/im2col-matmul/direct).
++func refConv1D(x, w, bias []float32, n, cin, l, cout, kL, stride, dilation, group, padBegin, padEnd int) []float32 {
++	cinPerG := cin / group
++	coutPerG := cout / group
++	lout := (l+padBegin+padEnd-dilation*(kL-1)-1)/stride + 1
++	out := make([]float32, n*cout*lout)
++	for ni := 0; ni < n; ni++ {
++		for oc := 0; oc < cout; oc++ {
++			g := oc / coutPerG
++			for ol := 0; ol < lout; ol++ {
++				var sum float32
++				if bias != nil {
++					sum = bias[oc]
++				}
++				for icg := 0; icg < cinPerG; icg++ {
++					ic := g*cinPerG + icg
++					for k := 0; k < kL; k++ {
++						il := ol*stride - padBegin + k*dilation
++						if il >= 0 && il < l {
++							sum += x[(ni*cin+ic)*l+il] * w[(oc*cinPerG+icg)*kL+k]
++						}
++					}
++				}
++				out[(ni*cout+oc)*lout+ol] = sum
++			}
++		}
++	}
++	return out
++}
++
++func TestConv1DMatchesReference(t *testing.T) {
++	rng := rand.New(rand.NewSource(7))
++	cases := []struct {
++		name                                                     string
++		n, cin, l, cout, kL, stride, dilation, group, pad0, pad1 int
++		withBias                                                 bool
++	}{
++		{"pointwise_big", 1, 64, 40, 96, 1, 1, 1, 1, 0, 0, true},
++		{"pointwise_long", 1, 24, 900, 48, 1, 1, 1, 1, 0, 0, false},
++		{"k5_dil2_padded", 1, 32, 50, 64, 5, 1, 2, 1, 4, 4, true},
++		{"k7_stride2", 2, 16, 37, 32, 7, 2, 1, 1, 3, 3, true},
++		{"grouped", 1, 32, 30, 64, 3, 1, 1, 4, 1, 1, true},
++		{"depthwise_direct", 1, 24, 33, 24, 7, 1, 1, 24, 3, 3, true},
++		{"pad_exceeds_input", 1, 16, 3, 32, 7, 1, 1, 1, 6, 6, true},
++		{"dil4_convnext", 1, 16, 21, 16, 5, 1, 4, 1, 8, 8, false},
++		{"batch2", 2, 16, 25, 32, 3, 1, 1, 1, 1, 1, true},
++		{"stride3_asym_pad", 1, 16, 41, 32, 5, 3, 1, 1, 1, 3, true},
++	}
++	for _, tc := range cases {
++		t.Run(tc.name, func(t *testing.T) {
++			x := make([]float32, tc.n*tc.cin*tc.l)
++			for i := range x {
++				x[i] = rng.Float32()*2 - 1
++			}
++			w := make([]float32, tc.cout*(tc.cin/tc.group)*tc.kL)
++			for i := range w {
++				w[i] = rng.Float32()*2 - 1
++			}
++			var bias []float32
++			inputs := []*tensor.RawTensor{
++				stF32(t, tensor.Shape{tc.n, tc.cin, tc.l}, x),
++				stF32(t, tensor.Shape{tc.cout, tc.cin / tc.group, tc.kL}, w),
++			}
++			if tc.withBias {
++				bias = make([]float32, tc.cout)
++				for i := range bias {
++					bias[i] = rng.Float32()*2 - 1
++				}
++				inputs = append(inputs, stF32(t, tensor.Shape{tc.cout}, bias))
++			}
++			node := &Node{OpType: "Conv", Attributes: []Attribute{
++				{Name: "strides", Ints: []int64{int64(tc.stride)}},
++				{Name: "dilations", Ints: []int64{int64(tc.dilation)}},
++				{Name: "group", I: int64(tc.group)},
++				{Name: "pads", Ints: []int64{int64(tc.pad0), int64(tc.pad1)}},
++			}}
++			got := stExec(t, node, inputs...)
++			want := refConv1D(x, w, bias, tc.n, tc.cin, tc.l, tc.cout, tc.kL,
++				tc.stride, tc.dilation, tc.group, tc.pad0, tc.pad1)
++			lout := len(want) / (tc.n * tc.cout)
++			stAssertShape(t, got, tensor.Shape{tc.n, tc.cout, lout})
++			stAssertClose(t, got.AsFloat32(), want)
++		})
++	}
++}
++
++// Reference values computed with numpy.pad.
++func TestPadConstant(t *testing.T) {
++	data := stF32(t, tensor.Shape{2, 3}, []float32{1, 2, 3, 4, 5, 6})
++	pads := stI64(t, tensor.Shape{4}, []int64{1, 0, 1, 2}) // [b0,b1,e0,e1]
++	cval := stF32(t, tensor.Shape{1}, []float32{7})
++	out := stExec(t, &Node{OpType: "Pad"}, data, pads, cval)
++	stAssertShape(t, out, tensor.Shape{4, 5})
++	stAssertClose(t, out.AsFloat32(), []float32{
++		7, 7, 7, 7, 7,
++		1, 2, 3, 7, 7,
++		4, 5, 6, 7, 7,
++		7, 7, 7, 7, 7,
++	})
++}
++
++func TestPadEdge(t *testing.T) {
++	data := stF32(t, tensor.Shape{2, 3}, []float32{1, 2, 3, 4, 5, 6})
++	pads := stI64(t, tensor.Shape{4}, []int64{1, 1, 1, 1})
++	out := stExec(t, &Node{OpType: "Pad", Attributes: []Attribute{{Name: "mode", S: []byte("edge")}}}, data, pads)
++	stAssertShape(t, out, tensor.Shape{4, 5})
++	stAssertClose(t, out.AsFloat32(), []float32{
++		1, 1, 2, 3, 3,
++		1, 1, 2, 3, 3,
++		4, 4, 5, 6, 6,
++		4, 4, 5, 6, 6,
++	})
++}
++
++func TestPadReflect(t *testing.T) {
++	data := stF32(t, tensor.Shape{2, 3}, []float32{1, 2, 3, 4, 5, 6})
++	pads := stI64(t, tensor.Shape{4}, []int64{0, 2, 0, 2})
++	out := stExec(t, &Node{OpType: "Pad", Attributes: []Attribute{{Name: "mode", S: []byte("reflect")}}}, data, pads)
++	stAssertShape(t, out, tensor.Shape{2, 7})
++	stAssertClose(t, out.AsFloat32(), []float32{
++		3, 2, 1, 2, 3, 2, 1,
++		6, 5, 4, 5, 6, 5, 4,
++	})
++}
+diff --git a/internal/onnx/operators/reduce_ops.go b/internal/onnx/operators/reduce_ops.go
+index a20e59d..3f1d675 100644
+--- a/internal/onnx/operators/reduce_ops.go
++++ b/internal/onnx/operators/reduce_ops.go
+@@ -22,6 +22,7 @@ const (
+ 	reduceMean reduceKind = iota
+ 	reduceMax
+ 	reduceMin
++	reduceSum
+ )
+ 
+ func handleReduceMean(_ *Context, node *Node, inputs []*tensor.RawTensor) ([]*tensor.RawTensor, error) {
+@@ -219,7 +220,7 @@ func initReduceAcc(acc []float32, kind reduceKind) {
+ 
+ func reduceStep(acc []float32, oi int, v float32, kind reduceKind) {
+ 	switch kind {
+-	case reduceMean:
++	case reduceMean, reduceSum:
+ 		acc[oi] += v
+ 	case reduceMax:
+ 		if v > acc[oi] {
+diff --git a/internal/onnx/operators/registry.go b/internal/onnx/operators/registry.go
+index a89a23a..143f7eb 100644
+--- a/internal/onnx/operators/registry.go
++++ b/internal/onnx/operators/registry.go
+@@ -40,6 +40,7 @@ func NewRegistry() *Registry {
+ 	r.registerPoolOps()
+ 	r.registerConvOps()
+ 	r.registerResizeOps()
++	r.registerSupertonicOps()
+ 
+ 	return r
+ }
+diff --git a/internal/onnx/operators/shape_ops.go b/internal/onnx/operators/shape_ops.go
+index f82bbaa..2d71254 100644
+--- a/internal/onnx/operators/shape_ops.go
++++ b/internal/onnx/operators/shape_ops.go
+@@ -4,6 +4,7 @@ package operators
+ 
+ import (
+ 	"fmt"
++	"os"
+ 
+ 	"github.com/born-ml/born/internal/tensor"
+ )
+@@ -191,6 +192,10 @@ func handleSlice(_ *Context, _ *Node, inputs []*tensor.RawTensor) ([]*tensor.Raw
+ 		steps = inputs[4].AsInt64()
+ 	}
+ 
++	if bornSliceDebug {
++		fmt.Printf("SLICE in=%v starts=%v ends=%v axes=%v steps=%v\n", inputs[0].Shape(), starts, ends, axes, steps)
++	}
++
+ 	result, err := tensor.Slice(inputs[0], starts, ends, axes, steps)
+ 	if err != nil {
+ 		return nil, fmt.Errorf("slice: %w", err)
+@@ -238,9 +243,19 @@ func handleExpand(_ *Context, _ *Node, inputs []*tensor.RawTensor) ([]*tensor.Ra
+ 		targetShape[i] = int(v)
+ 	}
+ 
+-	result, err := tensor.Expand(inputs[0], targetShape)
++	// ONNX Expand broadcasts the input against the target shape (bidirectional),
++	// so a target dim of 1 keeps the input's (possibly larger) dim.
++	outShape, err := onnxBroadcastShape(inputs[0].Shape(), targetShape)
++	if err != nil {
++		return nil, fmt.Errorf("expand: %w", err)
++	}
++
++	result, err := tensor.Expand(inputs[0], outShape)
+ 	if err != nil {
+ 		return nil, fmt.Errorf("expand: %w", err)
+ 	}
+ 	return []*tensor.RawTensor{result}, nil
+ }
++
++//nolint:gochecknoglobals // debug flag
++var bornSliceDebug = os.Getenv("BORN_SLICE_DEBUG") != ""
+diff --git a/internal/onnx/operators/utility_ops.go b/internal/onnx/operators/utility_ops.go
+index c78f4fa..32ed8a0 100644
+--- a/internal/onnx/operators/utility_ops.go
++++ b/internal/onnx/operators/utility_ops.go
+@@ -121,22 +121,55 @@ func handleConstantOfShape(_ *Context, node *Node, inputs []*tensor.RawTensor) (
+ 		targetShape[i] = int(v)
+ 	}
+ 
+-	// Get value from attribute (default: 0.0f)
+-	var value float32
++	// The "value" attribute is a scalar tensor whose dtype determines the output
++	// dtype (default: float32 0). Honoring int64 here is required by the
++	// Supertonic graphs, which build shape vectors via ConstantOfShape + int Mul.
++	dtype := tensor.Float32
++	var valTensor *tensor.RawTensor
+ 	for i := range node.Attributes {
+-		if node.Attributes[i].Name == "value" {
+-			// value is a TensorProto with single element
+-			if len(node.Attributes[i].Floats) > 0 {
+-				value = node.Attributes[i].Floats[0]
+-			}
++		if node.Attributes[i].Name == "value" && node.Attributes[i].T != nil {
++			valTensor = node.Attributes[i].T
++			dtype = valTensor.DType()
+ 			break
+ 		}
+ 	}
+ 
+-	result, err := tensor.FullRaw(targetShape, value, tensor.Float32, tensor.CPU)
++	result, err := tensor.NewRaw(targetShape, dtype, tensor.CPU)
+ 	if err != nil {
+ 		return nil, fmt.Errorf("constantOfShape: %w", err)
+ 	}
++	hasVal := valTensor != nil && valTensor.NumElements() > 0
++	switch dtype {
++	case tensor.Float32:
++		var v float32
++		if hasVal {
++			v = valTensor.AsFloat32()[0]
++		}
++		out := result.AsFloat32()
++		for i := range out {
++			out[i] = v
++		}
++	case tensor.Int64:
++		var v int64
++		if hasVal {
++			v = valTensor.AsInt64()[0]
++		}
++		out := result.AsInt64()
++		for i := range out {
++			out[i] = v
++		}
++	case tensor.Int32:
++		var v int32
++		if hasVal {
++			v = valTensor.AsInt32()[0]
++		}
++		out := result.AsInt32()
++		for i := range out {
++			out[i] = v
++		}
++	default:
++		return nil, fmt.Errorf("constantOfShape: unsupported dtype %s", dtype)
++	}
+ 	return []*tensor.RawTensor{result}, nil
+ }
+ 
+diff --git a/internal/tensor/raw.go b/internal/tensor/raw.go
+index d29684d..0447af2 100644
+--- a/internal/tensor/raw.go
++++ b/internal/tensor/raw.go
+@@ -228,6 +228,10 @@ func (r *RawTensor) AsFloat32() []float32 {
+ 	// Trigger lazy realization if needed
+ 	data := r.Data()
+ 	//nolint:gosec // unsafe.Slice for zero-copy performance, bounds checked by NumElements()
++	if len(data) == 0 {
++		return nil
++	}
++	//nolint:gosec // pointer valid: len(data) > 0 checked above
+ 	return unsafe.Slice((*float32)(unsafe.Pointer(&data[0])), r.NumElements())
+ }
+ 
+@@ -241,6 +245,10 @@ func (r *RawTensor) AsFloat64() []float64 {
+ 	// Trigger lazy realization if needed
+ 	data := r.Data()
+ 	//nolint:gosec // unsafe.Slice for zero-copy performance, bounds checked by NumElements()
++	if len(data) == 0 {
++		return nil
++	}
++	//nolint:gosec // pointer valid: len(data) > 0 checked above
+ 	return unsafe.Slice((*float64)(unsafe.Pointer(&data[0])), r.NumElements())
+ }
+ 
+@@ -254,6 +262,10 @@ func (r *RawTensor) AsInt32() []int32 {
+ 	// Trigger lazy realization if needed
+ 	data := r.Data()
+ 	//nolint:gosec // unsafe.Slice for zero-copy performance, bounds checked by NumElements()
++	if len(data) == 0 {
++		return nil
++	}
++	//nolint:gosec // pointer valid: len(data) > 0 checked above
+ 	return unsafe.Slice((*int32)(unsafe.Pointer(&data[0])), r.NumElements())
+ }
+ 
+@@ -267,6 +279,10 @@ func (r *RawTensor) AsInt64() []int64 {
+ 	// Trigger lazy realization if needed
+ 	data := r.Data()
+ 	//nolint:gosec // unsafe.Slice for zero-copy performance, bounds checked by NumElements()
++	if len(data) == 0 {
++		return nil
++	}
++	//nolint:gosec // pointer valid: len(data) > 0 checked above
+ 	return unsafe.Slice((*int64)(unsafe.Pointer(&data[0])), r.NumElements())
+ }
+ 
+@@ -291,6 +307,10 @@ func (r *RawTensor) AsBool() []bool {
+ 	// Trigger lazy realization if needed
+ 	data := r.Data()
+ 	//nolint:gosec // unsafe.Slice for zero-copy performance, bounds checked by NumElements()
++	if len(data) == 0 {
++		return nil
++	}
++	//nolint:gosec // pointer valid: len(data) > 0 checked above
+ 	return unsafe.Slice((*bool)(unsafe.Pointer(&data[0])), r.NumElements())
+ }
+ 
+diff --git a/internal/tensor/raw_ops.go b/internal/tensor/raw_ops.go
+index 0af5f6d..e229d54 100644
+--- a/internal/tensor/raw_ops.go
++++ b/internal/tensor/raw_ops.go
+@@ -455,9 +455,9 @@ func Reshape(x *RawTensor, newShape Shape) (*RawTensor, error) {
+ 				return nil, fmt.Errorf("Reshape: can only have one -1 dimension")
+ 			}
+ 			inferIdx = i
+-		case dim <= 0:
+-			return nil, fmt.Errorf("Reshape: dimensions must be positive, got %d", dim)
+-		default:
++		case dim < 0:
++			return nil, fmt.Errorf("Reshape: dimensions must be >= 0 or -1, got %d", dim)
++		default: // includes literal 0 (empty dimension)
+ 			product *= dim
+ 		}
+ 	}
+diff --git a/internal/tensor/raw_test.go b/internal/tensor/raw_test.go
+index e38c422..46e3fbc 100644
+--- a/internal/tensor/raw_test.go
++++ b/internal/tensor/raw_test.go
+@@ -133,10 +133,15 @@ func TestNewRawAllTypes(t *testing.T) {
+ // RawTensor Invalid Creation Tests
+ 
+ func TestNewRawInvalidShape(t *testing.T) {
++	// Zero-sized dims allocate empty tensors (ONNX allows them); only negative fails.
++	for _, shape := range []Shape{{0}, {2, 0}} {
++		if _, err := NewRaw(shape, Float32, CPU); err != nil {
++			t.Errorf("NewRaw(%v) should allocate an empty tensor but failed: %v", shape, err)
++		}
++	}
++
+ 	invalidShapes := []Shape{
+-		{0},
+ 		{-1},
+-		{2, 0},
+ 		{2, -3},
+ 	}
+ 
+diff --git a/internal/tensor/shape.go b/internal/tensor/shape.go
+index 88c795d..ac5dda5 100644
+--- a/internal/tensor/shape.go
++++ b/internal/tensor/shape.go
+@@ -17,11 +17,13 @@ func (s Shape) NumElements() int {
+ 	return n
+ }
+ 
+-// Validate checks if the shape is valid (all dimensions > 0).
++// Validate checks if the shape is valid (all dimensions >= 0). Zero-sized
++// dimensions are permitted: ONNX allows empty tensors (e.g. ConstantOfShape([0])
++// as a Concat seed in attention), and they must flow through the graph.
+ func (s Shape) Validate() error {
+ 	for i, dim := range s {
+-		if dim <= 0 {
+-			return fmt.Errorf("invalid dimension at index %d: %d (must be > 0)", i, dim)
++		if dim < 0 {
++			return fmt.Errorf("invalid dimension at index %d: %d (must be >= 0)", i, dim)
+ 		}
+ 	}
+ 	return nil
+diff --git a/internal/tensor/tensor_test.go b/internal/tensor/tensor_test.go
+index aa69575..b73e192 100644
+--- a/internal/tensor/tensor_test.go
++++ b/internal/tensor/tensor_test.go
+@@ -113,9 +113,14 @@ func TestShapeValidation(t *testing.T) {
+ 		}
+ 	}
+ 
++	// Zero-sized dims are valid (empty tensors, per ONNX). Only negative fails.
++	for _, s := range []Shape{{0}, {3, 0}} {
++		if err := s.Validate(); err != nil {
++			t.Errorf("Shape%v.Validate() should pass (empty tensor) but failed: %v", s, err)
++		}
++	}
++
+ 	invalidShapes := []Shape{
+-		{0},
+-		{3, 0},
+ 		{-1},
+ 		{3, -4},
+ 	}
+diff --git a/onnx/parity_generic_test.go b/onnx/parity_generic_test.go
+new file mode 100644
+index 0000000..98c913a
+--- /dev/null
++++ b/onnx/parity_generic_test.go
+@@ -0,0 +1,109 @@
++//go:build !wasm
++
++package onnx
++
++import (
++	"encoding/json"
++	"math"
++	"os"
++	"testing"
++
++	"github.com/born-ml/born/backend/cpu"
++	"github.com/born-ml/born/internal/tensor"
++)
++
++type genTensor struct {
++	DType string    `json:"dtype"`
++	Shape []int     `json:"shape"`
++	Data  []float64 `json:"data"`
++}
++
++type genRef struct {
++	Model   string               `json:"model"`
++	Inputs  map[string]genTensor `json:"inputs"`
++	Outputs map[string]genTensor `json:"outputs"`
++}
++
++func toRaw(t *testing.T, g genTensor) *tensor.RawTensor {
++	t.Helper()
++	shape := tensor.Shape(g.Shape)
++	switch g.DType {
++	case "int64":
++		r, err := tensor.NewRaw(shape, tensor.Int64, tensor.CPU)
++		if err != nil {
++			t.Fatalf("NewRaw: %v", err)
++		}
++		d := r.AsInt64()
++		for i, v := range g.Data {
++			d[i] = int64(v)
++		}
++		return r
++	default:
++		r, err := tensor.NewRaw(shape, tensor.Float32, tensor.CPU)
++		if err != nil {
++			t.Fatalf("NewRaw: %v", err)
++		}
++		d := r.AsFloat32()
++		for i, v := range g.Data {
++			d[i] = float32(v)
++		}
++		return r
++	}
++}
++
++// TestGraphParity runs any Supertonic graph in strict mode and compares all its
++// outputs to an onnxruntime reference. Set SUPERTONIC_GEN_REF to the ref JSON
++// and SUPERTONIC_MODEL_DIR to the model dir.
++func TestGraphParity(t *testing.T) {
++	refPath := os.Getenv("SUPERTONIC_GEN_REF")
++	modelDir := os.Getenv("SUPERTONIC_MODEL_DIR")
++	if refPath == "" || modelDir == "" {
++		t.Skip("set SUPERTONIC_GEN_REF and SUPERTONIC_MODEL_DIR")
++	}
++	raw, err := os.ReadFile(refPath)
++	if err != nil {
++		t.Fatalf("read ref: %v", err)
++	}
++	var ref genRef
++	if err := json.Unmarshal(raw, &ref); err != nil {
++		t.Fatalf("parse ref: %v", err)
++	}
++
++	opts := DefaultLoadOptions()
++	opts.StrictMode = true
++	model, err := Load(modelDir+"/onnx/"+ref.Model, cpu.New(), opts)
++	if err != nil {
++		t.Fatalf("strict Load %s failed: %v", ref.Model, err)
++	}
++
++	feeds := make(map[string]*tensor.RawTensor, len(ref.Inputs))
++	for name, g := range ref.Inputs {
++		feeds[name] = toRaw(t, g)
++	}
++	outputs, err := model.ForwardNamed(feeds)
++	if err != nil {
++		t.Fatalf("ForwardNamed: %v", err)
++	}
++
++	var maxAbs float64
++	for name, want := range ref.Outputs {
++		got, ok := outputs[name]
++		if !ok {
++			t.Fatalf("missing output %q", name)
++		}
++		gd := got.AsFloat32()
++		if len(gd) != len(want.Data) {
++			t.Fatalf("output %q len: got %d want %d", name, len(gd), len(want.Data))
++		}
++		for i := range want.Data {
++			d := math.Abs(float64(gd[i]) - want.Data[i])
++			if d > maxAbs {
++				maxAbs = d
++			}
++		}
++		if maxAbs > 2e-3 {
++			t.Fatalf("output %q diverges: maxAbs=%g", name, maxAbs)
++		}
++	}
++	t.Logf("%s parity OK: maxAbs=%g", ref.Model, maxAbs)
++}
+diff --git a/onnx/parity_supertonic_test.go b/onnx/parity_supertonic_test.go
+new file mode 100644
+index 0000000..d178970
+--- /dev/null
++++ b/onnx/parity_supertonic_test.go
+@@ -0,0 +1,100 @@
++//go:build !wasm
++
++package onnx
++
++import (
++	"encoding/json"
++	"math"
++	"os"
++	"testing"
++
++	"github.com/born-ml/born/backend/cpu"
++	"github.com/born-ml/born/internal/tensor"
++)
++
++type dpRef struct {
++	TextIds       []int64   `json:"text_ids"`
++	TextIdsShape  []int     `json:"text_ids_shape"`
++	StyleDp       []float32 `json:"style_dp"`
++	StyleDpShape  []int     `json:"style_dp_shape"`
++	TextMask      []float32 `json:"text_mask"`
++	TextMaskShape []int     `json:"text_mask_shape"`
++	Duration      []float32 `json:"duration"`
++}
++
++func mustF32(t *testing.T, shape []int, data []float32) *tensor.RawTensor {
++	t.Helper()
++	raw, err := tensor.NewRaw(tensor.Shape(shape), tensor.Float32, tensor.CPU)
++	if err != nil {
++		t.Fatalf("NewRaw f32: %v", err)
++	}
++	copy(raw.AsFloat32(), data)
++	return raw
++}
++
++func mustI64(t *testing.T, shape []int, data []int64) *tensor.RawTensor {
++	t.Helper()
++	raw, err := tensor.NewRaw(tensor.Shape(shape), tensor.Int64, tensor.CPU)
++	if err != nil {
++		t.Fatalf("NewRaw i64: %v", err)
++	}
++	copy(raw.AsInt64(), data)
++	return raw
++}
++
++// TestDurationPredictorParity loads the real duration_predictor graph in strict
++// mode (every op must be implemented) and checks Born's output matches the
++// onnxruntime reference in SUPERTONIC_DP_REF for identical inputs.
++func TestDurationPredictorParity(t *testing.T) {
++	modelDir := os.Getenv("SUPERTONIC_MODEL_DIR")
++	refPath := os.Getenv("SUPERTONIC_DP_REF")
++	if modelDir == "" || refPath == "" {
++		t.Skip("set SUPERTONIC_MODEL_DIR and SUPERTONIC_DP_REF")
++	}
++	raw, err := os.ReadFile(refPath)
++	if err != nil {
++		t.Fatalf("read ref: %v", err)
++	}
++	var ref dpRef
++	if err := json.Unmarshal(raw, &ref); err != nil {
++		t.Fatalf("parse ref: %v", err)
++	}
++
++	opts := DefaultLoadOptions()
++	opts.StrictMode = true
++	model, err := Load(modelDir+"/onnx/duration_predictor.onnx", cpu.New(), opts)
++	if err != nil {
++		t.Fatalf("strict Load failed: %v", err)
++	}
++
++	outputs, err := model.ForwardNamed(map[string]*tensor.RawTensor{
++		"text_ids":  mustI64(t, ref.TextIdsShape, ref.TextIds),
++		"style_dp":  mustF32(t, ref.StyleDpShape, ref.StyleDp),
++		"text_mask": mustF32(t, ref.TextMaskShape, ref.TextMask),
++	})
++	if err != nil {
++		t.Fatalf("ForwardNamed: %v", err)
++	}
++	out, ok := outputs["duration"]
++	if !ok {
++		t.Fatalf("no 'duration' output; got keys %v", keysOf(outputs))
++	}
++	got := out.AsFloat32()
++	if len(got) != len(ref.Duration) {
++		t.Fatalf("duration len: got %d want %d", len(got), len(ref.Duration))
++	}
++	for i := range ref.Duration {
++		if d := math.Abs(float64(got[i] - ref.Duration[i])); d > 1e-3 {
++			t.Fatalf("duration[%d]: got %v want %v (|Δ|=%g)", i, got[i], ref.Duration[i], d)
++		}
++	}
++	t.Logf("duration parity OK: got=%v ref=%v", got, ref.Duration)
++}
++
++func keysOf(m map[string]*tensor.RawTensor) []string {
++	ks := make([]string, 0, len(m))
++	for k := range m {
++		ks = append(ks, k)
++	}
++	return ks
++}
+diff --git a/supertonic/assets.go b/supertonic/assets.go
+new file mode 100644
+index 0000000..44f73dd
+--- /dev/null
++++ b/supertonic/assets.go
+@@ -0,0 +1,115 @@
++// Package supertonic runs the Supertonic TTS pipeline in pure Go on top of the
++// Born ONNX runtime fork. It ports the browser reference
++// (web/agentd-ui/src/lib/tts/supertonic/vendor/helper.mjs) — tokenization,
++// noise sampling, the flow-matching loop, and WAV assembly.
++package supertonic
++
++import (
++	"encoding/json"
++	"fmt"
++	"os"
++	"path/filepath"
++)
++
++// Config holds the fields the pipeline needs from tts.json.
++type Config struct {
++	SampleRate          int
++	BaseChunkSize       int
++	ChunkCompressFactor int
++	LatentDim           int
++}
++
++func loadConfig(modelDir string) (Config, error) {
++	raw, err := os.ReadFile(filepath.Join(modelDir, "onnx", "tts.json"))
++	if err != nil {
++		return Config{}, fmt.Errorf("read tts.json: %w", err)
++	}
++	var doc struct {
++		AE struct {
++			SampleRate    int `json:"sample_rate"`
++			BaseChunkSize int `json:"base_chunk_size"`
++		} `json:"ae"`
++		TTL struct {
++			ChunkCompressFactor int `json:"chunk_compress_factor"`
++			LatentDim           int `json:"latent_dim"`
++		} `json:"ttl"`
++	}
++	if err := json.Unmarshal(raw, &doc); err != nil {
++		return Config{}, fmt.Errorf("parse tts.json: %w", err)
++	}
++	return Config{
++		SampleRate:          doc.AE.SampleRate,
++		BaseChunkSize:       doc.AE.BaseChunkSize,
++		ChunkCompressFactor: doc.TTL.ChunkCompressFactor,
++		LatentDim:           doc.TTL.LatentDim,
++	}, nil
++}
++
++func loadIndexer(modelDir string) ([]int64, error) {
++	raw, err := os.ReadFile(filepath.Join(modelDir, "onnx", "unicode_indexer.json"))
++	if err != nil {
++		return nil, fmt.Errorf("read unicode_indexer.json: %w", err)
++	}
++	var idx []int64
++	if err := json.Unmarshal(raw, &idx); err != nil {
++		return nil, fmt.Errorf("parse unicode_indexer.json: %w", err)
++	}
++	return idx, nil
++}
++
++// VoiceStyle holds the flattened TTL and DP style tensors and their shapes.
++type VoiceStyle struct {
++	TTLDims []int
++	TTLData []float32
++	DPDims  []int
++	DPData  []float32
++}
++
++type styleTensor struct {
++	Dims []int           `json:"dims"`
++	Data json.RawMessage `json:"data"`
++}
++
++func flattenNumeric(raw json.RawMessage) ([]float32, error) {
++	var v interface{}
++	if err := json.Unmarshal(raw, &v); err != nil {
++		return nil, err
++	}
++	var out []float32
++	var walk func(node interface{})
++	walk = func(node interface{}) {
++		switch n := node.(type) {
++		case float64:
++			out = append(out, float32(n))
++		case []interface{}:
++			for _, c := range n {
++				walk(c)
++			}
++		}
++	}
++	walk(v)
++	return out, nil
++}
++
++func loadVoiceStyle(modelDir, voiceID string) (VoiceStyle, error) {
++	raw, err := os.ReadFile(filepath.Join(modelDir, "voice_styles", voiceID+".json"))
++	if err != nil {
++		return VoiceStyle{}, fmt.Errorf("read voice %s: %w", voiceID, err)
++	}
++	var doc struct {
++		TTL styleTensor `json:"style_ttl"`
++		DP  styleTensor `json:"style_dp"`
++	}
++	if err := json.Unmarshal(raw, &doc); err != nil {
++		return VoiceStyle{}, fmt.Errorf("parse voice %s: %w", voiceID, err)
++	}
++	ttl, err := flattenNumeric(doc.TTL.Data)
++	if err != nil {
++		return VoiceStyle{}, fmt.Errorf("voice %s ttl: %w", voiceID, err)
++	}
++	dp, err := flattenNumeric(doc.DP.Data)
++	if err != nil {
++		return VoiceStyle{}, fmt.Errorf("voice %s dp: %w", voiceID, err)
++	}
++	return VoiceStyle{TTLDims: doc.TTL.Dims, TTLData: ttl, DPDims: doc.DP.Dims, DPData: dp}, nil
++}
+diff --git a/supertonic/pipeline.go b/supertonic/pipeline.go
+new file mode 100644
+index 0000000..3da960c
+--- /dev/null
++++ b/supertonic/pipeline.go
+@@ -0,0 +1,300 @@
++package supertonic
++
++import (
++	"fmt"
++	"math"
++	"math/rand"
++	"path/filepath"
++
++	"github.com/born-ml/born/backend/cpu"
++	"github.com/born-ml/born/internal/tensor"
++	"github.com/born-ml/born/onnx"
++)
++
++// TTS is a loaded Supertonic pipeline.
++type TTS struct {
++	cfg       Config
++	indexer   []int64
++	dp        onnx.Model
++	textEnc   onnx.Model
++	vectorEst onnx.Model
++	vocoder   onnx.Model
++	modelDir  string
++	styles    map[string]VoiceStyle
++}
++
++// Options configures a synthesis call. Zero values fall back to the defaults
++// used by the browser reference.
++type Options struct {
++	Lang            string
++	TotalSteps      int
++	Speed           float64
++	SilenceDuration float64
++
++	// injectNoise, when set, replaces sampled Gaussian noise (for deterministic
++	// tests). Length must equal latentDimVal*latentLen of the (single) chunk.
++	injectNoise []float32
++}
++
++// New loads the config, tokenizer, and the 4 ONNX graphs from modelDir.
++func New(modelDir string) (*TTS, error) {
++	cfg, err := loadConfig(modelDir)
++	if err != nil {
++		return nil, err
++	}
++	indexer, err := loadIndexer(modelDir)
++	if err != nil {
++		return nil, err
++	}
++	backend := cpu.New()
++	opts := onnx.DefaultLoadOptions()
++	opts.StrictMode = true
++	load := func(name string) (onnx.Model, error) {
++		return onnx.Load(filepath.Join(modelDir, "onnx", name), backend, opts)
++	}
++	dp, err := load("duration_predictor.onnx")
++	if err != nil {
++		return nil, fmt.Errorf("load dp: %w", err)
++	}
++	te, err := load("text_encoder.onnx")
++	if err != nil {
++		return nil, fmt.Errorf("load text_encoder: %w", err)
++	}
++	ve, err := load("vector_estimator.onnx")
++	if err != nil {
++		return nil, fmt.Errorf("load vector_estimator: %w", err)
++	}
++	voc, err := load("vocoder.onnx")
++	if err != nil {
++		return nil, fmt.Errorf("load vocoder: %w", err)
++	}
++	return &TTS{
++		cfg: cfg, indexer: indexer, dp: dp, textEnc: te, vectorEst: ve,
++		vocoder: voc, modelDir: modelDir, styles: map[string]VoiceStyle{},
++	}, nil
++}
++
++// SampleRate returns the output sample rate (Hz).
++func (t *TTS) SampleRate() int { return t.cfg.SampleRate }
++
++func (t *TTS) style(voiceID string) (VoiceStyle, error) {
++	if s, ok := t.styles[voiceID]; ok {
++		return s, nil
++	}
++	s, err := loadVoiceStyle(t.modelDir, voiceID)
++	if err != nil {
++		return VoiceStyle{}, err
++	}
++	t.styles[voiceID] = s
++	return s, nil
++}
++
++func rawF32(shape []int, data []float32) (*tensor.RawTensor, error) {
++	r, err := tensor.NewRaw(tensor.Shape(shape), tensor.Float32, tensor.CPU)
++	if err != nil {
++		return nil, err
++	}
++	copy(r.AsFloat32(), data)
++	return r, nil
++}
++
++func rawI64(shape []int, data []int64) (*tensor.RawTensor, error) {
++	r, err := tensor.NewRaw(tensor.Shape(shape), tensor.Int64, tensor.CPU)
++	if err != nil {
++		return nil, err
++	}
++	copy(r.AsInt64(), data)
++	return r, nil
++}
++
++// SynthesizeStream renders text sentence-group by sentence-group, invoking emit
++// with each group's samples as soon as they are ready (minimizing
++// time-to-first-audio for streaming consumers). Groups after the first are
++// prefixed with opts.SilenceDuration of silence, so concatenating every emitted
++// slice reproduces exactly what Synthesize returns. emit returning an error
++// aborts the stream.
++func (t *TTS) SynthesizeStream(text, voiceID string, opts Options, emit func(wav []float32) error) error {
++	if opts.Lang == "" {
++		opts.Lang = "en"
++	}
++	if opts.TotalSteps == 0 {
++		opts.TotalSteps = 8
++	}
++	if opts.Speed == 0 {
++		opts.Speed = 1.05
++	}
++	if opts.SilenceDuration == 0 {
++		opts.SilenceDuration = 0.3
++	}
++	style, err := t.style(voiceID)
++	if err != nil {
++		return err
++	}
++
++	maxLen := 300
++	if opts.Lang == "ko" || opts.Lang == "ja" {
++		maxLen = 120
++	}
++	silence := make([]float32, int(opts.SilenceDuration*float64(t.cfg.SampleRate)))
++	for i, chunk := range chunkText(text, maxLen) {
++		wav, err := t.infer(chunk, style, opts)
++		if err != nil {
++			return err
++		}
++		if i > 0 {
++			wav = append(append(make([]float32, 0, len(silence)+len(wav)), silence...), wav...)
++		}
++		if err := emit(wav); err != nil {
++			return err
++		}
++	}
++	return nil
++}
++
++// Synthesize renders text to a float32 waveform at SampleRate(). Sentence groups
++// are synthesized and concatenated with silence between them.
++func (t *TTS) Synthesize(text, voiceID string, opts Options) ([]float32, error) {
++	var wavCat []float32
++	err := t.SynthesizeStream(text, voiceID, opts, func(wav []float32) error {
++		wavCat = append(wavCat, wav...)
++		return nil
++	})
++	if err != nil {
++		return nil, err
++	}
++	return wavCat, nil
++}
++
++func (t *TTS) infer(chunk string, style VoiceStyle, opts Options) ([]float32, error) {
++	pre, ok := preprocessText(chunk, opts.Lang)
++	if !ok {
++		return nil, fmt.Errorf("invalid language %q", opts.Lang)
++	}
++	ids, mask := tokenize(t.indexer, pre)
++	seq := len(ids)
++
++	textIDs, err := rawI64([]int{1, seq}, ids)
++	if err != nil {
++		return nil, err
++	}
++	textMask, err := rawF32([]int{1, 1, seq}, mask)
++	if err != nil {
++		return nil, err
++	}
++	styleTTL, err := rawF32(style.TTLDims, style.TTLData)
++	if err != nil {
++		return nil, err
++	}
++	styleDP, err := rawF32(style.DPDims, style.DPData)
++	if err != nil {
++		return nil, err
++	}
++
++	// Duration predictor.
++	dpOut, err := t.dp.ForwardNamed(map[string]*tensor.RawTensor{
++		"text_ids": textIDs, "style_dp": styleDP, "text_mask": textMask,
++	})
++	if err != nil {
++		return nil, fmt.Errorf("dp: %w", err)
++	}
++	durTensor, ok := dpOut["duration"]
++	if !ok {
++		return nil, fmt.Errorf("dp: no duration output")
++	}
++	durationSec := float64(durTensor.AsFloat32()[0]) / opts.Speed
++
++	// Text encoder.
++	teOut, err := t.textEnc.ForwardNamed(map[string]*tensor.RawTensor{
++		"text_ids": textIDs, "style_ttl": styleTTL, "text_mask": textMask,
++	})
++	if err != nil {
++		return nil, fmt.Errorf("text_encoder: %w", err)
++	}
++	textEmb, ok := teOut["text_emb"]
++	if !ok {
++		return nil, fmt.Errorf("text_encoder: no text_emb output")
++	}
++
++	// Sample (or inject) the noisy latent.
++	latentDimVal := t.cfg.LatentDim * t.cfg.ChunkCompressFactor
++	chunkSize := t.cfg.BaseChunkSize * t.cfg.ChunkCompressFactor
++	wavLen := int(math.Floor(durationSec * float64(t.cfg.SampleRate)))
++	latentLen := (wavLen + chunkSize - 1) / chunkSize
++	if latentLen < 1 {
++		latentLen = 1
++	}
++
++	xt := make([]float32, latentDimVal*latentLen)
++	latentMask := make([]float32, latentLen)
++	for i := range latentMask {
++		latentMask[i] = 1.0 // single sequence, full length
++	}
++	if opts.injectNoise != nil {
++		copy(xt, opts.injectNoise)
++	} else {
++		for i := range xt {
++			u1 := math.Max(0.0001, rand.Float64())
++			u2 := rand.Float64()
++			xt[i] = float32(math.Sqrt(-2.0*math.Log(u1)) * math.Cos(2.0*math.Pi*u2))
++		}
++		// Apply latent mask (all-ones here, but kept for fidelity).
++		for d := 0; d < latentDimVal; d++ {
++			for tt := 0; tt < latentLen; tt++ {
++				xt[d*latentLen+tt] *= latentMask[tt]
++			}
++		}
++	}
++
++	latentMaskT, err := rawF32([]int{1, 1, latentLen}, latentMask)
++	if err != nil {
++		return nil, err
++	}
++	totalStepT, err := rawF32([]int{1}, []float32{float32(opts.TotalSteps)})
++	if err != nil {
++		return nil, err
++	}
++
++	// Flow-matching denoising loop.
++	for step := 0; step < opts.TotalSteps; step++ {
++		xtT, err := rawF32([]int{1, latentDimVal, latentLen}, xt)
++		if err != nil {
++			return nil, err
++		}
++		curStepT, err := rawF32([]int{1}, []float32{float32(step)})
++		if err != nil {
++			return nil, err
++		}
++		veOut, err := t.vectorEst.ForwardNamed(map[string]*tensor.RawTensor{
++			"noisy_latent": xtT, "text_emb": textEmb, "style_ttl": styleTTL,
++			"latent_mask": latentMaskT, "text_mask": textMask,
++			"current_step": curStepT, "total_step": totalStepT,
++		})
++		if err != nil {
++			return nil, fmt.Errorf("vector_estimator step %d: %w", step, err)
++		}
++		den, ok := veOut["denoised_latent"]
++		if !ok {
++			return nil, fmt.Errorf("vector_estimator: no denoised_latent output")
++		}
++		xt = append(xt[:0:0], den.AsFloat32()...)
++	}
++
++	// Vocoder.
++	finalXt, err := rawF32([]int{1, latentDimVal, latentLen}, xt)
++	if err != nil {
++		return nil, err
++	}
++	vocOut, err := t.vocoder.ForwardNamed(map[string]*tensor.RawTensor{"latent": finalXt})
++	if err != nil {
++		return nil, fmt.Errorf("vocoder: %w", err)
++	}
++	wavT, ok := vocOut["wav_tts"]
++	if !ok {
++		return nil, fmt.Errorf("vocoder: no wav_tts output")
++	}
++	wav := wavT.AsFloat32()
++	if wavLen > 0 && wavLen < len(wav) {
++		wav = wav[:wavLen]
++	}
++	return append([]float32(nil), wav...), nil
++}
+diff --git a/supertonic/pipeline_test.go b/supertonic/pipeline_test.go
+new file mode 100644
+index 0000000..06af2b9
+--- /dev/null
++++ b/supertonic/pipeline_test.go
+@@ -0,0 +1,112 @@
++package supertonic
++
++import (
++	"encoding/json"
++	"math"
++	"os"
++	"testing"
++)
++
++func TestPreprocessAndTokenize(t *testing.T) {
++	md := os.Getenv("SUPERTONIC_MODEL_DIR")
++	if md == "" {
++		t.Skip("set SUPERTONIC_MODEL_DIR")
++	}
++	pre, ok := preprocessText("Hello there.", "en")
++	if !ok {
++		t.Fatal("preprocess failed")
++	}
++	if pre != "<en>Hello there.</en>" {
++		t.Fatalf("preprocess = %q", pre)
++	}
++	idx, err := loadIndexer(md)
++	if err != nil {
++		t.Fatal(err)
++	}
++	ids, mask := tokenize(idx, pre)
++	want := []int64{29, 64, 73, 31, 40, 64, 71, 71, 74, 2, 79, 67, 64, 77, 64, 15, 29, 16, 64, 73, 31}
++	if len(ids) != len(want) {
++		t.Fatalf("len ids = %d want %d", len(ids), len(want))
++	}
++	for i := range want {
++		if ids[i] != want[i] {
++			t.Fatalf("ids[%d] = %d want %d (got %v)", i, ids[i], want[i], ids)
++		}
++	}
++	for i, m := range mask {
++		if m != 1.0 {
++			t.Fatalf("mask[%d] = %v, want 1", i, m)
++		}
++	}
++}
++
++type refDoc struct {
++	Inputs  map[string]struct{ Data []float64 } `json:"inputs"`
++	Outputs map[string]struct{ Data []float64 } `json:"outputs"`
++}
++
++func loadRefFloats(t *testing.T, path, section, name string) []float32 {
++	t.Helper()
++	raw, err := os.ReadFile(path)
++	if err != nil {
++		t.Fatal(err)
++	}
++	var d refDoc
++	if err := json.Unmarshal(raw, &d); err != nil {
++		t.Fatal(err)
++	}
++	var data []float64
++	if section == "inputs" {
++		data = d.Inputs[name].Data
++	} else {
++		data = d.Outputs[name].Data
++	}
++	out := make([]float32, len(data))
++	for i, v := range data {
++		out[i] = float32(v)
++	}
++	return out
++}
++
++// TestSynthesizeDeterministic injects the captured initial noise and checks the
++// full pipeline reproduces the captured audio (RNG otherwise makes output
++// non-repeatable). This validates tokenization + dp + text_encoder + the
++// flow-matching loop + vocoder + slicing end-to-end.
++func TestSynthesizeDeterministic(t *testing.T) {
++	md := os.Getenv("SUPERTONIC_MODEL_DIR")
++	veRef := os.Getenv("SUPERTONIC_VE_REF")
++	vocRef := os.Getenv("SUPERTONIC_VOC_REF")
++	if md == "" || veRef == "" || vocRef == "" {
++		t.Skip("set SUPERTONIC_MODEL_DIR, SUPERTONIC_VE_REF, SUPERTONIC_VOC_REF")
++	}
++	noise := loadRefFloats(t, veRef, "inputs", "noisy_latent")
++	wantWav := loadRefFloats(t, vocRef, "outputs", "wav_tts")
++
++	tts, err := New(md)
++	if err != nil {
++		t.Fatal(err)
++	}
++	samples, err := tts.Synthesize("Hello there.", "M1", Options{injectNoise: noise})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(samples) == 0 {
++		t.Fatal("no samples")
++	}
++	// samples are the sliced output; wantWav is the raw vocoder output. Compare
++	// over the sliced length.
++	n := len(samples)
++	if n > len(wantWav) {
++		n = len(wantWav)
++	}
++	var maxAbs float64
++	for i := 0; i < n; i++ {
++		if d := math.Abs(float64(samples[i] - wantWav[i])); d > maxAbs {
++			maxAbs = d
++		}
++	}
++	if maxAbs > 2e-3 {
++		t.Fatalf("waveform diverges: maxAbs=%g over %d samples", maxAbs, n)
++	}
++	t.Logf("deterministic pipeline OK: %d samples, maxAbs=%g", n, maxAbs)
++}
+diff --git a/supertonic/text.go b/supertonic/text.go
+new file mode 100644
+index 0000000..2bf2c53
+--- /dev/null
++++ b/supertonic/text.go
+@@ -0,0 +1,162 @@
++package supertonic
++
++import (
++	"regexp"
++	"strings"
++)
++
++// AvailableLangs mirrors helper.mjs AVAILABLE_LANGS.
++var AvailableLangs = map[string]bool{
++	"en": true, "ko": true, "ja": true, "ar": true, "bg": true, "cs": true,
++	"da": true, "de": true, "el": true, "es": true, "et": true, "fi": true,
++	"fr": true, "hi": true, "hr": true, "hu": true, "id": true, "it": true,
++	"lt": true, "lv": true, "nl": true, "pl": true, "pt": true, "ro": true,
++	"ru": true, "sk": true, "sl": true, "sv": true, "tr": true, "uk": true,
++	"vi": true, "na": true,
++}
++
++var (
++	emojiRe   = regexp.MustCompile(`[\x{1F600}-\x{1F64F}\x{1F300}-\x{1F5FF}\x{1F680}-\x{1F6FF}\x{1F700}-\x{1F77F}\x{1F780}-\x{1F7FF}\x{1F800}-\x{1F8FF}\x{1F900}-\x{1F9FF}\x{1FA00}-\x{1FA6F}\x{1FA70}-\x{1FAFF}\x{2600}-\x{26FF}\x{2700}-\x{27BF}\x{1F1E6}-\x{1F1FF}]+`)
++	specialRe = regexp.MustCompile("[♥☆♡©\\\\]")
++	wsRe      = regexp.MustCompile(`\s+`)
++	endPunct  = regexp.MustCompile(`[.!?;:,'")\]}…。」』】〉》›»]$`)
++	paragraph = regexp.MustCompile(`\n\s*\n+`)
++	boundary  = regexp.MustCompile(`[.!?]+\s+`)
++	initialRe = regexp.MustCompile(`^[A-Z]\.$`)
++)
++
++var replacements = []struct{ from, to string }{
++	{"–", "-"}, {"‑", "-"}, {"—", "-"}, {"_", " "},
++	{"“", "\""}, {"”", "\""}, {"‘", "'"}, {"’", "'"},
++	{"´", "'"}, {"`", "'"}, {"[", " "}, {"]", " "}, {"|", " "}, {"/", " "},
++	{"#", " "}, {"→", " "}, {"←", " "},
++}
++
++var exprReplacements = []struct{ from, to string }{
++	{"@", " at "}, {"e.g.,", "for example, "}, {"i.e.,", "that is, "},
++}
++
++// preprocessText ports helper.mjs UnicodeProcessor.preprocessText. NFKD
++// normalization is intentionally omitted (identity for ASCII/Latin; add
++// golang.org/x/text/unicode/norm for full multilingual parity).
++func preprocessText(text, lang string) (string, bool) {
++	text = emojiRe.ReplaceAllString(text, "")
++	for _, r := range replacements {
++		text = strings.ReplaceAll(text, r.from, r.to)
++	}
++	text = specialRe.ReplaceAllString(text, "")
++	for _, r := range exprReplacements {
++		text = strings.ReplaceAll(text, r.from, r.to)
++	}
++	text = strings.ReplaceAll(text, " ,", ",")
++	text = strings.ReplaceAll(text, " .", ".")
++	text = strings.ReplaceAll(text, " !", "!")
++	text = strings.ReplaceAll(text, " ?", "?")
++	text = strings.ReplaceAll(text, " ;", ";")
++	text = strings.ReplaceAll(text, " :", ":")
++	text = strings.ReplaceAll(text, " '", "'")
++	for strings.Contains(text, "\"\"") {
++		text = strings.Replace(text, "\"\"", "\"", 1)
++	}
++	for strings.Contains(text, "''") {
++		text = strings.Replace(text, "''", "'", 1)
++	}
++	for strings.Contains(text, "``") {
++		text = strings.Replace(text, "``", "`", 1)
++	}
++	text = strings.TrimSpace(wsRe.ReplaceAllString(text, " "))
++	if !endPunct.MatchString(text) {
++		text += "."
++	}
++	if !AvailableLangs[lang] {
++		return "", false
++	}
++	return "<" + lang + ">" + text + "</" + lang + ">", true
++}
++
++// tokenize maps each code point of the preprocessed text to its indexer id
++// (-1 when out of range), mirroring helper.mjs codePointAt lookup. Returns ids
++// and a same-length all-ones mask.
++func tokenize(indexer []int64, text string) ([]int64, []float32) {
++	runes := []rune(text)
++	ids := make([]int64, len(runes))
++	mask := make([]float32, len(runes))
++	for i, r := range runes {
++		if int(r) < len(indexer) {
++			ids[i] = indexer[r]
++		} else {
++			ids[i] = -1
++		}
++		mask[i] = 1.0
++	}
++	return ids, mask
++}
++
++var abbreviations = map[string]bool{
++	"Mr.": true, "Mrs.": true, "Ms.": true, "Dr.": true, "Prof.": true,
++	"Sr.": true, "Jr.": true, "Ph.D.": true, "etc.": true, "e.g.": true,
++	"i.e.": true, "vs.": true, "Inc.": true, "Ltd.": true, "Co.": true,
++	"Corp.": true, "St.": true, "Ave.": true, "Blvd.": true,
++}
++
++func isAbbrev(tok string) bool {
++	return abbreviations[tok] || initialRe.MatchString(tok)
++}
++
++func sentences(para string) []string {
++	var out []string
++	start := 0
++	for _, m := range boundary.FindAllStringIndex(para, -1) {
++		punct := regexp.MustCompile(`^[.!?]+`).FindString(para[m[0]:])
++		end := m[0] + len(punct)
++		tokStart := strings.LastIndex(para[start:m[0]], " ")
++		if tokStart == -1 {
++			tokStart = start
++		} else {
++			tokStart = start + tokStart + 1
++		}
++		tok := strings.TrimSpace(para[tokStart : m[0]+1])
++		if isAbbrev(tok) {
++			continue
++		}
++		if piece := strings.TrimSpace(para[start:end]); piece != "" {
++			out = append(out, piece)
++		}
++		start = m[1]
++	}
++	if tail := strings.TrimSpace(para[start:]); tail != "" {
++		out = append(out, tail)
++	}
++	return out
++}
++
++// chunkText ports helper.mjs chunkText: split into paragraphs and sentences,
++// then group sentences into chunks no longer than maxLen.
++func chunkText(text string, maxLen int) []string {
++	var chunks []string
++	for _, para := range paragraph.Split(strings.TrimSpace(text), -1) {
++		para = strings.TrimSpace(para)
++		if para == "" {
++			continue
++		}
++		current := ""
++		for _, s := range sentences(para) {
++			if len(current)+len(s)+1 <= maxLen {
++				if current == "" {
++					current = s
++				} else {
++					current += " " + s
++				}
++			} else {
++				if current != "" {
++					chunks = append(chunks, strings.TrimSpace(current))
++				}
++				current = s
++			}
++		}
++		if current != "" {
++			chunks = append(chunks, strings.TrimSpace(current))
++		}
++	}
++	return chunks
++}
+diff --git a/supertonic/wav.go b/supertonic/wav.go
+new file mode 100644
+index 0000000..fe2bad0
+--- /dev/null
++++ b/supertonic/wav.go
+@@ -0,0 +1,46 @@
++package supertonic
++
++import (
++	"encoding/binary"
++	"math"
++)
++
++// FloatToPCM16 converts a float32 waveform to little-endian signed 16-bit PCM,
++// matching helper.mjs writeWavFile (clamp to [-1,1], scale by 32767, floor).
++func FloatToPCM16(wav []float32) []byte {
++	out := make([]byte, len(wav)*2)
++	for i, v := range wav {
++		if v > 1 {
++			v = 1
++		} else if v < -1 {
++			v = -1
++		}
++		s := int16(math.Floor(float64(v) * 32767.0))
++		binary.LittleEndian.PutUint16(out[i*2:], uint16(s))
++	}
++	return out
++}
++
++// WAVBytes wraps PCM16 bytes in a minimal mono WAV container.
++func WAVBytes(pcm []byte, sampleRate int) []byte {
++	const channels, bits = 1, 16
++	byteRate := sampleRate * channels * bits / 8
++	blockAlign := channels * bits / 8
++	dataSize := len(pcm)
++	buf := make([]byte, 44+dataSize)
++	copy(buf[0:], "RIFF")
++	binary.LittleEndian.PutUint32(buf[4:], uint32(36+dataSize))
++	copy(buf[8:], "WAVE")
++	copy(buf[12:], "fmt ")
++	binary.LittleEndian.PutUint32(buf[16:], 16)
++	binary.LittleEndian.PutUint16(buf[20:], 1)
++	binary.LittleEndian.PutUint16(buf[22:], channels)
++	binary.LittleEndian.PutUint32(buf[24:], uint32(sampleRate))
++	binary.LittleEndian.PutUint32(buf[28:], uint32(byteRate))
++	binary.LittleEndian.PutUint16(buf[32:], uint16(blockAlign))
++	binary.LittleEndian.PutUint16(buf[34:], bits)
++	copy(buf[36:], "data")
++	binary.LittleEndian.PutUint32(buf[40:], uint32(dataSize))
++	copy(buf[44:], pcm)
++	return buf
++}

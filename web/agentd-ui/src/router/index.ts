@@ -5,6 +5,10 @@ const router = createRouter({
   routes: [
     {
       path: "/",
+      redirect: { name: "chat" },
+    },
+    {
+      path: "/overview",
       name: "overview",
       meta: {
         nav: true,
@@ -60,13 +64,26 @@ const router = createRouter({
       name: "pulse",
       meta: {
         nav: true,
-        order: 5,
+        order: 6,
         label: "Pulse",
         glyph: "PU",
         title: "Pulse",
         purpose: "Scheduled and recurring work",
       },
       component: () => import("@/views/PulseView.vue"),
+    },
+    {
+      path: "/realtime",
+      name: "realtime",
+      meta: {
+        nav: true,
+        order: 5,
+        label: "Realtime",
+        glyph: "RT",
+        title: "Realtime",
+        purpose: "Natural full-duplex voice conversations",
+      },
+      component: () => import("@/views/RealtimeView.vue"),
     },
     {
       path: "/matrix",
@@ -77,13 +94,13 @@ const router = createRouter({
       name: "flow",
       meta: {
         nav: true,
-        order: 7,
+        order: 8,
         label: "Flow",
         glyph: "FL",
         title: "Flow",
-        purpose: "Visual workflow builder and execution (beta)",
+        purpose: "Typed-port workflow builder",
       },
-      component: () => import("@/views/FlowView.vue"),
+      component: () => import("@/views/WarppView.vue"),
     },
     {
       path: "/durable",
@@ -130,6 +147,16 @@ const router = createRouter({
       component: () => import("@/views/BeliefsView.vue"),
     },
     {
+      path: "/setup",
+      name: "setup",
+      meta: {
+        nav: false,
+        title: "Setup",
+        purpose: "First-run provider configuration",
+      },
+      component: () => import("@/views/SetupView.vue"),
+    },
+    {
       path: "/settings",
       name: "settings",
       meta: {
@@ -147,7 +174,7 @@ const router = createRouter({
       name: "playground",
       meta: {
         nav: true,
-        order: 6,
+        order: 7,
         label: "Playground",
         glyph: "PL",
         title: "Playground",
@@ -157,9 +184,7 @@ const router = createRouter({
       children: [
         {
           path: "",
-          name: "playground-overview",
-          component: () =>
-            import("@/views/playground/PlaygroundOverviewView.vue"),
+          redirect: { name: "playground-prompts" },
         },
         {
           path: "prompts",
@@ -199,6 +224,33 @@ const router = createRouter({
       component: () => import("@/views/NotFoundView.vue"),
     },
   ],
+});
+
+let setupChecked = false;
+let setupReady = true;
+
+router.beforeEach(async (to) => {
+  if (to.name === "setup") {
+    return true;
+  }
+  if (!setupChecked) {
+    try {
+      const res = await fetch("/api/setup/status", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setupReady = Boolean(data?.ready);
+      } else {
+        setupReady = true;
+      }
+    } catch {
+      setupReady = true;
+    }
+    setupChecked = true;
+  }
+  if (!setupReady) {
+    return { name: "setup" };
+  }
+  return true;
 });
 
 export default router;

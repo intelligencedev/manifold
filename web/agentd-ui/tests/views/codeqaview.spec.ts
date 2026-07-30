@@ -77,7 +77,7 @@ describe("CodeQaView", () => {
     routeState.params.runId = "run-1";
     render(CodeQaView);
 
-    expect(await screen.findByText(/Code QA/i)).toBeTruthy();
+    expect(await screen.findByText(/Gate runs and judge verdicts/i)).toBeTruthy();
     expect((await screen.findAllByText(/Runs/i)).length).toBeGreaterThan(0);
     await fireEvent.click(await screen.findByRole("tab", { name: /Judges/i }));
     expect(await screen.findByText(/judge-tests/i)).toBeTruthy();

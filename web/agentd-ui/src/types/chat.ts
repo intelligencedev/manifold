@@ -88,6 +88,32 @@ export interface ChatContextMetrics {
   segments: ChatContextMetricSegment[];
 }
 
+export interface ChatResponseTextPart {
+  id: string;
+  type: "text";
+  content: string;
+}
+
+export interface ChatResponseToolPart {
+  id: string;
+  type: "tool";
+  title: string;
+  status: "running" | "done";
+  args?: string;
+  result?: string;
+}
+
+export interface ChatResponseInputRequestPart {
+  id: string;
+  type: "input_request";
+  requestId: string;
+}
+
+export type ChatResponsePart =
+  | ChatResponseTextPart
+  | ChatResponseToolPart
+  | ChatResponseInputRequestPart;
+
 export interface ChatMessage {
   id: string;
   role: ChatRole;
@@ -95,6 +121,7 @@ export interface ChatMessage {
   createdAt: string;
   durationMs?: number;
   streaming?: boolean;
+  interrupted?: boolean;
   title?: string;
   error?: string;
   // Deprecated: thought summaries are now streamed into the Active Specialist panel.
@@ -120,6 +147,7 @@ export interface ChatMessage {
   contextMetrics?: ChatContextMetrics;
   llmRequestCount?: number;
   inputRequests?: ChatInputRequest[];
+  responseParts?: ChatResponsePart[];
 }
 
 export interface ChatLLMRequestSummary {

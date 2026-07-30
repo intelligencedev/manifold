@@ -133,8 +133,8 @@ func initObservability(ctx context.Context, cfg *config.Config) func(context.Con
 
 func newCLIHTTPClient(cfg *config.Config) *http.Client {
 	httpClient := observability.NewHTTPClient(nil)
-	if len(cfg.OpenAI.ExtraHeaders) > 0 {
-		httpClient = observability.WithHeaders(httpClient, cfg.OpenAI.ExtraHeaders)
+	if len(cfg.LLMClient.OpenAI.ExtraHeaders) > 0 {
+		httpClient = observability.WithHeaders(httpClient, cfg.LLMClient.OpenAI.ExtraHeaders)
 	}
 	return httpClient
 }
@@ -245,6 +245,9 @@ func runOrchestrator(ctx context.Context, req orchestratorRunRequest) error {
 		Tools:                      req.Tools,
 		MaxSteps:                   req.MaxSteps,
 		System:                     systemPrompt,
+		LexMinifyLevel:  cfg.LexMinify.EffectiveLevel(),
+		LexMinifyZones:  cfg.LexMinify.Zones,
+		LexMinifyCurrentMax: cfg.LexMinify.CurrentRequestMaxLevel,
 		SummaryEnabled:             cfg.SummaryEnabled,
 		SummaryReserveBufferTokens: cfg.SummaryReserveBufferTokens,
 	}

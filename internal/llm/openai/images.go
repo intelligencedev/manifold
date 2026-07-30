@@ -456,10 +456,43 @@ func imageExtraInt64(v any) (int64, bool) {
 func lastUserPrompt(msgs []llm.Message) string {
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if strings.EqualFold(msgs[i].Role, "user") && strings.TrimSpace(msgs[i].Content) != "" {
-			return msgs[i].Content
+			return extractTypedUserPrompt(msgs[i].Content)
 		}
 	}
 	return ""
+}
+
+// extractTypedUserPrompt returns the literal user-typed body when composed messages
+// use the standard [CURRENT REQUEST] envelope; otherwise the content is returned as-is.
+func extractTypedUserPrompt(content string) string {
+	content = strings.TrimSpace(content)
+	const marker = "[CURRENT REQUEST]"
+	if idx := strings.Index(content, marker); idx >= 0 {
+		rest := content[idx+len(marker):]
+		// Prefer body after the harness separator used by currentRequestPrefix.
+		sep := "\n---\n"
+		if i := strings.Index(rest, sep); i >= 0 {
+			rest = rest[i+len(sep):]
+		} else if i := strings.Index(rest, "\n---"); i >= 0 {
+			rest = rest[i+len("\n---"):]
+			rest = strings.TrimPrefix(rest, "\n")
+		}
+		if body := strings.TrimSpace(rest); body != "" {
+			return body
+		}
+	}
+	// Drop a leading runtime-context envelope if somehow present without CURRENT REQUEST.
+	const runtimeMarker = "[RUNTIME CONTEXT]"
+	if strings.HasPrefix(content, runtimeMarker) {
+		sep := "\n---\n"
+		if i := strings.Index(content, sep); i >= 0 {
+			if body := strings.TrimSpace(content[i+len(sep):]); body != "" {
+				// If runtime section is followed by CURRENT REQUEST, peel again.
+				return extractTypedUserPrompt(body)
+			}
+		}
+	}
+	return content
 }
 
 func normalizeImageSize(raw string) string {

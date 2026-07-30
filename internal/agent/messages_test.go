@@ -31,28 +31,30 @@ func TestBuildInitialLLMMessages(t *testing.T) {
 		t.Fatalf("expected original user content, got: %s", msgs[2].Content)
 	}
 
-	// no system or history - no annotations needed
+	// No history: still annotate current request so minifiers preserve typed body.
 	msgs = BuildInitialLLMMessages("", "only", nil)
 	if len(msgs) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(msgs))
 	}
-	// Without history, no annotation should be added
-	if strings.Contains(msgs[0].Content, "[CURRENT REQUEST]") {
-		t.Fatalf("should not have annotation without history: %s", msgs[0].Content)
+	if !strings.Contains(msgs[0].Content, "[CURRENT REQUEST]") {
+		t.Fatalf("expected current request annotation without history: %s", msgs[0].Content)
 	}
-	if msgs[0].Content != "only" {
+	if !strings.Contains(msgs[0].Content, "only") || !strings.HasSuffix(msgs[0].Content, "only") {
 		t.Fatalf("unexpected single message content: %s", msgs[0].Content)
 	}
 }
 
-func TestBuildInitialLLMMessagesNoAnnotationWithoutHistory(t *testing.T) {
-	// When there's no history, the user message should NOT be annotated
+func TestBuildInitialLLMMessagesAlwaysAnnotatesCurrentRequest(t *testing.T) {
+	// Live user text is always annotated so lexminify can isolate it from runtime context.
 	msgs := BuildInitialLLMMessages("system prompt", "hello", nil)
 	if len(msgs) != 2 {
 		t.Fatalf("expected 2 messages, got %d", len(msgs))
 	}
-	if msgs[1].Content != "hello" {
-		t.Fatalf("user message should be unannotated without history: %s", msgs[1].Content)
+	if !strings.Contains(msgs[1].Content, "[CURRENT REQUEST]") {
+		t.Fatalf("expected current request annotation: %s", msgs[1].Content)
+	}
+	if !strings.HasSuffix(msgs[1].Content, "hello") {
+		t.Fatalf("user typed body must remain intact: %s", msgs[1].Content)
 	}
 }
 

@@ -26,6 +26,41 @@ import { useChatSessionPanel } from "./useChatSessionPanel";
 import { useChatComposer } from "./useChatComposer";
 import { useChatTranscript } from "./useChatTranscript";
 import { useContextInspector } from "./useContextInspector";
+import { useTtsStore } from "@/stores/tts";
+import type { ChatMessage } from "@/types/chat";
+
+export function chatMessageRenderSignature(message: ChatMessage) {
+  const responseParts = (message.responseParts || []).map((part) => {
+    if (part.type === "text") return `${part.id}:text:${part.content.length}`;
+    if (part.type === "tool") {
+      return `${part.id}:tool:${part.title}:${part.status}:${part.result?.length || 0}`;
+    }
+    return `${part.id}:input_request:${part.requestId}`;
+  });
+  const inputRequests = (message.inputRequests || []).map(
+    (request) =>
+      `${request.id}:${request.status}:${request.question}:${request.error || ""}:${request.answer || ""}:${(request.choiceIds || []).join(",")}`,
+  );
+  const attachments = (message.attachments || []).map(
+    (attachment) =>
+      `${attachment.id}:${attachment.kind}:${attachment.previewUrl || ""}`,
+  );
+  return [
+    message.id,
+    message.content.length,
+    message.streaming ? 1 : 0,
+    message.error || "",
+    message.title || "",
+    message.toolArgs?.length || 0,
+    message.activityThoughtSummary?.length || 0,
+    message.memoryContext?.text.length || 0,
+    message.audioUrl || "",
+    message.videoUrl || "",
+    responseParts.join("|"),
+    inputRequests.join("|"),
+    attachments.join("|"),
+  ].join(":");
+}
 
 export function useChatViewController() {
   const isBrowser = typeof window !== "undefined";
@@ -225,7 +260,6 @@ export function useChatViewController() {
     () => activeMessagePaging.value?.error || "",
   );
   const activeSummaryEvent = computed(() => chat.activeSummaryEvent);
-  const toolMessages = computed(() => chat.toolMessages);
   const activeThoughtSummaries = computed(() => chat.activeThoughtSummaries);
 
   // --- Memory / command policy state ---
@@ -247,6 +281,22 @@ export function useChatViewController() {
         activeSession.value?.beliefMemoryEnabled,
       ),
   );
+  const ttsStore = useTtsStore();
+  const ttsEnabled = computed(() =>
+    ttsStore.isEnabledForSession(activeSessionId.value),
+  );
+  const ttsBusy = computed(
+    () =>
+      ttsStore.engineStatus === "downloading" ||
+      ttsStore.engineStatus === "loading",
+  );
+  const ttsStatusTitle = computed(() => {
+    const base =
+      "Speak assistant replies in this conversation with browser Supertonic (WebGPU/ONNX)";
+    if (ttsStore.engineStatus === "idle") return base;
+    return `${base}. ${ttsStore.statusLabel}`;
+  });
+
   const hasPendingInputRequest = computed(() =>
     activeMessages.value.some((message) =>
       (message.inputRequests || []).some((request) =>
@@ -365,8 +415,6 @@ export function useChatViewController() {
     cockpitContextLegend,
     cockpitContextGradient,
     cockpitContextTitle,
-    cockpitToolCount,
-    cockpitToolRows,
     cockpitTimelineLanes,
     cockpitTimelineTicks,
     runActivitySidebarLabel,
@@ -412,7 +460,6 @@ export function useChatViewController() {
     selectedTeamConfig: targeting.selectedTeamConfig,
     teamsByName: targeting.teamsByName,
     participantList: targeting.participantList,
-    toolMessages,
     sessionContextMetrics: transcriptHelpers.sessionContextMetrics,
     resolveAgentContext: targeting.resolveAgentContext,
     teamOrchestratorDisplayName: targeting.teamOrchestratorDisplayName,
@@ -441,10 +488,7 @@ export function useChatViewController() {
 
   // --- Watchers ---
   watch(
-    () =>
-      activeMessages.value.map(
-        (msg) => `${msg.id}:${msg.content.length}:${msg.streaming ? 1 : 0}`,
-      ),
+    () => activeMessages.value.map(chatMessageRenderSignature),
     () => scroll.scrollMessagesToBottom(),
     { flush: "post" },
   );
@@ -536,6 +580,17 @@ export function useChatViewController() {
       const { [sessionId]: _removed, ...rest } =
         memorySettingsSavingBySession.value;
       memorySettingsSavingBySession.value = rest;
+    }
+  }
+
+  async function setSessionTtsSetting(event: Event) {
+    const sessionId = activeSessionId.value;
+    const checked = Boolean((event.target as HTMLInputElement | null)?.checked);
+    if (!sessionId) return;
+    try {
+      await ttsStore.setSessionEnabled(sessionId, checked);
+    } catch (error) {
+      console.warn("Failed to enable chat TTS:", error);
     }
   }
 
@@ -677,8 +732,6 @@ export function useChatViewController() {
     cockpitContextLegend: cockpitContextLegend.value,
     cockpitContextGradient: cockpitContextGradient.value,
     cockpitContextTitle: cockpitContextTitle.value,
-    cockpitToolCount: cockpitToolCount.value,
-    cockpitToolRows: cockpitToolRows.value,
     sessionPinPending: sessionPanelState.sessionPinPending,
     selectSession: sessionPanelState.selectSession,
     createSession: sessionPanelState.createSession,
@@ -705,10 +758,6 @@ export function useChatViewController() {
     activeSession: activeSession.value,
     activeSummaryEvent: activeSummaryEvent.value,
     clearSummaryEvent: chat.clearSummaryEvent,
-    commandPolicyAllowAllActive: commandPolicyAllowAllActive.value,
-    commandPolicyDisablePending: commandPolicyDisablePending.value,
-    commandPolicyDisableError: commandPolicyDisableError.value,
-    disableSessionCommandPolicyAllowAll,
     projectOptions: projectOptions.value,
     selectedProjectId: selectedProjectId.value,
     setSelectedProjectId,
@@ -716,6 +765,10 @@ export function useChatViewController() {
     activeMemorySettingsSaving: activeMemorySettingsSaving.value,
     isStreaming: isStreaming.value,
     setSessionMemorySetting,
+    ttsEnabled: ttsEnabled.value,
+    ttsBusy: ttsBusy.value,
+    ttsStatusTitle: ttsStatusTitle.value,
+    setSessionTtsSetting,
   }));
 
   const timelinePanel = computed(() => ({
@@ -749,7 +802,8 @@ export function useChatViewController() {
     renderMarkdownOrHtml,
     inspectContext: (messageId: string) => {
       const sessionId = activeSessionId.value;
-      if (sessionId && messageId) void contextInspector.inspect(sessionId, messageId);
+      if (sessionId && messageId)
+        void contextInspector.inspect(sessionId, messageId);
     },
     shouldShowDirectActivity,
     shouldShowDirectThought,
@@ -820,6 +874,11 @@ export function useChatViewController() {
     stopRecording: voiceRecording.stopRecording,
     imagePrompt: imagePrompt.value,
     setImagePromptValue: composerActions.setImagePromptValue,
+    commandPolicyAllowAllActive: commandPolicyAllowAllActive.value,
+    commandPolicyDisablePending: commandPolicyDisablePending.value,
+    commandPolicyDisableError: commandPolicyDisableError.value,
+    openCommandPolicyAllowAllDialog: modalsState.openAllowAllDialog,
+    disableSessionCommandPolicyAllowAll,
     sendCurrentPrompt: composerActions.sendCurrentPrompt,
     stopStreaming: composerActions.stopStreaming,
     isStreaming: isStreaming.value,
@@ -864,6 +923,15 @@ export function useChatViewController() {
     closeDeleteSessionDialog: modalsState.closeDeleteSessionDialog,
     confirmDeleteSession: () =>
       modalsState.confirmDeleteSession((id) => chat.deleteSession(id)),
+    showAllowAllDialog: modalsState.showAllowAllDialog.value,
+    allowAllPending: modalsState.allowAllPending.value,
+    allowAllError: modalsState.allowAllError.value,
+    canConfirmAllowAll: modalsState.canConfirmAllowAll.value,
+    closeAllowAllDialog: modalsState.closeAllowAllDialog,
+    confirmAllowAll: () =>
+      modalsState.confirmAllowAll(async (id) => {
+        await chat.updateSessionCommandPolicyAllowAll(id, true);
+      }),
     showBulkDeleteSessionDialog: modalsState.showBulkDeleteSessionDialog.value,
     bulkDeleteSessionPending: modalsState.bulkDeleteSessionPending.value,
     bulkDeleteSessionError: modalsState.bulkDeleteSessionError.value,

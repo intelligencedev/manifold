@@ -45,6 +45,6 @@ func prepareChatTransport(w http.ResponseWriter, r *http.Request, opts chatTrans
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return chatRunRequest{}, false
 	}
-	req.normalize()
+	req.Normalize()
 	return req, true
 }

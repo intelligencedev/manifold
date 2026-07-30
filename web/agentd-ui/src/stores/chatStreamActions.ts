@@ -19,6 +19,7 @@ import { handleStreamEvent } from "@/stores/chatStreamEvents";
 import type { ChatStoreState } from "@/stores/chatStoreState";
 import { stripLeadingChatMention } from "@/utils/chatMentions";
 import { createId } from "@/utils/uuid";
+import { emitAssistantStop } from "@/lib/tts/supertonic/speechBus";
 
 type QueryInvalidator = {
   invalidateQueries(options: { queryKey: string[] }): unknown;
@@ -275,6 +276,7 @@ export function createChatStreamActions(
       reason?: string;
       archiveThoughtSummaries?: boolean;
       clearThoughtSummaries?: boolean;
+      markAsError?: boolean;
     } = {},
   ) {
     const streamState = state.streamingStateFor(sessionId);
@@ -299,16 +301,20 @@ export function createChatStreamActions(
       }
     }
 
-    state.updateMessage(sessionId, streamState.assistantId, (m) => ({
-      ...m,
-      streaming: false,
-      error: reason,
-      inputRequests: (m.inputRequests || []).map((request) =>
-        request.status === "pending" || request.status === "error"
-          ? { ...request, status: "cancelled", error: reason }
-          : request,
-      ),
-    }));
+    state.updateMessage(sessionId, streamState.assistantId, (m) => {
+      const interrupted = options.markAsError === false;
+      return {
+        ...m,
+        streaming: false,
+        interrupted,
+        error: interrupted ? undefined : reason,
+        inputRequests: (m.inputRequests || []).map((request) =>
+          request.status === "pending" || request.status === "error"
+            ? { ...request, status: "cancelled", error: reason }
+            : request,
+        ),
+      };
+    });
 
     const existing = state.messagesBySession.value[sessionId] || [];
     if (existing.some((m) => m.role === "tool" && m.streaming)) {
@@ -325,10 +331,16 @@ export function createChatStreamActions(
     }
 
     streamState.abortController.abort("interrupt");
+    state.clearStreamingState(sessionId);
+    state.clearToolIndex(sessionId, streamState.streamId);
+    emitAssistantStop(sessionId);
     return true;
   }
 
-  function stopStreaming(sessionId?: string) {
+  function stopStreaming(
+    sessionId?: string,
+    options: { reason?: string; markAsError?: boolean } = {},
+  ) {
     const targetSessionId = sessionId || state.activeSessionId.value;
     if (!targetSessionId) return;
     const streamState = state.streamingStateFor(targetSessionId);
@@ -337,7 +349,12 @@ export function createChatStreamActions(
         console.warn("chat run cancel failed", error);
       });
     }
-    if (!interruptStreaming(targetSessionId, { reason: "Generation stopped" }))
+    if (
+      !interruptStreaming(targetSessionId, {
+        reason: options.reason || "Generation stopped",
+        markAsError: options.markAsError,
+      })
+    )
       return;
     console.warn("chat stopStreaming called", { sessionId: targetSessionId });
   }

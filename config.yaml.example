@@ -344,7 +344,10 @@ embedding:
   instructions:
     # auto applies built-in query instructions when the model looks like Qwen3
     # Embedding; enabled applies them for any model; disabled leaves queries raw.
-    mode: auto # auto | enabled | disabled
+    # Documents are embedded without instructions. Qwen3-Embedding expects
+    # instruction-prefixed queries against plain documents, so no corpus
+    # re-embedding is required when changing this mode.
+    mode: enabled # auto | enabled | disabled
     format: qwen
     # Recommended to leave blank to use the built-in per-surface defaults.
     defaultQuery: ""
@@ -363,7 +366,7 @@ reranking:
   # Optional query-side instruction formatted as:
   # Instruct: {instruction}
   # Query: {query}
-  instruction: "Classify whether the document matches the query topic"
+  instruction: "Given the current task, judge whether this past experience contains a strategy, lesson, or solution that would help complete the task."
   apiKey: "${LLAMA_API_KEY}"
   apiHeader: Authorization
   headers: {}
@@ -446,7 +449,9 @@ memory:
     topK: 4
     windowSize: 20
     enableRAG: true
-    retrievalSimilarityThreshold: 0.0
+    # 0 disables each gate; defaults below are conservative floors for Qwen embeddings / reranker.
+    retrievalSimilarityThreshold: 0.35
+    minRerankScore: 0.30
     reMemEnabled: false
     maxInnerSteps: 3
     model: gpt-4o-mini
@@ -560,14 +565,29 @@ transit:
 
 # Text to speech
 tts:
+  # engine selects the backend for the /tts route (used by external clients such
+  # as the Reachy Mini bot):
+  #   "openai"     (default) proxy to an OpenAI-compatible /v1/audio/speech.
+  #   "supertonic" host-side Python sidecar (see services/supertonic-tts);
+  #                point baseURL at it, e.g. http://127.0.0.1:8890/v1.
+  #   "born"       in-process pure-Go Supertonic inference (no sidecar; see
+  #                services/born-supertonic-fork); requires modelDir pointing at
+  #                a Supertonic model dir (onnx/ + voice_styles/).
+  # For supertonic/born, set voice to a preset id (M1-M5, F1-F5).
+  engine: openai
   baseURL: https://api.openai.com/v1
   model: gpt-4o-mini-tts
   voice: alloy
+  # modelDir: /path/to/supertonic-models   # born engine only
 
 # Speech to text
 stt:
+  # engine: "openai" (default proxy) or "moonshine" (in-process pure-Go
+  # Moonshine STT; requires modelDir with onnx/ + tokenizer.json).
+  engine: openai
   baseURL: https://api.openai.com
   model: gpt-4o-mini-transcribe
+  # modelDir: /path/to/moonshine-models   # moonshine engine only
 
 # Experimental - Recommend to leave disabled until fully documented.
 # Deterministic and LLM-assisted code quality evaluation. The service can run
@@ -656,6 +676,19 @@ matrix:
       systemPromptRef: assets/prompts/matrix/default.txt
       messageRetention: 100
       maxConcurrent: 1
+
+
+# Lexical minification of provider-visible message copies. Disabled by default.
+# Progressive levels 1..6 densify unprotected prose (code/JSON/URLs stay protected).
+# Permanent conversation history is never rewritten.
+lexMinify:
+  enabled: false
+  # When enabled with level left at 0, server applies recommended level 6.
+  level: 0
+  # 0 = package default zones (runtime + history + tool + assistant + system).
+  zones: 0
+  # Cap for [CURRENT REQUEST] if that zone is turned on (0 = package default).
+  currentRequestMaxLevel: 0
 
 # Experimental: Optional Forge-style guarded agent loop. Disabled by default.
 # Can be enabled per specialist in UI regardless of this config.

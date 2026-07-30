@@ -21,7 +21,7 @@ func ApplyLLMClientOverride(base config.LLMClientConfig, sp persistence.Speciali
 	cfg := base
 	cfg.Provider = provider
 
-	switch provider {
+	switch config.ProviderBackend(provider) {
 	case "anthropic":
 		if strings.TrimSpace(sp.BaseURL) != "" {
 			cfg.Anthropic.BaseURL = strings.TrimSpace(sp.BaseURL)
@@ -74,9 +74,6 @@ func ApplyLLMClientOverride(base config.LLMClientConfig, sp persistence.Speciali
 func ApplyOrchestratorConfig(cfg *config.Config, sp persistence.Specialist) string {
 	llmCfg, provider := ApplyLLMClientOverride(cfg.LLMClient, sp)
 	cfg.LLMClient = llmCfg
-	if provider == "" || provider == "openai" || provider == "local" {
-		cfg.OpenAI = llmCfg.OpenAI
-	}
 	cfg.EnableTools = sp.EnableTools
 	if sp.RequestInfoEnabled != nil {
 		cfg.RequestInfoEnabled = sp.RequestInfoEnabled

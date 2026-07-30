@@ -1,168 +1,236 @@
-# WARPP workflows (WARPP)
+# WARPP Workflows
 
-Overview
+WARPP is a typed-port dataflow engine. A workflow is a directed acyclic graph
+of nodes; **data moves only through typed wires**. There are no expressions, no
+shared attribute bag, and no per-wire transforms — the model ComfyUI uses.
+Reshaping data is done by small, visible data nodes.
 
-WARPP workflows are lightweight JSON templates that describe a sequence of human-readable steps which call out to registered tools. The WARPP runner loads workflows from `configs/workflows` and executes them in-process using the configured tool registry.
+## The one rule
 
-A workflow maps an intent (a short name) to a set of ordered steps. Each step can have an optional guard expression and a tool reference. Steps may optionally publish their result to a caller-provided callback when `publish_result` is set.
+Every node is a pure function with declared, typed input and output ports. An
+input port is **either** wired to exactly one upstream output port **or** holds
+a literal value — never both, never an expression string. "What does this node
+output" is answered by its manifest before anything runs.
 
-Why use WARPP
+## The document
 
-- Simple, testable workflow templates.
-- Decouples orchestration (input routing) from business logic (tools).
-- Allows LLM-driven or tool-driven orchestration using existing tool implementations.
-
-JSON template: top-level shape
-
-A workflow JSON has this top-level structure:
-
-- `intent` (string) - a short name used to select the workflow.
-- `description` (string) - a human description of the workflow's purpose.
-- `keywords` (array of string) - used by the simple detector to pick a workflow from a short utterance.
-- `steps` (array of Step objects) - the sequential steps that the runner will execute.
-
-Basic example (noop)
+A workflow is one JSON document. Wiring lives inside each input binding; there
+is no separate edges array (the canvas derives edges from `from` references).
 
 ```json
 {
-  "intent": "noop",
-  "description": "Return a greeting.",
-  "keywords": ["noop"],
-  "steps": [
+  "id": "lin",
+  "name": "Linear",
+  "inputs": [{ "name": "topic", "type": "text", "required": true }],
+  "nodes": [
     {
-      "id": "s1",
-      "text": "Invoke an LLM",
-      "tool": {
-        "name": "llm_transform",
-        "args": { "instruction": "", "input": "${A.query}" }
-      },
-      "publish_result": true
+      "id": "tpl",
+      "type": "data.template",
+      "inputs": {
+        "template": { "value": "about {t}" },
+        "vars": { "t": { "from": "in.topic" } }
+      }
     }
-  ]
+  ],
+  "outputs": { "out": { "from": "tpl.text" } }
 }
 ```
 
-Step object fields
+- An input binding is exactly one of `{"from": "nodeID.port"}` or
+  `{"value": <literal>}`.
+- `in` is a virtual node exposing the workflow's own typed inputs
+  (`in.<name>`). `item` is the virtual node inside a Map body
+  (`item.value`, `item.index`).
+- `outputs` binds names to node output ports; that map is the run result.
+- Node ids match `^[a-zA-Z0-9_-]+$`; `in` and `item` are reserved.
+- `settings.max_concurrency` caps parallel node execution (default 4).
+- `settings.default_policy` sets per-node defaults (see Execution).
+- `publish.tool: true` exposes the workflow as a callable agent tool.
+- Optional `project_id` scopes filesystem tools to a project sandbox.
 
-- `id` (string, required): unique identifier for the step within the workflow.
-- `text` (string): human-readable description of the step (used in execution summary/logs).
-- `guard` (string, optional): a boolean expression evaluated against the current attributes map; if the guard evaluates false, the step is skipped.
-- `tool` (object, optional): a `ToolRef` describing which tool to call and with which args.
-- `publish_result` (boolean, optional): if true, the WARPP runner will invoke the configured publisher after the step completes, allowing the caller to receive per-step outputs.
+## Types
 
-ToolRef
+Port types: `text`, `number`, `boolean`, `json`, `file`, and `list<T>` where
+`T` is any of the scalar types.
 
-A ToolRef identifies a tool in the tool registry and provides arguments for the tool call.
+The **complete** implicit coercion table, applied only to wired connections:
 
-- `name` (string): the tool name (must exist in the configured tools registry).
-- `args` (object): a map of parameters passed to the tool. Values may be strings, arrays, or nested maps and will be processed by the templating logic described below.
+| From | To |
+|---|---|
+| `number` | `text` |
+| `boolean` | `text` |
 
-Attributes and templating
+Nothing else coerces implicitly. `json → text` needs `data.stringify`;
+`text → json` needs `data.parse`. Literals must match their port type exactly.
 
-- `Attrs` (map[string]any) is the shape used to pass contextual data into workflows and between steps.
-- Before execution, the runner calls `Personalize` to infer a few basic attributes and to filter steps by guards. The runner sets:
-  - `A["utter"]` — preferred entry field. If not set, the runner will examine `echo` or `query` as fallbacks.
-  - `A["query"]` — set from `A["utter"]` and used by templates like `${A.query}`.
-  - `A["os"]` — runtime OS (e.g., `darwin`, `linux`, `windows`).
+Built-in logic/data nodes may declare a single type variable `T` (optionally
+`list<T>`), unified from the connected wires. `data.extract` and
+`data.constant` type their output from an `as` config value
+(`text`/`number`/`boolean`/`json`/`list<json>`).
 
-Templating rules
+## Built-in nodes
 
-- Templating is a simple, synchronous substitution performed on string values in tool `args`.
-- Syntax: `${A.key}` — replaced with the string form of `A["key"]` during `Execute`.
-- The renderer walks nested arrays and maps, substituting string placeholders wherever they appear.
+Data nodes:
 
-Guards
+| Type | Inputs | Outputs |
+|---|---|---|
+| `data.extract` | `source: json`, `path: text`, `as` (config) | `value` (typed by `as`) |
+| `data.template` | `template: text`, `vars` (named, any type) | `text: text` |
+| `data.merge` | `objects` (list of `json`) | `json: json` |
+| `data.stringify` | `value: T` | `text: text` |
+| `data.parse` | `text: text` | `json: json` |
+| `data.constant` | `value: json`, `as` (config) | `value` (typed by `as`) |
 
-- Guards are simple boolean expressions evaluated against `Attrs` using a lightweight evaluator. Typical guard forms used in the default workflows are existence checks like `A.first_url` or boolean comparisons like `A.os == 'windows'`.
-- Guards are evaluated in `Personalize` when building the trimmed, executable workflow.
+Logic nodes:
 
-Execution flow (high-level)
+| Type | Inputs | Outputs |
+|---|---|---|
+| `logic.if` | `condition: boolean`, `value: T` | `then: T`, `else: T` (one fires) |
+| `logic.coalesce` | `values` (list of `T`) | `value: T` (first that fired) |
+| `logic.equals` | `a: T`, `b: T` | `result: boolean` |
+| `logic.contains` | `haystack: text`, `needle: text` | `result: boolean` |
+| `logic.not` | `value: boolean` | `result: boolean` |
+| `logic.greater_than` | `a: number`, `b: number` | `result: boolean` |
 
-1. The runner is invoked by the agent CLI or the server with a selected workflow intent.
-2. WARPP `Personalize` is called with provided `Attrs` to infer `query`/`utter` and to trim steps by guard.
-3. WARPP `Execute` runs the steps in order:
-   - For each step with a `tool`, WARPP renders the `args` by substituting `${A.*}` placeholders.
-   - WARPP dispatches the tool call via the tool registry.
-   - Tool output is recorded in attributes (`A.last_payload`, `A.payloads`) and may be used by later steps.
-   - If `publish_result` is true on the step and a publisher callback is supplied by the caller, the runner will invoke the publisher with the step ID and raw payload.
-5. When execution ends, WARPP returns a human summary string which is converted to a JSON result by the adapter.
+LLM node:
 
-Tool interaction and payloads
+| Type | Inputs | Outputs |
+|---|---|---|
+| `llm.generate` | `instruction: text`, `input: text`, `model: text` | `text: text` |
 
-- Tools are registered into a `tools.Registry` and must implement a dispatchable contract (the project `internal/tools` code manages this).
-- Tool results are JSON payloads (raw bytes). The runner records the payload as a string in `A.last_payload` and appends to `A.payloads`.
-- Tools may set structured data in attributes by returning a JSON object that the workflow's subsequent steps can inspect via templates or guards.
+## Control: Map (fan-out)
 
-Errors and retry behavior
+`control.map` runs a nested body subgraph once per item and gathers the body's
+single `result` output into a list. The body sees `item.value` (one element)
+and `item.index`, and may also reference any port visible to the Map node
+(lexical scope).
 
-- If a tool call returns an error, WARPP `Execute` returns that error to the caller. The orchestrator treats certain errors as transient and will retry the entire workflow execution a limited number of times.
-- If a step's publish callback returns an error, the runner treats publishing as best-effort and continues execution.
+```json
+{
+  "id": "m",
+  "name": "Map",
+  "inputs": [
+    { "name": "names", "type": "list<text>", "required": true },
+    { "name": "suffix", "type": "text", "required": true }
+  ],
+  "nodes": [
+    {
+      "id": "per",
+      "type": "control.map",
+      "inputs": {
+        "items": { "from": "in.names" },
+        "concurrency": { "value": 3 },
+        "on_item_error": { "value": "skip" }
+      },
+      "body": {
+        "nodes": [
+          {
+            "id": "t",
+            "type": "data.template",
+            "inputs": {
+              "template": { "value": "{n}-{s}" },
+              "vars": { "n": { "from": "item.value" }, "s": { "from": "in.suffix" } }
+            }
+          }
+        ],
+        "outputs": { "result": { "from": "t.text" } }
+      }
+    }
+  ],
+  "outputs": { "all": { "from": "per.results" } }
+}
+```
 
-Best practices
+Iterations run concurrently up to `concurrency`. `on_item_error` is `fail`
+(default; first failure fails the run) or `skip` (drop the item, keep the
+rest). Maps nest.
 
-- Use clear `id` values for steps so downstream consumers of per-step messages can identify them.
-- Keep `args` small and pre-render values where possible; LLM outputs can be large and are stored in attributes as strings.
-- Prefer setting the user's text in `Attrs.query` (or `Attrs.utter`) in command envelopes to make templating predictable.
-- Use `publish_result` selectively — publishing every step can produce a lot of traffic.
+## Tool nodes
 
-Examples
+Registry tools are exposed as curated adapter nodes. Each declares typed
+output ports and also a `raw: json` port carrying the tool's whole result.
 
-- `configs/workflows/noop.json` demonstrates a minimal LLM step with `publish_result`.
+| Node type | Key outputs |
+|---|---|
+| `tool.web_search` | `results: list<json>`, `results_text: text` |
+| `tool.web_fetch` | `markdown: text`, `url: text` |
+| `tool.file_read` | `content: text` |
+| `tool.file_write` | `path: file` |
+| `tool.run_cli` | `stdout: text`, `exit_code: number` |
+| `tool.rag_retrieve` | `results: list<json>` |
+| `tool.rag_ingest` | `raw: json` |
+| `tool.agent_call` | `text: text` |
+| `tool.matrix_room_message` | `raw: json` |
 
-Invocation examples
+**Every other registered tool is auto-exposed.** At catalog time each tool in
+the registry that lacks a curated adapter — including all MCP-server tools —
+is turned into a `tool.<name>` node whose input ports are derived from the
+tool's JSON schema (string→text, number/integer→number, boolean→boolean,
+array→list<…>, object→json) and whose output is `result: json`. MCP tools
+appear under names like `tool.brave_brave_web_search` or
+`tool.paper-search_search_arxiv`. Tools with a free-form schema expose a single
+`args: json` input. Derivation reflects the live registry, so tools from
+MCP servers that connect after boot appear automatically.
 
-- Run a WARPP workflow directly with the agent CLI (WARPP mode). The `-warpp` flag tells the
-  agent to use the WARPP runner and select a workflow by intent using the built-in detector. You
-  may also pass an explicit intent after the `-warpp` flag to force a specific workflow.
+**Escape hatch:** `tool.generic` takes `tool: text` and `args: json`, returns
+`result: json`. Use it for anything you'd rather call by raw name; combine with
+`data.extract` to reshape a tool's `result`.
 
-  Example: run the `noop` workflow by intent (explicit):
+## Execution semantics
 
-  ./dist/agent -q "hi" -warpp noop
+- A node runs at most once per run (per Map iteration): it gathers all inputs,
+  executes, and emits typed values on its output ports.
+- **Skip rule:** if a *required* input's source is skipped or never fires (for
+  example the untaken branch of `logic.if`), the node is skipped, and skips
+  cascade downstream. If an *optional* input's source is skipped, the node runs
+  with the port's default.
+- **Node policy** (`policy`, with `settings.default_policy` as fallback):
+  `timeout` (Go duration), `retries { max, backoff: fixed|exponential }`,
+  `on_error: fail | skip`.
+- **Run statuses:** `running`, `completed`, `completed_with_skips`, `failed`,
+  `cancelled`.
+- Runs are durable and resumable; each node checkpoints, and runs survive
+  restarts.
 
-  Example output:
+## HTTP API
 
-  WARPP: executing intent noop
-  - Textbox
-  - Invoke an LLM
-  - Textbox
+| Method & path | Purpose |
+|---|---|
+| `GET /api/warpp/workflows` | List workflow summaries |
+| `GET /api/warpp/workflows/{id}` | Document + canvas sidecar |
+| `PUT /api/warpp/workflows/{id}` | Validate + save (400 with diagnostics on error) |
+| `DELETE /api/warpp/workflows/{id}` | Delete |
+| `POST /api/warpp/validate` | Diagnostics for a document without saving |
+| `POST /api/warpp/runs` | Start a run: `{workflow_id, input}` → `{run_id}` |
+| `GET /api/warpp/runs/{id}/events` | SSE stream or JSON snapshot (Accept-negotiated) |
+| `GET /api/warpp/catalog` | Node manifests + coercion table + published workflows |
 
-  Objective complete. (steps=3).
+Run events (SSE + JSON): `run_started`, `run_completed`, `run_failed`,
+`run_cancelled`, `node_started`, `node_completed`, `node_failed`,
+`node_skipped`, `node_retrying`. Node events carry a `node_path` (Map
+iterations look like `per[2].t`); `node_completed` carries the node's typed
+output values.
 
-- Run WARPP mode with automatic intent detection. The runner picks the best matching
-  workflow based on `keywords` in each workflow JSON. If no keywords match, a default
-  is chosen.
+## Agent tools
 
-  ./dist/agent -q "save latest web search to a file" -warpp
+The chat agent gets workflow authoring tools: `workflow_catalog` (manifests +
+coercions), `workflow_list`, `workflow_get`, `workflow_save` (validate + save;
+returns diagnostics on failure so the model can self-correct), and
+`workflow_run`. Workflows saved with `publish.tool: true` are additionally
+registered as callable tools named `warpp_<id>`, whose JSON schema is derived
+from the workflow's input ports and whose result is exactly the declared
+outputs.
 
+## Workflows as nodes (subflows)
 
-Routes vs WARPP workflows
+A saved workflow is itself a node manifest: its inputs are input ports and its
+outputs are output ports. Place another workflow as a node with
+`type: "flow.<workflow-id>"` to compose them. Recursive inclusion is rejected
+at save time.
 
-- The `routes:` block in `config.yaml` maps simple substring/regex rules to a "specialist"
-  name (an inference-only endpoint). These specialist routes are evaluated by
-  `specialists.Route(...)` and, when matched, the agent will attempt to call a configured
-  specialist with that name. They do NOT automatically trigger a WARPP workflow.
+## Removed
 
-  For example, this `config.yaml` fragment:
-
-  routes:
-  - name: web_to_file
-    contains: ["webwrite"]
-    regex: ["(?i)webwrite"]
-
-  will cause the pre-dispatch router to return the name `web_to_file` when the user text
-  contains "webwrite". The agent then expects a specialist called `web_to_file` and will
-  dispatch to it. If no such specialist is configured, the agent logs that the specialist
-  was not found and continues with the normal agent flow — it will not run the
-  `configs/workflows/web_to_file.json` workflow automatically.
-
-  If you want routes to kick off WARPP workflows, you can either:
-  - Configure a specialist with the same name that proxies to a workflow, or
-  - Modify the pre-dispatch logic to call the WARPP runner when a route name matches a
-    workflow intent (small code change in `cmd/agent/main.go`).
-
-Troubleshooting
-
-- If a placeholder `${A.key}` is empty in the dispatched tool args, inspect the incoming command `Attrs` and the `Personalize` logic.
-- If a step is unexpectedly skipped, evaluate the `guard` expression against the attribute map; a missing attribute will cause existence guards to fail.
-
----
+The legacy WARPP runner, Flow v2, `${A.*}` attribute templating,
+`={{...}}`/`$node`/`$run` expressions, edge field mappings, and the
+`/api/flows/v2/*` routes have been removed. There is no migration; workflows
+are authored fresh in the new model.

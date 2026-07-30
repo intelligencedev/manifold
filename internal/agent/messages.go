@@ -35,13 +35,13 @@ The context below is generated for this request. Use it as background context on
 // BuildInitialLLMMessages composes the initial message list from system, optional
 // prior history (already in llm.Message form), and the current user input.
 //
-// When history is present, the function annotates messages to help the LLM
-// distinguish between background context (history) and the current request:
-//   - History messages are prefixed with [CONVERSATION HISTORY] marker
-//   - The current user message is prefixed with [CURRENT REQUEST] marker
+// The function annotates messages to help the LLM distinguish injected context
+// from the current request:
+//   - History messages are prefixed with [CONVERSATION HISTORY] when history exists
+//   - The current user message is always prefixed with [CURRENT REQUEST]
 //
-// This helps prevent LLMs from responding to questions in the history that
-// have already been answered.
+// Always marking the live user body keeps downstream consumers (lexminify,
+// budget truncation, models) from treating typed user text as compressable context.
 func BuildInitialLLMMessages(system, user string, history []llm.Message) []llm.Message {
 	msgs := make([]llm.Message, 0, 2+len(history))
 	if system != "" {
@@ -50,8 +50,8 @@ func BuildInitialLLMMessages(system, user string, history []llm.Message) []llm.M
 
 	var runtimeContext []string
 
-	// When we have both history and a new user message, annotate them
-	// to make it clear which is context vs the current request.
+	// When we have prior history, annotate it and peel synthetic system context
+	// (conversation summaries, etc.) onto the current request path.
 	hasHistory := len(history) > 0
 	hasUser := strings.TrimSpace(user) != ""
 
@@ -84,11 +84,9 @@ func BuildInitialLLMMessages(system, user string, history []llm.Message) []llm.M
 	}
 
 	if hasUser {
-		content := user
-		if hasHistory {
-			// Annotate current request to distinguish from history
-			content = currentRequestPrefix + user
-		}
+		// Always mark the live user prompt so downstream consumers (lexminify,
+		// models, budget) can distinguish typed user text from injected prefixes.
+		content := currentRequestPrefix + user
 		msgs = append(msgs, llm.Message{Role: "user", Content: content})
 		if len(runtimeContext) > 0 {
 			msgs = AddRuntimeContextToCurrentUserMessage(msgs, strings.Join(runtimeContext, "\n\n"))
@@ -118,7 +116,12 @@ func AddRuntimeContextToCurrentUserMessage(msgs []llm.Message, section string) [
 			msgs[i].Content = appendRuntimeContextSection(content, section)
 			return msgs
 		}
-		msgs[i].Content = runtimeContextPrefix + section + "\n\n" + msgs[i].Content
+		// Ensure the live user body stays under [CURRENT REQUEST] so minifiers
+		// never treat typed prompt text as compressable runtime context.
+		if !strings.Contains(content, currentRequestMarker) {
+			content = currentRequestPrefix + content
+		}
+		msgs[i].Content = runtimeContextPrefix + section + "\n\n" + content
 		return msgs
 	}
 	return addStandaloneRuntimeContext(msgs, section)

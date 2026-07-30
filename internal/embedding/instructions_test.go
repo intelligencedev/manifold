@@ -120,3 +120,16 @@ func TestFormatQueryInput_BlankConfiguredInstructionFallsBackToBuiltIn(t *testin
 		t.Fatalf("expected built-in instruction, got %q", got.Instruction)
 	}
 }
+
+func TestAutoInstructionMatches(t *testing.T) {
+	t.Parallel()
+	if AutoInstructionMatches("qwen") {
+		t.Fatal("model name qwen should not auto-match")
+	}
+	if !AutoInstructionMatches("qwen3-embedding") {
+		t.Fatal("qwen3-embedding should auto-match")
+	}
+	if !AutoInstructionMatches("Text-Qwen3-Embedding-8B") {
+		t.Fatal("case-insensitive match expected")
+	}
+}

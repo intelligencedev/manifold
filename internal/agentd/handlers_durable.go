@@ -11,115 +11,23 @@ import (
 	"strings"
 	"time"
 
+	durableapi "manifold/internal/agentd/durableapi"
 	"manifold/internal/durable"
 )
-
-type durableEmitRequest struct {
-	Queue   string         `json:"queue,omitempty"`
-	Name    string         `json:"name"`
-	Payload map[string]any `json:"payload,omitempty"`
-}
 
 type durableRetryRequest struct {
 	ResetCheckpoints bool `json:"reset_checkpoints,omitempty"`
 }
 
 func (a *app) durableTasksHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if a.durableClient == nil || a.durableStore == nil {
-			http.Error(w, "durable backend unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		userID, err := a.requireUserID(r)
-		if err != nil {
-			if a.cfg.Auth.Enabled {
-				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
-			}
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		switch r.Method {
-		case http.MethodGet:
-			filter, err := durableTaskListFilterFromQuery(r.URL.Query())
-			if err != nil {
-				http.Error(w, "bad request", http.StatusBadRequest)
-				return
-			}
-			page, err := a.durableClient.ListTasksPage(r.Context(), userID, filter)
-			if err != nil {
-				writeDurableError(w, err)
-				return
-			}
-			writeJSON(w, http.StatusOK, page)
-			return
-		case http.MethodPost:
-		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-		defer r.Body.Close()
-		var req durable.SpawnRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return
-		}
-		req.UserID = userID
-		if strings.TrimSpace(req.Queue) == "" {
-			req.Queue = durable.DefaultQueue
-		}
-		if a.durableRegistry != nil {
-			if _, ok := a.durableRegistry.Get(req.Queue, req.Name); !ok {
-				writeJSON(w, http.StatusBadRequest, map[string]any{"error": "durable handler not found"})
-				return
-			}
-		}
-		result, err := a.durableClient.Spawn(r.Context(), req)
-		if err != nil {
-			writeDurableError(w, err)
-			return
-		}
-		status := http.StatusAccepted
-		if result.Created {
-			status = http.StatusCreated
-		}
-		writeJSON(w, status, result)
-	}
+	return durableapi.TasksHandler(durableapi.Deps{
+		Client: a.durableClient, Store: a.durableStore, Registry: a.durableRegistry, RequireUserID: a.requireUserID,
+		AuthEnabled: func() bool { return a.cfg != nil && a.cfg.Auth.Enabled }, WriteJSON: writeJSON, WriteError: writeDurableError,
+	})
 }
 
 func durableTaskListFilterFromQuery(values url.Values) (durable.TaskListFilter, error) {
-	filter := durable.TaskListFilter{
-		Queue: strings.TrimSpace(values.Get("queue")),
-		Name:  strings.TrimSpace(values.Get("name")),
-	}
-	if status := strings.TrimSpace(values.Get("status")); status != "" {
-		switch durable.TaskStatus(status) {
-		case durable.TaskStatusQueued,
-			durable.TaskStatusRunning,
-			durable.TaskStatusWaiting,
-			durable.TaskStatusCompleted,
-			durable.TaskStatusFailed,
-			durable.TaskStatusCancelled:
-			filter.Status = durable.TaskStatus(status)
-		default:
-			return durable.TaskListFilter{}, errors.New("invalid status")
-		}
-	}
-	if rawLimit := strings.TrimSpace(values.Get("limit")); rawLimit != "" {
-		limit, err := strconv.Atoi(rawLimit)
-		if err != nil || limit < 0 {
-			return durable.TaskListFilter{}, errors.New("invalid limit")
-		}
-		filter.Limit = limit
-	}
-	if rawOffset := strings.TrimSpace(values.Get("offset")); rawOffset != "" {
-		offset, err := strconv.Atoi(rawOffset)
-		if err != nil || offset < 0 {
-			return durable.TaskListFilter{}, errors.New("invalid offset")
-		}
-		filter.Offset = offset
-	}
-	return filter, nil
+	return durableapi.TaskListFilterFromQuery(values)
 }
 
 func durableTaskEventListFilterFromQuery(values url.Values) (durable.EventListFilter, error) {
@@ -163,75 +71,23 @@ func parseOptionalSequence(raw string) (int64, bool, error) {
 }
 
 func (a *app) durableTaskDetailHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if a.durableClient == nil || a.durableStore == nil {
-			http.Error(w, "durable backend unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		userID, err := a.requireUserID(r)
-		if err != nil {
-			if a.cfg.Auth.Enabled {
-				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
+	return durableapi.TaskDetailHandler(durableapi.TaskDetailDeps{
+		Deps: durableapi.Deps{Client: a.durableClient, Store: a.durableStore, Registry: a.durableRegistry, RequireUserID: a.requireUserID, AuthEnabled: func() bool { return a.cfg != nil && a.cfg.Auth.Enabled }, WriteJSON: writeJSON, WriteError: writeDurableError},
+		GetTask: func(ctx context.Context, userID int64, taskID string) (durable.Task, bool, error) {
+			if a.durableStore == nil {
+				return durable.Task{}, false, durable.ErrNotFound
 			}
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		taskID, suffix, ok := parseDurableTaskPath(r.URL.Path)
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-		switch suffix {
-		case "":
-			if r.Method != http.MethodGet {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-				return
+			return a.durableStore.GetTask(ctx, userID, taskID)
+		},
+		ServeEvents: a.serveDurableTaskEvents,
+		Cancel:      a.cancelDurableTask,
+		Retry: func(ctx context.Context, userID int64, taskID string, resetCheckpoints bool) (durable.Task, error) {
+			if a.durableClient == nil {
+				return durable.Task{}, durable.ErrNotFound
 			}
-			task, found, err := a.durableStore.GetTask(r.Context(), userID, taskID)
-			if err != nil {
-				writeDurableError(w, err)
-				return
-			}
-			if !found {
-				http.Error(w, "task not found", http.StatusNotFound)
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"task": task})
-		case "events":
-			if r.Method != http.MethodGet {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			a.serveDurableTaskEvents(w, r, userID, taskID)
-		case "cancel":
-			if r.Method != http.MethodPost {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			if err := a.cancelDurableTask(r.Context(), userID, taskID); err != nil {
-				writeDurableError(w, err)
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"task_id": taskID, "status": durable.TaskStatusCancelled})
-		case "retry":
-			if r.Method != http.MethodPost {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			req, ok := decodeDurableRetryRequest(w, r)
-			if !ok {
-				return
-			}
-			task, err := a.durableClient.Retry(r.Context(), userID, taskID, req.ResetCheckpoints)
-			if err != nil {
-				writeDurableError(w, err)
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"task": task})
-		default:
-			http.NotFound(w, r)
-		}
-	}
+			return a.durableClient.Retry(ctx, userID, taskID, resetCheckpoints)
+		},
+	})
 }
 
 func decodeDurableRetryRequest(w http.ResponseWriter, r *http.Request) (durableRetryRequest, bool) {
@@ -262,63 +118,15 @@ func (a *app) cancelDurableTask(ctx context.Context, userID int64, taskID string
 }
 
 func (a *app) durableEventsHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if a.durableClient == nil {
-			http.Error(w, "durable backend unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		userID, err := a.requireUserID(r)
-		if err != nil {
-			if a.cfg.Auth.Enabled {
-				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
-			}
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-		defer r.Body.Close()
-		var req durableEmitRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return
-		}
-		ev, err := a.durableClient.EmitEvent(r.Context(), userID, req.Queue, req.Name, req.Payload)
-		if err != nil {
-			writeDurableError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusAccepted, ev)
-	}
+	return durableapi.EventsHandler(a.durableAPIHandlerDeps())
 }
 
 func (a *app) durableQueuesHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if a.durableStore == nil {
-			http.Error(w, "durable backend unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		if _, err := a.requireUserID(r); err != nil {
-			if a.cfg.Auth.Enabled {
-				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
-			}
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		stats, err := a.durableStore.QueueStats(r.Context())
-		if err != nil {
-			writeDurableError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"queues": stats})
-	}
+	return durableapi.QueuesHandler(a.durableAPIHandlerDeps())
+}
+
+func (a *app) durableAPIHandlerDeps() durableapi.Deps {
+	return durableapi.Deps{Client: a.durableClient, Store: a.durableStore, Registry: a.durableRegistry, RequireUserID: a.requireUserID, AuthEnabled: func() bool { return a.cfg != nil && a.cfg.Auth.Enabled }, WriteJSON: writeJSON, WriteError: writeDurableError}
 }
 
 func (a *app) serveDurableTaskEvents(w http.ResponseWriter, r *http.Request, userID int64, taskID string) {

@@ -38,8 +38,9 @@ func (e *Engine) runLoop(ctx context.Context, msgs []llm.Message) (string, error
 		} else if found {
 			log.Info().Int("step", step).Msg("engine_step_replay_assistant_checkpoint")
 		} else {
-			requestID := e.emitLLMRequest(ctx, msgs, schemas, e.model())
-			msg, err = e.LLM.Chat(ctx, msgs, schemas, e.model())
+			providerMsgs := e.lexMinifyForProvider(ctx, msgs)
+			requestID := e.emitLLMRequest(ctx, providerMsgs, schemas, e.model())
+			msg, err = e.LLM.Chat(ctx, providerMsgs, schemas, e.model())
 			if err != nil {
 				log.Error().Err(err).Int("step", step).Msg("engine_step_error")
 				return "", err
@@ -130,8 +131,9 @@ func (e *Engine) runStreamStep(ctx context.Context, msgs []llm.Message, step int
 	} else if found {
 		log.Info().Int("step", step).Msg("engine_stream_step_replay_assistant_checkpoint")
 	} else {
-		requestID := e.emitLLMRequest(ctx, msgs, schemas, e.model())
-		if err := e.LLM.ChatStream(ctx, msgs, schemas, e.model(), acc.handler()); err != nil {
+		providerMsgs := e.lexMinifyForProvider(ctx, msgs)
+		requestID := e.emitLLMRequest(ctx, providerMsgs, schemas, e.model())
+		if err := e.LLM.ChatStream(ctx, providerMsgs, schemas, e.model(), acc.handler()); err != nil {
 			log.Error().Err(err).Int("step", step).Msg("engine_stream_step_error")
 			return nil, "", false, err
 		}

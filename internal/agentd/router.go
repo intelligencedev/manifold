@@ -107,12 +107,15 @@ func registerCoreAPIRoutes(mux *http.ServeMux, a *app) {
 	mux.HandleFunc("/api/observability/memory/", a.memoryObservabilityHandler())
 	// Agentd configuration (GET + POST/PUT/PATCH)
 	mux.HandleFunc("/api/config/agentd", a.agentdConfigHandler())
-	mux.HandleFunc("/api/flows/v2/tools", a.flowV2ToolsHandler())
-	mux.HandleFunc("/api/flows/v2/workflows", a.flowV2WorkflowsHandler())
-	mux.HandleFunc("/api/flows/v2/workflows/", a.flowV2WorkflowDetailHandler())
-	mux.HandleFunc("/api/flows/v2/validate", a.flowV2ValidateHandler())
-	mux.HandleFunc("/api/flows/v2/run", a.flowV2RunHandler())
-	mux.HandleFunc("/api/flows/v2/runs/", a.flowV2RunEventsHandler())
+	mux.HandleFunc("/api/setup/status", a.setupStatusHandler())
+	mux.HandleFunc("/api/setup/complete", a.setupCompleteHandler())
+	mux.HandleFunc("/api/warpp/workflows", a.warppWorkflowsHandler())
+	mux.HandleFunc("/api/warpp/workflows/", a.warppWorkflowDetailHandler())
+	mux.HandleFunc("/api/warpp/validate", a.warppValidateHandler())
+	mux.HandleFunc("/api/warpp/runs", a.warppRunsHandler())
+	mux.HandleFunc("/api/warpp/runs/", a.warppRunEventsHandler())
+	mux.HandleFunc("/api/warpp/catalog", a.warppCatalogHandler())
+	mux.HandleFunc("/api/tools/catalog", a.toolsCatalogHandler())
 }
 
 func registerAgentRoutes(mux *http.ServeMux, a *app) {
@@ -123,6 +126,7 @@ func registerAgentRoutes(mux *http.ServeMux, a *app) {
 
 	mux.HandleFunc("/audio/", a.audioServeHandler())
 	mux.HandleFunc("/stt", a.sttHandler())
+	mux.HandleFunc("/tts", a.ttsHandler())
 }
 
 func registerMCPRoutes(mux *http.ServeMux, a *app) {

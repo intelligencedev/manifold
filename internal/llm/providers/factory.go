@@ -29,6 +29,14 @@ func BuildFromLLMClientConfig(cfg config.LLMClientConfig, httpClient *http.Clien
 		oc := cfg.OpenAI
 		oc.API = "completions"
 		return openaillm.New(oc, httpClient), nil
+	case "llamacpp", "openrouter":
+		// OpenAI-compatible variant: reuse the OpenAI client with the provider's
+		// default API surface (per config.ProviderDefaults).
+		oc := cfg.OpenAI
+		if pd, ok := config.ProviderDefaults(cfg.Provider); ok && pd.API != "" {
+			oc.API = pd.API
+		}
+		return openaillm.New(oc, httpClient), nil
 	case "anthropic":
 		return anthropic.New(cfg.Anthropic, httpClient), nil
 	case "google":

@@ -2,8 +2,10 @@ package web
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -97,5 +99,52 @@ func TestNewFetcherTransportLimits(t *testing.T) {
 	}
 	if tr.MaxIdleConnsPerHost < 50 {
 		t.Fatalf("MaxIdleConnsPerHost too low: %d", tr.MaxIdleConnsPerHost)
+	}
+}
+
+func TestNormalizeMaxBytes(t *testing.T) {
+	cases := []struct {
+		name string
+		in   int64
+		want int64
+	}{
+		{"omitted defaults to 8MB", 0, defaultFetchMaxBytes},
+		{"negative defaults to 8MB", -1, defaultFetchMaxBytes},
+		{"below floor clamps up to 1MB", 500000, minFetchMaxBytes},
+		{"at floor stays 1MB", minFetchMaxBytes, minFetchMaxBytes},
+		{"in range passes through", 5000000, 5000000},
+		{"above ceiling clamps to 16MB", 99000000, maxFetchMaxBytes},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := normalizeMaxBytes(c.in); got != c.want {
+				t.Fatalf("normalizeMaxBytes(%d) = %d, want %d", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+func TestFetchMarkdown_TruncatesOversizedBody(t *testing.T) {
+	// Article content near the top, then padding that pushes the raw body well
+	// past the configured MaxBytes.
+	head := "<html><head><title>Big</title></head><body>" +
+		"<h1>Headline</h1><p>The important article body lives up here.</p>"
+	padding := strings.Repeat("<p>filler filler filler filler</p>", 4000)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(w, head+padding+"</body></html>")
+	}))
+	defer srv.Close()
+
+	f := NewFetcher(WithMaxBytes(2000), WithTimeout(2*time.Second))
+	res, err := f.FetchMarkdown(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatalf("oversized body should truncate, not error: %v", err)
+	}
+	if res.Markdown == "" {
+		t.Fatalf("expected markdown extracted from the truncated body")
+	}
+	if !strings.Contains(res.Markdown, "Headline") {
+		t.Fatalf("expected leading content to survive truncation, got: %q", res.Markdown)
 	}
 }

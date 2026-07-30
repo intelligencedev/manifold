@@ -104,7 +104,7 @@ describe("ProjectsView", () => {
     const typedNameInput = getByLabelText(
       /Type project name to confirm/i,
     ) as HTMLInputElement;
-    const acknowledge = getByRole("checkbox");
+    const acknowledge = getByLabelText(/Acknowledge project deletion/i);
     const deleteButton = getByRole("button", {
       name: /^Delete Project$/i,
     }) as HTMLButtonElement;

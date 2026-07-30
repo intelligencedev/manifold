@@ -21,6 +21,7 @@ func NewEvolvingMemory(cfg EvolvingMemoryConfig) *EvolvingMemory {
 		enableRAG:                    cfg.EnableRAG,
 		pruneThreshold:               resolved.pruneThreshold,
 		retrievalSimilarityThreshold: resolved.retrievalSimilarityThreshold,
+		minRerankScore:               resolved.minRerankScore,
 		relevanceDecay:               resolved.relevanceDecay,
 		minRelevance:                 resolved.minRelevance,
 		enableSmartPrune:             cfg.EnableSmartPrune,
@@ -53,6 +54,7 @@ type resolvedEvolvingMemoryConfig struct {
 	maxSize                      int
 	pruneThreshold               float64
 	retrievalSimilarityThreshold float64
+	minRerankScore               float64
 	relevanceDecay               float64
 	minRelevance                 float64
 	rankingWeights               RankingWeights
@@ -74,6 +76,7 @@ func resolveEvolvingMemoryConfig(cfg EvolvingMemoryConfig) resolvedEvolvingMemor
 		maxSize:                      defaultInt(cfg.MaxSize, 1000),
 		pruneThreshold:               defaultFloat(cfg.PruneThreshold, 0.95),
 		retrievalSimilarityThreshold: defaultUnitThreshold(cfg.RetrievalSimilarityThreshold),
+		minRerankScore:               defaultUnitThreshold(cfg.MinRerankScore),
 		relevanceDecay:               defaultFloat(cfg.RelevanceDecay, 0.99),
 		minRelevance:                 defaultFloat(cfg.MinRelevance, 0.1),
 		rankingWeights:               normalizeRankingWeights(cfg.RankingWeights),

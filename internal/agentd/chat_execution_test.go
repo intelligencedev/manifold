@@ -7,12 +7,47 @@ import (
 	"testing"
 	"time"
 
+	"manifold/internal/agent"
 	"manifold/internal/llm"
 	"manifold/internal/persistence"
 	"manifold/internal/persistence/databases"
 	sqlitep "manifold/internal/persistence/sqlite"
 	"manifold/internal/sandbox"
 )
+
+type recordingChatEventWriter struct {
+	payloads []any
+}
+
+func (w *recordingChatEventWriter) write(payload any) { w.payloads = append(w.payloads, payload) }
+func (w *recordingChatEventWriter) writeText(string)  {}
+
+func TestConfigureCommonStreamCallbacksEmitsDeltaRollback(t *testing.T) {
+	t.Parallel()
+
+	eng := &agent.Engine{}
+	writer := &recordingChatEventWriter{}
+	configureCommonStreamCallbacks(eng, writer, false, false)
+
+	if eng.OnStreamRollback == nil {
+		t.Fatal("expected OnStreamRollback to be wired")
+	}
+	eng.OnStreamRollback(7)
+
+	if len(writer.payloads) != 1 {
+		t.Fatalf("expected one payload, got %#v", writer.payloads)
+	}
+	payload, ok := writer.payloads[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected map payload, got %#v", writer.payloads[0])
+	}
+	if payload["type"] != "delta_rollback" {
+		t.Fatalf("expected delta_rollback event, got %#v", payload)
+	}
+	if payload["count"] != 7 {
+		t.Fatalf("expected count 7, got %#v", payload["count"])
+	}
+}
 
 func TestBuildChatJSONPayloadIncludesMatrixMessages(t *testing.T) {
 	t.Parallel()

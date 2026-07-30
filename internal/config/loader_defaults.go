@@ -14,6 +14,7 @@ func applyDefaults(cfg *Config) {
 	applyCodeQADefaults(cfg)
 	applyBeliefDefaults(cfg)
 	applyArchaeologyDefaults(cfg)
+	applyLexMinifyDefaults(cfg)
 	applyCodeQAFallbackDefaults(cfg)
 	applyTimeoutAndTokenDefaults(cfg)
 	applyEmbeddingAndRerankingDefaults(cfg)
@@ -143,7 +144,58 @@ func applyLLMDefaults(cfg *Config) {
 	if cfg.LLMClient.Google.BaseURL == "" {
 		cfg.LLMClient.Google.BaseURL = "https://generativelanguage.googleapis.com/"
 	}
+	applyProviderEndpointDefaults(cfg)
+	applyProviderExtraParamDefaults(cfg)
 	applySummaryDefaults(cfg)
+}
+
+// applyProviderEndpointDefaults points a variant provider's backing sub-config at
+// its fixed endpoint (e.g. OpenRouter's Responses URL) when the user has not set
+// a custom base URL. Providers whose ProviderDefaults BaseURL matches the
+// backend's default or is blank are left as configured.
+func applyProviderEndpointDefaults(cfg *Config) {
+	pd, ok := ProviderDefaults(cfg.LLMClient.Provider)
+	if !ok || pd.BaseURL == "" {
+		return
+	}
+	switch pd.Backend {
+	case "anthropic":
+		const anthropicDefaultBaseURL = "https://api.anthropic.com"
+		if pd.BaseURL != anthropicDefaultBaseURL &&
+			(cfg.LLMClient.Anthropic.BaseURL == "" || cfg.LLMClient.Anthropic.BaseURL == anthropicDefaultBaseURL) {
+			cfg.LLMClient.Anthropic.BaseURL = pd.BaseURL
+		}
+	case "openai":
+		if pd.BaseURL != OpenAIAPIV1BaseURL &&
+			(cfg.LLMClient.OpenAI.BaseURL == "" || cfg.LLMClient.OpenAI.BaseURL == OpenAIAPIV1BaseURL) {
+			cfg.LLMClient.OpenAI.BaseURL = pd.BaseURL
+		}
+	}
+}
+
+// applyProviderExtraParamDefaults seeds the active provider's ExtraParams from
+// the built-in defaults when the user has not configured any. Providers sharing
+// a backend share that sub-config, so the blob is chosen by the active provider.
+func applyProviderExtraParamDefaults(cfg *Config) {
+	prov := NormalizeProvider(cfg.LLMClient.Provider)
+	pd, ok := ProviderDefaults(prov)
+	if !ok {
+		return
+	}
+	switch pd.Backend {
+	case "anthropic":
+		if len(cfg.LLMClient.Anthropic.ExtraParams) == 0 {
+			cfg.LLMClient.Anthropic.ExtraParams = DefaultProviderExtraParams(prov)
+		}
+	case "google":
+		if len(cfg.LLMClient.Google.ExtraParams) == 0 {
+			cfg.LLMClient.Google.ExtraParams = DefaultProviderExtraParams(prov)
+		}
+	default: // openai
+		if len(cfg.LLMClient.OpenAI.ExtraParams) == 0 {
+			cfg.LLMClient.OpenAI.ExtraParams = DefaultProviderExtraParams(prov)
+		}
+	}
 }
 
 func applyLLMEnvDefaults(cfg *Config) {
@@ -486,6 +538,9 @@ func applyAuthAndTransitDefaults(cfg *Config) {
 	if strings.TrimSpace(cfg.Auth.Provider) == "" {
 		cfg.Auth.Provider = "oidc"
 	}
+	if strings.TrimSpace(cfg.Auth.RedirectURL) == "" {
+		cfg.Auth.RedirectURL = "http://localhost:32180/auth/callback"
+	}
 	if cfg.Transit.DefaultSearchLimit <= 0 {
 		cfg.Transit.DefaultSearchLimit = 10
 	}
@@ -555,3 +610,27 @@ func applyMagmaDefaults(cfg *Config) {
 		cfg.Magma.Lifecycle.RequireCausalGrounding = cfg.Archaeology.CausalGroundingRequired
 	}
 }
+
+func applyLexMinifyDefaults(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+	// Feature remains off unless enabled. When enabled with Level left unset,
+	// prefer the strongest progressive preset so operators only flip one switch.
+	if cfg.LexMinify.Enabled && cfg.LexMinify.Level == 0 {
+		cfg.LexMinify.Level = RecommendedLexMinifyLevel
+	}
+	if cfg.LexMinify.Level < 0 {
+		cfg.LexMinify.Level = 0
+	}
+	if cfg.LexMinify.Level > MaxLexMinifyLevel {
+		cfg.LexMinify.Level = MaxLexMinifyLevel
+	}
+	if cfg.LexMinify.CurrentRequestMaxLevel < 0 {
+		cfg.LexMinify.CurrentRequestMaxLevel = 0
+	}
+	if cfg.LexMinify.CurrentRequestMaxLevel > MaxLexMinifyLevel {
+		cfg.LexMinify.CurrentRequestMaxLevel = MaxLexMinifyLevel
+	}
+}
+

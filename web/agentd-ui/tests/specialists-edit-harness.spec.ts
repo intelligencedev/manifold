@@ -12,12 +12,14 @@ vi.mock("@/api/client", () => ({
 }));
 
 vi.mock("@/api/playground", () => ({
-  listPrompts: async () => [],
-  listPromptVersions: async () => [],
+  listPrompts: async () => [{ id: "manifold", name: "manifold" }],
+  listPromptVersions: async () => [
+    { id: "manifold-1.0", promptId: "manifold", semver: "1.0" },
+  ],
 }));
 
-vi.mock("@/api/flow", () => ({
-  fetchFlowTools: async () => [
+vi.mock("@/api/tools", () => ({
+  fetchToolCatalog: async () => [
     { name: "agent_response", description: "Return the final answer" },
     { name: "fetch", description: "Fetch a URL" },
     { name: "search", description: "Search the web" },
@@ -108,11 +110,27 @@ describe("EditSpecialistRoot harness settings", () => {
     expect(payload.harness).toBeNull();
   });
 
+  it("persists the configured playground prompt reference", async () => {
+    const wrapper = mountEditor(
+      baseSpecialist({
+        promptId: "manifold",
+        promptVersionId: "manifold-1.0",
+      }),
+    );
+    await flushPromises();
+
+    await clickSave(wrapper);
+
+    const payload = apiMocks.upsertSpecialist.mock.calls[0][0] as Specialist;
+    expect(payload.promptId).toBe("manifold");
+    expect(payload.promptVersionId).toBe("manifold-1.0");
+  });
+
   it("submits workflow harness settings from the specialist editor", async () => {
     const wrapper = mountEditor(baseSpecialist());
     await flushPromises();
 
-    await wrapper.find("#sp-harness-override").setValue(true);
+    await wrapper.find("#sp-harness-enabled").setValue(true);
     await flushPromises();
     await wrapper.find("select#sp-harness-mode").setValue("workflow");
     await wrapper.find("#sp-harness-max-retries").setValue("6");

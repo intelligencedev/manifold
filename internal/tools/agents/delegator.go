@@ -31,6 +31,9 @@ type Delegator struct {
 	defaultSys      string
 	defaultMaxStep  int
 	defaultTimeout  time.Duration
+	lexMinifyLevel       int
+	lexMinifyZones       int
+	lexMinifyCurrentMax  int
 	memoryRuntime   *memory.Runtime
 	evolvingMemory  *memory.EvolvingMemory
 	reMemLLM        llm.Provider
@@ -70,6 +73,12 @@ func (d *Delegator) SetDefaultTimeout(seconds int) {
 	if seconds > 0 {
 		d.defaultTimeout = time.Duration(seconds) * time.Second
 	}
+}
+
+func (d *Delegator) SetLexMinify(level, zones, currentMax int) {
+	d.lexMinifyLevel = level
+	d.lexMinifyZones = zones
+	d.lexMinifyCurrentMax = currentMax
 }
 
 // SetRegistry updates the internal tools registry used by delegated agent runs.
@@ -281,6 +290,9 @@ func (d *Delegator) newEngine(cfg delegateRunConfig, req agent.DelegateRequest, 
 		TeamDelegator:             d.teamDelegator,
 		AgentTracer:               tracer,
 		AgentDepth:                req.Depth,
+		LexMinifyLevel: d.lexMinifyLevel,
+		LexMinifyZones: d.lexMinifyZones,
+		LexMinifyCurrentMax: d.lexMinifyCurrentMax,
 	}
 	return eng
 }

@@ -2,7 +2,6 @@ package agentd
 
 import (
 	"context"
-	"encoding/json"
 	"maps"
 	"net/http"
 	"strings"
@@ -10,7 +9,9 @@ import (
 
 	"github.com/rs/zerolog/log"
 
+	specialistsapi "manifold/internal/agentd/specialistsapi"
 	"manifold/internal/config"
+	"manifold/internal/defaultprompt"
 	llmproviders "manifold/internal/llm/providers"
 	persist "manifold/internal/persistence"
 	"manifold/internal/specialists"
@@ -80,7 +81,7 @@ func (a *app) specialistDefaultsHandler() http.HandlerFunc {
 			return
 		}
 		out := map[string]persist.Specialist{}
-		for _, p := range []string{"openai", "anthropic", "google", "local"} {
+		for _, p := range config.KnownProviders() {
 			model, baseURL, apiKey, headers, params := a.providerDefaults(p)
 			out[p] = persist.Specialist{
 				Provider:     p,
@@ -96,110 +97,38 @@ func (a *app) specialistDefaultsHandler() http.HandlerFunc {
 }
 
 func (a *app) specialistsHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		userID, err := a.requireUserID(r)
-		if err != nil {
-			if a.cfg.Auth.Enabled {
-				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
-			}
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		switch r.Method {
-		case http.MethodGet:
-			list, err := a.listSpecialistsForUser(r.Context(), userID)
-			if err != nil {
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			writeJSON(w, http.StatusOK, list)
-
-		case http.MethodPost:
-			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-			defer r.Body.Close()
-			var sp persist.Specialist
-			if err := json.NewDecoder(r.Body).Decode(&sp); err != nil {
-				http.Error(w, "bad request", http.StatusBadRequest)
-				return
-			}
-			saved, status, err := a.createSpecialistForUser(r.Context(), userID, sp)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-			writeJSON(w, status, saved)
-
-		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		}
-	}
+	return specialistsapi.CollectionHandler(specialistsapi.Deps{
+		RequireUserID: a.requireUserID,
+		AuthEnabled:   func() bool { return a.cfg != nil && a.cfg.Auth.Enabled },
+		List:          a.listSpecialistsForUser,
+		Create:        a.createSpecialistForUser,
+	})
 }
 
 func (a *app) specialistDetailHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		userID, err := a.requireUserID(r)
-		if err != nil {
-			if a.cfg.Auth.Enabled {
-				w.Header().Set("WWW-Authenticate", "Bearer realm=\"sio\"")
-			}
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		name := strings.TrimPrefix(r.URL.Path, "/api/specialists/")
-		name = strings.TrimSpace(name)
-		if name == "" {
-			http.NotFound(w, r)
-			return
-		}
-
-		switch r.Method {
-		case http.MethodGet:
-			sp, ok, err := a.getSpecialistForUser(r.Context(), userID, name)
-			if err != nil {
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			if !ok {
-				http.NotFound(w, r)
-				return
-			}
-			writeJSON(w, http.StatusOK, sp)
-		case http.MethodPut:
-			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-			defer r.Body.Close()
-			var sp persist.Specialist
-			if err := json.NewDecoder(r.Body).Decode(&sp); err != nil {
-				http.Error(w, "bad request", http.StatusBadRequest)
-				return
-			}
-			saved, err := a.updateSpecialistForUser(r.Context(), userID, name, sp)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-			writeJSON(w, http.StatusOK, saved)
-		case http.MethodDelete:
-			if err := a.deleteSpecialistForUser(r.Context(), userID, name); err != nil {
-				if err == errOrchestratorDelete {
-					http.Error(w, err.Error(), http.StatusBadRequest)
-					return
-				}
-				http.Error(w, "error", http.StatusInternalServerError)
-				return
-			}
-			w.WriteHeader(http.StatusNoContent)
-		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		}
-	}
+	return specialistsapi.DetailHandler(specialistsapi.Deps{
+		RequireUserID:    a.requireUserID,
+		AuthEnabled:      func() bool { return a.cfg != nil && a.cfg.Auth.Enabled },
+		Get:              a.getSpecialistForUser,
+		Update:           a.updateSpecialistForUser,
+		Delete:           a.deleteSpecialistForUser,
+		DeleteBadRequest: func(err error) bool { return err == errOrchestratorDelete },
+	})
 }
 
 func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.Specialist {
+	promptID, promptVersionID := defaultPromptIDs(userID)
 	defaultProvider := strings.TrimSpace(a.cfg.LLMClient.Provider)
 	if defaultProvider == "" {
 		defaultProvider = "openai"
 	}
 	baseModel, baseURL, baseKey, baseHeaders, baseParams := a.providerDefaults(defaultProvider)
+	// New-agent defaults: a lean tool allow-list plus auto-discovery and
+	// request_info on. A configured global allow-list takes precedence.
+	allowTools := a.cfg.ToolAllowList
+	if len(allowTools) == 0 {
+		allowTools = config.DefaultAgentToolAllowList()
+	}
 	out := persist.Specialist{
 		ID:                         0,
 		UserID:                     userID,
@@ -210,16 +139,21 @@ func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.
 		APIKey:                     baseKey,
 		Model:                      baseModel,
 		SummaryContextWindowTokens: 0,
-		EnableTools:                a.cfg.EnableTools,
-		RequestInfoEnabled:         boolPtr(config.RequestInfoEnabled(a.cfg.RequestInfoEnabled)),
-		AutoDiscover:               boolPtr(a.cfg.AutoDiscover),
+		EnableTools:                true,
+		RequestInfoEnabled:         boolPtr(true),
+		AutoDiscover:               boolPtr(true),
 		Paused:                     false,
-		AllowTools:                 a.cfg.ToolAllowList,
-		System:                     a.orchestratorSystemPrompt(),
+		AllowTools:                 allowTools,
+		System:                     defaultprompt.Content,
+		PromptID:                   promptID,
+		PromptVersionID:            promptVersionID,
 		ExtraHeaders:               baseHeaders,
 		ExtraParams:                baseParams,
 	}
 	// Apply per-user overlay if present
+	if a.specStore == nil {
+		return out
+	}
 	if sp, ok, _ := a.specStore.GetByName(ctx, userID, specialists.OrchestratorName); ok {
 		out.ID = sp.ID
 		out.Description = sp.Description
@@ -254,6 +188,12 @@ func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.
 		if strings.TrimSpace(sp.System) != "" {
 			out.System = sp.System
 		}
+		if strings.TrimSpace(sp.PromptID) != "" {
+			out.PromptID = sp.PromptID
+		}
+		if strings.TrimSpace(sp.PromptVersionID) != "" {
+			out.PromptVersionID = sp.PromptVersionID
+		}
 		if sp.ExtraHeaders != nil {
 			out.ExtraHeaders = sp.ExtraHeaders
 		}
@@ -267,24 +207,41 @@ func (a *app) orchestratorSpecialist(ctx context.Context, userID int64) persist.
 	return out
 }
 
+// providerDefaults returns the default card for a provider: its built-in static
+// baseURL/ExtraParams (from config.ProviderDefaults) overlaid with the live
+// config for the provider that owns that config block. OpenAI-compatible
+// variants (openai/local/openrouter/llamacpp) share the OpenAI sub-config, so it
+// is only overlaid onto the currently active provider's card; the others show
+// their static defaults. This lets every provider expose correct defaults in the
+// frontend regardless of which provider is currently active.
 func (a *app) providerDefaults(provider string) (model, baseURL, apiKey string, headers map[string]string, params map[string]any) {
-	switch provider {
-	case "anthropic":
-		baseURL = strings.TrimSpace(a.cfg.LLMClient.Anthropic.BaseURL)
-		apiKey = strings.TrimSpace(a.cfg.LLMClient.Anthropic.APIKey)
-		model = strings.TrimSpace(a.cfg.LLMClient.Anthropic.Model)
-		params = copyAnyMap(a.cfg.LLMClient.Anthropic.ExtraParams)
+	prov := config.NormalizeProvider(provider)
+	pd, _ := config.ProviderDefaults(prov)
+	baseURL = pd.BaseURL
+	params = config.DefaultProviderExtraParams(prov)
+	headers = map[string]string{}
+
+	active := config.NormalizeProvider(a.cfg.LLMClient.Provider)
+	switch pd.Backend {
 	case "google":
-		baseURL = strings.TrimSpace(a.cfg.LLMClient.Google.BaseURL)
-		apiKey = strings.TrimSpace(a.cfg.LLMClient.Google.APIKey)
-		model = strings.TrimSpace(a.cfg.LLMClient.Google.Model)
-		params = copyAnyMap(a.cfg.LLMClient.Google.ExtraParams)
-	default:
-		baseURL = strings.TrimSpace(a.cfg.LLMClient.OpenAI.BaseURL)
-		apiKey = strings.TrimSpace(a.cfg.LLMClient.OpenAI.APIKey)
-		model = strings.TrimSpace(a.cfg.LLMClient.OpenAI.Model)
-		headers = copyStringMap(a.cfg.LLMClient.OpenAI.ExtraHeaders)
-		params = copyAnyMap(a.cfg.LLMClient.OpenAI.ExtraParams)
+		// google is not shared; its card always reflects the Google sub-config.
+		overlayProviderCard(&model, &baseURL, &apiKey, &params,
+			a.cfg.LLMClient.Google.Model, a.cfg.LLMClient.Google.BaseURL,
+			a.cfg.LLMClient.Google.APIKey, a.cfg.LLMClient.Google.ExtraParams)
+	case "anthropic":
+		// Overlay the Anthropic sub-config onto its active provider card.
+		if prov == active {
+			overlayProviderCard(&model, &baseURL, &apiKey, &params,
+				a.cfg.LLMClient.Anthropic.Model, a.cfg.LLMClient.Anthropic.BaseURL,
+				a.cfg.LLMClient.Anthropic.APIKey, a.cfg.LLMClient.Anthropic.ExtraParams)
+		}
+	default: // OpenAI-compatible providers share the OpenAI sub-config.
+		if prov == active {
+			overlayProviderCard(&model, &baseURL, &apiKey, &params,
+				a.cfg.LLMClient.OpenAI.Model, a.cfg.LLMClient.OpenAI.BaseURL,
+				a.cfg.LLMClient.OpenAI.APIKey, a.cfg.LLMClient.OpenAI.ExtraParams)
+			headers = copyStringMap(a.cfg.LLMClient.OpenAI.ExtraHeaders)
+		}
 	}
 	if headers == nil {
 		headers = map[string]string{}
@@ -293,6 +250,24 @@ func (a *app) providerDefaults(provider string) (model, baseURL, apiKey string, 
 		params = map[string]any{}
 	}
 	return model, baseURL, apiKey, headers, params
+}
+
+// overlayProviderCard overwrites the non-empty live-config values onto a provider
+// default card; config ExtraParams replace the static defaults only when the user
+// has configured some.
+func overlayProviderCard(model, baseURL, apiKey *string, params *map[string]any, cfgModel, cfgBaseURL, cfgKey string, cfgParams map[string]any) {
+	if v := strings.TrimSpace(cfgBaseURL); v != "" {
+		*baseURL = v
+	}
+	if v := strings.TrimSpace(cfgKey); v != "" {
+		*apiKey = v
+	}
+	if v := strings.TrimSpace(cfgModel); v != "" {
+		*model = v
+	}
+	if len(cfgParams) > 0 {
+		*params = copyAnyMap(cfgParams)
+	}
 }
 
 func (a *app) teamMembershipsForUser(ctx context.Context, userID int64) map[string][]string {
@@ -410,7 +385,7 @@ func (a *app) applyOrchestratorUpdate(ctx context.Context, sp persist.Specialist
 		SummaryContextWindowTokens: sp.SummaryContextWindowTokens,
 		Harness:                    sp.Harness,
 	}
-	switch provider {
+	switch config.ProviderBackend(provider) {
 	case "anthropic":
 		toSave.BaseURL = a.cfg.LLMClient.Anthropic.BaseURL
 		toSave.APIKey = a.cfg.LLMClient.Anthropic.APIKey
@@ -454,7 +429,7 @@ func (a *app) orchestratorModel(provider string, override string) string {
 	if currentModel := strings.TrimSpace(override); currentModel != "" {
 		return currentModel
 	}
-	switch provider {
+	switch config.ProviderBackend(provider) {
 	case "anthropic":
 		return strings.TrimSpace(a.cfg.LLMClient.Anthropic.Model)
 	case "google":

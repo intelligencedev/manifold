@@ -35,6 +35,24 @@ func (a *app) cloneEngine() *agent.Engine {
 	return &clone
 }
 
+func (a *app) refreshLexMinifyRuntime() {
+	if a == nil || a.cfg == nil {
+		return
+	}
+	level, zones, currentMax := a.cfg.LexMinify.EngineSettings()
+	if a.engine != nil {
+		a.engine.LexMinifyLevel = level
+		a.engine.LexMinifyZones = zones
+		a.engine.LexMinifyCurrentMax = currentMax
+		if delegator, ok := a.engine.Delegator.(*agenttools.Delegator); ok {
+			delegator.SetLexMinify(level, zones, currentMax)
+		}
+	}
+	if a.agentCallTool != nil {
+		a.agentCallTool.SetLexMinify(level, zones, currentMax)
+	}
+}
+
 // cloneEngineForUser returns a shallow copy of the base engine with user-specific
 // orchestrator settings applied (particularly the tool allowlist). This enables
 // per-user orchestrator configurations.
@@ -86,7 +104,6 @@ func (a *app) applyUserOrchestratorLLM(eng *agent.Engine, sp persistence.Special
 	userCfg := *a.cfg
 	userCfg.LLMClient = llmCfg
 	if provider == "" || provider == "openai" || provider == "local" {
-		userCfg.OpenAI = llmCfg.OpenAI
 	}
 	if userLLM, err := llmproviders.Build(userCfg, a.httpClient); err != nil {
 		log.Warn().Err(err).Msg("failed to build per-user llm provider")
@@ -103,7 +120,7 @@ func currentSpecialistModel(sp persistence.Specialist, llmCfg config.LLMClientCo
 	if currentModel != "" {
 		return currentModel
 	}
-	switch provider {
+	switch config.ProviderBackend(provider) {
 	case "anthropic":
 		return strings.TrimSpace(llmCfg.Anthropic.Model)
 	case "google":
@@ -122,6 +139,8 @@ func (a *app) newRunDelegator(ctx context.Context, eng *agent.Engine, userID int
 	}
 	delegator := agenttools.NewDelegator(eng.Tools, reg, a.workspaceManager, a.cfg.MaxSteps)
 	delegator.SetDefaultTimeout(a.cfg.AgentRunTimeoutSeconds)
+	level, zones, currentMax := a.cfg.LexMinify.EngineSettings()
+	delegator.SetLexMinify(level, zones, currentMax)
 	applyChatMemorySettingsToEngine(eng, settings)
 	if eng.DisableEvolvingMemory {
 		em = nil

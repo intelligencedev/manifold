@@ -4,11 +4,16 @@ import (
 	"os"
 
 	yaml "gopkg.in/yaml.v3"
+
+	"manifold/internal/config"
 )
 
-func persistToConfigYAML(settings agentdSettings) error {
+func persistToConfigYAML(cfg *config.Config, settings agentdSettings) error {
 	settings = normalizeAgentdSettings(settings)
-	path := findConfigYAMLPath()
+	path := resolveConfigYAMLPath(cfg)
+	if err := ensureConfigParentDir(path); err != nil {
+		return err
+	}
 
 	root := map[string]any{}
 	if b, err := os.ReadFile(path); err == nil {
@@ -24,11 +29,20 @@ func persistToConfigYAML(settings agentdSettings) error {
 	return os.WriteFile(path, b, 0o644)
 }
 
+func resolveConfigYAMLPath(cfg *config.Config) string {
+	if cfg != nil && cfg.ConfigPath != "" {
+		return cfg.ConfigPath
+	}
+	return findConfigYAMLPath()
+}
+
 func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	settings = normalizeAgentdSettings(settings)
 
+	applyPrimaryLLMSettingsYAML(root, settings)
 	applySummarySettingsYAML(root, settings)
 	setNestedMapValue(root, []string{"requestInfoEnabled"}, settings.RequestInfoEnabled)
+	applyLexMinifySettingsYAML(root, settings)
 	applyPromptOverrideSettingsYAML(root, settings)
 	applyEmbeddingSettingsYAML(root, settings)
 	applyRerankSettingsYAML(root, settings)
@@ -38,6 +52,26 @@ func applyAgentdSettingsYAML(root map[string]any, settings agentdSettings) {
 	applyLogSettingsYAML(root, settings)
 	applyWebSettingsYAML(root, settings)
 	applyDatabaseSettingsYAML(root, settings)
+}
+
+func applyPrimaryLLMSettingsYAML(root map[string]any, settings agentdSettings) {
+	provider := firstNonEmptyTrimmed(settings.LLMProvider)
+	if provider != "" {
+		setNestedMapValue(root, []string{"llm_client", "provider"}, provider)
+	}
+	// The YAML sub-block is named by the provider's backend (openai/anthropic/
+	// google), so OpenRouter writes under the OpenAI block.
+	block := config.ProviderBackend(provider)
+	if settings.LLMAPIKey != "" {
+		setNestedMapValue(root, []string{"llm_client", block, "apiKey"}, settings.LLMAPIKey)
+	}
+	if settings.LLMModel != "" {
+		setNestedMapValue(root, []string{"llm_client", block, "model"}, settings.LLMModel)
+	}
+	if settings.LLMBaseURL != "" {
+		setNestedMapValue(root, []string{"llm_client", block, "baseURL"}, settings.LLMBaseURL)
+	}
+	setNestedMapValue(root, []string{"memory", "enabled"}, settings.MemoryEnabled)
 }
 
 func applyPromptOverrideSettingsYAML(root map[string]any, settings agentdSettings) {
@@ -248,4 +282,15 @@ func applyDatabaseSettingsYAML(root map[string]any, settings agentdSettings) {
 	if settings.GraphDSN != "" {
 		setNestedMapValue(root, []string{"databases", "graph", "dsn"}, settings.GraphDSN)
 	}
+}
+
+func applyLexMinifySettingsYAML(root map[string]any, settings agentdSettings) {
+	setNestedMapValue(root, []string{"lexMinify", "enabled"}, settings.LexMinifyEnabled)
+	level := settings.LexMinifyLevel
+	if settings.LexMinifyEnabled && level == 0 {
+		level = config.RecommendedLexMinifyLevel
+	}
+	setNestedMapValue(root, []string{"lexMinify", "level"}, level)
+	setNestedMapValue(root, []string{"lexMinify", "zones"}, settings.LexMinifyZones)
+	setNestedMapValue(root, []string{"lexMinify", "currentRequestMaxLevel"}, settings.LexMinifyCurrentRequestMaxLevel)
 }

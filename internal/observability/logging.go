@@ -22,8 +22,29 @@ var currentLogWriter io.Writer
 var otelLogWriter io.Writer
 var sideLogWriter io.Writer
 
+// consoleWriter is the sink used for the MANIFOLD_LOG_STDOUT tee. It is a
+// package var so tests can substitute an in-memory buffer for os.Stdout.
+var consoleWriter io.Writer = os.Stdout
+
+// EnvLogStdout, when truthy, tees logs to stdout in addition to the log file so
+// they are visible on the console during a normal run.
+const EnvLogStdout = "MANIFOLD_LOG_STDOUT"
+
+// ConsoleLoggingRequested reports whether MANIFOLD_LOG_STDOUT requests that logs
+// also stream to stdout. Truthy values: 1, true, yes, on (case-insensitive).
+func ConsoleLoggingRequested() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(EnvLogStdout))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
 // InitLogger initializes zerolog with sane defaults. If logPath is non-empty,
-// logs are also written to that file (append mode). If opening the file fails,
+// logs are written to that file (append mode). When MANIFOLD_LOG_STDOUT is
+// truthy, logs are additionally teed to stdout. If opening the file fails,
+// logging falls back to stdout.
 func InitLogger(logPath string, level string) {
 	zerolog.TimeFieldFormat = time.RFC3339Nano
 	var w io.Writer = os.Stdout
@@ -36,6 +57,13 @@ func InitLogger(logPath string, level string) {
 			// best-effort; continue with stdout
 			_, _ = fmt.Fprintf(os.Stderr, "failed to open log file %q: %v\n", logPath, err)
 		}
+	}
+	// Tee to the console when requested and the primary sink is a file, so logs
+	// are visible on stdout without discarding the persistent file log. This is
+	// folded into the primary writer (not sideLogWriter) so a later AddLogWriter
+	// call cannot clobber it.
+	if w != os.Stdout && ConsoleLoggingRequested() {
+		w = io.MultiWriter(w, consoleWriter)
 	}
 	currentLogWriter = w // Store for later use by EnableOTelLogging
 	rebuildLoggerOutput()

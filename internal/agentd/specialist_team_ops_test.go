@@ -76,6 +76,13 @@ func TestCreateSpecialistForUserAppliesTeamMemberships(t *testing.T) {
 	if saved.AutoDiscover == nil || !*saved.AutoDiscover {
 		t.Fatalf("expected autoDiscover persisted, got %#v", saved.AutoDiscover)
 	}
+	promptID, promptVersionID := defaultPromptIDs(11)
+	if saved.PromptID != promptID || saved.PromptVersionID != promptVersionID {
+		t.Fatalf("expected default manifold prompt reference, got %q / %q", saved.PromptID, saved.PromptVersionID)
+	}
+	if saved.System == "" {
+		t.Fatal("expected default manifold system prompt")
+	}
 
 	memberships := app.teamMembershipsForUser(ctx, 11)
 	if len(memberships["analyst"]) != 1 || memberships["analyst"][0] != "research" {

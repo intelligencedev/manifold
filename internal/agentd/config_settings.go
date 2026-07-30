@@ -2,7 +2,6 @@ package agentd
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"manifold/internal/config"
@@ -10,6 +9,7 @@ import (
 
 func currentAgentdSettings(cfg *config.Config) agentdSettings {
 	settings := currentSummaryAgentdSettings(cfg)
+	projectPrimaryLLMAgentdSettings(&settings, cfg)
 	projectPromptAgentdSettings(&settings, cfg)
 	projectEmbeddingAgentdSettings(&settings, cfg)
 	projectRerankAgentdSettings(&settings, cfg)
@@ -17,6 +17,18 @@ func currentAgentdSettings(cfg *config.Config) agentdSettings {
 	projectOpsAgentdSettings(&settings, cfg)
 	projectDatabaseAgentdSettings(&settings, cfg)
 	return settings
+}
+
+func projectPrimaryLLMAgentdSettings(settings *agentdSettings, cfg *config.Config) {
+	settings.LLMProvider = strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider))
+	settings.LLMModel = resolveLLMClientModel(cfg.LLMClient)
+	settings.LLMAPIKey = cfg.LLMClient.ActiveAPIKey()
+	settings.LLMBaseURL = cfg.LLMClient.ActiveBaseURL()
+	settings.MemoryEnabled = cfg.Memory.Enabled
+	settings.LexMinifyEnabled = cfg.LexMinify.Enabled
+	settings.LexMinifyLevel = cfg.LexMinify.Level
+	settings.LexMinifyZones = cfg.LexMinify.Zones
+	settings.LexMinifyCurrentRequestMaxLevel = cfg.LexMinify.CurrentRequestMaxLevel
 }
 
 func currentSummaryAgentdSettings(cfg *config.Config) agentdSettings {
@@ -180,15 +192,7 @@ func normalizeAgentdSettings(settings agentdSettings) agentdSettings {
 }
 
 func applySummaryModel(cfg *config.Config, model string) {
-	providerName := strings.ToLower(strings.TrimSpace(cfg.Summary.LLMClient.Provider))
-	switch providerName {
-	case "anthropic":
-		cfg.Summary.LLMClient.Anthropic.Model = model
-	case "google":
-		cfg.Summary.LLMClient.Google.Model = model
-	default:
-		cfg.Summary.LLMClient.OpenAI.Model = model
-	}
+	cfg.Summary.LLMClient.SetActiveModel(model)
 }
 
 func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
@@ -200,8 +204,12 @@ func applyAgentdSettings(cfg *config.Config, settings agentdSettings) error {
 		return fmt.Errorf("rerankBaseUrl is required when rerankEnabled is true")
 	}
 
+	if err := applyPrimaryLLMSettings(cfg, settings); err != nil {
+		return err
+	}
 	applySummarySettings(cfg, settings)
 	applyRequestInfoSettings(cfg, settings)
+	applyLexMinifySettings(cfg, settings)
 	applyPromptOverrideSettings(cfg, settings)
 	applyEmbeddingSettings(cfg, settings)
 	applyRerankSettings(cfg, settings)
@@ -508,14 +516,48 @@ func setNestedMapValue(root map[string]any, path []string, value any) {
 	current[path[len(path)-1]] = value
 }
 
-func findConfigYAMLPath() string {
-	if _, err := os.Stat("config.yaml"); err == nil {
-		return "config.yaml"
+func applyPrimaryLLMSettings(cfg *config.Config, settings agentdSettings) error {
+	provider := strings.ToLower(strings.TrimSpace(settings.LLMProvider))
+	if provider == "" {
+		provider = strings.ToLower(strings.TrimSpace(cfg.LLMClient.Provider))
 	}
-	if _, err := os.Stat("config.yml"); err == nil {
-		return "config.yml"
+	if provider == "" {
+		provider = "openai"
 	}
-	return "config.yaml"
+	if _, ok := config.ProviderDefaults(provider); !ok {
+		return fmt.Errorf("llmProvider must be one of %s (got %q)", strings.Join(config.KnownProviders(), ", "), settings.LLMProvider)
+	}
+	cfg.LLMClient.Provider = provider
+	pd, _ := config.ProviderDefaults(provider)
+	apiKey := strings.TrimSpace(settings.LLMAPIKey)
+	model := strings.TrimSpace(settings.LLMModel)
+	baseURL := strings.TrimSpace(settings.LLMBaseURL)
+	if apiKey != "" {
+		cfg.LLMClient.SetActiveAPIKey(apiKey)
+	}
+	if model != "" {
+		cfg.LLMClient.SetActiveModel(model)
+	}
+	switch {
+	case baseURL != "":
+		cfg.LLMClient.SetActiveBaseURL(baseURL)
+	case pd.BaseURL != "":
+		cfg.LLMClient.SetActiveBaseURL(pd.BaseURL)
+	}
+	if config.ProviderBackend(provider) == "openai" {
+		if provider == "local" {
+			cfg.LLMClient.OpenAI.API = "completions"
+		} else if pd.API != "" {
+			cfg.LLMClient.OpenAI.API = pd.API
+		}
+	}
+
+	cfg.Memory.Enabled = settings.MemoryEnabled
+	cfg.MemoryConfigured = true
+	cfg.EvolvingMemory.Enabled = settings.MemoryEnabled
+	cfg.BeliefMemory.Enabled = settings.MemoryEnabled
+	cfg.Magma.Enabled = settings.MemoryEnabled
+	return nil
 }
 
 func firstNonEmptyTrimmed(values ...string) string {
@@ -526,4 +568,26 @@ func firstNonEmptyTrimmed(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func applyLexMinifySettings(cfg *config.Config, settings agentdSettings) {
+	cfg.LexMinify.Enabled = settings.LexMinifyEnabled
+	cfg.LexMinify.Level = settings.LexMinifyLevel
+	cfg.LexMinify.Zones = settings.LexMinifyZones
+	cfg.LexMinify.CurrentRequestMaxLevel = settings.LexMinifyCurrentRequestMaxLevel
+	if cfg.LexMinify.Enabled && cfg.LexMinify.Level == 0 {
+		cfg.LexMinify.Level = config.RecommendedLexMinifyLevel
+	}
+	if cfg.LexMinify.Level < 0 {
+		cfg.LexMinify.Level = 0
+	}
+	if cfg.LexMinify.Level > config.MaxLexMinifyLevel {
+		cfg.LexMinify.Level = config.MaxLexMinifyLevel
+	}
+	if cfg.LexMinify.CurrentRequestMaxLevel < 0 {
+		cfg.LexMinify.CurrentRequestMaxLevel = 0
+	}
+	if cfg.LexMinify.CurrentRequestMaxLevel > config.MaxLexMinifyLevel {
+		cfg.LexMinify.CurrentRequestMaxLevel = config.MaxLexMinifyLevel
+	}
 }

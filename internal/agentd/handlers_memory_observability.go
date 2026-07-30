@@ -10,6 +10,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"manifold/internal/agent/memory/magma"
+	observabilityapi "manifold/internal/agentd/observability"
 	"manifold/internal/auth"
 )
 
@@ -134,58 +135,20 @@ type memoryObservabilityActionResponse struct {
 }
 
 func (a *app) memoryObservabilityHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if !a.memoryObservabilityAuthorize(w, r) {
-			return
-		}
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Vary", "Origin")
-		if r.Method == http.MethodOptions {
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Accept")
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-
-		path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/observability/memory"), "/")
-		switch path {
-		case "overview":
-			a.handleMemoryObservabilityOverview(w, r)
-		case "graph":
-			a.handleMemoryObservabilityGraph(w, r)
-		case "timeline":
-			a.handleMemoryObservabilityTimeline(w, r)
-		case "review-edges":
-			a.handleMemoryObservabilityReviewEdges(w, r)
-		case "retrieval/explain":
-			a.handleMemoryObservabilityExplain(w, r)
-		case "actions/prune":
-			a.handleMemoryObservabilityPrune(w, r)
-		case "actions/approve-edge":
-			a.handleMemoryObservabilityApproveEdge(w, r)
-		case "actions/retract-edge":
-			a.handleMemoryObservabilityRetractEdge(w, r)
-		case "actions/delete-node":
-			a.handleMemoryObservabilityDeleteNode(w, r)
-		case "actions/drain-consolidation":
-			a.handleMemoryObservabilityDrainConsolidation(w, r)
-		case "actions/rebuild-embeddings":
-			a.handleMemoryObservabilityRebuildEmbeddings(w, r)
-		default:
-			if strings.HasPrefix(path, "actions/") {
-				http.NotFound(w, r)
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]string{
-				"overview":         "/api/observability/memory/overview",
-				"graph":            "/api/observability/memory/graph",
-				"timeline":         "/api/observability/memory/timeline",
-				"reviewEdges":      "/api/observability/memory/review-edges",
-				"retrievalExplain": "/api/observability/memory/retrieval/explain",
-				"actions":          "/api/observability/memory/actions/{action}",
-			})
-		}
-	}
+	return observabilityapi.MemoryHandler(observabilityapi.MemoryHandlerDeps{
+		Authorize:          a.memoryObservabilityAuthorize,
+		Overview:           a.handleMemoryObservabilityOverview,
+		Graph:              a.handleMemoryObservabilityGraph,
+		Timeline:           a.handleMemoryObservabilityTimeline,
+		ReviewEdges:        a.handleMemoryObservabilityReviewEdges,
+		Explain:            a.handleMemoryObservabilityExplain,
+		Prune:              a.handleMemoryObservabilityPrune,
+		ApproveEdge:        a.handleMemoryObservabilityApproveEdge,
+		RetractEdge:        a.handleMemoryObservabilityRetractEdge,
+		DeleteNode:         a.handleMemoryObservabilityDeleteNode,
+		DrainConsolidation: a.handleMemoryObservabilityDrainConsolidation,
+		RebuildEmbeddings:  a.handleMemoryObservabilityRebuildEmbeddings,
+	})
 }
 
 func (a *app) memoryObservabilityAuthorize(w http.ResponseWriter, r *http.Request) bool {

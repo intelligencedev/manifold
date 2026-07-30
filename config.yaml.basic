@@ -7,6 +7,7 @@
 # - databases.backend: sqlite
 # - memory.enabled: false, with memory subsystems configured and ready
 # - harness.enabled: false
+# - lexMinify.enabled: false
 # - embedding: OpenAI text-embedding-3-small
 # - imageTool: OpenAI-compatible gpt-5.4-mini
 # - reranking.enabled: false

@@ -53,7 +53,7 @@ func (a *app) codeQARunsHandler() http.HandlerFunc {
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
 			}
-			writeFlowV2JSON(w, http.StatusOK, map[string]any{"runs": runs})
+			writeWarppJSON(w, http.StatusOK, map[string]any{"runs": runs})
 		case http.MethodPost:
 			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 			defer r.Body.Close()
@@ -70,7 +70,7 @@ func (a *app) codeQARunsHandler() http.HandlerFunc {
 			req.RepositoryPath = repoPath
 			req.RunID = uuid.NewString()
 			go a.executeCodeQARun(userID, req)
-			writeFlowV2JSON(w, http.StatusAccepted, map[string]any{
+			writeWarppJSON(w, http.StatusAccepted, map[string]any{
 				"run_id": req.RunID,
 				"status": codeqa.StatusQueued,
 			})
@@ -128,7 +128,7 @@ func (a *app) codeQARunDetailHandler() http.HandlerFunc {
 			http.Error(w, "run not found", http.StatusNotFound)
 			return
 		}
-		writeFlowV2JSON(w, http.StatusOK, run)
+		writeWarppJSON(w, http.StatusOK, run)
 	}
 }
 
@@ -194,7 +194,7 @@ func (a *app) serveCodeQARunEvents(w http.ResponseWriter, r *http.Request, userI
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
-	writeFlowV2JSON(w, http.StatusOK, map[string]any{
+	writeWarppJSON(w, http.StatusOK, map[string]any{
 		"run_id": runID,
 		"status": run.Status,
 		"events": events,

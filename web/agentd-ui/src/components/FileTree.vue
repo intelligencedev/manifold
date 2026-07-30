@@ -167,24 +167,25 @@ watch(
 
 <template>
   <div
-    class="rounded-4 border border-border/70 overflow-hidden flex min-h-0 flex-col"
+    class="flex min-h-0 flex-col overflow-hidden rounded-md border border-border/70 bg-surface"
   >
     <div
-      class="flex items-center gap-2 h-9 pl-3 pr-2 bg-surface-muted text-subtle-foreground shrink-0"
+      class="flex h-8 shrink-0 items-center gap-2 border-b border-border/60 px-3 text-faint-foreground transition-colors"
       :class="{
-        'ring-2 ring-accent/50 ring-offset-0 bg-accent/10':
+        'bg-accent/10 ring-1 ring-inset ring-accent/50':
           dropTargetDir === normalizeDir(rootPath),
       }"
       @dragover.prevent="onRootDragOver"
       @drop.prevent="onRootDrop"
       @dragleave.prevent="onRootDragLeave"
     >
-      <span class="w-5" />
-      <span class="w-5">🗂️</span>
-      <span class="text-xs uppercase tracking-wide">Root</span>
+      <svg class="h-3.5 w-3.5 text-accent/85" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 7a1 1 0 0 1 1-1h4.6a1 1 0 0 1 .7.3L11 8h8a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" />
+      </svg>
+      <span class="font-mono text-[11px] uppercase tracking-[0.14em]">Root</span>
     </div>
     <div
-      class="min-h-0 flex-1 overflow-auto"
+      class="scrollbar-inset min-h-0 flex-1 overflow-auto p-1"
       @dragover.prevent.self="onRootDragOver"
       @drop.prevent.self="onRootDrop"
       @dragleave.prevent="onRootDragLeave"

@@ -20,7 +20,7 @@ func Load() (Config, error) {
 	cfg := Config{}
 	cfg.Tokenization.FallbackToHeuristic = true
 
-	configPath, found, err := findOptionalConfigFile("", "config.yaml", "config.yml")
+	configPath, found, err := ResolveConfigPath()
 	if err != nil {
 		return Config{}, err
 	}
@@ -28,12 +28,14 @@ func Load() (Config, error) {
 		if err := loadMainConfig(configPath, &cfg); err != nil {
 			return Config{}, err
 		}
+		cfg.ConfigPath = configPath
+	} else {
+		cfg.ConfigPath = DefaultConfigPath()
 	}
 	if err := loadExternalConfigs(&cfg); err != nil {
 		return Config{}, err
 	}
 
-	mergeOpenAIConfig(&cfg.LLMClient.OpenAI, cfg.OpenAI)
 	applyDefaults(&cfg)
 	applyDerivedConfig(&cfg)
 	if err := validateConfig(&cfg); err != nil {
@@ -218,8 +220,6 @@ func applyDerivedConfig(cfg *Config) {
 	if cfg.Summary.LLMClient.Provider == "local" {
 		cfg.Summary.LLMClient.OpenAI.API = "completions"
 	}
-	cfg.OpenAI = cfg.LLMClient.OpenAI
-
 	for i := range cfg.Specialists {
 		if strings.TrimSpace(cfg.Specialists[i].Provider) == "" {
 			cfg.Specialists[i].Provider = cfg.LLMClient.Provider
@@ -235,6 +235,9 @@ func validateConfig(cfg *Config) error {
 		return err
 	}
 	if err := validateConfigHarnesses(cfg); err != nil {
+		return err
+	}
+	if err := validateLexMinifyConfig(cfg.LexMinify); err != nil {
 		return err
 	}
 	if err := validateConfigProviderCredentials(cfg); err != nil {
@@ -315,21 +318,32 @@ func validateConfigHarnesses(cfg *Config) error {
 }
 
 func validateConfigProviderCredentials(cfg *Config) error {
-	switch cfg.LLMClient.Provider {
-	case "openai":
-		if strings.TrimSpace(cfg.LLMClient.OpenAI.APIKey) == "" {
-			return errors.New("llm_client.openai.apiKey is required")
-		}
-	case "anthropic":
-		if strings.TrimSpace(cfg.LLMClient.Anthropic.APIKey) == "" {
-			return errors.New("llm_client.anthropic.apiKey is required")
-		}
-	case "google":
-		if strings.TrimSpace(cfg.LLMClient.Google.APIKey) == "" {
-			return errors.New("llm_client.google.apiKey is required")
-		}
-	}
+	// Credentials are collected during first-run onboarding. Startup must succeed
+	// without an API key so the setup UI can configure the primary provider.
+	_ = cfg
 	return nil
+}
+
+// HasPrimaryLLMCredentials reports whether the configured primary provider has an API key.
+func HasPrimaryLLMCredentials(cfg *Config) bool {
+	if cfg == nil {
+		return false
+	}
+	prov := NormalizeProvider(cfg.LLMClient.Provider)
+	// Local OpenAI-compatible servers (local, llama.cpp) often need no key.
+	if prov == "local" || prov == "llamacpp" {
+		return true
+	}
+	// Check the key on the sub-config that backs the provider.
+	pd, _ := ProviderDefaults(prov)
+	switch pd.Backend {
+	case "anthropic":
+		return strings.TrimSpace(cfg.LLMClient.Anthropic.APIKey) != ""
+	case "google":
+		return strings.TrimSpace(cfg.LLMClient.Google.APIKey) != ""
+	default:
+		return strings.TrimSpace(cfg.LLMClient.OpenAI.APIKey) != ""
+	}
 }
 
 func validateConfigWorkdir(cfg *Config) error {
@@ -402,6 +416,9 @@ func validateConfigMemory(cfg *Config) error {
 	if cfg.EvolvingMemory.RetrievalSimilarityThreshold < 0 || cfg.EvolvingMemory.RetrievalSimilarityThreshold > 1 {
 		return fmt.Errorf("evolvingMemory.retrievalSimilarityThreshold must be between 0 and 1 (got %g)", cfg.EvolvingMemory.RetrievalSimilarityThreshold)
 	}
+	if cfg.EvolvingMemory.MinRerankScore < 0 || cfg.EvolvingMemory.MinRerankScore > 1 {
+		return fmt.Errorf("evolvingMemory.minRerankScore must be between 0 and 1 (got %g)", cfg.EvolvingMemory.MinRerankScore)
+	}
 	if cfg.BeliefMemory.DefaultConfidence < 0 || cfg.BeliefMemory.DefaultConfidence > 1 {
 		return fmt.Errorf("beliefMemory.defaultConfidence must be between 0 and 1 (got %g)", cfg.BeliefMemory.DefaultConfidence)
 	}
@@ -438,6 +455,19 @@ func validateConfigReranking(cfg *Config) error {
 	return nil
 }
 
+func validateLexMinifyConfig(cfg LexMinifyConfig) error {
+	if cfg.Level < 0 || cfg.Level > MaxLexMinifyLevel {
+		return fmt.Errorf("lexMinify.level must be between 0 and %d (got %d)", MaxLexMinifyLevel, cfg.Level)
+	}
+	if cfg.CurrentRequestMaxLevel < 0 || cfg.CurrentRequestMaxLevel > MaxLexMinifyLevel {
+		return fmt.Errorf("lexMinify.currentRequestMaxLevel must be between 0 and %d (got %d)", MaxLexMinifyLevel, cfg.CurrentRequestMaxLevel)
+	}
+	if cfg.Enabled && cfg.Level <= 0 {
+		return fmt.Errorf("lexMinify.level must be between 1 and %d when enabled", MaxLexMinifyLevel)
+	}
+	return nil
+}
+
 func validateHarnessConfig(path string, cfg HarnessConfig) error {
 	switch cfg.Mode {
 	case "", "legacy", "guarded_chat", "workflow":
@@ -448,12 +478,10 @@ func validateHarnessConfig(path string, cfg HarnessConfig) error {
 }
 
 func validateProvider(path, provider string) error {
-	switch provider {
-	case "openai", "anthropic", "google", "local":
+	if _, ok := ProviderDefaults(provider); ok {
 		return nil
-	default:
-		return fmt.Errorf("%s must be one of openai, anthropic, google, or local (got %q)", path, provider)
 	}
+	return fmt.Errorf("%s must be one of %s (got %q)", path, strings.Join(KnownProviders(), ", "), provider)
 }
 
 func validateBeliefMemoryConfig(cfg BeliefMemoryConfig) error {

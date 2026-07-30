@@ -96,3 +96,6 @@ docs/warpp-v2.md
 config.yaml.localmem
 docs/manifold-windows-sandbox-plan.md
 docs/superpowers/plans/2026-07-04-manifold-chat-cockpit-redesign.md
+docs/evolving-memory-retrieval-fix-plan.md
+docs/superpowers/specs/2026-07-09-llm-provider-defaults-design.md
+docs/superpowers/plans/2026-07-17-windows-native-sandbox.md

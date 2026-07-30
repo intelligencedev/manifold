@@ -68,20 +68,6 @@ func (a *app) flushStreamActivities(ctx context.Context, req chatRunRequest, use
 	}
 }
 
-func (a *app) configureStreamExecutionCallbacks(eng *agent.Engine, stream *chatSSEWriter, opts chatStreamOptions, collector *chatActivityCollector, fleetReq fleetCallbackRequest) {
-	if opts.Tracer != nil {
-		if opts.Tracer.mu == nil {
-			opts.Tracer.mu = &stream.mu
-		}
-		if collector != nil {
-			opts.Tracer.onTrace = collector.Handle
-		}
-		eng.AgentTracer = opts.Tracer
-	}
-	configureCommonStreamCallbacks(eng, stream, opts.EmitThoughtSummary, opts.EmitSummaryEvents)
-	configureFleetCallbacks(a, eng, fleetReq)
-}
-
 func (a *app) publishChatRunEvent(kind fleet.EventKind, runID string, req chatRunRequest, userID *int64, message string) {
 	if a.fleetBus == nil {
 		return

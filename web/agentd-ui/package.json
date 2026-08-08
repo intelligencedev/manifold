@@ -31,7 +31,7 @@
     "dompurify": "^3.4.12",
     "highlight.js": "^11.11.1",
     "markdown-it": "^14.2.0",
-    "mermaid": "^11.15.0",
+    "mermaid": "^11.16.1",
     "pinia": "^2.1.7",
     "vue": "^3.4.25",
     "vue-router": "^4.3.2",

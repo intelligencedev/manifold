@@ -74,7 +74,8 @@ these names there to expose them. Search requires `objective` and
 ```
 
 The example sends a Manifold User-Agent and uses the existing 30-second HTTP
-request timeout. It does not enable Parallel in the default configuration or
+request timeout. If `HTTPS_PROXY` is set, the configuration loader expands it
+into `http.proxyURL`; otherwise the client connects directly. It does not enable Parallel in the default configuration or
 change the selected LLM provider.
 
 ## Supported MCP Features

@@ -7,3 +7,5 @@ servers:
       User-Agent: Manifold (https://github.com/intelligencedev/manifold)
     http:
       timeoutSeconds: 30
+      # Empty when HTTPS_PROXY is unset; otherwise use the configured proxy.
+      proxyURL: ${HTTPS_PROXY}

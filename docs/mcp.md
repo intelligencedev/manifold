@@ -40,6 +40,44 @@ mcp:
           # caFile: /etc/ssl/certs/ca-bundle.crt
 ```
 
+## Parallel web search and fetch
+
+[Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp) provides
+free, anonymous web search and page extraction over Streamable HTTP. No Parallel
+API key or OAuth login is required. The free endpoint has rate limits and is
+intended for exploration and light use.
+
+The [standalone example](examples/mcp-parallel.yaml) can be selected when launching
+an existing Manifold installation from the repository root:
+
+```bash
+MCP_CONFIG="$PWD/docs/examples/mcp-parallel.yaml" ./dist/manifold
+```
+
+For local binary installation instructions, see [the deployment guide](deployment.md).
+`MCP_CONFIG` selects an external MCP file, whose root is `servers:` rather than
+`mcp:`. Its server list replaces the MCP servers from `config.yaml`. To retain
+other servers, merge the `parallel` entry into your existing `mcp.yaml` instead.
+
+Manifold registers the discovered tools as `parallel_web_search` and
+`parallel_web_fetch`. Set `enableTools: true` for the
+caller. If your top-level tools or specialist has an `allowTools` list, include
+these names there to expose them. Search requires `objective` and
+`search_queries`; fetch requires `urls`. For example, tool arguments are:
+
+```json
+{"objective":"Find the Go documentation for context cancellation", "search_queries":["Go context cancellation documentation"]}
+```
+
+```json
+{"urls":["https://go.dev/blog/context"], "objective":"Explain context cancellation"}
+```
+
+The example sends a Manifold User-Agent and uses the existing 30-second HTTP
+request timeout. If `HTTPS_PROXY` is set, the configuration loader expands it
+into `http.proxyURL`; otherwise the client connects directly. It does not enable Parallel in the default configuration or
+change the selected LLM provider.
+
 ## Supported MCP Features
 
 - Tool registration from external servers

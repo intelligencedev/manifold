@@ -1,0 +1,11 @@
+# Optional standalone MCP configuration. Select with MCP_CONFIG or merge this
+# server into your existing mcp.yaml servers list to keep other MCP servers.
+servers:
+  - name: parallel
+    url: https://search.parallel.ai/mcp
+    headers:
+      User-Agent: Manifold (https://github.com/intelligencedev/manifold)
+    http:
+      timeoutSeconds: 30
+      # Empty when HTTPS_PROXY is unset; otherwise use the configured proxy.
+      proxyURL: ${HTTPS_PROXY}
